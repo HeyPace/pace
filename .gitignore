@@ -6,3 +6,13 @@ build/
 releases/
 .claude/
 coding-plans/
+
+# Xcode per-user state — don't commit
+*.xcodeproj/xcuserdata/
+
+# LLVM coverage output dropped next to the binary
+default.profraw
+
+# Local sandboxes the eval + profile scripts use
+/tmp/pace-test-derived-data/
+/tmp/pace-profile-*/
