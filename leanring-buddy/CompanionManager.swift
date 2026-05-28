@@ -846,13 +846,14 @@ final class CompanionManager: ObservableObject {
                         userTranscript: isFirstStep ? transcript : "(agent step \(stepIndex))",
                         assistantResponse: spokenText
                     ))
-                    // Keep history short. Every prior exchange adds prefill
-                    // work each turn — research from this branch's TTFT
-                    // logs showed planner TTFT scaling near-linearly with
-                    // total prefix tokens. 3 exchanges keeps "remember
-                    // what we just talked about" intact without ballooning.
-                    if conversationHistory.count > 3 {
-                        conversationHistory.removeFirst(conversationHistory.count - 3)
+                    // Keep history very short — Apple Foundation Models'
+                    // 4K context window is the hard constraint, and we
+                    // saw it bust at exactly the 3-exchange mark in the
+                    // last test run. 1 exchange is enough for "remember
+                    // what we just discussed" without eating the budget
+                    // that should go to the current screen's element map.
+                    if conversationHistory.count > 1 {
+                        conversationHistory.removeFirst(conversationHistory.count - 1)
                     }
                     print("🧠 Conversation history: \(conversationHistory.count) exchanges")
                     PaceAnalytics.trackAIResponseReceived(response: spokenText)
@@ -1162,16 +1163,17 @@ final class CompanionManager: ObservableObject {
 
     /// Render one screen's element map into the planner-prompt block.
     /// Compact format: one element per line as `role|x,y|label|text`.
-    /// Drops the verbose `[x= y= w= h=]` syntax and the natural-language
-    /// description — the planner needs the element list to act, the
-    /// description is mostly noise. Cap reduced to 25 elements; with
-    /// OCR enrichment the long tail is mostly low-signal anyway. These
-    /// two changes roughly halve the per-turn prefill cost.
+    /// Cap reduced to 15 (down from 25) because Apple Foundation
+    /// Models' 4K context window busts on bigger element lists once
+    /// the system prompt + agent rules + history are added. 30-char
+    /// text cap (down from 60) keeps headings and button labels
+    /// intact while shedding the bulk of verbose OCR runs.
     private static func formatScreenAnalysisForPrompt(
         screenLabel: String,
         analysis: LocalVLMScreenAnalysis
     ) -> String {
-        let maxElementsRendered = 25
+        let maxElementsRendered = 15
+        let maxTextCharsPerElement = 30
         let elementSummaryLines = analysis.elements.prefix(maxElementsRendered).map { element -> String in
             let coordinateText = element.bbox.count == 4
                 ? "\(element.bbox[0]),\(element.bbox[1])"
@@ -1179,11 +1181,8 @@ final class CompanionManager: ObservableObject {
             let textSuffix = element.text.flatMap { text -> String? in
                 let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmedText.isEmpty else { return nil }
-                // Trim verbose OCR text: 60 chars keeps headings + button
-                // labels intact without dragging entire paragraphs into
-                // the planner prompt.
-                let truncatedText = trimmedText.count > 60
-                    ? String(trimmedText.prefix(60)) + "…"
+                let truncatedText = trimmedText.count > maxTextCharsPerElement
+                    ? String(trimmedText.prefix(maxTextCharsPerElement)) + "…"
                     : trimmedText
                 return "|\(truncatedText)"
             } ?? ""

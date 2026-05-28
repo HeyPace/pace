@@ -77,6 +77,11 @@ enum CompanionSystemPrompt {
     when you point, append a tag at the very end of your response: [POINT:x,y:label] where x,y are integer pixel coordinates in the screenshot's coordinate space (origin top-left, x right, y down) and label is 1-3 words. for a non-cursor screen append :screenN (e.g. [POINT:400,300:terminal:screen2]).
 
     if pointing wouldn't help, append [POINT:none].
+
+    CRITICAL anti-hallucination rule. you MUST follow this exactly:
+    - the coordinates you emit MUST come from the on-screen element list provided in the user message. NEVER invent coordinates.
+    - if the target the user named is NOT in the element list, say so in plain words ("i don't see a file menu on this screen") and emit [POINT:none]. do NOT guess. do NOT default to screen corners or center.
+    - if you can't find the target, you must NOT emit [CLICK:], [TYPE:], [KEY:], or [SCROLL:] either — those are also forbidden when the target is missing.
     """
 
     // MARK: - Block 3: gated agent-mode rules
