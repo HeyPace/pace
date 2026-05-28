@@ -122,9 +122,27 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
         let englishVoices = AVSpeechSynthesisVoice.speechVoices()
             .filter { $0.language.hasPrefix("en") }
 
-        // Prefer Premium > Enhanced > Default quality. Premium voices are
-        // newer neural voices the user has downloaded via System Settings →
-        // Accessibility → Spoken Content → System Voice → Manage Voices.
+        // Pace's curated picks, in order of preference. AVSpeechSynthesisVoice
+        // .speechVoices() returns voices in registration order which can flip
+        // across OS updates — that's how the voice got worse without anyone
+        // touching the app. Pinning to a named voice keeps the pick stable.
+        let preferredVoiceNamesInOrder = ["Ava", "Evan", "Zoe", "Nathan", "Joelle", "Noelle"]
+        for preferredName in preferredVoiceNamesInOrder {
+            if let namedPremiumVoice = englishVoices.first(where: {
+                $0.name == preferredName && $0.quality == .premium
+            }) {
+                return namedPremiumVoice
+            }
+        }
+        for preferredName in preferredVoiceNamesInOrder {
+            if let namedEnhancedVoice = englishVoices.first(where: {
+                $0.name == preferredName && $0.quality == .enhanced
+            }) {
+                return namedEnhancedVoice
+            }
+        }
+
+        // Generic fallback: any premium > any enhanced > en-US default.
         if let premiumVoice = englishVoices.first(where: { $0.quality == .premium }) {
             return premiumVoice
         }
