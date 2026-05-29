@@ -41,6 +41,12 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var hasMicrophonePermission = false
     @Published private(set) var hasScreenContentPermission = false
 
+    /// True when the configured LM Studio (or compatible) HTTP server
+    /// responds within a short timeout. Polled periodically so the panel
+    /// can show a "LM Studio not running" hint without the user having to
+    /// push-to-talk and watch for silent failure.
+    @Published private(set) var isLMStudioReachable = false
+
     /// Screen location (global AppKit coords) of a detected UI element the
     /// buddy should fly to and point at. Parsed from Claude's response;
     /// observed by BlueCursorView to trigger the flight animation.
@@ -186,6 +192,7 @@ final class CompanionManager: ObservableObject {
     private var voiceStateCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
     private var accessibilityCheckTimer: Timer?
+    private var lmStudioReachabilityCheckTimer: Timer?
     private var pendingKeyboardShortcutStartTask: Task<Void, Never>?
     /// Scheduled hide for transient cursor mode — cancelled if the user
     /// speaks again before the delay elapses.
@@ -295,6 +302,7 @@ final class CompanionManager: ObservableObject {
         refreshAllPermissions()
         print("🔑 Pace start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
         startPermissionPolling()
+        startLMStudioReachabilityPolling()
         bindVoiceStateObservation()
         bindAudioPowerLevel()
         bindShortcutTransitions()
@@ -447,6 +455,53 @@ final class CompanionManager: ObservableObject {
             Task { @MainActor [weak self] in
                 self?.refreshAllPermissions()
             }
+        }
+    }
+
+    /// Polls the configured LM Studio HTTP root every 5 seconds so the
+    /// panel can show a live "is the backend up?" indicator. 5s is fast
+    /// enough that flipping LM Studio on/off feels responsive while
+    /// staying well under one request per second of background traffic.
+    private func startLMStudioReachabilityPolling() {
+        // Fire once immediately so the panel doesn't sit on a stale
+        // "not reachable" before the first 5-second tick.
+        Task { [weak self] in await self?.refreshLMStudioReachability() }
+
+        lmStudioReachabilityCheckTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            Task { [weak self] in await self?.refreshLMStudioReachability() }
+        }
+    }
+
+    /// Sends a HEAD-equivalent GET to LM Studio's /v1/models endpoint
+    /// with a 2s timeout. Any 2xx response = reachable. Read the planner
+    /// base URL from Info.plist so the check tracks whichever endpoint
+    /// the runtime actually uses.
+    private func refreshLMStudioReachability() async {
+        let baseURLString = AppBundleConfiguration.stringValue(forKey: "LocalPlannerBaseURL")
+            ?? "http://localhost:1234/v1"
+        guard let modelsURL = URL(string: baseURLString.trimmingCharacters(in: .whitespacesAndNewlines))?.appendingPathComponent("models") else {
+            await MainActor.run { self.isLMStudioReachable = false }
+            return
+        }
+
+        var request = URLRequest(url: modelsURL)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 2
+
+        let reachable: Bool
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            reachable = (response as? HTTPURLResponse)
+                .map { (200...299).contains($0.statusCode) } ?? false
+        } catch {
+            reachable = false
+        }
+
+        await MainActor.run {
+            if self.isLMStudioReachable != reachable {
+                print("🧠 LM Studio reachability: \(reachable ? "up" : "down")")
+            }
+            self.isLMStudioReachable = reachable
         }
     }
 

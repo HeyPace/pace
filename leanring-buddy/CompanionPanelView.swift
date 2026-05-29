@@ -28,6 +28,9 @@ struct CompanionPanelView: View {
                 Spacer()
                     .frame(height: 12)
 
+                lmStudioStatusRow
+                    .padding(.horizontal, 16)
+
                 activePlannerInfoRow
                     .padding(.horizontal, 16)
 
@@ -513,6 +516,41 @@ struct CompanionPanelView: View {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
                         .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
                 )
+        }
+        .padding(.vertical, 4)
+    }
+
+    // MARK: - LM Studio Status Row
+
+    /// Live indicator of whether Pace's configured LM Studio HTTP endpoint
+    /// is reachable. Most user "Pace isn't responding" reports trace back
+    /// to LM Studio being closed or not having loaded its models yet —
+    /// surfacing the state in the panel saves a round of debugging.
+    private var lmStudioStatusRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: companionManager.isLMStudioReachable
+                  ? "checkmark.seal.fill"
+                  : "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(companionManager.isLMStudioReachable
+                                 ? DS.Colors.success
+                                 : DS.Colors.warning)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("LM Studio")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(DS.Colors.textSecondary)
+
+                if !companionManager.isLMStudioReachable {
+                    Text("Not running — open LM Studio and load the models. See SETUP_LOCAL.md.")
+                        .font(.system(size: 11))
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Spacer()
         }
         .padding(.vertical, 4)
     }
