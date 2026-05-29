@@ -30,10 +30,6 @@ macOS menu bar companion app. Lives entirely in the macOS status bar (no dock ic
 - **Concurrency**: `@MainActor` isolation, async/await throughout
 - **Analytics**: PostHog via `PaceAnalytics.swift`
 
-### API Proxy (Cloudflare Worker — no Swift code reaches it anymore)
-
-The `worker/` directory still sits in the tree but has no live callers after the cloud STT/TTS classes were deleted. It can be removed at any time without affecting the app. Left in place for historical reference only.
-
 ### Local-mode setup
 
 See `SETUP_LOCAL.md` for the full recipe. Summary of the Info.plist switches:
@@ -120,24 +116,6 @@ open leanring-buddy.xcodeproj
 ```
 
 **Do NOT run `xcodebuild` from the terminal** — it invalidates TCC (Transparency, Consent, and Control) permissions and the app will need to re-request screen recording, accessibility, etc.
-
-## Cloudflare Worker
-
-```bash
-cd worker
-npm install
-
-# Add secrets
-npx wrangler secret put ANTHROPIC_API_KEY
-npx wrangler secret put ASSEMBLYAI_API_KEY
-npx wrangler secret put ELEVENLABS_API_KEY
-
-# Deploy
-npx wrangler deploy
-
-# Local dev (create worker/.dev.vars with your keys)
-npx wrangler dev
-```
 
 ## Code Style & Conventions
 

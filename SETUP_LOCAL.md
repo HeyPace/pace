@@ -1,6 +1,6 @@
 # Pace-Local Setup
 
-This doc covers the steps to run Pace as a fully on-device agent. STT, TTS, screen analysis, and reasoning all run on your Mac — no cloud LLM, no API keys, no Cloudflare Worker. The Worker scaffolding still sits in `/worker` for historical reasons but no Swift code calls it anymore.
+This doc covers the steps to run Pace as a fully on-device agent. STT, TTS, screen analysis, and reasoning all run on your Mac — no cloud LLM, no API keys, no network traffic.
 
 ## Quick start (automated)
 
