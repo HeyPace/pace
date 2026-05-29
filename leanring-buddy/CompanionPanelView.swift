@@ -659,10 +659,8 @@ struct CompanionPanelView: View {
         switch companionManager.voiceState {
         case .idle:
             return DS.Colors.success
-        case .listening:
-            return DS.Colors.blue400
-        case .processing, .responding:
-            return DS.Colors.blue400
+        case .listening, .processing, .responding:
+            return DS.Colors.accent
         }
     }
 
