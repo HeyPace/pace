@@ -237,50 +237,9 @@ enum DS {
     }
 }
 
-// The seven `DS*ButtonStyle` ButtonStyle conformers live in
-// `DesignSystemButtonStyles.swift`. The convenience view extensions
-// below wrap each one.
-
 // MARK: - Convenience View Extensions
 
 extension View {
-    /// Applies the primary button style (accent-colored CTA).
-    func dsPrimaryButtonStyle(isFullWidth: Bool = true) -> some View {
-        self.buttonStyle(DSPrimaryButtonStyle(isFullWidth: isFullWidth))
-    }
-
-    /// Applies the secondary button style (surface-colored supporting action).
-    func dsSecondaryButtonStyle(isFullWidth: Bool = true) -> some View {
-        self.buttonStyle(DSSecondaryButtonStyle(isFullWidth: isFullWidth))
-    }
-
-    /// Applies the tertiary/ghost button style (subtle hover background).
-    func dsTertiaryButtonStyle() -> some View {
-        self.buttonStyle(DSTertiaryButtonStyle())
-    }
-
-    /// Applies the text-only button style (no background ever, just color change).
-    func dsTextButtonStyle(fontSize: CGFloat = 14) -> some View {
-        self.buttonStyle(DSTextButtonStyle(fontSize: fontSize))
-    }
-
-    /// Applies the outlined button style (bordered, medium emphasis).
-    func dsOutlinedButtonStyle(isFullWidth: Bool = true) -> some View {
-        self.buttonStyle(DSOutlinedButtonStyle(isFullWidth: isFullWidth))
-    }
-
-    /// Applies the destructive button style (red-tinted danger action).
-    func dsDestructiveButtonStyle() -> some View {
-        self.buttonStyle(DSDestructiveButtonStyle())
-    }
-
-    /// Applies the icon-only button style (compact circle).
-    /// `tooltipAlignment` controls where the tooltip sits horizontally relative to the button:
-    /// `.leading` for left-edge buttons, `.trailing` for right-edge buttons, `.center` for middle.
-    func dsIconButtonStyle(size: CGFloat = 28, isDestructiveOnHover: Bool = false, tooltip: String? = nil, tooltipAlignment: Alignment = .center) -> some View {
-        self.buttonStyle(DSIconButtonStyle(size: size, isDestructiveOnHover: isDestructiveOnHover, tooltipText: tooltip, tooltipAlignment: tooltipAlignment))
-    }
-
     /// Attaches the shared pointing-hand cursor treatment used across interactive controls.
     /// Disabled controls can opt out so they keep the default arrow cursor.
     func pointerCursor(isEnabled: Bool = true) -> some View {
