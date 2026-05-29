@@ -362,7 +362,34 @@ def build_user_prompt(fixture: Fixture) -> str:
     )
 
 
+def _lm_studio_call_is_transient_error(error_message: str) -> bool:
+    """LM Studio occasionally returns errors that resolve on a quick
+    retry — most commonly "Model reloaded." (slot got reassigned) or
+    "Model has not started loading/has been unloaded." (TTL eviction
+    mid-call). Those aren't behavior bugs; they're infrastructure
+    bumps. A single retry catches them without papering over real
+    regressions."""
+    if not error_message:
+        return False
+    transient_markers = [
+        "Model reloaded",
+        "Model has not started loading",
+        "has been unloaded",
+    ]
+    return any(marker in error_message for marker in transient_markers)
+
+
 def run_via_lm_studio(model_identifier: str, fixture: Fixture) -> ModelResponse:
+    response = _run_lm_studio_call_once(model_identifier, fixture)
+    if response.error and _lm_studio_call_is_transient_error(response.error):
+        print(f"      ⟲ transient error, retrying once: {response.error[:120]}")
+        # Brief pause so LM Studio finishes whatever caused the transient.
+        time.sleep(0.5)
+        response = _run_lm_studio_call_once(model_identifier, fixture)
+    return response
+
+
+def _run_lm_studio_call_once(model_identifier: str, fixture: Fixture) -> ModelResponse:
     active_system_prompt = (
         FREE_TEXT_SYSTEM_PROMPT if fixture.free_text_mode else SYSTEM_PROMPT
     )

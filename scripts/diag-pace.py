@@ -716,18 +716,31 @@ def diagnose_planner_behavior(planner_model: str) -> list[CheckResult]:
         timeout=900,
     )
 
-    # Always echo the eval's summary block so a human reader (or me)
-    # can see per-fixture verdicts without scrolling the raw stdout.
-    summary_marker = "### Summary"
-    if summary_marker in completed.stdout:
-        summary_section = completed.stdout.split(summary_marker, 1)[1].strip()
-        # Show only the first ~600 chars to keep diag output focused.
-        print(summary_section[:600])
-
     pass_pattern = re.compile(
         rf"\*\*{re.escape(planner_model)}\*\*: (\d+)/(\d+) pass, mean latency (\d+)ms"
     )
     pass_match = pass_pattern.search(completed.stdout)
+
+    # Echo the summary section always. On any failure, ALSO echo the
+    # per-fixture markdown table so the failing fixture is named
+    # in-place (don't have to re-run eval-planners.py separately).
+    table_marker = "## Pace planner comparison"
+    summary_marker = "### Summary"
+    has_failure = pass_match and int(pass_match.group(1)) != int(pass_match.group(2))
+
+    if has_failure and table_marker in completed.stdout:
+        # Print the full table → summary block so the FAIL row is visible.
+        table_section = completed.stdout.split(table_marker, 1)[1]
+        end_at = table_section.find(summary_marker)
+        if end_at != -1:
+            print(table_marker + table_section[:end_at])
+        else:
+            print(table_marker + table_section)
+
+    if summary_marker in completed.stdout:
+        summary_section = completed.stdout.split(summary_marker, 1)[1].strip()
+        print(summary_section[:600])
+
     if not pass_match:
         results.append(
             CheckResult(
@@ -861,7 +874,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--no-load",
         action="store_true",
-        help="Skip `lms load` — assume both models are already resident",
+        help="(Deprecated, no-op) — diag-pace now always checks `lms ps` "
+        "first and only loads what's missing, so this flag is unnecessary. "
+        "Kept for back-compat with existing verify.sh invocations.",
     )
     parser.add_argument(
         "--eval",
@@ -908,31 +923,35 @@ def main(argv: list[str]) -> int:
     for result in preflight_results:
         print(result.render())
 
-    # Load both models if requested. We want both resident — that's the
-    # configuration Pace's actual runtime needs.
-    if not args.no_load:
-        print(bold("\n▶ Loading models (both must stay resident)"))
-        before_load = lms_ps_loaded_identifiers()
-        print(f"  before: {before_load or '(none)'}")
-        if vlm_model not in before_load:
-            if not lms_load(vlm_model):
-                return 1
-        if planner_model not in before_load:
-            if not lms_load(planner_model):
-                return 1
-        after_load = lms_ps_loaded_identifiers()
-        print(f"  after:  {after_load or '(none)'}")
+    # Always ensure both models are resident. The earlier `--no-load`
+    # flag was meant for "I know they're loaded already" but turned out
+    # to be brittle when LM Studio's TTL auto-unloads a model between
+    # runs — the first VLM call would then fail with HTTP 400 and the
+    # thrash check would record a transport error. lms_ps_loaded_identifiers
+    # makes the load step idempotent (skip if loaded), so always running
+    # it is now safe and avoids the cold-load failure mode.
+    print(bold("\n▶ Loading models (both must stay resident)"))
+    before_load = lms_ps_loaded_identifiers()
+    print(f"  before: {before_load or '(none)'}")
+    if vlm_model not in before_load:
+        if not lms_load(vlm_model):
+            return 1
+    if planner_model not in before_load:
+        if not lms_load(planner_model):
+            return 1
+    after_load = lms_ps_loaded_identifiers()
+    print(f"  after:  {after_load or '(none)'}")
 
-        both_loaded = vlm_model in after_load and planner_model in after_load
-        if not both_loaded:
-            print(
-                yellow(
-                    f"\n⚠ One of the models did not stay resident — LM Studio likely "
-                    f"has a single-model slot configured. Open LM Studio → Developer "
-                    f"settings and raise the max-loaded-models or per-model memory "
-                    f"budget. Currently loaded: {after_load}"
-                )
+    both_loaded = vlm_model in after_load and planner_model in after_load
+    if not both_loaded:
+        print(
+            yellow(
+                f"\n⚠ One of the models did not stay resident — LM Studio likely "
+                f"has a single-model slot configured. Open LM Studio → Developer "
+                f"settings and raise the max-loaded-models or per-model memory "
+                f"budget. Currently loaded: {after_load}"
             )
+        )
 
     # Thrash check
     thrash_results = diagnose_thrash(base_url, vlm_model, planner_model, call_count)
