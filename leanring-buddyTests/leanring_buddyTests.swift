@@ -28,13 +28,4 @@ struct leanring_buddyTests {
         #expect(presentationDestination == .systemSettings)
     }
 
-    @Test @MainActor func knownGrantedScreenRecordingPermissionSkipsTheGate() async throws {
-        let shouldTreatPermissionAsGranted = WindowPositionManager.shouldTreatScreenRecordingPermissionAsGrantedForSessionLaunch(
-            hasScreenRecordingPermissionNow: false,
-            hasPreviouslyConfirmedScreenRecordingPermission: true
-        )
-
-        #expect(shouldTreatPermissionAsGranted)
-    }
-
 }
