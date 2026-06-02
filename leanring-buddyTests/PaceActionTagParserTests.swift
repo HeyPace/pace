@@ -388,4 +388,23 @@ struct PaceActionTagParserTests {
         #expect(actionPlan.approvalSummary.contains("[read-only]"))
         #expect(actionPlan.approvalSummary.contains("[input injection]"))
     }
+
+    @Test func registryIncludesRequestedLocalToolAllowList() async throws {
+        let requestedToolNames = [
+            "open_app",
+            "open_url",
+            "music",
+            "volume",
+            "brightness",
+            "calendar",
+            "reminder",
+            "finder",
+            "notes",
+        ]
+
+        for toolName in requestedToolNames {
+            #expect(PaceToolRegistry.kind(forToolName: toolName) != nil, "expected \(toolName) in local tool allow-list")
+            #expect(PaceToolRegistry.plannerToolListText.contains(#""tool":"\#(toolName)""#))
+        }
+    }
 }

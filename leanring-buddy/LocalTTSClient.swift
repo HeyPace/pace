@@ -27,7 +27,7 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
     /// "premium" English voice when available, which is markedly better
     /// than the legacy compact voice.
     private let preferredVoiceIdentifier: String?
-    private let speechRate: Float
+    private let speechProsody: LocalTTSProsody
 
     /// Cached `bestAvailableVoice()` result. `AVSpeechSynthesisVoice
     /// .speechVoices()` does a synchronous metadata scan that can take
@@ -50,9 +50,7 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
         // Allow callers to override via Info.plist for experimentation.
         let configuredVoiceIdentifier = AppBundleConfiguration.stringValue(forKey: "LocalTTSVoiceIdentifier")
         self.preferredVoiceIdentifier = configuredVoiceIdentifier
-        // 0.5 is AVSpeechUtteranceDefaultSpeechRate. Slightly faster reads
-        // more naturally for conversational responses.
-        self.speechRate = 0.52
+        self.speechProsody = LocalTTSProsody.fromBundleConfiguration()
         super.init()
 
         // Install the playback observer exactly once. AVSpeechSynthesizer
@@ -82,7 +80,11 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
         isCurrentlySpeakingOrPending = true
 
         let utterance = AVSpeechUtterance(string: trimmedText)
-        utterance.rate = speechRate
+        utterance.rate = speechProsody.rate
+        utterance.pitchMultiplier = speechProsody.pitchMultiplier
+        utterance.volume = speechProsody.volume
+        utterance.preUtteranceDelay = speechProsody.preUtteranceDelay
+        utterance.postUtteranceDelay = speechProsody.postUtteranceDelay
         let pickedVoice = resolveCachedBestVoice()
         utterance.voice = pickedVoice
         printVoiceUpgradeHintOnceIfCompact(pickedVoice: pickedVoice)
@@ -173,14 +175,74 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
         case .premium, .enhanced:
             print("🔊 Local TTS voice: \(pickedVoice.name) (\(pickedVoice.quality == .premium ? "Premium" : "Enhanced"))")
         default:
-            print("🔊 Local TTS voice: \(pickedVoice.name) (Compact — sounds shrill)")
-            print("    → To fix this, open System Settings → Accessibility → Spoken Content")
-            print("      → System Voice → Manage Voices → English (US) and download EITHER:")
+            print("🔊 Local TTS voice: \(pickedVoice.name) (Compact, softened with Pace prosody)")
+            print("    → For a bigger quality jump, open System Settings → Accessibility → Spoken Content")
+            print("      → System Voice → Manage Voices → English (US) and download either:")
             print("        - \"Samantha\" at Enhanced quality (~150 MB, quick stopgap), OR")
             print("        - \"Ava\" at Premium quality (~500 MB, much better neural voice).")
             print("      Restart Pace after the download finishes.")
         }
         hasPrintedVoiceUpgradeHint = true
+    }
+}
+
+private struct LocalTTSProsody {
+    let rate: Float
+    let pitchMultiplier: Float
+    let volume: Float
+    let preUtteranceDelay: TimeInterval
+    let postUtteranceDelay: TimeInterval
+
+    static func fromBundleConfiguration() -> LocalTTSProsody {
+        // The defaults are tuned for the compact macOS voices this machine
+        // currently has installed: a touch slower, lower pitched, and less
+        // piercing than AVSpeechUtterance's stock conversational setting.
+        return LocalTTSProsody(
+            rate: configuredFloat(
+                forKey: "LocalTTSSpeechRate",
+                defaultValue: 0.48,
+                minimumValue: 0.35,
+                maximumValue: 0.58
+            ),
+            pitchMultiplier: configuredFloat(
+                forKey: "LocalTTSPitchMultiplier",
+                defaultValue: 0.94,
+                minimumValue: 0.75,
+                maximumValue: 1.15
+            ),
+            volume: configuredFloat(
+                forKey: "LocalTTSVolume",
+                defaultValue: 0.94,
+                minimumValue: 0.25,
+                maximumValue: 1.0
+            ),
+            preUtteranceDelay: TimeInterval(configuredFloat(
+                forKey: "LocalTTSPreUtteranceDelay",
+                defaultValue: 0.0,
+                minimumValue: 0.0,
+                maximumValue: 0.25
+            )),
+            postUtteranceDelay: TimeInterval(configuredFloat(
+                forKey: "LocalTTSPostUtteranceDelay",
+                defaultValue: 0.02,
+                minimumValue: 0.0,
+                maximumValue: 0.25
+            ))
+        )
+    }
+
+    private static func configuredFloat(
+        forKey key: String,
+        defaultValue: Float,
+        minimumValue: Float,
+        maximumValue: Float
+    ) -> Float {
+        guard let configuredStringValue = AppBundleConfiguration.stringValue(forKey: key),
+              let configuredFloatValue = Float(configuredStringValue) else {
+            return defaultValue
+        }
+
+        return min(max(configuredFloatValue, minimumValue), maximumValue)
     }
 }
 

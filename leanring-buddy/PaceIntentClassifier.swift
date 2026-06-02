@@ -146,7 +146,33 @@ final class PaceIntentClassifier {
         "click", "tap", "press", "hit", "open", "launch",
         "choose", "select", "focus", "toggle", "type ",
         "scroll", "page down", "page up", "save with",
-        "save the file", "quit the app",
+        "save the file", "quit the app", "play", "pause",
+        "next track", "previous track", "skip", "turn up",
+        "turn down", "raise", "lower", "increase", "decrease",
+        "dim", "brighten", "create", "make", "add",
+        "compose", "draft", "reveal", "show in finder",
+        "run shortcut",
+    ]
+
+    /// Tool-specific action phrases. These are the user-facing local tools
+    /// Pace is allowed to route into the action pipeline even when the phrase
+    /// does not start with a generic verb like "click".
+    private static let actionToolPhrases: [String] = [
+        "open app", "open apps", "open application", "launch app",
+        "open url", "open website", "open a website", "go to ",
+        "play music", "pause music", "music controls", "next song",
+        "previous song", "volume up", "volume down", "turn volume up",
+        "turn volume down", "reduce volume", "lower volume",
+        "increase volume", "raise volume", "brightness up",
+        "brightness down", "turn brightness up", "turn brightness down",
+        "reduce brightness", "lower brightness", "increase brightness",
+        "read calendar", "check calendar", "calendar reads",
+        "what's on my calendar", "what is on my calendar",
+        "create reminder", "add reminder", "remind me",
+        "open finder", "show in finder", "reveal in finder",
+        "finder notes", "make a note", "create note", "create notes",
+        "open notes", "compose mail", "draft email", "create things",
+        "add things", "run shortcut", "open messages",
     ]
 
     /// Description hints — phrases that suggest the user wants Pace to
@@ -203,6 +229,12 @@ final class PaceIntentClassifier {
         for actionVerb in Self.actionVerbs {
             if lowercaseTranscript.contains(actionVerb) {
                 return PaceIntentPrediction(intent: .screenAction, confidence: 0.80)
+            }
+        }
+
+        for actionToolPhrase in Self.actionToolPhrases {
+            if lowercaseTranscript.contains(actionToolPhrase) {
+                return PaceIntentPrediction(intent: .screenAction, confidence: 0.82)
             }
         }
 

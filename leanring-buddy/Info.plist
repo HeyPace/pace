@@ -18,6 +18,16 @@
 	<string>http://localhost:1234/v1</string>
 	<key>LocalPlannerModelIdentifier</key>
 	<string>qwen/qwen3-30b-a3b</string>
+	<key>LocalTTSSpeechRate</key>
+	<string>0.48</string>
+	<key>LocalTTSPitchMultiplier</key>
+	<string>0.94</string>
+	<key>LocalTTSVolume</key>
+	<string>0.94</string>
+	<key>LocalTTSPreUtteranceDelay</key>
+	<string>0.0</string>
+	<key>LocalTTSPostUtteranceDelay</key>
+	<string>0.02</string>
 	<key>EnableActions</key>
 	<string>true</string>
 	<key>AgentMaxSteps</key>

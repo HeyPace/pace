@@ -101,6 +101,25 @@ struct PaceIntentClassifierTests {
         }
     }
 
+    @Test func localToolRequestsRouteToScreenAction() async throws {
+        let classifier = PaceIntentClassifier()
+        for command in [
+            "open app Music",
+            "open URL https://example.com",
+            "play music",
+            "turn volume down",
+            "increase brightness",
+            "read calendar",
+            "create reminder to send invoice",
+            "open Finder",
+            "make a note called idea",
+        ] {
+            let prediction = classifier.classify(command)
+            #expect(prediction.intent == .screenAction, "expected screenAction for \(command), got \(prediction.intent)")
+            #expect(prediction.route == .executeTool)
+        }
+    }
+
     @Test func emptyTranscriptReturnsUnknown() async throws {
         let classifier = PaceIntentClassifier()
         #expect(classifier.classify("").intent == .unknown)

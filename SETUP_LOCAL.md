@@ -56,6 +56,11 @@ curl -s http://localhost:1234/v1/models | grep -E "qwen3-vl|qwen3-30b|qwen3-4b"
 | `AlwaysRunLocalVLMRegardlessOfTranscript` | `false` | `true` | Forces the VLM to run on every turn even when the transcript looks like pure Q&A. Default off — the VLM-skip heuristic saves perception cost on "what is HTML" style queries. |
 | `LocalPlannerBaseURL` | `http://localhost:1234/v1` | same | OpenAI-compatible root for the local reasoner. Often the same LM Studio server as the VLM. |
 | `LocalPlannerModelIdentifier` | `qwen/qwen3-14b` | same | Dense 14B is the default — leaner RAM than the 30B MoE despite being "smaller". Swap up (`qwen/qwen3-30b-a3b`, `gpt-oss-20b`) when you want stronger multi-step reasoning, down (`qwen3-4b-instruct`) on tighter hardware. Load with `--num-parallel 1` for the lowest KV-cache footprint. |
+| `LocalTTSSpeechRate` | `0.48` | `0.35`-`0.58` | Pace's AVSpeechSynthesizer rate. The default is slower than stock so compact voices sound less rushed. |
+| `LocalTTSPitchMultiplier` | `0.94` | `0.75`-`1.15` | Slightly lowers compact voices so the response is less sharp. |
+| `LocalTTSVolume` | `0.94` | `0.25`-`1.0` | Playback volume for spoken replies. |
+| `LocalTTSPreUtteranceDelay` | `0.0` | `0.0`-`0.25` | Optional pause before each spoken chunk. Keep at zero for lowest latency. |
+| `LocalTTSPostUtteranceDelay` | `0.02` | `0.0`-`0.25` | Tiny spacing between streamed sentence chunks so the voice breathes a bit. |
 | `EnableActions` | `true` | `false` | Allows Pace to actually click, type, scroll, and press keys. Set to `false` for dry-runs. Keep `Approve Actions` on when this is true. |
 | `AgentMaxSteps` | `8` | `1`-`30` | Per-task ceiling for the plan-act-observe loop. With this at `1` the loop degrades to the old single-turn behavior. |
 | `PushToTalkShortcut` | `controlOption` | one of `controlOption`, `shiftFunction`, `shiftControl`, `controlOptionSpace`, `shiftControlSpace` | Which hold-to-record shortcut Pace listens for. Change this if another dictation tool (Wispr Flow, system Dictation) is on the same key. |
@@ -186,4 +191,4 @@ If acceptance rate falls below ~0.5 (LM Studio logs it as `acc_rate=…`), specu
 
 **"VLM analysis failed, falling back":** the cloud-only path still runs, so the app keeps working. Check Xcode console — most common cause is LM Studio not running or the model not yet loaded.
 
-**Local TTS sounds robotic:** open System Settings → Accessibility → Spoken Content → System Voice → Manage Voices and download one of the "Premium" English voices. `LocalTTSClient` auto-prefers Premium > Enhanced > Default.
+**Local TTS sounds robotic:** Pace softens the compact macOS voices with `LocalTTSSpeechRate`, `LocalTTSPitchMultiplier`, and `LocalTTSVolume`, but the biggest jump still comes from installing a better Apple voice. Open System Settings → Accessibility → Spoken Content → System Voice → Manage Voices and download one of the Premium or Enhanced English voices. `LocalTTSClient` auto-prefers Premium > Enhanced > Default.
