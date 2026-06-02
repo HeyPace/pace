@@ -28,13 +28,15 @@ Status: implemented.
 
 ## Priority 3: Apple App Integrations
 
-Status: implemented for first local tool pass; needs runtime verification per app.
+Status: implemented for first local tool pass; dry-run executor coverage passing.
 
 - Calendar and Reminders exist as local EventKit tools.
 - Things, Notes, Mail drafts, Finder, Shortcuts, and Messages opening are
   registered as local tools.
 - Prefer local macOS APIs or AppleScript only when the app does not expose a
   better native API.
+- Xcode dry-run executor tests cover non-mutating observations for URL, Music,
+  Calendar, Reminders, Finder, Notes, Mail, Things, Shortcuts, and Messages.
 
 ## Priority 4: Watch Mode
 
@@ -73,6 +75,11 @@ Status: implemented for unit/build coverage; manual runtime smoke coverage still
 - Watch-mode command tests cover explicit start/stop routing.
 - Approval tests cover default-on request creation and cancellation blocking
   action execution.
-- Latest Xcode test run passed 117 tests after local test-target signing cleanup.
+- Dry-run executor tests cover local tool observations without changing local
+  apps or system state.
+- Latest Xcode test run passed 118 tests after local test-target signing cleanup.
+- Runtime diagnostic passed with both LM Studio models resident, no model
+  thrash, VLM JSON health ok, synthetic VLM->planner turn under 3.5s, and
+  planner eval 19/19.
 - Still needed: physical smoke tests for approval prompts and action cancellation
   with LM Studio running.

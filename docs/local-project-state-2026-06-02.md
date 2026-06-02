@@ -33,6 +33,8 @@ The latest local `main` includes:
 - Action approval toggle and popup before local tools control the Mac.
 - Pure action-approval policy tests for approval request creation, allow-once,
   and cancellation.
+- Dry-run executor tests for URL, Music, Calendar, Reminders, Finder, Notes,
+  Mail, Things, Shortcuts, and Messages observations.
 - Screen image diffing plus explicit watch-mode controller and panel toggle for
   meaningful change events.
 - Explicit watch-mode voice commands for "watch my screen" and "stop watching".
@@ -49,18 +51,17 @@ The latest local `main` includes:
   passed.
 - `git diff --check` passed.
 - Xcode build via AppleScript succeeded before the local merge.
-- Xcode test via AppleScript passed 117 tests after the stale test-target signing
+- Xcode test via AppleScript passed 118 tests after the stale test-target signing
   team was aligned with the app target.
 - Latest Xcode result has no `Info.plist` resource warning and no watch-command
   actor-isolation warnings. Remaining warnings are the known Swift 6 concurrency
   warnings called out in `AGENTS.md`.
-- LM Studio was not reachable at `http://localhost:1234/v1` during the latest
-  roadmap audit, so full planner/VLM runtime smoke tests remain pending.
+- `python3 scripts/diag-pace.py --quick --no-load --eval` passed after starting
+  the LM Studio server: both models resident, no model thrash, VLM JSON healthy,
+  synthetic VLM-to-planner turn under 3.5s, planner eval 19/19.
 
 ## Still Needs Manual Verification
 
-- Physically click the notch capsule and confirm the companion panel opens and
-  dismisses correctly.
 - Test the `Cursor Annotations` toggle in the app.
 - Start LM Studio with the configured VLM and planner, then smoke-test:
   - screen-aware Q&A
@@ -74,3 +75,11 @@ The latest local `main` includes:
 - Treat `EnableActions` carefully because enabled action mode can post real
   local input and system actions.
 - Keep `Approve Actions` on unless actively testing automation speed.
+
+## Latest Runtime Notes
+
+- The notch capsule opened the companion panel successfully via a direct
+  click smoke test.
+- Coordinate-based toggle clicking was too brittle because it can hit the
+  underlying terminal if the panel dismisses; use unit/state coverage or a safer
+  UI harness for cursor-annotation toggle verification.

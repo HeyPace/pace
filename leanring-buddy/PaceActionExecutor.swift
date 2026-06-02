@@ -48,9 +48,13 @@ final class PaceActionExecutor {
     private let axTargeter = PaceAXTargeter()
     private let eventStore = EKEventStore()
 
-    init() {
-        let rawFlag = AppBundleConfiguration.stringValue(forKey: "EnableActions")?.lowercased()
-        self.actionsAreEnabled = (rawFlag == "true" || rawFlag == "1" || rawFlag == "yes")
+    init(actionsAreEnabledOverride: Bool? = nil) {
+        if let actionsAreEnabledOverride {
+            self.actionsAreEnabled = actionsAreEnabledOverride
+        } else {
+            let rawFlag = AppBundleConfiguration.stringValue(forKey: "EnableActions")?.lowercased()
+            self.actionsAreEnabled = (rawFlag == "true" || rawFlag == "1" || rawFlag == "yes")
+        }
         if actionsAreEnabled {
             print("🤖 PaceActionExecutor: actions ENABLED — real clicks and keystrokes will be sent")
         } else {
