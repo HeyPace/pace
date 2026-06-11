@@ -5,6 +5,14 @@
         <description>Auto-update feed for Pace, the local-only macOS voice companion. Run scripts/release-pace.sh to publish a new version.</description>
         <language>en</language>
         <item>
+            <title>Pace 0.3.10</title>
+            <pubDate>Thu, 11 Jun 2026 18:22:31 +0000</pubDate>
+            <sparkle:version>10</sparkle:version>
+            <sparkle:shortVersionString>0.3.10</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.10/Pace-0.3.10.zip" length="14417922" type="application/octet-stream" sparkle:edSignature="8QpVQdBa77eNAZ+JylBVBVR8JqV5bCFWi/EonXK6ryfv7Y/+LygaliHcag1dj2XmLgvyVilkE/bRb2FB1EW7Cg=="/>
+        </item>
+        <item>
             <title>Pace 0.3.9</title>
             <pubDate>Thu, 11 Jun 2026 16:37:24 +0000</pubDate>
             <sparkle:version>9</sparkle:version>

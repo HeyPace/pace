@@ -26,6 +26,10 @@ enum PaceUserPreferenceKey: String {
     case areCursorAnnotationsEnabled
     case requiresActionApproval
     case isPostureWatchEnabled
+    case isAlwaysListeningEnabled
+    case areFocusFatigueNudgesEnabled
+    case areCalendarNudgesEnabled
+    case areWatchObservationNudgesEnabled
 }
 
 enum PaceUserPreferencesStore {

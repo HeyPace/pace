@@ -103,14 +103,15 @@ nonisolated enum PaceActionApprovalPolicy {
     private static func requiresExplicitApproval(_ action: PaceParsedAction) -> Bool {
         switch action {
         case .createCalendarEvent, .createReminder, .createNote, .appendNote,
-             .composeMail, .createThingsToDo, .runShortcut, .downloadFile, .mcp:
+             .composeMail, .createThingsToDo, .runShortcut, .downloadFile,
+             .recordFlow, .runFlow, .mcp:
             return true
         case .openMessages(let messageRequest):
             return messageRequest.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         case .click, .doubleClick, .clickCandidates, .type, .setTextValue, .editSelectedText,
              .undoLastMutation, .pressKey, .readClipboard, .snapWindow, .scroll, .openApplication,
              .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
-             .listCalendarEvents, .finder, .searchNotes:
+             .listCalendarEvents, .finder, .searchNotes, .startTimer:
             return false
         }
     }
@@ -120,12 +121,13 @@ nonisolated enum PaceActionApprovalPolicy {
         case .click, .doubleClick, .clickCandidates, .type, .setTextValue, .editSelectedText,
              .undoLastMutation, .pressKey, .readClipboard, .snapWindow, .scroll, .openApplication,
              .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
-             .listCalendarEvents, .finder, .searchNotes:
+             .listCalendarEvents, .finder, .searchNotes, .startTimer:
             return true
         case .openMessages(let messageRequest):
             return messageRequest.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
         case .createCalendarEvent, .createReminder, .createNote, .appendNote,
-             .composeMail, .createThingsToDo, .runShortcut, .downloadFile, .mcp:
+             .composeMail, .createThingsToDo, .runShortcut, .downloadFile,
+             .recordFlow, .runFlow, .mcp:
             return false
         }
     }

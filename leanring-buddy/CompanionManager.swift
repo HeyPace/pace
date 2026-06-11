@@ -219,6 +219,7 @@ final class CompanionManager: ObservableObject {
     private lazy var actionExecutor: PaceActionExecutor = {
         return PaceActionExecutor()
     }()
+    private let episodicFactExtractor = PaceEpisodicFactExtractor()
 
     /// Native macOS OCR. Runs in parallel with the VLM, both pre-warmed
     /// at PTT-press so neither shows up in perceived latency. The VLM
@@ -421,6 +422,38 @@ final class CompanionManager: ObservableObject {
     func setRequiresActionApproval(_ enabled: Bool) {
         requiresActionApproval = enabled
         PaceUserPreferencesStore.setBool(enabled, for: .requiresActionApproval)
+    }
+
+    @Published var isAlwaysListeningEnabled: Bool = PaceUserPreferencesStore
+        .bool(.isAlwaysListeningEnabled, default: false)
+
+    func setAlwaysListeningEnabled(_ enabled: Bool) {
+        isAlwaysListeningEnabled = enabled
+        PaceUserPreferencesStore.setBool(enabled, for: .isAlwaysListeningEnabled)
+    }
+
+    @Published var areFocusFatigueNudgesEnabled: Bool = PaceUserPreferencesStore
+        .bool(.areFocusFatigueNudgesEnabled, default: false)
+
+    func setFocusFatigueNudgesEnabled(_ enabled: Bool) {
+        areFocusFatigueNudgesEnabled = enabled
+        PaceUserPreferencesStore.setBool(enabled, for: .areFocusFatigueNudgesEnabled)
+    }
+
+    @Published var areCalendarNudgesEnabled: Bool = PaceUserPreferencesStore
+        .bool(.areCalendarNudgesEnabled, default: false)
+
+    func setCalendarNudgesEnabled(_ enabled: Bool) {
+        areCalendarNudgesEnabled = enabled
+        PaceUserPreferencesStore.setBool(enabled, for: .areCalendarNudgesEnabled)
+    }
+
+    @Published var areWatchObservationNudgesEnabled: Bool = PaceUserPreferencesStore
+        .bool(.areWatchObservationNudgesEnabled, default: false)
+
+    func setWatchObservationNudgesEnabled(_ enabled: Bool) {
+        areWatchObservationNudgesEnabled = enabled
+        PaceUserPreferencesStore.setBool(enabled, for: .areWatchObservationNudgesEnabled)
     }
 
     @Published private(set) var isWatchModeEnabled: Bool = false
@@ -684,6 +717,13 @@ final class CompanionManager: ObservableObject {
             userTranscript: userTranscript,
             assistantResponse: assistantResponse
         )
+        let extractedFacts = episodicFactExtractor.extractFacts(
+            from: userTranscript,
+            assistantText: assistantResponse,
+            frontmostApplicationName: NSWorkspace.shared.frontmostApplication?.localizedName,
+            sourceTurnId: "turn-\(abs(userTranscript.hashValue))"
+        )
+        localRetriever.recordEpisodicFacts(extractedFacts)
         refreshLocalRetrievalPublishedState()
     }
 
@@ -817,7 +857,7 @@ final class CompanionManager: ObservableObject {
             refreshLocalRetrievalPublishedState()
         case .file:
             refreshFileRetrievalDocumentsIfAllowed(force: true)
-        case .paceHistory, .screenWatchHistory:
+        case .paceHistory, .screenWatchHistory, .episodicMemory:
             // Both are recorded passively as turns/watch events happen —
             // nothing to refresh on re-enable.
             break
@@ -1150,6 +1190,57 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    private func handleAlwaysListeningCommand(_ command: PaceAlwaysListeningCommand, transcript: String) {
+        let spokenText: String
+        switch command {
+        case .start:
+            setAlwaysListeningEnabled(true)
+            spokenText = "always listening is on."
+        case .stop:
+            setAlwaysListeningEnabled(false)
+            spokenText = "always listening is off."
+        }
+        handleImmediateLocalModeResponse(transcript: transcript, spokenText: spokenText)
+    }
+
+    private func handleFlowCommand(_ command: PaceFlowCommand, transcript: String) {
+        let spokenText: String
+        switch command {
+        case .startRecording(let name):
+            spokenText = "ready to record \(name). flow recording is queued for the AX recorder."
+        case .stopRecording:
+            spokenText = "recording stopped."
+        case .run(let name):
+            spokenText = PaceFlowStore().load(named: name) == nil
+                ? "i couldn't find a flow named \(name)."
+                : "that flow is ready for approval before replay."
+        case .delete(let name):
+            do {
+                try PaceFlowStore().delete(named: name)
+                spokenText = "deleted \(name)."
+            } catch {
+                spokenText = "i couldn't delete \(name)."
+            }
+        }
+        handleImmediateLocalModeResponse(transcript: transcript, spokenText: spokenText)
+    }
+
+    private func handleImmediateLocalModeResponse(transcript: String, spokenText: String) {
+        currentTurnHUDState = .done(spokenText)
+        recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
+        responseOverlayManager.showOverlayAndBeginStreaming()
+        responseOverlayManager.updateStreamingText(spokenText)
+        currentResponseTask = Task {
+            voiceState = .responding
+            await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
+            while ttsClient.isPlaying {
+                try? await Task.sleep(nanoseconds: 80_000_000)
+            }
+            responseOverlayManager.finishStreaming()
+            voiceState = .idle
+        }
+    }
+
     private func currentToolPreflightEnvironment() -> PaceToolPreflightEnvironment {
         PaceToolPreflightEnvironment(
             actionsAreEnabled: actionExecutor.actionsAreEnabled,
@@ -1273,6 +1364,17 @@ final class CompanionManager: ObservableObject {
     func start() {
         refreshAllPermissions()
         print("🔑 Pace start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
+        // Wire the timer-scheduler speak callback to the active TTS
+        // client and rehydrate any persisted timers. Doing this before
+        // anything else means a 3-minute egg timer fired while Pace
+        // was quit speaks the moment we come back up.
+        actionExecutor.setTimerOnFireSpeakCallback { [weak self] spokenReminderText in
+            guard let self else { return }
+            Task { @MainActor in
+                try? await self.ttsClient.speakText(spokenReminderText)
+            }
+        }
+        actionExecutor.rehydratePersistedTimers()
         startPermissionPolling()
         startLMStudioReachabilityPolling()
         bindVoiceStateObservation()
@@ -2198,9 +2300,21 @@ final class CompanionManager: ObservableObject {
             return
         }
 
+        if let alwaysListeningCommand = PaceAlwaysListeningCommandParser.parse(transcript) {
+            print("🎙️ Always-listening voice command: \(alwaysListeningCommand)")
+            handleAlwaysListeningCommand(alwaysListeningCommand, transcript: transcript)
+            return
+        }
+
         if let localMemoryCommand = PaceLocalMemoryCommandParser.parse(transcript) {
             print("🧠 Local memory command: \(localMemoryCommand)")
             handleLocalMemoryCommand(localMemoryCommand)
+            return
+        }
+
+        if let flowCommand = PaceFlowCommandParser.parse(transcript) {
+            print("🔁 Flow voice command: \(flowCommand)")
+            handleFlowCommand(flowCommand, transcript: transcript)
             return
         }
 

@@ -24,6 +24,9 @@
     {"kind": "things", "tool": "things", "aliases": ["things_todo"], "risk": "appOrSystemMutation", "schemaExample": {"tool": "things", "title": "Buy milk", "notes": "optional"}},
     {"kind": "shortcuts", "tool": "shortcuts", "aliases": ["run_shortcut", "shortcut"], "risk": "appOrSystemMutation", "schemaExample": {"tool": "shortcuts", "name": "My Shortcut"}},
     {"kind": "messages", "tool": "messages", "aliases": ["message"], "risk": "appOrSystemMutation", "schemaExample": {"tool": "messages", "recipient": "Alex", "text": "draft text"}},
-    {"kind": "downloadFile", "tool": "download_file", "aliases": ["download", "save_file"], "risk": "externalIntegration", "schemaExample": {"tool": "download_file", "url": "https://example.com/report.pdf", "name": "report.pdf"}}
+    {"kind": "downloadFile", "tool": "download_file", "aliases": ["download", "save_file"], "risk": "externalIntegration", "schemaExample": {"tool": "download_file", "url": "https://example.com/report.pdf", "name": "report.pdf"}},
+    {"kind": "startTimer", "tool": "start_timer", "aliases": ["timer", "set_timer"], "risk": "appOrSystemMutation", "schemaExample": {"tool": "start_timer", "duration": "3 minutes", "label": "tea"}},
+    {"kind": "recordFlow", "tool": "record_flow", "aliases": ["record_this", "remember_flow"], "risk": "inputInjection", "schemaExample": {"tool": "record_flow", "name": "morning standup setup"}},
+    {"kind": "runFlow", "tool": "run_flow", "aliases": ["play_flow", "do_flow"], "risk": "inputInjection", "schemaExample": {"tool": "run_flow", "name": "morning standup setup"}}
   ]
 }

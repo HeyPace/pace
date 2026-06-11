@@ -58,6 +58,9 @@ enum PaceLocalToolKind: String, CaseIterable {
     case shortcuts
     case messages
     case downloadFile
+    case startTimer
+    case recordFlow
+    case runFlow
 }
 
 struct PaceLocalToolDefinition {
@@ -328,6 +331,36 @@ enum PaceToolRegistry {
             riskLevel: .externalIntegration,
             executionSummary: "Downloads the URL into ~/Downloads with a sanitized, collision-free filename.",
             observationSummary: "Reports the saved filename and byte count, or the failure reason."
+        ),
+        PaceLocalToolDefinition(
+            kind: .startTimer,
+            canonicalName: "start_timer",
+            aliases: ["timer", "set_timer"],
+            schemaExample: #"{"tool":"start_timer","duration":"3 minutes","label":"tea"}"#,
+            description: "schedule a spoken nudge after a duration. duration accepts \"3 minutes\", \"30s\", \"2 hours\", or a plain seconds number.",
+            riskLevel: .appOrSystemMutation,
+            executionSummary: "Schedules an in-process Timer that fires a spoken nudge through TTS.",
+            observationSummary: "Reports the scheduled fire time, or a validation error if the duration was unparseable."
+        ),
+        PaceLocalToolDefinition(
+            kind: .recordFlow,
+            canonicalName: "record_flow",
+            aliases: ["record_this", "remember_flow"],
+            schemaExample: #"{"tool":"record_flow","name":"morning standup setup"}"#,
+            description: "start recording a user-demonstrated local flow by name. Recording stores AX/key steps, not pixels.",
+            riskLevel: .inputInjection,
+            executionSummary: "Starts or stops a local demonstration-recording session.",
+            observationSummary: "Reports recording state or missing flow name."
+        ),
+        PaceLocalToolDefinition(
+            kind: .runFlow,
+            canonicalName: "run_flow",
+            aliases: ["play_flow", "do_flow"],
+            schemaExample: #"{"tool":"run_flow","name":"morning standup setup"}"#,
+            description: "run a previously recorded local flow by name. User approval is required before replay.",
+            riskLevel: .inputInjection,
+            executionSummary: "Replays saved AX/key steps through the local executor.",
+            observationSummary: "Reports replay start or missing flow."
         )
     ]
 
@@ -498,6 +531,12 @@ enum PaceToolRegistry {
             return definition(forToolName: "messages")
         case .downloadFile:
             return definition(forToolName: "download_file")
+        case .startTimer:
+            return definition(forToolName: "start_timer")
+        case .recordFlow:
+            return definition(forToolName: "record_flow")
+        case .runFlow:
+            return definition(forToolName: "run_flow")
         case .mcp:
             return nil
         }

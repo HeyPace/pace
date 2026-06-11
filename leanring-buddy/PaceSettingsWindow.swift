@@ -198,6 +198,38 @@ struct PaceSettingsWindowView: View {
                 )
             )
             settingsToggleRow(
+                title: "Always listening",
+                subtitle: "Opt-in ambient command mode. Push-to-talk remains available.",
+                isOn: Binding(
+                    get: { companionManager.isAlwaysListeningEnabled },
+                    set: { companionManager.setAlwaysListeningEnabled($0) }
+                )
+            )
+            settingsToggleRow(
+                title: "Focus nudges",
+                subtitle: "Offer a short break prompt after long active foreground sessions.",
+                isOn: Binding(
+                    get: { companionManager.areFocusFatigueNudgesEnabled },
+                    set: { companionManager.setFocusFatigueNudgesEnabled($0) }
+                )
+            )
+            settingsToggleRow(
+                title: "Calendar nudges",
+                subtitle: "Opt-in five-minute lead-time prompts for meeting-like events.",
+                isOn: Binding(
+                    get: { companionManager.areCalendarNudgesEnabled },
+                    set: { companionManager.setCalendarNudgesEnabled($0) }
+                )
+            )
+            settingsToggleRow(
+                title: "Watch observation nudges",
+                subtitle: "Opt-in prompts when watch mode sees local error/build-failure cues.",
+                isOn: Binding(
+                    get: { companionManager.areWatchObservationNudgesEnabled },
+                    set: { companionManager.setWatchObservationNudgesEnabled($0) }
+                )
+            )
+            settingsToggleRow(
                 title: "Posture watch (camera)",
                 subtitle: companionManager.latestPostureStatus
                     ?? "Gentle spoken nudge when you slouch or lean in. One camera frame every ten seconds, analyzed on-device, never stored.",

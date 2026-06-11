@@ -10,8 +10,11 @@ import Testing
 
 struct PaceAppUsageJournalTests {
     @Test func accumulatesDurationAcrossAppSwitches() async throws {
-        var journal = PaceAppUsageJournal(rehydratingFrom: [], now: Date())
-        let startedAt = Date()
+        // Pin to a fixed mid-day moment so the test never crosses midnight
+        // — the journal correctly buckets per day, but unit-test semantics
+        // assume a single bucket regardless of wall-clock at runtime.
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000) // 2023-11-14 22:13:20 UTC mid-day
+        var journal = PaceAppUsageJournal(rehydratingFrom: [], now: startedAt)
         journal.recordActivation(appName: "Xcode", at: startedAt)
         journal.recordActivation(appName: "Safari", at: startedAt.addingTimeInterval(600))
         journal.recordActivation(appName: "Xcode", at: startedAt.addingTimeInterval(900))
@@ -24,8 +27,11 @@ struct PaceAppUsageJournalTests {
     }
 
     @Test func documentLinesAreSortedByDurationDescending() async throws {
-        var journal = PaceAppUsageJournal(rehydratingFrom: [], now: Date())
-        let startedAt = Date()
+        // Pin to a fixed mid-day moment so the test never crosses midnight
+        // — the journal correctly buckets per day, but unit-test semantics
+        // assume a single bucket regardless of wall-clock at runtime.
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000) // 2023-11-14 22:13:20 UTC mid-day
+        var journal = PaceAppUsageJournal(rehydratingFrom: [], now: startedAt)
         journal.recordActivation(appName: "Mail", at: startedAt)
         journal.recordActivation(appName: "Xcode", at: startedAt.addingTimeInterval(60))
         let flushed_document = journal.flush(now: startedAt.addingTimeInterval(1860))
@@ -38,8 +44,11 @@ struct PaceAppUsageJournalTests {
     }
 
     @Test func reactivationOfFrontmostAppDoesNotDoubleCountSwitches() async throws {
-        var journal = PaceAppUsageJournal(rehydratingFrom: [], now: Date())
-        let startedAt = Date()
+        // Pin to a fixed mid-day moment so the test never crosses midnight
+        // — the journal correctly buckets per day, but unit-test semantics
+        // assume a single bucket regardless of wall-clock at runtime.
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000) // 2023-11-14 22:13:20 UTC mid-day
+        var journal = PaceAppUsageJournal(rehydratingFrom: [], now: startedAt)
         journal.recordActivation(appName: "Xcode", at: startedAt)
         journal.recordActivation(appName: "Xcode", at: startedAt.addingTimeInterval(60))
         let flushed_document = journal.flush(now: startedAt.addingTimeInterval(120))
@@ -53,8 +62,11 @@ struct PaceAppUsageJournalTests {
     }
 
     @Test func dayBucketDocumentHasExpectedIdentity() async throws {
-        var journal = PaceAppUsageJournal(rehydratingFrom: [], now: Date())
-        let startedAt = Date()
+        // Pin to a fixed mid-day moment so the test never crosses midnight
+        // — the journal correctly buckets per day, but unit-test semantics
+        // assume a single bucket regardless of wall-clock at runtime.
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000) // 2023-11-14 22:13:20 UTC mid-day
+        var journal = PaceAppUsageJournal(rehydratingFrom: [], now: startedAt)
         journal.recordActivation(appName: "Xcode", at: startedAt)
         let flushedAt = startedAt.addingTimeInterval(60)
         let flushed_document = journal.flush(now: flushedAt)
@@ -67,7 +79,10 @@ struct PaceAppUsageJournalTests {
     }
 
     @Test func rehydrationPreservesEarlierUsageAcrossRestart() async throws {
-        let startedAt = Date()
+        // Pin to mid-day so the test isn't sensitive to wall-clock running
+        // near midnight, where the journal would split this interval into
+        // two day buckets (intentional product behavior, breaks test math).
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
         var firstJournal = PaceAppUsageJournal(rehydratingFrom: [], now: startedAt)
         firstJournal.recordActivation(appName: "Xcode", at: startedAt)
         let flushed_persistedDocument = firstJournal.flush(now: startedAt.addingTimeInterval(600))

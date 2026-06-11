@@ -21,6 +21,7 @@ enum PaceRetrievalSource: String, CaseIterable, Codable, Equatable {
     case appUsageHistory
     case screenTime
     case localPreference
+    case episodicMemory
 
     var displayName: String {
         switch self {
@@ -48,6 +49,8 @@ enum PaceRetrievalSource: String, CaseIterable, Codable, Equatable {
             return "Screen Time (system)"
         case .localPreference:
             return "Preference"
+        case .episodicMemory:
+            return "Episodic memory"
         }
     }
 }
@@ -975,6 +978,11 @@ final class PaceLocalRetriever: PaceRetriever {
             permissionScope: "pace-history"
         )
         store.upsertDocuments([document])
+    }
+
+    func recordEpisodicFacts(_ facts: [PaceEpisodicFact]) {
+        guard isSourceEnabled(.episodicMemory), !facts.isEmpty else { return }
+        store.upsertDocuments(facts.map(PaceEpisodicFactExtractor.retrievalDocument(for:)))
     }
 
     func localContextBlock(for query: PaceRetrievalQuery) -> String? {
