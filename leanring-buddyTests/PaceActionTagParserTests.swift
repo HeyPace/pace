@@ -276,6 +276,22 @@ struct PaceActionTagParserTests {
         #expect(urlString == "https://example.com")
     }
 
+    @Test func invalidActionInsideFlatToolCallArrayRejectsWholeBlock() async throws {
+        let parseResult = PaceActionTagParser.parseActions(from: """
+        <tool_calls>
+        [
+          {"tool":"open_app","app":"Safari"},
+          {"tool":"scroll","direction":"sideways"},
+          {"tool":"open_url","url":"https://example.com"}
+        ]
+        </tool_calls>
+        """)
+
+        #expect(parseResult.actions.isEmpty)
+        #expect(parseResult.spokenText == "")
+        #expect(parseResult.executionPlan.steps.isEmpty)
+    }
+
     @Test func calendarAndReminderToolCallsParseIntoReadableTools() async throws {
         let parseResult = PaceActionTagParser.parseActions(from: """
         checking and saving it.

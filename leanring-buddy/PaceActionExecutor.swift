@@ -5320,10 +5320,16 @@ enum PaceActionTagParser {
         }
 
         if let flatToolCalls = try? decoder.decode([ToolCallDTO].self, from: jsonData) {
-            return flatToolCalls.compactMap { toolCall in
-                guard let action = parseToolCall(toolCall) else { return nil }
-                return PaceActionExecutionStep(actions: [action])
+            var parsedActions: [PaceParsedAction] = []
+            parsedActions.reserveCapacity(flatToolCalls.count)
+            for toolCall in flatToolCalls {
+                guard let action = parseToolCall(toolCall) else {
+                    return []
+                }
+                parsedActions.append(action)
             }
+            guard !parsedActions.isEmpty else { return [] }
+            return parsedActions.map { PaceActionExecutionStep(actions: [$0]) }
         }
 
         return []
