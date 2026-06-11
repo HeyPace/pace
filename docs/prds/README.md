@@ -25,6 +25,9 @@ scope, test gates, and acceptance criteria.
 | `proactive-nudges.md` | queued | Adds opt-in local nudge generators for focus fatigue, calendar lead time, and watch-mode error observations after restraint lands. |
 | `demonstration-replay.md` | queued | Records user-demonstrated AX/key flows into auditable local JSON and replays them with approval gates. |
 | `her-arc-roadmap.md` | planning | Meta roadmap that orders the restraint/memory/listening/nudge/barge-in/replay PRDs and defines the arc's overall acceptance criteria. |
+| `morning-triage.md` | ready-to-implement | At a user-set weekday time, Pace speaks a calm 30-second brief assembled from Calendar/Mail/Reminders/app-usage/watch-journal sources. Closes the biggest gap to Del-style "AI exec assistant" positioning. Bundled recipe JSONs ship under `leanring-buddy/Resources/recipes/`. |
+| `recipe-library.md` | ready-to-implement | Five bundled installable `PaceFlow` recipes (morning standup, weekly review, inbox triage, focus mode, end-of-day shutdown). Multiplier on the flow-replay PRD. Maps to Poke's Recipes. |
+| `chat-interface.md` | ready-to-implement | Text input + live transcript inside the existing PaceMainWindow Conversations tab; shares `paceHistory` retrieval with voice. Notch stays voice-first. |
 
 ## Ordering
 

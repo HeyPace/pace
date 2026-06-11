@@ -1,0 +1,32 @@
+{
+  "createdAt" : "2026-06-12T00:00:00Z",
+  "description" : "Opens Slack to your standup channel and pulls today's calendar.",
+  "displayCategory" : "morning",
+  "name" : "morning standup setup",
+  "requiredPreferences" : [],
+  "secureFieldDefaults" : {},
+  "slug" : "morning-standup-setup",
+  "steps" : [
+    {
+      "bundleIdentifier" : "com.tinyspeck.slackmacgap",
+      "kind" : "activateApp"
+    },
+    {
+      "key" : "cmd+k",
+      "kind" : "keyShortcut"
+    },
+    {
+      "kind" : "typeText",
+      "secure" : false,
+      "text" : "standup"
+    },
+    {
+      "key" : "return",
+      "kind" : "keyShortcut"
+    },
+    {
+      "bundleIdentifier" : "com.apple.iCal",
+      "kind" : "activateApp"
+    }
+  ]
+}

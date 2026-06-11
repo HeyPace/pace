@@ -1,0 +1,19 @@
+{
+  "createdAt" : "2026-06-12T00:00:00Z",
+  "description" : "Opens Mail to the inbox and asks Pace to describe what's worth opening.",
+  "displayCategory" : "work",
+  "name" : "inbox triage pass",
+  "requiredPreferences" : [],
+  "secureFieldDefaults" : {},
+  "slug" : "email-zero",
+  "steps" : [
+    {
+      "bundleIdentifier" : "com.apple.mail",
+      "kind" : "activateApp"
+    },
+    {
+      "key" : "cmd+1",
+      "kind" : "keyShortcut"
+    }
+  ]
+}

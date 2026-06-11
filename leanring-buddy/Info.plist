@@ -82,7 +82,7 @@
 	<key>PlannerProvider</key>
 	<string>local</string>
 	<key>PrewarmMailForDrafts</key>
-	<string>true</string>
+	<string>false</string>
 	<key>PushToTalkShortcut</key>
 	<string>controlOption</string>
 	<key>RetrievalEmbeddingModel</key>
