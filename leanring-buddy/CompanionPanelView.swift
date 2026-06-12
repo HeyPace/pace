@@ -19,6 +19,16 @@ struct CompanionPanelView: View {
     /// is UserDefaults-backed so SwiftUI doesn't see writes otherwise.
     @State private var starterPromptStateRevision: Int = 0
 
+    /// In-panel chat input draft text. Bound to the TextField shown
+    /// when the `cmd+shift+P` shortcut fires. Cleared on submit and
+    /// when the input dismisses (so a re-open starts blank).
+    @State private var notchChatDraftText: String = ""
+
+    /// Wires the TextField to the companion manager's notch-chat
+    /// focus flag so the global shortcut can move focus into the
+    /// field even when the panel is already on screen.
+    @FocusState private var isNotchChatInputFocused: Bool
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             panelHeader
@@ -38,6 +48,9 @@ struct CompanionPanelView: View {
                     .padding(.horizontal, 16)
 
                 morningBriefCardSection
+                    .padding(.horizontal, 16)
+
+                notchChatInputSection
                     .padding(.horizontal, 16)
 
                 turnHUDSection
@@ -414,6 +427,75 @@ struct CompanionPanelView: View {
         } else {
             EmptyView()
         }
+    }
+
+    /// Compact chat input that pops up inside the notch panel when the
+    /// global `cmd+shift+P` shortcut fires. Enter submits through the
+    /// same `submitChatTranscriptFromDeepLink(_:)` hook as voice and
+    /// the main window chat; Esc dismisses. After submission the
+    /// existing `turnHUDSection` below takes over for the streaming
+    /// reply — the notch is intentionally too small to host a full
+    /// chat scrollback.
+    @ViewBuilder
+    private var notchChatInputSection: some View {
+        if companionManager.isNotchChatInputFocused {
+            HStack(spacing: 6) {
+                TextField(
+                    "Ask Pace — Enter to send, Esc to cancel",
+                    text: $notchChatDraftText
+                )
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundColor(DS.Colors.textPrimary)
+                .focused($isNotchChatInputFocused)
+                .onSubmit(submitNotchChatDraftText)
+                .onExitCommand { dismissNotchChatInput() }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.white.opacity(0.07))
+                )
+
+                Button(action: submitNotchChatDraftText) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(notchChatDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                         ? DS.Colors.textTertiary
+                                         : DS.Colors.textPrimary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .keyboardShortcut(.return, modifiers: [])
+                .disabled(notchChatDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .help("Send to Pace")
+            }
+            .onAppear {
+                isNotchChatInputFocused = true
+            }
+            // Mirror the manager-published flag into the local
+            // FocusState so the global shortcut can re-focus an
+            // already-visible field (FocusState only changes when its
+            // boolean transitions, so we coalesce both directions).
+            .onChange(of: companionManager.isNotchChatInputFocused) { newValue in
+                isNotchChatInputFocused = newValue
+            }
+        }
+    }
+
+    private func submitNotchChatDraftText() {
+        let trimmedDraftText = notchChatDraftText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraftText.isEmpty else { return }
+        companionManager.submitChatTranscriptFromDeepLink(trimmedDraftText)
+        notchChatDraftText = ""
+        companionManager.dismissNotchChatInputAfterSubmit()
+        isNotchChatInputFocused = false
+    }
+
+    private func dismissNotchChatInput() {
+        notchChatDraftText = ""
+        companionManager.dismissNotchChatInputAfterSubmit()
+        isNotchChatInputFocused = false
     }
 
     private var turnHUDSection: some View {

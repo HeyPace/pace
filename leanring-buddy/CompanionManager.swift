@@ -149,6 +149,16 @@ final class CompanionManager: ObservableObject {
 
     let buddyDictationManager = PacePushToTalkManager()
     let globalPushToTalkShortcutMonitor = GlobalPushToTalkShortcutMonitor()
+    /// System-wide listener for the chat-input shortcut (default
+    /// `cmd+shift+P`). Brings the notch panel forward and focuses the
+    /// chat input — the keystroke entry point for typists who don't
+    /// want to open the main window first.
+    let globalChatShortcutMonitor = GlobalChatShortcutMonitor()
+    /// Drives the chat input visibility inside the notch panel. Set
+    /// `true` when the chat shortcut fires; the panel renders a
+    /// TextField bound to `@FocusState` keyed on this flag. Cleared
+    /// once the input is submitted or dismissed.
+    @Published var isNotchChatInputFocused: Bool = false
     let overlayWindowManager = OverlayWindowManager()
 
     /// Tooltip-style bubble that follows the cursor and shows what's
@@ -418,6 +428,7 @@ final class CompanionManager: ObservableObject {
     private var currentResponseTask: Task<Void, Never>?
 
     private var shortcutTransitionCancellable: AnyCancellable?
+    private var chatShortcutCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
     private var accessibilityCheckTimer: Timer?
@@ -2440,6 +2451,11 @@ You can turn this off at any time in Settings → Cloud bridge.
             print("🔗 Deeplink chat ignored — turn in flight (\(voiceState))")
             return
         }
+        // The notch chat input lives in the same panel as the turn HUD,
+        // so as soon as a turn is committed the input collapses and
+        // the HUD takes over. Cheap to flip when this code path was
+        // entered from the deeplink (the flag is already false).
+        isNotchChatInputFocused = false
         print("🔗 Deeplink chat transcript: \(transcript)")
 
         currentResponseTask?.cancel()
@@ -2580,6 +2596,7 @@ You can turn this off at any time in Settings → Cloud bridge.
             postureMonitor.stop()
         }
         globalPushToTalkShortcutMonitor.stop()
+        globalChatShortcutMonitor.stop()
         buddyDictationManager.cancelCurrentDictation()
         overlayWindowManager.hideOverlay()
         transientHideTask?.cancel()
@@ -2587,6 +2604,7 @@ You can turn this off at any time in Settings → Cloud bridge.
         currentResponseTask?.cancel()
         currentResponseTask = nil
         shortcutTransitionCancellable?.cancel()
+        chatShortcutCancellable?.cancel()
         voiceStateCancellable?.cancel()
         audioPowerCancellable?.cancel()
         accessibilityCheckTimer?.invalidate()
@@ -2622,8 +2640,10 @@ You can turn this off at any time in Settings → Cloud bridge.
 
         if currentlyHasAccessibility {
             globalPushToTalkShortcutMonitor.start()
+            globalChatShortcutMonitor.start()
         } else {
             globalPushToTalkShortcutMonitor.stop()
+            globalChatShortcutMonitor.stop()
         }
 
         hasScreenRecordingPermission = permissionService.isGranted(.screenRecording)
@@ -2912,6 +2932,39 @@ You can turn this off at any time in Settings → Cloud bridge.
             .sink { [weak self] transition in
                 self?.handleShortcutTransition(transition)
             }
+
+        // Notch chat shortcut (default `cmd+shift+P`). The publisher
+        // fires once per accepted keystroke; we flip the focus flag
+        // and post the existing show-panel notification so the panel
+        // surfaces without the manager needing a direct reference to
+        // `MenuBarPanelManager`.
+        chatShortcutCancellable = globalChatShortcutMonitor
+            .chatShortcutPressed
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.handleNotchChatShortcutPressed()
+            }
+    }
+
+    /// Brings the panel to front and asks the chat input to focus.
+    /// Routed through both a notification (panel manager listens) and
+    /// the `@Published` flag (CompanionPanelView listens) so neither
+    /// side has to know about the other.
+    private func handleNotchChatShortcutPressed() {
+        // If a turn is already in flight, opening the chat input is
+        // confusing — it can't submit anyway. Drop the shortcut.
+        guard voiceState == .idle else {
+            print("⌨️ Notch chat shortcut ignored — turn in flight (\(voiceState))")
+            return
+        }
+        NotificationCenter.default.post(name: .paceShowPanel, object: nil)
+        isNotchChatInputFocused = true
+    }
+
+    /// Called by the panel's TextField after a successful submit so
+    /// the input collapses back into the existing turn HUD.
+    func dismissNotchChatInputAfterSubmit() {
+        isNotchChatInputFocused = false
     }
 
     private func handleShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {

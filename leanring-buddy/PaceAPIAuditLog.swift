@@ -108,6 +108,41 @@ nonisolated final class PaceAPIAuditLog: @unchecked Sendable {
         queue.sync {}
     }
 
+    /// Read-only API used by the Privacy dashboard to surface the
+    /// existing audit log. Does NOT add any new tracking — it just
+    /// decodes the JSONL file the call sites already write.
+    /// Returns chronological order (oldest first); errors / malformed
+    /// lines are silently skipped so a single bad line cannot break
+    /// the dashboard.
+    func readAllEntries() -> [PaceAPIAuditEntry] {
+        // Flush in-flight writes so a dashboard refresh sees the
+        // freshest data possible without us holding the read on the
+        // audit queue.
+        waitForPendingWrites()
+        guard let logFileData = try? Data(contentsOf: logFileURL) else {
+            return []
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        var decodedEntries: [PaceAPIAuditEntry] = []
+        for line in logFileData.split(separator: 0x0A, omittingEmptySubsequences: true) {
+            guard let entry = try? decoder.decode(PaceAPIAuditEntry.self, from: Data(line)) else {
+                continue
+            }
+            decodedEntries.append(entry)
+        }
+        return decodedEntries
+    }
+
+    /// Used by the Privacy dashboard's permissions audit to find the
+    /// most recent time a given subsystem (`screen`, `mic`, `mcp`,
+    /// `planner`, `vlm`, etc.) actually fired. Returns nil if no entries
+    /// match. Reads from the same on-disk JSONL — no new tracking added.
+    func lastEntryTimestamp(forSubsystem subsystem: String) -> Date? {
+        let entries = readAllEntries()
+        return entries.reversed().first { $0.subsystem == subsystem }?.at
+    }
+
     private func append(_ entry: PaceAPIAuditEntry) {
         guard var lineData = try? encoder.encode(entry) else { return }
         lineData.append(0x0A)

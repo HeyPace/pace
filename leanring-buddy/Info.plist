@@ -59,6 +59,8 @@
 	<string>http://localhost:1234/v1</string>
 	<key>LocalVLMModelIdentifier</key>
 	<string>ui-venus-1.5-2b</string>
+	<key>NotchChatShortcut</key>
+	<string>commandShiftP</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Pace uses Apple Events only when you ask it to control local Mac apps like Notes, Music, Mail, Things, Shortcuts, or Messages.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>

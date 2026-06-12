@@ -15,6 +15,11 @@ import SwiftUI
 
 extension Notification.Name {
     static let paceDismissPanel = Notification.Name("paceDismissPanel")
+    /// Posted by `CompanionManager` when the notch chat shortcut fires,
+    /// so the panel manager can bring the panel forward without the
+    /// manager needing a direct reference to it. Mirrors the existing
+    /// `paceDismissPanel` pattern.
+    static let paceShowPanel = Notification.Name("paceShowPanel")
 }
 
 /// Custom NSPanel subclass that can become the key window even with
@@ -29,6 +34,7 @@ final class MenuBarPanelManager: NSObject {
     private var panelAnchorFrameOverride: NSRect?
     private var clickOutsideMonitor: Any?
     private var dismissPanelObserver: NSObjectProtocol?
+    private var showPanelObserver: NSObjectProtocol?
 
     private let companionManager: CompanionManager
     private let panelWidth: CGFloat = 320
@@ -48,6 +54,17 @@ final class MenuBarPanelManager: NSObject {
                 manager.hidePanel()
             }
         }
+
+        showPanelObserver = NotificationCenter.default.addObserver(
+            forName: .paceShowPanel,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let manager = self else { return }
+            Task { @MainActor in
+                manager.showPanel()
+            }
+        }
     }
 
     deinit {
@@ -55,6 +72,9 @@ final class MenuBarPanelManager: NSObject {
             NSEvent.removeMonitor(monitor)
         }
         if let observer = dismissPanelObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = showPanelObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }
