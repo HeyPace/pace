@@ -2,9 +2,21 @@
 //  PaceFlowReplay.swift
 //  leanring-buddy
 //
-//  Local JSON store and voice-command parser for demonstration replay.
-//  The recorder/replayer runtime can build on this without changing the
-//  on-disk contract.
+//  Voice-command parser plus replay-planner heuristic for recorded
+//  demonstration flows. The on-disk store moved to
+//  `PaceFlowStore.swift` (Wave 3a split) and the live event recorder
+//  moved to `PaceFlowRecorder.swift`. This file keeps the small pure
+//  helpers that don't depend on either runtime layer so they can be
+//  unit-tested in isolation and re-used wherever they make sense.
+//
+//  - `PaceRecordedFlow` / `PaceRecordedStep`: the on-disk schema.
+//    Schema-identical to the bundled recipe JSON shape.
+//  - `PaceFlowCommand` / `PaceFlowCommandParser`: voice-side parser
+//    that routes "remember this flow as …" / "stop recording" / "run
+//    …" / "delete the flow …" before the planner.
+//  - `PaceFlowReplayPlanner`: pause-before-send heuristic so a saved
+//    flow stops at the final "Send" button and asks for confirmation
+//    rather than firing destructive UI on autopilot.
 //
 
 import Foundation
@@ -82,77 +94,6 @@ enum PaceRecordedStep: Codable, Equatable {
     }
 }
 
-struct PaceFlowStore {
-    static var defaultDirectoryURL: URL {
-        let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        return appSupportURL.appendingPathComponent("Pace/flows", isDirectory: true)
-    }
-
-    let directoryURL: URL
-
-    init(directoryURL: URL = PaceFlowStore.defaultDirectoryURL) {
-        self.directoryURL = directoryURL
-    }
-
-    func save(_ flow: PaceRecordedFlow) throws {
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(flow)
-        try data.write(to: fileURL(for: flow.name), options: .atomic)
-    }
-
-    func load(named name: String) -> PaceRecordedFlow? {
-        guard let data = try? Data(contentsOf: fileURL(for: name)) else { return nil }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(PaceRecordedFlow.self, from: data)
-    }
-
-    func delete(named name: String) throws {
-        let url = fileURL(for: name)
-        if FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
-        }
-    }
-
-    func listAll() -> [PaceRecordedFlow] {
-        guard let fileURLs = try? FileManager.default.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: nil
-        ) else {
-            return []
-        }
-        return fileURLs
-            .filter { $0.pathExtension == "json" }
-            .compactMap { fileURL -> PaceRecordedFlow? in
-                guard let data = try? Data(contentsOf: fileURL) else { return nil }
-                let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
-                return try? decoder.decode(PaceRecordedFlow.self, from: data)
-            }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    private func fileURL(for name: String) -> URL {
-        directoryURL.appendingPathComponent(Self.slug(for: name)).appendingPathExtension("json")
-    }
-
-    static func slug(for name: String) -> String {
-        let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
-        let loweredName = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let scalars = loweredName.unicodeScalars.map { scalar -> Character in
-            allowedCharacters.contains(scalar) ? Character(scalar) : "-"
-        }
-        let collapsed = String(scalars)
-            .split(separator: "-", omittingEmptySubsequences: true)
-            .joined(separator: "-")
-        return collapsed.isEmpty ? "flow" : collapsed
-    }
-}
-
 enum PaceFlowCommand: Equatable {
     case startRecording(name: String)
     case stopRecording
@@ -192,37 +133,6 @@ enum PaceFlowCommandParser {
         }
 
         return nil
-    }
-}
-
-struct PaceFlowRecorder {
-    private(set) var activeFlowName: String?
-    private(set) var steps: [PaceRecordedStep] = []
-
-    var isRecording: Bool {
-        activeFlowName != nil
-    }
-
-    mutating func startRecording(name: String) {
-        activeFlowName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        steps = []
-    }
-
-    mutating func record(_ step: PaceRecordedStep) {
-        guard isRecording else { return }
-        steps.append(step)
-    }
-
-    mutating func stopRecording(now: Date = Date()) -> PaceRecordedFlow? {
-        guard let activeFlowName, !activeFlowName.isEmpty else {
-            self.activeFlowName = nil
-            steps = []
-            return nil
-        }
-        let flow = PaceRecordedFlow(name: activeFlowName, createdAt: now, steps: steps)
-        self.activeFlowName = nil
-        steps = []
-        return flow
     }
 }
 

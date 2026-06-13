@@ -10,6 +10,7 @@ import Testing
 
 @testable import Pace
 
+@Suite(.serialized)
 struct PaceCloudBridgeConsentTests {
 
     // MARK: - Helpers

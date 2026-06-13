@@ -128,12 +128,17 @@ struct LocalServerTTSClientIntegrationTests {
     private final class SilentRecordingTTSClient: BuddyTTSClient {
         private(set) var spokenTexts: [String] = []
         var isPlaying: Bool { false }
+        private(set) var lastStopReason: PaceTTSStopReason = .naturalCompletion
 
         func speakText(_ text: String) async throws {
             spokenTexts.append(text)
         }
 
         func stopPlayback() {}
+
+        func recordExpectedStopReason(_ reason: PaceTTSStopReason) {
+            lastStopReason = reason
+        }
     }
 
     @Test func unreachableServerDropsUtteranceSilentlyInsteadOfFallingBack() async throws {

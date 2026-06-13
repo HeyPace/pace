@@ -46,6 +46,20 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
     /// utterances back to back.
     private var playbackCompletionObserver: LocalTTSPlaybackCompletionObserver?
 
+    /// Why playback last ended. Defaults to natural completion; the
+    /// streaming pipeline's barge-in path calls
+    /// `recordExpectedStopReason(.userBargeIn)` immediately before
+    /// `stopPlayback()`, which causes the next stop event to inherit
+    /// that reason. Cleared back to natural completion after the
+    /// manager has read it, by way of the next successful
+    /// `speakText(...)` call that begins a fresh utterance.
+    private(set) var lastStopReason: PaceTTSStopReason = .naturalCompletion
+    private var pendingNextStopReason: PaceTTSStopReason?
+
+    func recordExpectedStopReason(_ reason: PaceTTSStopReason) {
+        pendingNextStopReason = reason
+    }
+
     override init() {
         // Allow callers to override via Info.plist for experimentation.
         let configuredVoiceIdentifier = AppBundleConfiguration.stringValue(forKey: "LocalTTSVoiceIdentifier")
@@ -74,6 +88,13 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
     func speakText(_ text: String) async throws {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
+
+        // A fresh utterance means the previous stop reason no longer
+        // applies — reset to natural so a future natural finish reads
+        // correctly. The barge-in flow sets the pending reason BEFORE
+        // calling stopPlayback, so this reset doesn't race the lock.
+        lastStopReason = .naturalCompletion
+        pendingNextStopReason = nil
 
         // Mark pending immediately so isPlaying returns true between this
         // call and the synthesizer actually starting audio output.
@@ -111,6 +132,11 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
     }
 
     func stopPlayback() {
+        // If the streaming pipeline announced a barge-in just before
+        // this call, honor it. Otherwise this is a manual stop
+        // (response-overlay stop button, action approval cancel, etc.).
+        lastStopReason = pendingNextStopReason ?? .manualStop
+        pendingNextStopReason = nil
         speechSynthesizer.stopSpeaking(at: .immediate)
         isCurrentlySpeakingOrPending = false
     }

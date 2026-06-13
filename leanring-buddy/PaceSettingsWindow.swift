@@ -47,11 +47,13 @@ final class PaceSettingsWindowManager {
 private enum PaceSettingsTab: String, CaseIterable, Identifiable {
     case general = "General"
     case planner = "Planner"
+    case proactive = "Proactive"
     case mcp = "MCP"
     case permissions = "Permissions"
     case voice = "Voice"
     case cloudBridge = "Cloud bridge"
     case flows = "Flows"
+    case memory = "Memory"
     case activity = "Activity"
 
     var id: String { rawValue }
@@ -62,6 +64,8 @@ private enum PaceSettingsTab: String, CaseIterable, Identifiable {
             return "switch.2"
         case .planner:
             return "brain.head.profile"
+        case .proactive:
+            return "bell.badge"
         case .mcp:
             return "point.3.connected.trianglepath.dotted"
         case .permissions:
@@ -72,6 +76,8 @@ private enum PaceSettingsTab: String, CaseIterable, Identifiable {
             return "antenna.radiowaves.left.and.right"
         case .flows:
             return "play.square.stack"
+        case .memory:
+            return "brain"
         case .activity:
             return "list.bullet.rectangle"
         }
@@ -141,6 +147,26 @@ struct PaceSettingsWindowView: View {
     @State private var recipeLibraryRefreshTick: Int = 0
     @State private var lastRecipeActionMessage: String? = nil
 
+    // MARK: - Saved-flow row state
+    //
+    // Carries the in-flight rename text per flow slug, plus the most
+    // recent operation message (rename / delete / play-once) so the
+    // Settings UI can surface "Renamed X → Y" or "Couldn't find Y on
+    // the screen" without owning a full UI model.
+    @State private var flowRowRenameDrafts: [String: String] = [:]
+    @State private var flowRowEditingFlowName: String? = nil
+    @State private var lastSavedFlowActionMessage: String? = nil
+
+    // MARK: - Memory tab state
+    //
+    // The episodic-memory list is read from
+    // `companionManager.episodicFactStore` on each render. The tick
+    // forces SwiftUI to re-pull after delete / reset actions.
+
+    @State private var injectSensitiveEpisodicTopicsForSettings: Bool = PaceUserPreferencesStore
+        .bool(.injectSensitiveEpisodicTopics, default: false)
+    @State private var memoryRefreshTick: Int = 0
+
     var body: some View {
         HStack(spacing: 0) {
             sidebar
@@ -206,6 +232,8 @@ struct PaceSettingsWindowView: View {
                     generalContent
                 case .planner:
                     plannerContent
+                case .proactive:
+                    proactiveContent
                 case .mcp:
                     mcpContent
                 case .permissions:
@@ -216,6 +244,8 @@ struct PaceSettingsWindowView: View {
                     cloudBridgeContent
                 case .flows:
                     flowsContent
+                case .memory:
+                    memoryContent
                 case .activity:
                     activityContent
                 }
@@ -768,6 +798,123 @@ struct PaceSettingsWindowView: View {
                 lastDirectAPITestOutcomeText = testError.localizedDescription
             }
             isDirectAPITestInFlight = false
+        }
+    }
+
+    // MARK: - Proactive tab
+    //
+    // The proactivity profile picker is the only control here in
+    // Wave 1a. Wave 1b adds nudge toggles (focus fatigue, calendar,
+    // watch observation, posture) below; Wave 2 adds always-listening
+    // + episodic memory access. The spacer leaves a clear insertion
+    // point so the next agent knows exactly where to extend.
+    private var proactiveContent: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Proactivity Profile")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(DS.Colors.textSecondary)
+                Text("How often Pace can speak up on its own. Affects every proactive surface (focus nudges, calendar lead-time prompts, watch-mode observations, the morning brief).")
+                    .font(.system(size: 12))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Picker(
+                    "Proactivity profile",
+                    selection: Binding(
+                        get: { companionManager.proactivityProfile },
+                        set: { companionManager.setProactivityProfile($0) }
+                    )
+                ) {
+                    Text("Talkative").tag(PaceProactivityProfile.talkative)
+                    Text("Balanced").tag(PaceProactivityProfile.balanced)
+                    Text("Reserved").tag(PaceProactivityProfile.reserved)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(proactivityProfileDescription(for: companionManager.proactivityProfile))
+                        .font(.system(size: 11))
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Divider()
+                .background(DS.Colors.borderSubtle)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Nudge surfaces")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(DS.Colors.textSecondary)
+                Text("Each surface defaults off. Even when on, Pace routes every nudge through the restraint gate — nothing speaks during a Zoom call or while you're typing.")
+                    .font(.system(size: 12))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle(
+                    "Focus fatigue nudges",
+                    isOn: Binding(
+                        get: { companionManager.areFocusFatigueNudgesEnabled },
+                        set: { companionManager.setFocusFatigueNudgesEnabled($0) }
+                    )
+                )
+                Text("After 45 minutes on the same app, Pace can suggest a short break.")
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle(
+                    "Calendar pre-meeting nudges",
+                    isOn: Binding(
+                        get: { companionManager.areCalendarNudgesEnabled },
+                        set: { companionManager.setCalendarNudgesEnabled($0) }
+                    )
+                )
+                Text("Five-minute heads-up before meetings on your calendar.")
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle(
+                    "Watch-mode observation nudges",
+                    isOn: Binding(
+                        get: { companionManager.areWatchObservationNudgesEnabled },
+                        set: { companionManager.setWatchObservationNudgesEnabled($0) }
+                    )
+                )
+                Text("When watch mode spots an error or failed build on screen, Pace can offer to help.")
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle(
+                    "Always-Listening (wake word)",
+                    isOn: Binding(
+                        get: { companionManager.isAlwaysListeningEnabled },
+                        set: { companionManager.setAlwaysListeningEnabled($0) }
+                    )
+                )
+                Text("Audio buffer never persists. Battery impact ~5% per 3-hour session.")
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+            // Wave 2 adds episodic memory access
+        }
+    }
+
+    private func proactivityProfileDescription(for profile: PaceProactivityProfile) -> String {
+        switch profile {
+        case .talkative:
+            return "Talkative: shorter cooldowns (about 5 minutes between proactive utterances)."
+        case .balanced:
+            return "Balanced: default cooldowns (about 10 minutes between proactive utterances). Recommended for most users."
+        case .reserved:
+            return "Reserved: longer cooldowns (about 30 minutes between proactive utterances). Pace stays mostly quiet."
         }
     }
 
@@ -1446,36 +1593,128 @@ struct PaceSettingsWindowView: View {
     }
 
     private var savedFlowsList: some View {
-        let savedFlows = PaceFlowStore().listAll()
+        let savedFlows = companionManager.flowStore.listAll()
         return Group {
             if savedFlows.isEmpty {
-                Text("No saved flows yet.")
+                Text("Record your first flow by saying 'remember this flow as <name>'.")
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textTertiary)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
+                    if let lastSavedFlowActionMessage {
+                        Text(lastSavedFlowActionMessage)
+                            .font(.system(size: 11))
+                            .foregroundColor(DS.Colors.accent)
+                            .padding(.bottom, 6)
+                    }
                     ForEach(savedFlows) { savedFlow in
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(savedFlow.name)
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(DS.Colors.textPrimary)
-                                Text("\(savedFlow.steps.count) steps")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(DS.Colors.textTertiary)
-                            }
-                            Spacer()
-                        }
-                        .padding(.vertical, 8)
-                        .overlay(alignment: .bottom) {
-                            Divider()
-                                .background(DS.Colors.borderSubtle)
-                        }
+                        savedFlowRow(savedFlow)
                     }
                 }
             }
         }
         .id(recipeLibraryRefreshTick)
+    }
+
+    /// One row per saved flow. Shows the name, step count + createdAt,
+    /// and a trailing row of "Rename / Delete / Play once" buttons.
+    /// When the user taps Rename the name becomes a TextField the user
+    /// can edit; pressing Enter / clicking Save commits via
+    /// `PaceFlowStore.rename(...)`.
+    private func savedFlowRow(_ savedFlow: PaceRecordedFlow) -> some View {
+        let slug = PaceFlowStore.slug(for: savedFlow.name)
+        let isEditingRename = (flowRowEditingFlowName == savedFlow.name)
+        return HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                if isEditingRename {
+                    TextField(
+                        savedFlow.name,
+                        text: Binding(
+                            get: { flowRowRenameDrafts[slug] ?? savedFlow.name },
+                            set: { flowRowRenameDrafts[slug] = $0 }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 13))
+                    .onSubmit {
+                        commitRenameForSettings(originalFlowName: savedFlow.name)
+                    }
+                } else {
+                    Text(savedFlow.name)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DS.Colors.textPrimary)
+                }
+                Text("\(savedFlow.steps.count) step\(savedFlow.steps.count == 1 ? "" : "s") · saved \(savedFlow.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.system(size: 12))
+                    .foregroundColor(DS.Colors.textTertiary)
+            }
+            Spacer()
+            HStack(spacing: 6) {
+                if isEditingRename {
+                    settingsButton("Save", systemName: "checkmark.circle") {
+                        commitRenameForSettings(originalFlowName: savedFlow.name)
+                    }
+                    settingsButton("Cancel", systemName: "xmark.circle") {
+                        flowRowEditingFlowName = nil
+                        flowRowRenameDrafts[slug] = savedFlow.name
+                    }
+                } else {
+                    settingsButton("Play once", systemName: "play.circle") {
+                        playSavedFlowOnceFromSettings(savedFlow)
+                    }
+                    settingsButton("Rename", systemName: "pencil") {
+                        flowRowEditingFlowName = savedFlow.name
+                        flowRowRenameDrafts[slug] = savedFlow.name
+                    }
+                    settingsButton("Delete", systemName: "trash") {
+                        deleteSavedFlowFromSettings(savedFlow)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 10)
+        .overlay(alignment: .bottom) {
+            Divider()
+                .background(DS.Colors.borderSubtle)
+        }
+    }
+
+    private func commitRenameForSettings(originalFlowName: String) {
+        let slug = PaceFlowStore.slug(for: originalFlowName)
+        let newName = (flowRowRenameDrafts[slug] ?? originalFlowName)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newName.isEmpty, newName != originalFlowName else {
+            flowRowEditingFlowName = nil
+            return
+        }
+        do {
+            try companionManager.flowStore.rename(originalFlowName, to: newName)
+            lastSavedFlowActionMessage = "Renamed \(originalFlowName) → \(newName)."
+        } catch PaceFlowStoreError.destinationFlowAlreadyExists(let conflictingName) {
+            lastSavedFlowActionMessage = "A flow named \(conflictingName) already exists."
+        } catch {
+            lastSavedFlowActionMessage = "Couldn't rename \(originalFlowName)."
+        }
+        flowRowEditingFlowName = nil
+        recipeLibraryRefreshTick &+= 1
+    }
+
+    private func deleteSavedFlowFromSettings(_ savedFlow: PaceRecordedFlow) {
+        do {
+            try companionManager.flowStore.delete(named: savedFlow.name)
+            lastSavedFlowActionMessage = "Deleted \(savedFlow.name)."
+        } catch {
+            lastSavedFlowActionMessage = "Couldn't delete \(savedFlow.name)."
+        }
+        recipeLibraryRefreshTick &+= 1
+    }
+
+    private func playSavedFlowOnceFromSettings(_ savedFlow: PaceRecordedFlow) {
+        // Pre-approves the flow for the current session (the user
+        // clicked Play once — that IS the approval) and kicks off the
+        // existing replayer path.
+        companionManager.beginFlowReplay(savedFlow)
+        lastSavedFlowActionMessage = "Replaying \(savedFlow.name) — \(savedFlow.steps.count) step\(savedFlow.steps.count == 1 ? "" : "s")."
     }
 
     private func reloadRecipeLibrary() {
@@ -1511,6 +1750,138 @@ struct PaceSettingsWindowView: View {
         lastRecipeActionMessage = "Removed \(bundledRecipe.name)."
         recomputeInstalledRecipeSlugs()
         recipeLibraryRefreshTick &+= 1
+    }
+
+    // MARK: - Memory tab
+    //
+    // Mirrors the styling of `PacePrivacyDashboardView`. Shows the
+    // current episodic-memory roster, lets the user delete a fact
+    // (which writes a 30-day tombstone), toggle whether sensitive
+    // topics flow into the planner prompt, and wipe the whole store.
+    // The store + retrieval bucket are kept in sync by
+    // `CompanionManager.deleteEpisodicFact` /
+    // `resetAllEpisodicMemory`.
+    private var memoryContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Episodic memory")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(DS.Colors.textSecondary)
+                Text("Durable facts Pace has remembered from your conversations. Pace re-extracts after every turn; the dedup + 200-fact cap + tombstone gates keep this list bounded.")
+                    .font(.system(size: 12))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Toggle(isOn: $injectSensitiveEpisodicTopicsForSettings) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Inject sensitive topics in context")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DS.Colors.textPrimary)
+                    Text("Off by default. Even when off, Pace still STORES sensitive facts — it just keeps them out of the planner prompt. Sensitive topics: #health, #finance, #relationship.")
+                        .font(.system(size: 11))
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch)
+            .onChange(of: injectSensitiveEpisodicTopicsForSettings) { _, newValue in
+                PaceUserPreferencesStore.setBool(newValue, for: .injectSensitiveEpisodicTopics)
+            }
+
+            Divider()
+                .background(DS.Colors.borderSubtle)
+
+            episodicFactRosterSection
+                .id(memoryRefreshTick)
+
+            Divider()
+                .background(DS.Colors.borderSubtle)
+
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Reset all episodic memory")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DS.Colors.textPrimary)
+                    Text("Tombstones every fact for 30 days so re-extraction won't immediately resurrect them.")
+                        .font(.system(size: 12))
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                settingsButton("Reset", systemName: "trash.slash") {
+                    companionManager.resetAllEpisodicMemory()
+                    memoryRefreshTick &+= 1
+                }
+            }
+            .padding(.vertical, 8)
+        }
+    }
+
+    private var episodicFactRosterSection: some View {
+        let allEpisodicFacts = companionManager.episodicFactStore.allFacts
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("\(allEpisodicFacts.count) fact\(allEpisodicFacts.count == 1 ? "" : "s") remembered")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(DS.Colors.textSecondary)
+                Spacer()
+            }
+
+            if allEpisodicFacts.isEmpty {
+                Text("Pace hasn't remembered anything durable yet. Mention a preference (\"I prefer dark mode\") or a recurring fact and it'll show up here after the next turn.")
+                    .font(.system(size: 12))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 6)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(allEpisodicFacts) { fact in
+                        episodicFactRow(fact)
+                    }
+                }
+            }
+        }
+    }
+
+    private func episodicFactRow(_ fact: PaceEpisodicFact) -> some View {
+        let factIsSensitive = PaceEpisodicSensitiveTopics.isFactSensitive(fact)
+        return HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(fact.subject) \(fact.predicate) \(fact.value)")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    ForEach(fact.topicHashtags, id: \.self) { hashtag in
+                        Text(hashtag)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(factIsSensitive
+                                             ? DS.Colors.warning
+                                             : DS.Colors.accent)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule().fill(
+                                    (factIsSensitive ? DS.Colors.warning : DS.Colors.accent).opacity(0.12)
+                                )
+                            )
+                    }
+                    Text(String(format: "%.0f%% conf", fact.confidence * 100))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(DS.Colors.textTertiary)
+                }
+            }
+            Spacer(minLength: 0)
+            settingsButton("Delete", systemName: "trash") {
+                companionManager.deleteEpisodicFact(withIdentifier: fact.identifier)
+                memoryRefreshTick &+= 1
+            }
+        }
+        .padding(.vertical, 8)
+        .overlay(alignment: .bottom) {
+            Divider().background(DS.Colors.borderSubtle)
+        }
     }
 
     private var activityContent: some View {

@@ -57,6 +57,26 @@ enum PaceUserPreferenceKey: String {
     /// Minute-of-hour component (0...59) at which the morning brief
     /// fires on weekdays. Clamped on read.
     case morningTriageMinuteOfHour
+    /// User-tunable assertiveness profile for proactive speech. The
+    /// raw string maps to a `PaceProactivityProfile` case via the
+    /// store's typed accessor; unrecognized values fall back to
+    /// `.balanced`. Default `.balanced` matches the original PRD
+    /// cooldown values. See PRD docs/prds/restraint-and-proactivity.md.
+    case proactivityProfile
+    /// Opt-in: include sensitive-topic episodic facts (#health,
+    /// #finance, #relationship) in the LOCAL CONTEXT block injected
+    /// into the planner prompt. Default OFF — sensitive facts are
+    /// still stored, just not surfaced into prompts until the user
+    /// flips this in Settings → Memory. See PRD episodic-memory.md.
+    case injectSensitiveEpisodicTopics
+    /// Wave 4 speed lever: when ON, screen-action / screen-description
+    /// turns race Apple FM (text-only, no screen context) against the
+    /// full VLM-fed local planner — whichever streams first wins the
+    /// TTS pipeline. Default ON because it is RAM-neutral (FM is
+    /// already in-process) and the perceived latency win is large.
+    /// Users disable it from Settings → Planner if they prefer the
+    /// VLM-fed answer regardless of latency. See Wave 4 plan.
+    case enableSpeculativePlannerRace
 }
 
 enum PaceUserPreferencesStore {
@@ -110,5 +130,24 @@ enum PaceUserPreferencesStore {
 
     static func setInt(_ value: Int, for key: PaceUserPreferenceKey) {
         UserDefaults.standard.set(value, forKey: key.rawValue)
+    }
+
+    /// Read the user-tunable proactivity profile, falling back to
+    /// `.balanced` on a missing or unrecognized value. The default is
+    /// the PRD baseline (10-min focus cooldown, 30-sec episodic
+    /// cooldown) so an upgrade-in-place changes nothing until the
+    /// user opens Settings → Proactive.
+    static func proactivityProfile() -> PaceProactivityProfile {
+        let storedRawValue = UserDefaults.standard.string(forKey: PaceUserPreferenceKey.proactivityProfile.rawValue)
+        guard let storedRawValue,
+              let resolvedProfile = PaceProactivityProfile(rawValue: storedRawValue) else {
+            return .balanced
+        }
+        return resolvedProfile
+    }
+
+    /// Persist the user-tunable proactivity profile.
+    static func setProactivityProfile(_ profile: PaceProactivityProfile) {
+        UserDefaults.standard.set(profile.rawValue, forKey: PaceUserPreferenceKey.proactivityProfile.rawValue)
     }
 }

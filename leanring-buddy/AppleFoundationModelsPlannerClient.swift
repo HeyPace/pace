@@ -68,6 +68,45 @@ final class AppleFoundationModelsPlannerClient: BuddyPlannerClient {
         resetSession()
     }
 
+    /// Wave 4: tiny "ping" prompt fired at app launch so the system
+    /// model's weights are paged in before the user's first push-to-talk.
+    /// Uses the same @Generable typed-output path the real planner uses
+    /// (`PaceFMTurnResponse`) so the warmup exercises the exact runtime
+    /// surface area — anything that would block the first real call is
+    /// blocked here instead. RAM impact: zero new model weights (FM is
+    /// in-process and bundled with macOS); the work is purely lighting
+    /// up the existing system model.
+    ///
+    /// Bails silently when Apple Intelligence isn't available — the
+    /// caller at app launch is fire-and-forget and there's no UX value
+    /// in surfacing the unavailability here.
+    static func warmUp() async {
+        guard SystemLanguageModel.default.availability == .available else {
+            return
+        }
+        let startedAt = Date()
+        let warmUpSession = LanguageModelSession(
+            model: SystemLanguageModel.default,
+            instructions: { "respond with a single short word." }
+        )
+        let warmUpGenerationOptions = GenerationOptions(
+            sampling: .greedy,
+            temperature: 0,
+            maximumResponseTokens: 8
+        )
+        do {
+            _ = try await warmUpSession.respond(
+                to: "ping",
+                generating: PaceFMTurnResponse.self,
+                options: warmUpGenerationOptions
+            )
+            let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+            print("🧬 FM warmup: \(elapsedMs)ms (system model resident)")
+        } catch {
+            print("⚠️ FM warmup skipped: \(error)")
+        }
+    }
+
     func generateResponseStreaming(
         images: [(data: Data, label: String)],
         systemPrompt: String,

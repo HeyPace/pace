@@ -178,6 +178,19 @@ enum BuddyDictationPermissionProblem {
     case speechRecognitionDenied
 }
 
+/// Reason a listening window was opened — used by `openListeningWindow(...)`
+/// so the call site can record provenance (PTT vs wake-word vs barge-in
+/// vs deeplink) without needing a separate state variable. Wave 1c only
+/// uses `.bargeIn`; Wave 2 will populate `.wakeWord`. The plan deliberately
+/// shapes the API ahead of the dependent wave so the wake-word work can
+/// hand intent in without touching the manager.
+enum PaceListeningTrigger {
+    case userPushToTalk
+    case wakeWord
+    case bargeIn
+    case deeplink
+}
+
 private enum BuddyDictationStartSource {
     case microphoneButton
     case keyboardShortcut
@@ -228,6 +241,31 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
     private let audioEngine = AVAudioEngine()
     private var activeTranscriptionSession: (any BuddyStreamingTranscriptionSession)?
 
+    /// Per-callback normalized RMS publisher for the active audio tap.
+    /// Subscribers (e.g. the barge-in VAD wired through CompanionManager)
+    /// receive the SAME computed values the waveform UI sees — there is
+    /// only ONE AVAudioEngine tap, and we route the existing per-buffer
+    /// RMS into this publisher. Holding zero buffered audio is deliberate:
+    /// the VAD computes its decision per-sample and the buffer is
+    /// discarded on the next tap callback.
+    ///
+    /// `PassthroughSubject` (not `CurrentValueSubject`) because the
+    /// subscriber should ONLY observe energy while the tap is live —
+    /// stale "last RMS" values from a finished recording must not
+    /// retroactively fire the VAD on a fresh subscription.
+    let audioLevelPublisher = PassthroughSubject<Float, Never>()
+
+    /// Tracks an open "listening window" requested by an external trigger
+    /// (wake word, barge-in, deeplink) so the manager can guarantee at-
+    /// most-one window is active and prefer push-to-talk over everything
+    /// else. The window doesn't actually start audio capture — that work
+    /// lives in `startPushToTalkFromKeyboardShortcut` / future wake-word
+    /// path. The window exists as a contract: while it's open, callers
+    /// know the manager is "expecting voice input" and will treat the
+    /// next transcript as a turn.
+    private var activeListeningWindowTrigger: PaceListeningTrigger?
+    private var activeListeningWindowAutoCloseWorkItem: DispatchWorkItem?
+
     // Per-session diagnostics for the "No speech detected" failure
     // mode. If the recogniser reports no speech but we appended N
     // buffers with non-trivial peak RMS, the audio path is fine and
@@ -276,6 +314,57 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
 
     func stopPushToTalkFromKeyboardShortcut() {
         stopPushToTalk(expectedStartSource: .keyboardShortcut)
+    }
+
+    /// Opens a listening window of the given duration on behalf of an
+    /// external trigger (wake word, barge-in, deeplink). PTT always wins:
+    /// if a window is already open and a non-PTT trigger arrives, the
+    /// existing window stays as-is. The window auto-closes after
+    /// `durationInSeconds` or sooner when a transcript is finalized
+    /// (signalled today by resetSessionState() clearing
+    /// `activeListeningWindowTrigger`). In Wave 1c this method is the
+    /// barge-in handoff point — it doesn't itself start audio capture;
+    /// the actual restart path (wake-word or PTT) is responsible for
+    /// engine setup. Wave 2 wires the wake-word path through this same
+    /// method.
+    func openListeningWindow(durationInSeconds: Double, trigger: PaceListeningTrigger) {
+        // Push-to-talk wins. If the user is already holding the key,
+        // any non-PTT trigger is a redundant signal — ignore it so we
+        // don't reset the existing window's auto-close clock.
+        if let activeListeningWindowTrigger,
+           activeListeningWindowTrigger == .userPushToTalk,
+           trigger != .userPushToTalk {
+            return
+        }
+
+        activeListeningWindowAutoCloseWorkItem?.cancel()
+        activeListeningWindowTrigger = trigger
+
+        let autoCloseWorkItem = DispatchWorkItem { [weak self] in
+            Task { @MainActor in
+                self?.closeListeningWindowIfActive(trigger: trigger)
+            }
+        }
+        activeListeningWindowAutoCloseWorkItem = autoCloseWorkItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + durationInSeconds,
+            execute: autoCloseWorkItem
+        )
+    }
+
+    /// Test-only read of which trigger (if any) currently owns the
+    /// listening window. Exposed `internal` because the integration
+    /// tests verify that PTT can't be displaced by barge-in.
+    var currentListeningWindowTrigger: PaceListeningTrigger? {
+        activeListeningWindowTrigger
+    }
+
+    private func closeListeningWindowIfActive(trigger: PaceListeningTrigger) {
+        // Only close if this trigger is still the active one — a
+        // newer trigger may have arrived and replaced it.
+        guard activeListeningWindowTrigger == trigger else { return }
+        activeListeningWindowTrigger = nil
+        activeListeningWindowAutoCloseWorkItem = nil
     }
 
     func cancelCurrentDictation(preserveDraftText: Bool = true) {
@@ -612,6 +701,12 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
 
     private func resetSessionState() {
         pendingStartRequestIdentifier = UUID()
+        // A transcript finalize closes any open listening window per the
+        // Wave 1c contract — "auto-closes after durationInSeconds OR when
+        // transcript is finalized, whichever first."
+        activeListeningWindowAutoCloseWorkItem?.cancel()
+        activeListeningWindowAutoCloseWorkItem = nil
+        activeListeningWindowTrigger = nil
         activeTranscriptionSession = nil
         draftCallbacks = nil
         activeStartSource = nil
@@ -650,6 +745,14 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
 
         let rootMeanSquare = sqrt(summedSquares / Float(frameCount))
         let boostedLevel = min(max(rootMeanSquare * 10.2, 0), 1)
+
+        // Wave 1c barge-in: emit the per-callback raw RMS so the
+        // CompanionManager-owned VAD can decide on speech onset while
+        // TTS is playing. We publish on the audio thread (the tap
+        // callback runs there); subscribers in CompanionManager hop
+        // back to the MainActor inside their sink. This avoids holding
+        // a second buffer copy in memory or spinning up a second tap.
+        audioLevelPublisher.send(rootMeanSquare)
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }

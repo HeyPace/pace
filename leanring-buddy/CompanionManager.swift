@@ -148,12 +148,36 @@ final class CompanionManager: ObservableObject {
     @Published var detectedElementBubbleText: String?
 
     let buddyDictationManager = PacePushToTalkManager()
+    /// Wave 2b — always-listening wake-word spotter (Apple Speech,
+    /// on-device, ANE-backed). Lifecycled by
+    /// `bindWakeWordSpotterObservation`: starts when
+    /// `isAlwaysListeningEnabled` flips true, stops when it flips
+    /// false. Holds its own short-lived `AVAudioEngine` because the
+    /// PTT manager only installs its tap during an active turn —
+    /// the spotter needs to listen during idle and pauses itself
+    /// when PTT engages to avoid mic contention.
+    let wakeWordSpotter: any PaceWakeWordSpotterProtocol = PaceAppleSpeechWakeWordSpotter()
     let globalPushToTalkShortcutMonitor = GlobalPushToTalkShortcutMonitor()
     /// System-wide listener for the chat-input shortcut (default
     /// `cmd+shift+P`). Brings the notch panel forward and focuses the
     /// chat input — the keystroke entry point for typists who don't
     /// want to open the main window first.
     let globalChatShortcutMonitor = GlobalChatShortcutMonitor()
+
+    /// Stamps the timestamp of the most recent user mouse / keyboard /
+    /// scroll event. Read by `buildMorningTriageRestraintContext`,
+    /// `buildFailureRestraintContext`, and `drainProactiveQueueIfIdle`
+    /// so a proactive nudge that lands while the user is mid-input
+    /// gets queued instead of barging in. Lifecycle is tied to the
+    /// monitor / detector pair below — both start in `start()` and
+    /// stop in `stop()`.
+    let userInputActivityMonitor = PaceUserInputActivityMonitor()
+
+    /// Polls running applications for known call-app bundle
+    /// identifiers (Zoom, Teams, FaceTime, Slack) every five seconds.
+    /// Combined with the input-activity monitor, this gives the
+    /// restraint gate a "user is busy" signal without permission cost.
+    let activeCallDetector = PaceActiveCallDetector()
     /// Drives the chat input visibility inside the notch panel. Set
     /// `true` when the chat shortcut fires; the panel renders a
     /// TextField bound to `@FocusState` keyed on this flag. Cleared
@@ -302,7 +326,45 @@ final class CompanionManager: ObservableObject {
     private lazy var actionExecutor: PaceActionExecutor = {
         return PaceActionExecutor()
     }()
-    private let episodicFactExtractor = PaceEpisodicFactExtractor()
+
+    // MARK: - Demonstration flow recording / replay
+    //
+    // The flow store, recorder, and replayer compose the Wave 3
+    // demonstration-replay surface. We construct them lazily because
+    // (a) `PaceFlowRecorder` / `PaceFlowReplayer` are `@MainActor` and
+    // (b) the recorder installs a CGEventTap on `start(...)` — the
+    // store and replayer themselves are cheap and can be hot, but we
+    // keep them all lazy so the construction cost is paid the first
+    // time the user actually uses a flow command, not at app launch.
+    let flowStore = PaceFlowStore()
+    private lazy var flowRecorder: PaceFlowRecorder = PaceFlowRecorder()
+    private lazy var flowReplayer: PaceFlowReplayer = PaceFlowReplayer()
+
+    /// Session-scoped approval cache for `run_flow`. First replay of a
+    /// given flow name requires explicit user approval; subsequent
+    /// replays in the same session bypass the approval popup. Cleared
+    /// on session reset by `resetFlowReplayApprovalCacheForSession()`.
+    private var flowNamesApprovedForReplayThisSession: Set<String> = []
+    /// Deterministic v1 pattern extractor. Fires inline because it is
+    /// pure-Swift, sub-millisecond, and catches the obvious preference
+    /// / family-health / work-deadline cases without any model call.
+    private let episodicPatternExtractor = PaceEpisodicPatternFactExtractor()
+    /// LLM-backed extractor (Apple FM preferred, LM Studio fallback)
+    /// for everything the pattern extractor misses. Fires from a
+    /// DETACHED task — never blocks the user-facing turn.
+    private let episodicLLMFactExtractor: PaceEpisodicFactExtractor = PaceEpisodicFactExtractorFactory.makeDefault()
+    /// In-memory store enforcing the dedup, tombstone, and 200-fact
+    /// LRU cap from PRD episodic-memory.md. Both extractors funnel
+    /// here before facts reach the retrieval index, so the same
+    /// gates apply regardless of which extractor produced the fact.
+    let episodicFactStore = PaceEpisodicFactStore()
+    /// Last-seen intent for the turn currently completing. Set from
+    /// the intent classifier site, read by
+    /// `recordConversationTurn` so episodic extraction only fires
+    /// for `.pureKnowledge | .screenDescription | .chitchat` turns
+    /// per the PRD. Defaults to `.unknown` so a missing intent
+    /// classifier doesn't silently disable episodic extraction.
+    var lastIntentRouteForEpisodicExtraction: PaceIntent = .unknown
 
     /// Native macOS OCR. Runs in parallel with the VLM, both pre-warmed
     /// at PTT-press so neither shows up in perceived latency. The VLM
@@ -355,6 +417,64 @@ final class CompanionManager: ObservableObject {
     func setUseLocalVLMForScreenContext(_ enabled: Bool) {
         useLocalVLMForScreenContext = enabled
         PaceUserPreferencesStore.setBool(enabled, for: .useLocalVLMForScreenContext)
+    }
+
+    /// Wave 4 speed lever: when ON, screen-action / screen-description
+    /// turns race Apple FM (lite, text-only) against the full VLM-fed
+    /// local planner. RAM-neutral because FM is in-process. Default ON
+    /// — this is a hot feature, users opt OUT in Settings → Planner.
+    @Published var isSpeculativePlannerRaceEnabled: Bool = PaceUserPreferencesStore
+        .bool(.enableSpeculativePlannerRace, default: true)
+
+    func setSpeculativePlannerRaceEnabled(_ enabled: Bool) {
+        isSpeculativePlannerRaceEnabled = enabled
+        PaceUserPreferencesStore.setBool(enabled, for: .enableSpeculativePlannerRace)
+    }
+
+    /// Wave 4 gate: pure predicate the speculative-race wiring uses to
+    /// decide whether THIS turn qualifies for the race. Centralized in
+    /// one method so the gating rules are testable as a unit and can be
+    /// audited in one place. Returns true only when EVERY gate passes:
+    ///
+    /// - intent is screenAction OR screenDescription (the slow paths)
+    /// - the speculative-race toggle is ON
+    /// - the VLM is configured to run this turn (otherwise lite vs full
+    ///   is the same input shape — no race value)
+    /// - Apple FM availability is `.available` (lite path needs it)
+    ///
+    /// CompanionManager calls this inline; tests call it through the
+    /// nonisolated static helper below.
+    func speculativeRaceShouldFire(
+        intent: PaceIntent,
+        appleFoundationModelsIsAvailable: Bool
+    ) -> Bool {
+        Self.speculativeRaceShouldFire(
+            intent: intent,
+            isToggleEnabled: isSpeculativePlannerRaceEnabled,
+            isLocalVLMConfigured: useLocalVLMForScreenContext,
+            appleFoundationModelsIsAvailable: appleFoundationModelsIsAvailable
+        )
+    }
+
+    /// Pure form of `speculativeRaceShouldFire(intent:appleFoundation
+    /// ModelsIsAvailable:)` so unit tests can exercise the gate without
+    /// constructing a full CompanionManager. The four flags are the only
+    /// inputs to the decision — kept explicit so the call site is auditable.
+    nonisolated static func speculativeRaceShouldFire(
+        intent: PaceIntent,
+        isToggleEnabled: Bool,
+        isLocalVLMConfigured: Bool,
+        appleFoundationModelsIsAvailable: Bool
+    ) -> Bool {
+        guard isToggleEnabled else { return false }
+        guard isLocalVLMConfigured else { return false }
+        guard appleFoundationModelsIsAvailable else { return false }
+        switch intent {
+        case .screenAction, .screenDescription:
+            return true
+        case .pureKnowledge, .chitchat, .phoneLargeModel, .unknown:
+            return false
+        }
     }
 
     /// Conversation history so Claude remembers prior exchanges within a session.
@@ -431,6 +551,30 @@ final class CompanionManager: ObservableObject {
     private var chatShortcutCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
+
+    /// Wave 1c barge-in plumbing. The VAD is a mutable struct; we hold
+    /// it through a class wrapper-style storage (the `var` here works
+    /// because CompanionManager is itself a class) so the subscription
+    /// path can call `observe(...)` mutably. The subscription is
+    /// attached only when both gates fire — `voiceState == .responding`
+    /// AND `isAlwaysListeningEnabled == true` — and is torn down the
+    /// instant either flips, so the VAD never sees stale audio.
+    private var bargeInVAD = PaceBargeInVAD()
+    private var bargeInAudioLevelCancellable: AnyCancellable?
+    private var bargeInGatePropertyCancellable: AnyCancellable?
+
+    /// Wave 2b — bindings for the wake-word spotter. The toggle
+    /// cancellable observes `isAlwaysListeningEnabled` and flips the
+    /// spotter on/off; the detection cancellable forwards each
+    /// `PaceWakeWordDetection` into `handleWakeWordDetected(_:)`.
+    private var wakeWordToggleCancellable: AnyCancellable?
+    private var wakeWordDetectionCancellable: AnyCancellable?
+    /// PTT-engagement bindings. When PTT starts recording the spotter
+    /// pauses so the two audio paths don't fight over the mic; when
+    /// PTT releases the spotter resumes if always-listening is still
+    /// on. Done as a separate cancellable from the toggle bind so the
+    /// two policies (toggle and PTT) compose cleanly.
+    private var wakeWordPTTBridgeCancellable: AnyCancellable?
     private var accessibilityCheckTimer: Timer?
     private var lmStudioReachabilityCheckTimer: Timer?
     private var pendingKeyboardShortcutStartTask: Task<Void, Never>?
@@ -824,6 +968,10 @@ You can turn this off at any time in Settings → Cloud bridge.
     func setFocusFatigueNudgesEnabled(_ enabled: Bool) {
         areFocusFatigueNudgesEnabled = enabled
         PaceUserPreferencesStore.setBool(enabled, for: .areFocusFatigueNudgesEnabled)
+        applyProactiveNudgeGeneratorEnablement(
+            identifier: focusFatigueNudgeGenerator.identifier,
+            enabled: enabled
+        )
     }
 
     @Published var areCalendarNudgesEnabled: Bool = PaceUserPreferencesStore
@@ -832,6 +980,10 @@ You can turn this off at any time in Settings → Cloud bridge.
     func setCalendarNudgesEnabled(_ enabled: Bool) {
         areCalendarNudgesEnabled = enabled
         PaceUserPreferencesStore.setBool(enabled, for: .areCalendarNudgesEnabled)
+        applyProactiveNudgeGeneratorEnablement(
+            identifier: calendarPreMeetingNudgeGenerator.identifier,
+            enabled: enabled
+        )
     }
 
     @Published var areWatchObservationNudgesEnabled: Bool = PaceUserPreferencesStore
@@ -840,6 +992,333 @@ You can turn this off at any time in Settings → Cloud bridge.
     func setWatchObservationNudgesEnabled(_ enabled: Bool) {
         areWatchObservationNudgesEnabled = enabled
         PaceUserPreferencesStore.setBool(enabled, for: .areWatchObservationNudgesEnabled)
+        applyProactiveNudgeGeneratorEnablement(
+            identifier: watchModeObservationNudgeGenerator.identifier,
+            enabled: enabled
+        )
+    }
+
+    /// Routes a per-generator enable/disable through the orchestrator
+    /// without tearing down the rest. Closures match what `start()`
+    /// passes to `proactiveNudgeOrchestrator.start(...)` — the
+    /// orchestrator stores them per-start, so the user can flip
+    /// individual toggles after launch without restarting Pace.
+    private func applyProactiveNudgeGeneratorEnablement(
+        identifier: String,
+        enabled: Bool
+    ) {
+        proactiveNudgeOrchestrator.setGeneratorEnabled(
+            identifier: identifier,
+            enabled: enabled,
+            emit: { [weak self] utterance in
+                self?.speakProactiveNudge(utterance)
+            },
+            queueForLater: { [weak self] utterance in
+                self?.enqueueProactiveUtterance(utterance)
+            }
+        )
+    }
+
+    // MARK: - Proactivity profile
+
+    /// User-tunable proactive-speech assertiveness. Default `.balanced`
+    /// matches the PRD's original cooldown values; `.talkative`
+    /// shortens cooldowns; `.reserved` lengthens them. The picker
+    /// lives in Settings → Proactive. Read by the proactive context
+    /// builders so the gate's `cooldownSeconds(forProfile:...)` table
+    /// applies the user's preference on every gate decision.
+    @Published var proactivityProfile: PaceProactivityProfile = PaceUserPreferencesStore.proactivityProfile() {
+        didSet {
+            guard oldValue != proactivityProfile else { return }
+            PaceUserPreferencesStore.setProactivityProfile(proactivityProfile)
+        }
+    }
+
+    func setProactivityProfile(_ profile: PaceProactivityProfile) {
+        proactivityProfile = profile
+    }
+
+    // MARK: - Proactive utterance queue + idle drain
+    //
+    // When the gate returns `.queueUntilIdle` (user is mid-input or on
+    // a call), the manager parks the utterance here and lets the
+    // 10-second drain timer try again. The queue is intentionally
+    // tiny — three entries — so a long busy period doesn't lead to a
+    // burst of stale nudges the moment the user pauses.
+
+    /// Capped FIFO of nudges waiting for the user to pause. Cap is 3
+    /// — the oldest entry gets dropped on overflow. Mutations only
+    /// happen on the main actor; no separate lock needed.
+    private(set) var proactiveUtteranceQueue: [PaceProactiveUtterance] = []
+
+    /// Maximum entries kept in the queue. Above this the oldest is
+    /// dropped so a busy hour doesn't produce a five-utterance burst.
+    private static let proactiveUtteranceQueueMaximumCapacity: Int = 3
+
+    /// Backs the 10-second drain loop. Started in `start()`, torn
+    /// down in `stop()`. Each tick attempts at most one utterance —
+    /// the next tick handles the rest so we never speak two nudges
+    /// back-to-back in a single drain pass.
+    private var proactiveQueueDrainTimer: Timer?
+
+    /// Adds an utterance to the proactive queue, dropping the oldest
+    /// entry once the cap is exceeded. Exposed for nudge generators
+    /// and the morning-triage scheduler — both should call this when
+    /// the gate returns `.queueUntilIdle` instead of speaking
+    /// directly.
+    func enqueueProactiveUtterance(_ utterance: PaceProactiveUtterance) {
+        proactiveUtteranceQueue.append(utterance)
+        if proactiveUtteranceQueue.count > Self.proactiveUtteranceQueueMaximumCapacity {
+            proactiveUtteranceQueue.removeFirst(
+                proactiveUtteranceQueue.count - Self.proactiveUtteranceQueueMaximumCapacity
+            )
+        }
+    }
+
+    /// Test seam: read the queue contents without depending on
+    /// internal ordering invariants.
+    func proactiveUtteranceQueueSnapshot() -> [PaceProactiveUtterance] {
+        return proactiveUtteranceQueue
+    }
+
+    /// Speaks the oldest queued nudge if all three idle signals say
+    /// "now is a good time": no recent input, not on a call, voice
+    /// turn idle. Otherwise leaves the queue untouched for the next
+    /// tick. Called by the drain timer; safe to call manually.
+    func drainProactiveQueueIfIdle(now: Date = Date()) {
+        guard proactiveUtteranceQueue.isEmpty == false else { return }
+
+        if let lastUserInputAt = userInputActivityMonitor.lastUserInputAt,
+           now.timeIntervalSince(lastUserInputAt) < PaceRestraintGate.activeInputWindowSeconds {
+            return
+        }
+        if activeCallDetector.isOnActiveCall {
+            return
+        }
+        guard voiceState == .idle else { return }
+
+        let nextUtterance = proactiveUtteranceQueue.removeFirst()
+        Task { @MainActor in
+            do {
+                try await ttsClient.speakText(nextUtterance.spokenText)
+            } catch {
+                print("⚠️ Proactive queue drain TTS failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private static let proactiveQueueDrainIntervalSeconds: TimeInterval = 10
+
+    private func startProactiveQueueDrainTimer() {
+        proactiveQueueDrainTimer?.invalidate()
+        proactiveQueueDrainTimer = Timer.scheduledTimer(
+            withTimeInterval: Self.proactiveQueueDrainIntervalSeconds,
+            repeats: true
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.drainProactiveQueueIfIdle()
+            }
+        }
+    }
+
+    // MARK: - Proactive nudge orchestration (Wave 1b)
+    //
+    // Three generators, each subscribed to an already-running source,
+    // route their decisions through `PaceRestraintGate.decide(...)`
+    // BEFORE reaching the TTS layer. CompanionManager owns the
+    // orchestrator but lazy-builds it so the generators see the live
+    // restraint context closure (which reads `lastUserInputAt`,
+    // `isOnActiveCall`, `proactivityProfile`, etc.). All three
+    // generators default OFF — `start()` only kicks the ones whose
+    // user preference is on.
+
+    private lazy var focusFatigueNudgeGenerator: PaceFocusFatigueNudgeGenerator = {
+        return PaceFocusFatigueNudgeGenerator(
+            restraintContextProvider: { [weak self] in
+                self?.buildProactiveRestraintContextForGenerators() ?? PaceRestraintContext(
+                    now: Date(),
+                    lastProactiveUtteranceAt: nil,
+                    lastEpisodicRecallAt: nil,
+                    lastUserInputAt: nil,
+                    frontmostAppBundleIdentifier: nil,
+                    isOnActiveCall: false,
+                    wakeWordConfidence: nil,
+                    intent: .pureKnowledge,
+                    proactiveSource: .watchNudge,
+                    profile: .balanced
+                )
+            }
+        )
+    }()
+
+    private lazy var calendarPreMeetingNudgeGenerator: PaceCalendarPreMeetingNudgeGenerator = {
+        return PaceCalendarPreMeetingNudgeGenerator(
+            restraintContextProvider: { [weak self] in
+                self?.buildProactiveRestraintContextForGenerators() ?? PaceRestraintContext(
+                    now: Date(),
+                    lastProactiveUtteranceAt: nil,
+                    lastEpisodicRecallAt: nil,
+                    lastUserInputAt: nil,
+                    frontmostAppBundleIdentifier: nil,
+                    isOnActiveCall: false,
+                    wakeWordConfidence: nil,
+                    intent: .pureKnowledge,
+                    proactiveSource: .backgroundReminder,
+                    profile: .balanced
+                )
+            },
+            calendarConnector: calendarRetrievalConnector
+        )
+    }()
+
+    private lazy var watchModeObservationNudgeGenerator: PaceWatchModeObservationNudgeGenerator = {
+        return PaceWatchModeObservationNudgeGenerator(
+            restraintContextProvider: { [weak self] in
+                self?.buildProactiveRestraintContextForGenerators() ?? PaceRestraintContext(
+                    now: Date(),
+                    lastProactiveUtteranceAt: nil,
+                    lastEpisodicRecallAt: nil,
+                    lastUserInputAt: nil,
+                    frontmostAppBundleIdentifier: nil,
+                    isOnActiveCall: false,
+                    wakeWordConfidence: nil,
+                    intent: .screenDescription,
+                    proactiveSource: .watchNudge,
+                    profile: .balanced
+                )
+            },
+            watchEventPublisher: screenWatchModeController.eventPublisher.eraseToAnyPublisher(),
+            screenDescriptionProvider: { [weak self] screenLabel in
+                self?.cachedScreenDescriptionForNudgeGenerator(screenLabel: screenLabel)
+            }
+        )
+    }()
+
+    private lazy var proactiveNudgeOrchestrator: PaceProactiveNudgeOrchestrator = {
+        return PaceProactiveNudgeOrchestrator(
+            restraintContextProvider: { [weak self] in
+                self?.buildProactiveRestraintContextForGenerators() ?? PaceRestraintContext(
+                    now: Date(),
+                    lastProactiveUtteranceAt: nil,
+                    lastEpisodicRecallAt: nil,
+                    lastUserInputAt: nil,
+                    frontmostAppBundleIdentifier: nil,
+                    isOnActiveCall: false,
+                    wakeWordConfidence: nil,
+                    intent: .pureKnowledge,
+                    proactiveSource: .watchNudge,
+                    profile: .balanced
+                )
+            },
+            generators: [
+                focusFatigueNudgeGenerator,
+                calendarPreMeetingNudgeGenerator,
+                watchModeObservationNudgeGenerator,
+            ]
+        )
+    }()
+
+    /// Built by every nudge generator on every gate decision. Reads
+    /// the live `userInputActivityMonitor` / `activeCallDetector` /
+    /// `proactivityProfile` so a profile change or a Zoom launch
+    /// affects the next decision instantly.
+    private func buildProactiveRestraintContextForGenerators(
+        proactiveSource: PaceProactiveSource = .watchNudge,
+        intent: PaceIntent = .pureKnowledge
+    ) -> PaceRestraintContext {
+        let frontmostBundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        return PaceRestraintContext(
+            now: Date(),
+            lastProactiveUtteranceAt: lastProactiveUtteranceAt,
+            lastEpisodicRecallAt: nil,
+            lastUserInputAt: userInputActivityMonitor.lastUserInputAt,
+            frontmostAppBundleIdentifier: frontmostBundleIdentifier,
+            isOnActiveCall: activeCallDetector.isOnActiveCall,
+            wakeWordConfidence: nil,
+            intent: intent,
+            proactiveSource: proactiveSource,
+            profile: proactivityProfile
+        )
+    }
+
+    /// Pulls the most-recent per-screen VLM/OCR description out of
+    /// `perScreenAnalysisCache` for the watch-mode nudge generator.
+    /// Stale entries (>2 minutes) return nil so the generator does
+    /// not fire on a description that no longer matches what's on
+    /// screen. This is the SAME freshness gate
+    /// `recordWatchModeEventInJournal` already uses.
+    private func cachedScreenDescriptionForNudgeGenerator(screenLabel: String) -> String? {
+        guard let cachedScreenAnalysis = perScreenAnalysisCache[screenLabel] else { return nil }
+        guard Date().timeIntervalSince(cachedScreenAnalysis.capturedAt) <= 120 else { return nil }
+        let cachedDescription = cachedScreenAnalysis.analysis.description
+        return cachedDescription.isEmpty ? nil : cachedDescription
+    }
+
+    /// Updated whenever a proactive nudge or the morning brief speaks.
+    /// Feeds the gate's cooldown check so back-to-back nudges respect
+    /// the user's profile (talkative / balanced / reserved).
+    private var lastProactiveUtteranceAt: Date?
+
+    /// Speaks a proactive utterance through TTS and stamps the cooldown
+    /// clock. Used by the orchestrator's `emit` closure; tests that
+    /// don't want real audio call `enqueueProactiveUtterance` directly.
+    private func speakProactiveNudge(_ utterance: PaceProactiveUtterance) {
+        lastProactiveUtteranceAt = Date()
+        // Journal the nudge so paceHistory can recall it later. Pre-
+        // existing journal-style retrieval surface, no new index.
+        localRetriever.recordPaceHistory(
+            userTranscript: "(system) proactive nudge",
+            assistantResponse: utterance.spokenText
+        )
+        refreshLocalRetrievalPublishedState()
+        Task { @MainActor in
+            do {
+                try await ttsClient.speakText(utterance.spokenText)
+            } catch {
+                print("⚠️ Proactive nudge TTS failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Starts whichever subset of generators the user has enabled.
+    /// Called from `start()` after the input/call monitors come up.
+    private func startProactiveNudgeOrchestrator() {
+        let emitClosure: (PaceProactiveUtterance) -> Void = { [weak self] utterance in
+            self?.speakProactiveNudge(utterance)
+        }
+        let queueClosure: (PaceProactiveUtterance) -> Void = { [weak self] utterance in
+            self?.enqueueProactiveUtterance(utterance)
+        }
+
+        proactiveNudgeOrchestrator.start(emit: emitClosure, queueForLater: queueClosure)
+        // Initial fan-out: stop generators whose preference is off.
+        // `start()` on the orchestrator brought ALL generators up;
+        // honoring the per-source toggles here keeps the default
+        // behavior (all off) intact.
+        if !areFocusFatigueNudgesEnabled {
+            proactiveNudgeOrchestrator.setGeneratorEnabled(
+                identifier: focusFatigueNudgeGenerator.identifier,
+                enabled: false,
+                emit: emitClosure,
+                queueForLater: queueClosure
+            )
+        }
+        if !areCalendarNudgesEnabled {
+            proactiveNudgeOrchestrator.setGeneratorEnabled(
+                identifier: calendarPreMeetingNudgeGenerator.identifier,
+                enabled: false,
+                emit: emitClosure,
+                queueForLater: queueClosure
+            )
+        }
+        if !areWatchObservationNudgesEnabled {
+            proactiveNudgeOrchestrator.setGeneratorEnabled(
+                identifier: watchModeObservationNudgeGenerator.identifier,
+                enabled: false,
+                emit: emitClosure,
+                queueForLater: queueClosure
+            )
+        }
     }
 
     // MARK: - Morning triage (daily brief)
@@ -915,7 +1394,8 @@ You can turn this off at any time in Settings → Cloud bridge.
                         isOnActiveCall: false,
                         wakeWordConfidence: nil,
                         intent: .pureKnowledge,
-                        proactiveSource: .morningTriage
+                        proactiveSource: .morningTriage,
+                        profile: .balanced
                     )
                 }
                 return self.buildMorningTriageRestraintContext(forNow: context.now)
@@ -1126,12 +1606,13 @@ You can turn this off at any time in Settings → Cloud bridge.
             now: now,
             lastProactiveUtteranceAt: nil,
             lastEpisodicRecallAt: nil,
-            lastUserInputAt: nil,
+            lastUserInputAt: userInputActivityMonitor.lastUserInputAt,
             frontmostAppBundleIdentifier: frontmostBundleIdentifier,
-            isOnActiveCall: false,
+            isOnActiveCall: activeCallDetector.isOnActiveCall,
             wakeWordConfidence: nil,
             intent: .pureKnowledge,
-            proactiveSource: .morningTriage
+            proactiveSource: .morningTriage,
+            profile: proactivityProfile
         )
     }
 
@@ -1529,15 +2010,16 @@ You can turn this off at any time in Settings → Cloud bridge.
             now: now,
             lastProactiveUtteranceAt: nil,
             lastEpisodicRecallAt: nil,
-            lastUserInputAt: nil,
+            lastUserInputAt: userInputActivityMonitor.lastUserInputAt,
             frontmostAppBundleIdentifier: frontmostBundleIdentifier,
-            isOnActiveCall: false,
+            isOnActiveCall: activeCallDetector.isOnActiveCall,
             wakeWordConfidence: nil,
             // Failures are always meaningful intent for the gate's
             // confidence check; the active-call gate is the real
             // filter we care about here.
             intent: .pureKnowledge,
-            proactiveSource: .watchNudge
+            proactiveSource: .watchNudge,
+            profile: proactivityProfile
         )
     }
 
@@ -1668,14 +2150,28 @@ You can turn this off at any time in Settings → Cloud bridge.
             assistantResponse: assistantResponse,
             recordedAt: recordedAt
         )
-        let extractedFacts = episodicFactExtractor.extractFacts(
+        let frontmostAppName = NSWorkspace.shared.frontmostApplication?.localizedName
+        // 1. Fast pattern extractor — inline, sub-millisecond.
+        let patternExtractedFacts = episodicPatternExtractor.extractFacts(
             from: userTranscript,
             assistantText: assistantResponse,
-            frontmostApplicationName: NSWorkspace.shared.frontmostApplication?.localizedName,
+            frontmostApplicationName: frontmostAppName,
             sourceTurnId: stableTurnId
         )
-        localRetriever.recordEpisodicFacts(extractedFacts)
+        recordExtractedEpisodicFacts(patternExtractedFacts, turnId: stableTurnId)
         refreshLocalRetrievalPublishedState()
+
+        // 2. LLM-backed extractor — DETACHED. Never awaited by the
+        //    user-facing pipeline. Apple FM is in-process, ~0 RAM
+        //    delta. LM Studio fallback is loopback-only. Either
+        //    failure is silent — episodic memory is best-effort.
+        scheduleDetachedEpisodicLLMExtractionCall(
+            userTranscript: userTranscript,
+            assistantSpokenText: assistantResponse,
+            frontmostAppName: frontmostAppName,
+            turnId: stableTurnId,
+            intentRoute: lastIntentRouteForEpisodicExtraction
+        )
 
         guard let displacedTurnPair else { return }
         scheduleDetachedThreadSummarizationCall(
@@ -1723,6 +2219,99 @@ You can turn this off at any time in Settings → Cloud bridge.
                 print("⚠️ Thread summarizer call failed: \(error)")
             }
         }
+    }
+
+    /// Passes a batch of newly-extracted facts through the
+    /// `PaceEpisodicFactStore` (dedup + tombstone gates + 200-fact
+    /// LRU cap) and writes the surviving documents into the local
+    /// retrieval index. Confidence threshold ≥0.7 is applied here so
+    /// callers don't have to.
+    func recordExtractedEpisodicFacts(
+        _ rawFacts: [PaceEpisodicFact],
+        turnId: String
+    ) {
+        let highConfidenceFacts = rawFacts.filter { $0.confidence >= 0.7 }
+        guard !highConfidenceFacts.isEmpty else { return }
+        let appliedOutcomes = episodicFactStore.applyBatch(highConfidenceFacts)
+        let survivingFacts = appliedOutcomes.compactMap { (fact, outcome) -> PaceEpisodicFact? in
+            switch outcome {
+            case .inserted, .replaced, .appended:
+                return fact
+            case .skippedBecauseOfTombstone:
+                return nil
+            }
+        }
+        // For replacements, drop the previous fact's retrieval doc
+        // so the store never carries two `(subject, predicate)`
+        // rows when the dedup policy said "replace".
+        for (_, outcome) in appliedOutcomes {
+            if case .replaced(let previousFactId) = outcome {
+                localRetriever.removeEpisodicFactDocument(withId: previousFactId)
+            }
+        }
+        if !survivingFacts.isEmpty {
+            localRetriever.recordEpisodicFacts(survivingFacts)
+        }
+    }
+
+    /// Fires the LLM-backed episodic extractor on a DETACHED utility
+    /// task. The user-facing TTS/planner pipeline NEVER awaits this.
+    /// Apple FM is in-process and adds ~0 RAM delta; LM Studio is
+    /// loopback-only via `PaceLocalEndpointGuard`. Per the PRD only
+    /// `.pureKnowledge | .screenDescription | .chitchat` turns are
+    /// extracted from — `.screenAction` and `.phoneLargeModel` turns
+    /// are commands, not durable facts.
+    private func scheduleDetachedEpisodicLLMExtractionCall(
+        userTranscript: String,
+        assistantSpokenText: String,
+        frontmostAppName: String?,
+        turnId: String,
+        intentRoute: PaceIntent
+    ) {
+        let intentIsEligibleForExtraction: Bool
+        switch intentRoute {
+        case .pureKnowledge, .screenDescription, .chitchat, .unknown:
+            // `.unknown` runs the full pipeline anyway; we let it
+            // through so an unclassified turn doesn't silently drop
+            // an extractable fact.
+            intentIsEligibleForExtraction = true
+        case .screenAction, .phoneLargeModel:
+            intentIsEligibleForExtraction = false
+        }
+        guard intentIsEligibleForExtraction else { return }
+        let extractorForThisCall = episodicLLMFactExtractor
+        Task.detached(priority: .utility) { [weak self] in
+            let extractedFacts = await extractorForThisCall.extract(
+                userTranscript: userTranscript,
+                assistantSpokenText: assistantSpokenText,
+                frontmostAppName: frontmostAppName,
+                turnId: turnId
+            )
+            guard !extractedFacts.isEmpty else { return }
+            await MainActor.run {
+                self?.recordExtractedEpisodicFacts(extractedFacts, turnId: turnId)
+                self?.refreshLocalRetrievalPublishedState()
+            }
+        }
+    }
+
+    /// User-facing API for Settings → Memory → Delete fact. Adds a
+    /// 30-day tombstone (via `PaceEpisodicFactStore`) AND removes
+    /// the retrieval document so the LOCAL CONTEXT block stops
+    /// showing the fact immediately.
+    func deleteEpisodicFact(withIdentifier factId: String) {
+        guard let _ = episodicFactStore.deleteFact(withIdentifier: factId) else { return }
+        localRetriever.removeEpisodicFactDocument(withId: factId)
+        refreshLocalRetrievalPublishedState()
+    }
+
+    /// User-facing API for Settings → Memory → Reset all. Tombstones
+    /// every currently-stored fact for 30 days and clears the
+    /// retrieval bucket.
+    func resetAllEpisodicMemory() {
+        episodicFactStore.resetAll()
+        localRetriever.clearDocuments(forSource: .episodicMemory)
+        refreshLocalRetrievalPublishedState()
     }
 
     /// Drops state if the idle threshold elapsed AND journals one
@@ -2250,25 +2839,157 @@ You can turn this off at any time in Settings → Cloud bridge.
     }
 
     private func handleFlowCommand(_ command: PaceFlowCommand, transcript: String) {
-        let spokenText: String
         switch command {
         case .startRecording(let name):
-            spokenText = "ready to record \(name). flow recording is queued for the AX recorder."
+            let spokenText = startFlowRecordingFromVoiceCommand(flowName: name)
+            handleImmediateLocalModeResponse(transcript: transcript, spokenText: spokenText)
+
         case .stopRecording:
-            spokenText = "recording stopped."
+            let spokenText = stopFlowRecordingFromVoiceCommand()
+            handleImmediateLocalModeResponse(transcript: transcript, spokenText: spokenText)
+
         case .run(let name):
-            spokenText = PaceFlowStore().load(named: name) == nil
-                ? "i couldn't find a flow named \(name)."
-                : "that flow is ready for approval before replay."
+            // For voice-triggered replay we mark the flow as approved
+            // for the current session (the voice command IS the
+            // approval). Same-session subsequent runs of the same flow
+            // bypass any further approval prompt.
+            guard let storedFlow = flowStore.load(named: name) else {
+                handleImmediateLocalModeResponse(
+                    transcript: transcript,
+                    spokenText: "i couldn't find a flow named \(name)."
+                )
+                return
+            }
+            flowNamesApprovedForReplayThisSession.insert(storedFlow.name)
+            handleImmediateLocalModeResponse(
+                transcript: transcript,
+                spokenText: "replaying \(storedFlow.name) now."
+            )
+            beginFlowReplay(storedFlow)
+
         case .delete(let name):
+            let spokenText: String
             do {
-                try PaceFlowStore().delete(named: name)
+                try flowStore.delete(named: name)
                 spokenText = "deleted \(name)."
             } catch {
                 spokenText = "i couldn't delete \(name)."
             }
+            handleImmediateLocalModeResponse(transcript: transcript, spokenText: spokenText)
         }
-        handleImmediateLocalModeResponse(transcript: transcript, spokenText: spokenText)
+    }
+
+    /// Begin recording into a fresh flow named `flowName`. Returns the
+    /// spoken-ready confirmation copy so the caller can route it
+    /// through `handleImmediateLocalModeResponse(...)` (voice command)
+    /// or back to the planner observation loop (`record_flow` tool).
+    @discardableResult
+    func startFlowRecordingFromVoiceCommand(flowName: String) -> String {
+        let trimmedFlowName = flowName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedFlowName.isEmpty else {
+            return "flow recording needs a name."
+        }
+        flowRecorder.start(flowName: trimmedFlowName)
+        return "recording \(trimmedFlowName). say stop recording when you're done."
+    }
+
+    /// Stop the live recorder and persist whatever was captured. Public
+    /// so the `record_flow` tool observation, the Settings UI, and the
+    /// voice command parser can all share one save site.
+    @discardableResult
+    func stopFlowRecordingFromVoiceCommand() -> String {
+        let assembledFlow = flowRecorder.stop(reason: .userCommand)
+        guard let assembledFlow else {
+            return "no recording was in progress."
+        }
+        do {
+            try flowStore.save(assembledFlow)
+            return "saved \(assembledFlow.name) with \(assembledFlow.steps.count) step\(assembledFlow.steps.count == 1 ? "" : "s")."
+        } catch {
+            return "i recorded \(assembledFlow.name) but couldn't save it: \(error.localizedDescription)"
+        }
+    }
+
+    /// Drive the live replayer. Speaks completion or failure copy via
+    /// the existing TTS path; the replayer itself is fully `await`-
+    /// driven and yields back to the run loop between steps.
+    func beginFlowReplay(_ storedFlow: PaceRecordedFlow) {
+        let replayTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.flowReplayer.play(
+                storedFlow,
+                onProgress: { stepIndex in
+                    print("🔁 PaceFlowReplayer: completed step \(stepIndex + 1) of \(storedFlow.steps.count)")
+                },
+                onCompletion: { [weak self] outcome in
+                    guard let self else { return }
+                    Task { @MainActor in
+                        self.speakFlowReplayOutcome(outcome, flowName: storedFlow.name)
+                    }
+                }
+            )
+        }
+        _ = replayTask // task lifetime is tied to MainActor; no need to retain
+    }
+
+    /// Compose + speak the per-outcome line. Failure paths route
+    /// through the deterministic failure narrator so the message
+    /// reads in the same voice as the other plain-language failures.
+    private func speakFlowReplayOutcome(
+        _ outcome: PaceFlowReplayOutcome,
+        flowName: String
+    ) {
+        let spokenText: String
+        switch outcome {
+        case .completed:
+            spokenText = "done with \(flowName)."
+        case .stoppedBeforeSendStep:
+            spokenText = "ready to send the \(flowName) flow — say go ahead."
+        case .failedToFindTarget(let stepIndex, let axLabel):
+            // Reuse the click-missed narration shape so the user hears
+            // the same "I couldn't find X" phrasing they get from a
+            // failed planner click.
+            let narration = PaceFailureNarrator.compose(
+                .clickMissed(targetLabel: axLabel)
+            )
+            spokenText = "\(narration.spokenText) (step \(stepIndex + 1) of \(flowName))"
+        case .userCancelled:
+            spokenText = "stopped \(flowName)."
+        }
+        Task { @MainActor in
+            try? await self.ttsClient.speakText(spokenText)
+        }
+    }
+
+    /// Clear the per-session approval cache. Wired into the existing
+    /// session-reset path so a thread-memory wipe also resets the
+    /// "this flow is approved" memory.
+    func resetFlowReplayApprovalCacheForSession() {
+        flowNamesApprovedForReplayThisSession.removeAll()
+    }
+
+    /// Helper exposed for the `run_flow` tool callback the executor
+    /// invokes. Returns true if the replay actually kicked off; false
+    /// when the flow needs explicit user approval that hasn't been
+    /// granted this session yet (the executor's observation distinguishes
+    /// the two for the planner-loop summary).
+    @discardableResult
+    func runFlowFromExecutorTool(_ storedFlow: PaceRecordedFlow) -> Bool {
+        // Approval cache: planner-driven `run_flow` calls go through
+        // here. Same-session subsequent runs of the same flow skip the
+        // approval popup. First-time runs in a session would normally
+        // surface the approval popup via PaceActionExecutor's existing
+        // gate — that path is already in place for record_flow/run_flow
+        // because both are flagged risky in PaceToolRegistry.
+        if flowNamesApprovedForReplayThisSession.contains(storedFlow.name) {
+            beginFlowReplay(storedFlow)
+            return true
+        }
+        // Mark approved now (the executor only invokes this callback
+        // after its own approval gate has cleared the action).
+        flowNamesApprovedForReplayThisSession.insert(storedFlow.name)
+        beginFlowReplay(storedFlow)
+        return true
     }
 
     private func handleRecipeCommand(_ command: PaceRecipeCommand, transcript: String) {
@@ -2512,11 +3233,29 @@ You can turn this off at any time in Settings → Cloud bridge.
             }
         }
         actionExecutor.rehydratePersistedTimers()
+        // Wire the demonstration-flow recorder + replayer through the
+        // executor's tool callbacks so the planner's `record_flow` /
+        // `run_flow` cases drive the same code paths the voice command
+        // parser does. Defaults are no-ops; we set them once here per
+        // CompanionManager lifecycle so dry-run/unit-test code stays
+        // unaffected.
+        actionExecutor.startFlowRecordingCallback = { [weak self] flowName in
+            guard let self else {
+                return "Ready to record flow \"\(flowName)\"."
+            }
+            return self.startFlowRecordingFromVoiceCommand(flowName: flowName)
+        }
+        actionExecutor.runFlowCallback = { [weak self] storedFlow in
+            guard let self else { return false }
+            return self.runFlowFromExecutorTool(storedFlow)
+        }
         startPermissionPolling()
         startLMStudioReachabilityPolling()
         bindVoiceStateObservation()
         bindAudioPowerLevel()
         bindShortcutTransitions()
+        bindBargeInGateObservation()
+        bindWakeWordSpotterObservation()
         // Eagerly touch the planner so the LM Studio cold-load (model
         // swap, first connection) happens before the user's first
         // push-to-talk rather than blocking on it.
@@ -2565,6 +3304,28 @@ You can turn this off at any time in Settings → Cloud bridge.
         if isMorningTriageEnabled {
             morningTriageScheduler.start()
         }
+
+        // Wave 1a restraint policy: keep the input-activity monitor
+        // and the active-call detector running so proactive nudges
+        // see live "user is busy" signals. The input-activity monitor
+        // is Accessibility-gated and will no-op until that permission
+        // is granted; the permission poller calls `start()` again on
+        // first grant so we re-attempt seamlessly.
+        userInputActivityMonitor.start()
+        activeCallDetector.start()
+
+        // Background drain for utterances the gate parked while the
+        // user was busy. Tick every 10s — long enough that we don't
+        // churn TTS, short enough that a paused-for-30-seconds break
+        // doesn't feel stale.
+        startProactiveQueueDrainTimer()
+
+        // Wave 1b: bring up the proactive nudge orchestrator. Each
+        // generator routes through PaceRestraintGate so a Zoom call
+        // or recent typing silences/queues the nudge — fixing the
+        // pre-Wave-1b bug where PaceProactiveNudges.swift emitted
+        // utterances without consulting the gate.
+        startProactiveNudgeOrchestrator()
     }
 
     /// 5-minute idle sweep that drops thread-memory state when the
@@ -2607,6 +3368,16 @@ You can turn this off at any time in Settings → Cloud bridge.
         chatShortcutCancellable?.cancel()
         voiceStateCancellable?.cancel()
         audioPowerCancellable?.cancel()
+        bargeInGatePropertyCancellable?.cancel()
+        bargeInGatePropertyCancellable = nil
+        detachBargeInAudioLevelSubscription()
+        wakeWordToggleCancellable?.cancel()
+        wakeWordToggleCancellable = nil
+        wakeWordDetectionCancellable?.cancel()
+        wakeWordDetectionCancellable = nil
+        wakeWordPTTBridgeCancellable?.cancel()
+        wakeWordPTTBridgeCancellable = nil
+        wakeWordSpotter.stop()
         accessibilityCheckTimer?.invalidate()
         accessibilityCheckTimer = nil
         remindersRetrievalRefreshTask?.cancel()
@@ -2618,6 +3389,12 @@ You can turn this off at any time in Settings → Cloud bridge.
         threadMemoryIdleSweepTimer?.invalidate()
         threadMemoryIdleSweepTimer = nil
         morningTriageScheduler.stop()
+
+        userInputActivityMonitor.stop()
+        activeCallDetector.stop()
+        proactiveQueueDrainTimer?.invalidate()
+        proactiveQueueDrainTimer = nil
+        proactiveNudgeOrchestrator.stop()
     }
 
     func refreshAllPermissions() {
@@ -2889,6 +3666,185 @@ You can turn this off at any time in Settings → Cloud bridge.
             .sink { [weak self] powerLevel in
                 self?.currentAudioPowerLevel = powerLevel
             }
+    }
+
+    /// Wires the two-condition gate that controls the barge-in
+    /// subscription. Either `voiceState` flipping or
+    /// `isAlwaysListeningEnabled` flipping reruns the decision; the
+    /// VAD audio-level subscription is attached only when BOTH are
+    /// satisfied (state is `.responding` AND wake-word/always-listening
+    /// is enabled). On any other state combination the subscription
+    /// is torn down immediately and the VAD's accumulated speech window
+    /// is reset, so background noise during `.idle` cannot accidentally
+    /// fire a stale interrupt the next time the gate opens.
+    private func bindBargeInGateObservation() {
+        bargeInGatePropertyCancellable = $voiceState
+            .combineLatest($isAlwaysListeningEnabled)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state, isEnabled in
+                guard let self else { return }
+                let shouldAttach = state == .responding && isEnabled
+                if shouldAttach {
+                    self.attachBargeInAudioLevelSubscriptionIfNeeded()
+                } else {
+                    self.detachBargeInAudioLevelSubscription()
+                }
+            }
+    }
+
+    /// Attaches the VAD audio-level subscription. Idempotent — if a
+    /// subscription is already live, we leave it alone (cancelling and
+    /// re-attaching would drop in-flight RMS samples and reset the
+    /// sustained-speech window). The publisher emits on the audio
+    /// thread; we hop to MainActor inside the sink because the VAD
+    /// observation, the TTS drain, the PTT manager call, and the
+    /// retrieval journal write are all main-actor work.
+    private func attachBargeInAudioLevelSubscriptionIfNeeded() {
+        guard bargeInAudioLevelCancellable == nil else { return }
+        bargeInVAD.reset()
+        bargeInAudioLevelCancellable = buddyDictationManager.audioLevelPublisher
+            .sink { [weak self] normalizedLevel in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.observeBargeInAudioLevel(normalizedLevel)
+                }
+            }
+    }
+
+    private func detachBargeInAudioLevelSubscription() {
+        bargeInAudioLevelCancellable?.cancel()
+        bargeInAudioLevelCancellable = nil
+        bargeInVAD.reset()
+    }
+
+    /// Forwards a single RMS sample to the VAD. Fires the barge-in
+    /// callback chain when the VAD reports sustained speech. The
+    /// double-gate check inside the sink guards against an in-flight
+    /// sample arriving on the main-actor hop just after voiceState
+    /// flipped out of `.responding` — we re-check the conditions here
+    /// because the publisher sample raced the state change.
+    private func observeBargeInAudioLevel(_ normalizedLevel: Float) {
+        guard voiceState == .responding, isAlwaysListeningEnabled else { return }
+        let didDetectSustainedSpeech = bargeInVAD.observe(
+            normalizedLevel: normalizedLevel,
+            at: Date()
+        )
+        guard didDetectSustainedSpeech else { return }
+        // Reset immediately so a continued speech burst doesn't fire
+        // the chain twice for the same interrupt.
+        bargeInVAD.reset()
+        handleBargeInDetected()
+    }
+
+    /// Wave 1c barge-in callback chain. Called from
+    /// `observeBargeInAudioLevel` once the VAD confirms sustained user
+    /// speech during TTS playback. Drains the speech queue, opens a
+    /// fresh listening window so the user's interrupting words can
+    /// land as the next turn, and journals the interrupt to
+    /// paceHistory using the speakable prefix that was already on its
+    /// way out the speakers when the user cut in.
+    private func handleBargeInDetected() {
+        let lastSpokenPrefix = streamingSentenceTTSPipeline.inFlightStreamedText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Drain + stop. The pipeline pre-stamps `.userBargeIn` on the
+        // TTS client so the next `lastStopReason` read is correct.
+        streamingSentenceTTSPipeline.drainQueueAndStopForBargeIn()
+        // Belt-and-braces: call stop directly on the client too, since
+        // the pipeline already routed it but a second call is a no-op
+        // and guarantees state even if the pipeline shape changes.
+        ttsClient.stopPlayback()
+        // Open a listening window so the wake-word path (Wave 2) or
+        // an immediate PTT press resumes capture without re-arming.
+        buddyDictationManager.openListeningWindow(
+            durationInSeconds: 6,
+            trigger: .bargeIn
+        )
+        // Journal the interrupt locally. `paceHistory` is the existing
+        // retrieval source; no new tracking, no new files.
+        let prefixForJournalLine = lastSpokenPrefix.isEmpty
+            ? "(no prefix captured)"
+            : lastSpokenPrefix
+        localRetriever.recordPaceHistory(
+            userTranscript: "(system) barge-in interrupted assistant turn",
+            assistantResponse: "[interrupted-mid-speech] \(prefixForJournalLine)"
+        )
+        refreshLocalRetrievalPublishedState()
+    }
+
+    /// Wave 2b — wires the wake-word spotter lifecycle to the
+    /// `isAlwaysListeningEnabled` toggle and forwards detections into
+    /// `handleWakeWordDetected(_:)`. Also bridges PTT engagement so
+    /// the spotter releases the mic while the user is push-to-talking
+    /// and resumes the instant PTT releases. Idempotent: invoking
+    /// `start()` again is a no-op on the spotter side.
+    private func bindWakeWordSpotterObservation() {
+        wakeWordToggleCancellable = $isAlwaysListeningEnabled
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isEnabled in
+                guard let self else { return }
+                if isEnabled {
+                    self.wakeWordSpotter.start()
+                } else {
+                    self.wakeWordSpotter.stop()
+                }
+            }
+
+        wakeWordDetectionCancellable = wakeWordSpotter.wakeWordDetectedPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] detection in
+                self?.handleWakeWordDetected(detection)
+            }
+
+        // PTT-engagement bridge: pause the spotter when PTT starts
+        // recording, resume when it stops. The PTT manager publishes
+        // `isRecordingFromKeyboardShortcut` and
+        // `isPreparingToRecord` — both become "we own the mic" from
+        // the spotter's perspective. Microphone-button recording uses
+        // the same path through `isRecordingFromMicrophoneButton`,
+        // tracked separately so a panel mic-tap also pauses the
+        // spotter cleanly.
+        wakeWordPTTBridgeCancellable = buddyDictationManager.$isRecordingFromKeyboardShortcut
+            .combineLatest(
+                buddyDictationManager.$isPreparingToRecord,
+                buddyDictationManager.$isRecordingFromMicrophoneButton
+            )
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isRecordingFromShortcut, isPreparing, isRecordingFromButton in
+                guard let self else { return }
+                let isPTTOwningMic = isRecordingFromShortcut || isPreparing || isRecordingFromButton
+                if isPTTOwningMic {
+                    self.wakeWordSpotter.pauseForExternalAudioConsumer()
+                } else {
+                    self.wakeWordSpotter.resumeIfPausedForExternalAudioConsumer()
+                }
+            }
+    }
+
+    /// Wave 2b — handles a wake-word detection event from the spotter.
+    /// Wake-word ONLY opens a listening window; it does NOT route the
+    /// matched phrase into the planner. The normal pipeline (transcribe
+    /// → intent → planner) handles whatever the user says next. We
+    /// drop the detection when a turn is already in flight so the
+    /// wake-word can't displace an active PTT session or interrupt
+    /// the in-flight response (barge-in handles the responding case
+    /// separately).
+    private func handleWakeWordDetected(_ detection: PaceWakeWordDetection) {
+        guard voiceState == .idle else {
+            print("🎙️ Wake-word detected but a turn is in flight (\(voiceState)); ignoring")
+            return
+        }
+        print("🎙️ Wake-word detected: \(detection.phraseMatched) (confidence \(detection.confidence))")
+        buddyDictationManager.openListeningWindow(
+            durationInSeconds: 6,
+            trigger: .wakeWord
+        )
+        // Lightweight audit trail. paceHistory is the existing
+        // retrieval source — no new index, no new tracking.
+        localRetriever.recordPaceHistory(
+            userTranscript: "(system) wake-word triggered",
+            assistantResponse: "[wake-word triggered] \(detection.phraseMatched)"
+        )
+        refreshLocalRetrievalPublishedState()
     }
 
     private func bindVoiceStateObservation() {
@@ -3298,6 +4254,29 @@ You can turn this off at any time in Settings → Cloud bridge.
                 )
 
                 let threadSummaryInjectionForTurn = threadMemory.injectionPrefix()
+
+                // Wave 4: eager-filler debouncer. If the planner doesn't
+                // produce its first token within 600ms, dispatch one
+                // short "okay" / "let me think" token through TTS so the
+                // user hears acknowledgement instead of silence. Only
+                // fires on pure-knowledge + chitchat (this path) and is
+                // rate-limited across consecutive slow turns.
+                let plannerStartedAt = Date()
+                let eagerFillerTask: Task<Void, Never> = Task { [weak self] in
+                    try? await Task.sleep(
+                        nanoseconds: UInt64(StreamingSentenceTTSPipeline
+                            .eagerFillerThresholdMillis) * 1_000_000
+                    )
+                    guard !Task.isCancelled, let self else { return }
+                    let elapsedSinceStartMs = Int(
+                        Date().timeIntervalSince(plannerStartedAt) * 1000
+                    )
+                    await self.streamingSentenceTTSPipeline
+                        .dispatchEagerFillerIfThresholdExceeded(
+                            plannerTTFTMilliseconds: elapsedSinceStartMs
+                        )
+                }
+
                 let (fullResponseText, _) = try await plannerForTextOnlyTurn.generateResponseStreaming(
                     images: [],
                     systemPrompt: CompanionSystemPrompt.buildTextOnly(
@@ -3306,12 +4285,17 @@ You can turn this off at any time in Settings → Cloud bridge.
                     conversationHistory: historyForPlanner,
                     userPrompt: userPromptForPlanner,
                     onTextChunk: { [weak self] accumulatedPlannerText in
+                        // Real text arrived — cancel the filler watcher
+                        // so we never speak "okay" right before the real
+                        // first sentence lands.
+                        eagerFillerTask.cancel()
                         self?.responseOverlayManager.updateStreamingText(accumulatedPlannerText)
                         Task { @MainActor [weak self] in
                             await self?.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedPlannerText)
                         }
                     }
                 )
+                eagerFillerTask.cancel()
                 guard !Task.isCancelled else { return }
 
                 let actionParseResult = PaceActionTagParser.parseActions(from: fullResponseText)
@@ -3557,6 +4541,7 @@ You can turn this off at any time in Settings → Cloud bridge.
         // enough to return .chitchat (not .unknown). Anything ambiguous
         // falls through to the full pipeline.
         let intentPrediction = await intentClassifier.classify(transcript)
+        lastIntentRouteForEpisodicExtraction = intentPrediction.intent
         currentTurnHUDState = .understanding(routeHUDDetail(for: intentPrediction))
         if let clarification = PaceIntentClarifier.clarification(for: transcript) {
             print("❔ Intent clarification: \(clarification.question)")

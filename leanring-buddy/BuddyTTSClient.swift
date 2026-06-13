@@ -11,6 +11,19 @@
 
 import Foundation
 
+/// Why TTS playback ended. Read by `CompanionManager` to include in the
+/// paceHistory log line for an interrupted turn — barge-in flips
+/// `lastStopReason` to `.userBargeIn`, manual stop (the overlay's stop
+/// button) flips it to `.manualStop`, normal completion is
+/// `.naturalCompletion`. Wave 1c only differentiates barge-in vs
+/// natural completion at the call site; the third case keeps the API
+/// honest for the existing manual-stop path.
+enum PaceTTSStopReason: Equatable {
+    case naturalCompletion
+    case userBargeIn
+    case manualStop
+}
+
 @MainActor
 protocol BuddyTTSClient: AnyObject {
     /// Speaks `text` and returns when audio playback has started (not
@@ -24,6 +37,20 @@ protocol BuddyTTSClient: AnyObject {
     /// Stops any in-progress speech immediately. Safe to call when
     /// nothing is playing.
     func stopPlayback()
+
+    /// Why playback last ended. Set by the client on every stop path —
+    /// natural delegate callback, `stopPlayback()`, or the barge-in
+    /// drain path. Defaults to `.naturalCompletion` before any
+    /// playback has happened. Read by `CompanionManager` when
+    /// journaling an interrupted turn.
+    var lastStopReason: PaceTTSStopReason { get }
+
+    /// Sets the next stop reason. Called by the streaming pipeline's
+    /// barge-in drain just before `stopPlayback()` so the manager's
+    /// post-stop read sees `.userBargeIn` instead of `.manualStop`.
+    /// Implementations store the value and propagate it on the next
+    /// stop event.
+    func recordExpectedStopReason(_ reason: PaceTTSStopReason)
 }
 
 enum BuddyTTSClientFactory {
