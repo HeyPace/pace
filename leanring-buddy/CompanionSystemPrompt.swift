@@ -150,7 +150,36 @@ enum CompanionSystemPrompt {
 
     // MARK: - Block 3: gated agent-mode rules
 
+    /// Wave 4 prompt-prefix cache. The agent-mode block contains a long
+    /// registry-derived tool-docs section (`PaceToolRegistry.plannerToolListText`)
+    /// that re-renders every call but never mutates at runtime — the
+    /// registry is validated once at app startup and frozen for the
+    /// process lifetime. Memoizing the rendered block stabilizes the
+    /// leading bytes of every system prompt, which LM Studio's KV
+    /// cache prefers, AND saves the ~50 µs string concat per turn.
+    ///
+    /// In-process cache only: no UserDefaults, no on-disk artifact. The
+    /// invalidation contract is "process restart" — there is no other
+    /// path for the registry to change while the app is running.
+    nonisolated(unsafe) private static var cachedAgentModeRulesBlock: String?
+
     private static var agentModeRules: String {
+        if let cachedAgentModeRulesBlock {
+            return cachedAgentModeRulesBlock
+        }
+        let renderedBlock = renderAgentModeRulesBlock()
+        cachedAgentModeRulesBlock = renderedBlock
+        return renderedBlock
+    }
+
+    /// Wave 4 test seam: drop the cached agent-mode block so unit tests
+    /// can verify the cache invalidates only on explicit reset. Never
+    /// called from production code paths.
+    nonisolated static func _testablyResetCachedAgentModeRulesBlock() {
+        cachedAgentModeRulesBlock = nil
+    }
+
+    private static func renderAgentModeRulesBlock() -> String {
         """
     agent mode — when the user asks you to *do* something, prefer the typed v10 JSON envelope. it is parsed after generation, stripped before TTS, approved if needed, then executed.
 

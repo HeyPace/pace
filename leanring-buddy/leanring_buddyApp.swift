@@ -61,6 +61,18 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         // install or after the migration has already run.
         PaceFlowStore().migrateLegacyUserDefaultsFlowsIfNeeded()
 
+        // Wave 4: warm Apple Foundation Models at launch so the lite
+        // path in the speculative-planner race + every Apple FM turn
+        // pays for the system model load BEFORE the user pushes to
+        // talk. Detached + fire-and-forget; bails silently when Apple
+        // Intelligence is unavailable. No new model RAM — FM is
+        // in-process and bundled with macOS.
+        if #available(macOS 26.0, *) {
+            Task.detached(priority: .utility) {
+                await AppleFoundationModelsPlannerClient.warmUp()
+            }
+        }
+
         PaceAnalytics.configure()
         PaceAnalytics.trackAppOpened()
 

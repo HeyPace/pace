@@ -127,6 +127,14 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
     /// docs/prds/trust-and-failures.md.
     private var didDetectSidecarOutageDuringCurrentSession: Bool = false
 
+    /// Wave 4: guards `prewarmIfFirstSessionCall()` so the second
+    /// warmup synth fires once per process lifetime, even if the user
+    /// has been at idle for hours between sessions. The first warmup at
+    /// `init` only fires once the sidecar is reachable; this second one
+    /// fires on the user's FIRST real PTT so any cache that the sidecar
+    /// dropped during idle gets re-loaded before the real sentence arrives.
+    private var hasWarmedUpForFirstSessionCall: Bool = false
+
     /// Public read of whether the Kokoro sidecar has failed at least
     /// once since the last successful synthesis. Stays true across
     /// turns until a successful synth clears it.
@@ -192,11 +200,37 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
     func speakText(_ text: String) async throws {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
+        // Wave 4: second Kokoro warmup the first time the user actually
+        // speaks. The init-time warmup runs against a sidecar that may
+        // not be reachable yet; this one fires after the user has hit
+        // PTT, by which point the sidecar is almost always up. Empty-
+        // body method that synthesizes a single-space phrase non-blocking
+        // — results are discarded.
+        prewarmIfFirstSessionCall()
         // Fresh sentence → previous stop reason no longer applies.
         lastStopReason = .naturalCompletion
         pendingNextStopReason = nil
         pendingUtteranceQueue.append(PendingUtterance(text: trimmedText))
         startDrainingPlaybackQueueIfNeeded()
+    }
+
+    /// Wave 4: fires ONCE per process lifetime on the user's first
+    /// `speakText(...)` call. Synthesizes a silent " " (single space)
+    /// phrase non-blocking so Kokoro's MLX cache is hot before the
+    /// real sentence finishes synthesizing. Discards the result; the
+    /// next real sentence going through the queue uses the warmed
+    /// state. Guarded by `hasWarmedUpForFirstSessionCall` so subsequent
+    /// PTTs in the same session don't repeat the work.
+    private func prewarmIfFirstSessionCall() {
+        guard !hasWarmedUpForFirstSessionCall else { return }
+        hasWarmedUpForFirstSessionCall = true
+        let prewarmConfiguration = configuration
+        let prewarmSession = urlSession
+        Task.detached(priority: .utility) {
+            var prewarmRequest = prewarmConfiguration.speechRequest(for: " ")
+            prewarmRequest.timeoutInterval = 5
+            _ = try? await prewarmSession.data(for: prewarmRequest)
+        }
     }
 
     func stopPlayback() {

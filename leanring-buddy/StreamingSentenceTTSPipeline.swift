@@ -42,6 +42,72 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// clipped.
     private let minimumChunkCharacterCount: Int = 8
 
+    /// Lower threshold used ONLY for the very first sentence of a turn.
+    /// Wave 4: trimming the first-sentence floor from 8 → 4 chars lets a
+    /// 4-character planner token like "Yes." or "Sure." dispatch the
+    /// instant it lands — perceived TTFSW drops by the synthesis latency
+    /// of one full word. Subsequent sentences keep the 8-char floor so
+    /// the prefetch queue stays effective and the next sentence is
+    /// already rendering while the first one plays.
+    private let firstSentenceMinimumChunkCharacterCount: Int = 4
+
+    /// True until the FIRST sentence of the current turn has been
+    /// dispatched to TTS. Reset on every `markIntentCommitted()` call so
+    /// the lowered threshold only applies once per turn. Used in
+    /// `dispatchDeltaIfReady` to pick which minimum-chunk floor to apply.
+    private var hasDispatchedFirstSentenceOfTurn: Bool = false
+
+    /// Per-turn count of characters that have actually been handed to
+    /// `ttsClient.speakText(...)`. Wave 4: the speculative-planner race
+    /// supersede-window uses this to decide whether the user has already
+    /// heard "too much" of the lite winner to justify a mid-turn cut to
+    /// the full pipeline. ~60 chars ≈ 6 spoken syllables; past that
+    /// threshold a hard cut feels jarring even if the full stream is
+    /// only milliseconds away. Reset on every `markIntentCommitted()`.
+    @Published private(set) var firstSpokenWordCharacterCount: Int = 0
+
+    /// Wave 4 eager-filler state: true once the pipeline has dispatched
+    /// a placeholder "okay" / "let me think" token this turn because the
+    /// planner took longer than `eagerFillerThresholdMillis` to produce
+    /// real text. Reset on `markIntentCommitted()`. Read by tests and by
+    /// CompanionManager's HUD for whether to label the filler in UI.
+    @Published private(set) var fillerWasDispatchedThisTurn: Bool = false
+
+    /// Process-global timestamp of the LAST turn whose planner exceeded
+    /// the eager-filler threshold AND dispatched a filler. Used to
+    /// debounce fillers across consecutive slow turns so the user
+    /// doesn't hear "okay... okay... okay..." in a row. Static because
+    /// the pipeline is re-created per turn in tests and the user-facing
+    /// behavior must persist across instances.
+    nonisolated(unsafe) private static var lastFillerDispatchTimestamp: Date?
+
+    /// Wave 4: the eager-filler tokens cycled per turn when the planner
+    /// runs past the threshold. Configurable so tests can stub a small
+    /// fixed list without depending on the production cycle. Two-element
+    /// default chosen so back-to-back slow turns don't say the same word.
+    private static let eagerFillerTokens: [String] = ["okay.", "let me think."]
+
+    /// Wave 4: planner TTFT threshold above which an eager filler is
+    /// dispatched for `pureKnowledge` / `chitchat` intents. Picked at
+    /// 600ms because anything faster wouldn't have a noticeable gap to
+    /// fill — and dispatching a filler when real text arrives 100ms
+    /// later would talk over the real reply. Public-package level so
+    /// CompanionManager can read the same constant when scheduling the
+    /// filler watch task.
+    static let eagerFillerThresholdMillis: Int = 600
+
+    /// Wave 4: minimum gap (seconds) between two filler dispatches so
+    /// the user doesn't hear the same canned word repeated turn after
+    /// turn. 10 seconds matches the average voice-turn cadence — long
+    /// enough that the user is unlikely to notice the pattern.
+    private static let eagerFillerMinimumGapBetweenTurnsInSeconds: TimeInterval = 10
+
+    /// Wave 4: turn-local cursor into `eagerFillerTokens` so the dispatched
+    /// filler rotates across instances. Static (nonisolated unsafe) for the
+    /// same reason as `lastFillerDispatchTimestamp` — keep cycle state
+    /// stable across freshly-constructed pipelines in tests/production.
+    nonisolated(unsafe) private static var nextEagerFillerCycleIndex: Int = 0
+
     /// Timestamp of the moment the user committed to a query — typically
     /// PTT-release. Set externally via `markIntentCommitted()`. Used to
     /// log time-to-first-spoken-word (TTFSW), the headline latency
@@ -86,6 +152,9 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         isMutedForCurrentTurn = false
         inFlightStreamedText = ""
         hasBeenDrainedForBargeInThisTurn = false
+        hasDispatchedFirstSentenceOfTurn = false
+        firstSpokenWordCharacterCount = 0
+        fillerWasDispatchedThisTurn = false
     }
 
     /// Sets the per-turn mute flag. Called by `CompanionManager` right
@@ -107,6 +176,13 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         hasLoggedTimeToFirstSpokenWord = false
         lastTurnWasInterrupted = false
         hasBeenDrainedForBargeInThisTurn = false
+        // Wave 4: every per-turn flag controlling the speed levers
+        // resets here. The new turn earns its lowered first-sentence
+        // threshold + fresh eager-filler budget regardless of how the
+        // previous turn ended.
+        hasDispatchedFirstSentenceOfTurn = false
+        firstSpokenWordCharacterCount = 0
+        fillerWasDispatchedThisTurn = false
     }
 
     /// Barge-in entry point: empties the in-memory sentence queue, stops
@@ -188,7 +264,16 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         // Wait until we have a meaningful chunk so we don't speak
         // "I" then "think" then "you" as separate utterances. The
         // final flush bypasses this gate so the tail always plays.
-        if !allowShortFinalChunk && trimmedNewPortion.count < minimumChunkCharacterCount {
+        //
+        // Wave 4: for the FIRST sentence of a turn the floor drops to
+        // 4 chars so a tiny opener like "Yes." or "Sure." can dispatch
+        // the moment it arrives. Once the first sentence is out, the
+        // floor rises back to 8 chars so the second sentence has time
+        // to render in the prefetch queue before playback catches up.
+        let activeMinimumChunkCharacterCount = hasDispatchedFirstSentenceOfTurn
+            ? minimumChunkCharacterCount
+            : firstSentenceMinimumChunkCharacterCount
+        if !allowShortFinalChunk && trimmedNewPortion.count < activeMinimumChunkCharacterCount {
             return
         }
 
@@ -204,10 +289,82 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         do {
             try await ttsClient.speakText(trimmedNewPortion)
             alreadyDispatchedSafeText = speakableSafePrefix
+            // Wave 4: the FIRST successful dispatch flips the threshold
+            // gate so subsequent dispatches use the higher 8-char floor.
+            // Track total spoken character count so the speculative-
+            // planner-race supersede decision can read "how much has
+            // the user already heard" without subscribing to TTS state.
+            hasDispatchedFirstSentenceOfTurn = true
+            firstSpokenWordCharacterCount += trimmedNewPortion.count
             logTimeToFirstSpokenWordIfApplicable()
         } catch {
             print("⚠️ Streaming TTS submission failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Wave 4: eager-filler dispatch for `pureKnowledge` / `chitchat`
+    /// turns whose planner is taking longer than the threshold to
+    /// produce any text. The filler is a short cycle-chosen token like
+    /// "okay." or "let me think." that plays through the same TTS path
+    /// as a normal sentence. Debounced across turns so two slow turns
+    /// in a row don't repeat the same opener.
+    ///
+    /// Returns true when a filler was dispatched. Caller is expected to
+    /// observe `fillerWasDispatchedThisTurn` for UI labelling. Safe to
+    /// call multiple times per turn — only the first call past the
+    /// threshold actually speaks.
+    @discardableResult
+    func dispatchEagerFillerIfThresholdExceeded(
+        plannerTTFTMilliseconds: Int,
+        now: Date = Date()
+    ) async -> Bool {
+        guard !fillerWasDispatchedThisTurn else { return false }
+        guard !hasBeenDrainedForBargeInThisTurn else { return false }
+        guard !isMutedForCurrentTurn else { return false }
+        guard plannerTTFTMilliseconds >= Self.eagerFillerThresholdMillis else {
+            return false
+        }
+        // Debounce: if the previous turn ALSO triggered a filler within
+        // the last `eagerFillerMinimumGapBetweenTurnsInSeconds` seconds,
+        // stay silent. Otherwise the user hears "okay... okay... okay..."
+        // across slow turns and the filler stops sounding human.
+        if let lastFillerDispatchTimestamp = Self.lastFillerDispatchTimestamp,
+           now.timeIntervalSince(lastFillerDispatchTimestamp)
+            < Self.eagerFillerMinimumGapBetweenTurnsInSeconds {
+            return false
+        }
+
+        let nextFillerToken = Self.eagerFillerTokens[
+            Self.nextEagerFillerCycleIndex % Self.eagerFillerTokens.count
+        ]
+        Self.nextEagerFillerCycleIndex += 1
+        Self.lastFillerDispatchTimestamp = now
+        fillerWasDispatchedThisTurn = true
+
+        do {
+            try await ttsClient.speakText(nextFillerToken)
+            // The filler IS "first spoken text" for the purpose of
+            // TTFSW: the user heard something. The threshold gate flips
+            // and the spoken character count advances so the speculative-
+            // race supersede decision sees the user has actually heard
+            // audio already.
+            hasDispatchedFirstSentenceOfTurn = true
+            firstSpokenWordCharacterCount += nextFillerToken.count
+            logTimeToFirstSpokenWordIfApplicable()
+            return true
+        } catch {
+            print("⚠️ Eager filler dispatch failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Wave 4 test seam: reset the static debounce timestamp + cycle
+    /// index so a fresh test run starts from a known state. Production
+    /// never calls this — the static state is intentional cross-turn
+    /// behavior.
+    nonisolated static func _testablyResetEagerFillerStaticState() {
+        lastFillerDispatchTimestamp = nil
+        nextEagerFillerCycleIndex = 0
     }
 
     /// On the first successful dispatch after `markIntentCommitted()`,

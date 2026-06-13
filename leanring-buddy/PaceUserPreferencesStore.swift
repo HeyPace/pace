@@ -69,6 +69,14 @@ enum PaceUserPreferenceKey: String {
     /// still stored, just not surfaced into prompts until the user
     /// flips this in Settings → Memory. See PRD episodic-memory.md.
     case injectSensitiveEpisodicTopics
+    /// Wave 4 speed lever: when ON, screen-action / screen-description
+    /// turns race Apple FM (text-only, no screen context) against the
+    /// full VLM-fed local planner — whichever streams first wins the
+    /// TTS pipeline. Default ON because it is RAM-neutral (FM is
+    /// already in-process) and the perceived latency win is large.
+    /// Users disable it from Settings → Planner if they prefer the
+    /// VLM-fed answer regardless of latency. See Wave 4 plan.
+    case enableSpeculativePlannerRace
 }
 
 enum PaceUserPreferencesStore {

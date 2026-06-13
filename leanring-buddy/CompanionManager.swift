@@ -419,6 +419,64 @@ final class CompanionManager: ObservableObject {
         PaceUserPreferencesStore.setBool(enabled, for: .useLocalVLMForScreenContext)
     }
 
+    /// Wave 4 speed lever: when ON, screen-action / screen-description
+    /// turns race Apple FM (lite, text-only) against the full VLM-fed
+    /// local planner. RAM-neutral because FM is in-process. Default ON
+    /// — this is a hot feature, users opt OUT in Settings → Planner.
+    @Published var isSpeculativePlannerRaceEnabled: Bool = PaceUserPreferencesStore
+        .bool(.enableSpeculativePlannerRace, default: true)
+
+    func setSpeculativePlannerRaceEnabled(_ enabled: Bool) {
+        isSpeculativePlannerRaceEnabled = enabled
+        PaceUserPreferencesStore.setBool(enabled, for: .enableSpeculativePlannerRace)
+    }
+
+    /// Wave 4 gate: pure predicate the speculative-race wiring uses to
+    /// decide whether THIS turn qualifies for the race. Centralized in
+    /// one method so the gating rules are testable as a unit and can be
+    /// audited in one place. Returns true only when EVERY gate passes:
+    ///
+    /// - intent is screenAction OR screenDescription (the slow paths)
+    /// - the speculative-race toggle is ON
+    /// - the VLM is configured to run this turn (otherwise lite vs full
+    ///   is the same input shape — no race value)
+    /// - Apple FM availability is `.available` (lite path needs it)
+    ///
+    /// CompanionManager calls this inline; tests call it through the
+    /// nonisolated static helper below.
+    func speculativeRaceShouldFire(
+        intent: PaceIntent,
+        appleFoundationModelsIsAvailable: Bool
+    ) -> Bool {
+        Self.speculativeRaceShouldFire(
+            intent: intent,
+            isToggleEnabled: isSpeculativePlannerRaceEnabled,
+            isLocalVLMConfigured: useLocalVLMForScreenContext,
+            appleFoundationModelsIsAvailable: appleFoundationModelsIsAvailable
+        )
+    }
+
+    /// Pure form of `speculativeRaceShouldFire(intent:appleFoundation
+    /// ModelsIsAvailable:)` so unit tests can exercise the gate without
+    /// constructing a full CompanionManager. The four flags are the only
+    /// inputs to the decision — kept explicit so the call site is auditable.
+    nonisolated static func speculativeRaceShouldFire(
+        intent: PaceIntent,
+        isToggleEnabled: Bool,
+        isLocalVLMConfigured: Bool,
+        appleFoundationModelsIsAvailable: Bool
+    ) -> Bool {
+        guard isToggleEnabled else { return false }
+        guard isLocalVLMConfigured else { return false }
+        guard appleFoundationModelsIsAvailable else { return false }
+        switch intent {
+        case .screenAction, .screenDescription:
+            return true
+        case .pureKnowledge, .chitchat, .phoneLargeModel, .unknown:
+            return false
+        }
+    }
+
     /// Conversation history so Claude remembers prior exchanges within a session.
     /// Each entry is the user's transcript and Claude's response.
     ///
@@ -4196,6 +4254,29 @@ You can turn this off at any time in Settings → Cloud bridge.
                 )
 
                 let threadSummaryInjectionForTurn = threadMemory.injectionPrefix()
+
+                // Wave 4: eager-filler debouncer. If the planner doesn't
+                // produce its first token within 600ms, dispatch one
+                // short "okay" / "let me think" token through TTS so the
+                // user hears acknowledgement instead of silence. Only
+                // fires on pure-knowledge + chitchat (this path) and is
+                // rate-limited across consecutive slow turns.
+                let plannerStartedAt = Date()
+                let eagerFillerTask: Task<Void, Never> = Task { [weak self] in
+                    try? await Task.sleep(
+                        nanoseconds: UInt64(StreamingSentenceTTSPipeline
+                            .eagerFillerThresholdMillis) * 1_000_000
+                    )
+                    guard !Task.isCancelled, let self else { return }
+                    let elapsedSinceStartMs = Int(
+                        Date().timeIntervalSince(plannerStartedAt) * 1000
+                    )
+                    await self.streamingSentenceTTSPipeline
+                        .dispatchEagerFillerIfThresholdExceeded(
+                            plannerTTFTMilliseconds: elapsedSinceStartMs
+                        )
+                }
+
                 let (fullResponseText, _) = try await plannerForTextOnlyTurn.generateResponseStreaming(
                     images: [],
                     systemPrompt: CompanionSystemPrompt.buildTextOnly(
@@ -4204,12 +4285,17 @@ You can turn this off at any time in Settings → Cloud bridge.
                     conversationHistory: historyForPlanner,
                     userPrompt: userPromptForPlanner,
                     onTextChunk: { [weak self] accumulatedPlannerText in
+                        // Real text arrived — cancel the filler watcher
+                        // so we never speak "okay" right before the real
+                        // first sentence lands.
+                        eagerFillerTask.cancel()
                         self?.responseOverlayManager.updateStreamingText(accumulatedPlannerText)
                         Task { @MainActor [weak self] in
                             await self?.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedPlannerText)
                         }
                     }
                 )
+                eagerFillerTask.cancel()
                 guard !Task.isCancelled else { return }
 
                 let actionParseResult = PaceActionTagParser.parseActions(from: fullResponseText)
