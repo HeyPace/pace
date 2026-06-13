@@ -148,6 +148,15 @@ final class CompanionManager: ObservableObject {
     @Published var detectedElementBubbleText: String?
 
     let buddyDictationManager = PacePushToTalkManager()
+    /// Wave 2b — always-listening wake-word spotter (Apple Speech,
+    /// on-device, ANE-backed). Lifecycled by
+    /// `bindWakeWordSpotterObservation`: starts when
+    /// `isAlwaysListeningEnabled` flips true, stops when it flips
+    /// false. Holds its own short-lived `AVAudioEngine` because the
+    /// PTT manager only installs its tap during an active turn —
+    /// the spotter needs to listen during idle and pauses itself
+    /// when PTT engages to avoid mic contention.
+    let wakeWordSpotter: any PaceWakeWordSpotterProtocol = PaceAppleSpeechWakeWordSpotter()
     let globalPushToTalkShortcutMonitor = GlobalPushToTalkShortcutMonitor()
     /// System-wide listener for the chat-input shortcut (default
     /// `cmd+shift+P`). Brings the notch panel forward and focuses the
@@ -476,6 +485,19 @@ final class CompanionManager: ObservableObject {
     private var bargeInVAD = PaceBargeInVAD()
     private var bargeInAudioLevelCancellable: AnyCancellable?
     private var bargeInGatePropertyCancellable: AnyCancellable?
+
+    /// Wave 2b — bindings for the wake-word spotter. The toggle
+    /// cancellable observes `isAlwaysListeningEnabled` and flips the
+    /// spotter on/off; the detection cancellable forwards each
+    /// `PaceWakeWordDetection` into `handleWakeWordDetected(_:)`.
+    private var wakeWordToggleCancellable: AnyCancellable?
+    private var wakeWordDetectionCancellable: AnyCancellable?
+    /// PTT-engagement bindings. When PTT starts recording the spotter
+    /// pauses so the two audio paths don't fight over the mic; when
+    /// PTT releases the spotter resumes if always-listening is still
+    /// on. Done as a separate cancellable from the toggle bind so the
+    /// two policies (toggle and PTT) compose cleanly.
+    private var wakeWordPTTBridgeCancellable: AnyCancellable?
     private var accessibilityCheckTimer: Timer?
     private var lmStudioReachabilityCheckTimer: Timer?
     private var pendingKeyboardShortcutStartTask: Task<Void, Never>?
@@ -3008,6 +3030,7 @@ You can turn this off at any time in Settings → Cloud bridge.
         bindAudioPowerLevel()
         bindShortcutTransitions()
         bindBargeInGateObservation()
+        bindWakeWordSpotterObservation()
         // Eagerly touch the planner so the LM Studio cold-load (model
         // swap, first connection) happens before the user's first
         // push-to-talk rather than blocking on it.
@@ -3123,6 +3146,13 @@ You can turn this off at any time in Settings → Cloud bridge.
         bargeInGatePropertyCancellable?.cancel()
         bargeInGatePropertyCancellable = nil
         detachBargeInAudioLevelSubscription()
+        wakeWordToggleCancellable?.cancel()
+        wakeWordToggleCancellable = nil
+        wakeWordDetectionCancellable?.cancel()
+        wakeWordDetectionCancellable = nil
+        wakeWordPTTBridgeCancellable?.cancel()
+        wakeWordPTTBridgeCancellable = nil
+        wakeWordSpotter.stop()
         accessibilityCheckTimer?.invalidate()
         accessibilityCheckTimer = nil
         remindersRetrievalRefreshTask?.cancel()
@@ -3512,6 +3542,82 @@ You can turn this off at any time in Settings → Cloud bridge.
         localRetriever.recordPaceHistory(
             userTranscript: "(system) barge-in interrupted assistant turn",
             assistantResponse: "[interrupted-mid-speech] \(prefixForJournalLine)"
+        )
+        refreshLocalRetrievalPublishedState()
+    }
+
+    /// Wave 2b — wires the wake-word spotter lifecycle to the
+    /// `isAlwaysListeningEnabled` toggle and forwards detections into
+    /// `handleWakeWordDetected(_:)`. Also bridges PTT engagement so
+    /// the spotter releases the mic while the user is push-to-talking
+    /// and resumes the instant PTT releases. Idempotent: invoking
+    /// `start()` again is a no-op on the spotter side.
+    private func bindWakeWordSpotterObservation() {
+        wakeWordToggleCancellable = $isAlwaysListeningEnabled
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isEnabled in
+                guard let self else { return }
+                if isEnabled {
+                    self.wakeWordSpotter.start()
+                } else {
+                    self.wakeWordSpotter.stop()
+                }
+            }
+
+        wakeWordDetectionCancellable = wakeWordSpotter.wakeWordDetectedPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] detection in
+                self?.handleWakeWordDetected(detection)
+            }
+
+        // PTT-engagement bridge: pause the spotter when PTT starts
+        // recording, resume when it stops. The PTT manager publishes
+        // `isRecordingFromKeyboardShortcut` and
+        // `isPreparingToRecord` — both become "we own the mic" from
+        // the spotter's perspective. Microphone-button recording uses
+        // the same path through `isRecordingFromMicrophoneButton`,
+        // tracked separately so a panel mic-tap also pauses the
+        // spotter cleanly.
+        wakeWordPTTBridgeCancellable = buddyDictationManager.$isRecordingFromKeyboardShortcut
+            .combineLatest(
+                buddyDictationManager.$isPreparingToRecord,
+                buddyDictationManager.$isRecordingFromMicrophoneButton
+            )
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isRecordingFromShortcut, isPreparing, isRecordingFromButton in
+                guard let self else { return }
+                let isPTTOwningMic = isRecordingFromShortcut || isPreparing || isRecordingFromButton
+                if isPTTOwningMic {
+                    self.wakeWordSpotter.pauseForExternalAudioConsumer()
+                } else {
+                    self.wakeWordSpotter.resumeIfPausedForExternalAudioConsumer()
+                }
+            }
+    }
+
+    /// Wave 2b — handles a wake-word detection event from the spotter.
+    /// Wake-word ONLY opens a listening window; it does NOT route the
+    /// matched phrase into the planner. The normal pipeline (transcribe
+    /// → intent → planner) handles whatever the user says next. We
+    /// drop the detection when a turn is already in flight so the
+    /// wake-word can't displace an active PTT session or interrupt
+    /// the in-flight response (barge-in handles the responding case
+    /// separately).
+    private func handleWakeWordDetected(_ detection: PaceWakeWordDetection) {
+        guard voiceState == .idle else {
+            print("🎙️ Wake-word detected but a turn is in flight (\(voiceState)); ignoring")
+            return
+        }
+        print("🎙️ Wake-word detected: \(detection.phraseMatched) (confidence \(detection.confidence))")
+        buddyDictationManager.openListeningWindow(
+            durationInSeconds: 6,
+            trigger: .wakeWord
+        )
+        // Lightweight audit trail. paceHistory is the existing
+        // retrieval source — no new index, no new tracking.
+        localRetriever.recordPaceHistory(
+            userTranscript: "(system) wake-word triggered",
+            assistantResponse: "[wake-word triggered] \(detection.phraseMatched)"
         )
         refreshLocalRetrievalPublishedState()
     }
