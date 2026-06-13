@@ -1,6 +1,6 @@
 # WhisperKit streaming ASR
 
-Status: partial (model-blocked). The selectable provider scaffold, Apple Speech
+Status: deferred — future model-work track (out of scope for the local-only v0.3.x milestone, decided 2026-06-13). The selectable provider scaffold, Apple Speech
 fallback path, contextual phrase handoff, visible ASR status, and a tested
 provider-agnostic LocalAgreement stabilizer are wired. The push-to-talk
 pipeline now feeds provider partial hypotheses through LocalAgreement and

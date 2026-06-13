@@ -23,30 +23,47 @@ scope, test gates, and acceptance criteria.
 | `planner-tier-picker.md` | shipped (v0.3.11) | Settings → Planner picker (Local / CLI bridge / Direct API BYO / Apple FM); Keychain-backed API keys + amber-tinted capsule for non-Local turns. |
 | `recipe-library.md` | shipped (v0.3.11) | Five bundled installable `PaceFlow` recipes under `Resources/recipes/`, install/uninstall via voice or Settings. |
 | `trust-and-failures.md` | shipped (v0.3.11) | Visible undo banner after every reversible action, 30 s spoken-reply replay, plain-language `PaceFailureNarrator`. |
-| `pace-v9-body-streaming-wiring.md` | partial (model-blocked) | Streaming `Mail.draft` detection/writes, `mailto:` first-draft setup, AX-first body writer, and launch-time Mail prewarm are wired; manual latency demo remains queued. |
+| `pace-v9-body-streaming-wiring.md` | deferred (model-work track) | Streaming `Mail.draft` detection/writes, `mailto:` first-draft setup, AX-first body writer, and launch-time Mail prewarm are wired; manual latency demo remains queued. |
 | `pace-planner-v10-parameterized-actions.md` | partial (actionable) | Typed v10 envelope parsing, registry/artifact validation, deterministic schema fixture evals, local planner-output envelope/action rejection, legacy compatibility, and `Mail.draft` streaming are wired; grammar-constrained model-output gate and runtime-default model switch remain queued. |
 | `pace-executor-surface.md` | partial (actionable) | Local dispatcher surface, v1 action mappings, destructive-only approval, `Shortcut.run` installed-name checks, Mail streaming with AX-first body writing, and AX mutation/undo scaffolds are wired; real-app/performance smokes remain queued. |
 | `click-executor-improvements.md` | partial (actionable) | Improve click accuracy with midpoint targeting, foreground/window-aware top-K tiebreaks, recency hints, verification, and all-fail observations; manual ambiguity evals remain queued. |
 | `hud-intent-disambiguator.md` | partial (actionable) | HUD route/progress state, panel option-click clarification resolution, local-only unsupported routing, and Reduce Motion cursor-overlay fallback are wired; visual target ambiguity and runtime smoke remain queued. |
-| `whisperkit-streaming-asr.md` | partial (model-blocked) | Selectable WhisperKit provider scaffold with Apple Speech fallback, ASR status, contextual phrases, and runtime-wired LocalAgreement partial stabilization are wired; real WhisperKit streaming runtime remains queued. |
-| `local-rag-layer.md` | partial (model-blocked) | JSON-backed BM25-style lexical retrieval over preferences/Pace history, built-in competitive research (Minimi, Dayflow, voice-assistant category), screen-watch + app-usage journals for time recall, Settings-selected explicit-root Spotlight files, and permission-aware Calendar/Reminders/Contacts/Notes/Mail data; vector store + bundled embedding model remain queued. |
-| `local-vlm-runtime-port.md` | partial (model-blocked) | Screen-analysis provider abstraction and in-process placeholder are wired; real CoreML/MLX runtime remains queued. |
-| `dictation-postproc-and-voice-edit.md` | partial (model-blocked) | Rule-backed dictation cleanup plus deterministic selected-text voice-edit scaffold; trained specialists remain queued. |
+| `whisperkit-streaming-asr.md` | deferred (model-work track) | Selectable WhisperKit provider scaffold with Apple Speech fallback, ASR status, contextual phrases, and runtime-wired LocalAgreement partial stabilization are wired; real WhisperKit streaming runtime remains queued. |
+| `local-rag-layer.md` | deferred (model-work track) | JSON-backed BM25-style lexical retrieval over preferences/Pace history, built-in competitive research (Minimi, Dayflow, voice-assistant category), screen-watch + app-usage journals for time recall, Settings-selected explicit-root Spotlight files, and permission-aware Calendar/Reminders/Contacts/Notes/Mail data; vector store + bundled embedding model remain queued. |
+| `local-vlm-runtime-port.md` | deferred (model-work track) | Screen-analysis provider abstraction and in-process placeholder are wired; real CoreML/MLX runtime remains queued. |
+| `dictation-postproc-and-voice-edit.md` | deferred (model-work track) | Rule-backed dictation cleanup plus deterministic selected-text voice-edit scaffold; trained specialists remain queued. |
 | `pace-planner-v8-deployment.md` | superseded | Runtime planner moved to off-the-shelf qwen3-30b-a3b (eval-validated); the v8 LoRA path is parked on the TinyGPT side. |
 | `her-arc-roadmap.md` | planning | Meta roadmap that ordered the restraint/memory/listening/nudge/barge-in/replay PRDs and defines the arc's overall acceptance criteria. **Arc is now fully shipped.** |
 
-## Ordering
+## Scope: the local-only v0.3.x milestone
 
-The original "Her arc" ordering — restraint → memory → listening → nudges →
-barge-in → replay — has all shipped as of v0.3.12. The remaining backlog
-splits cleanly:
+The "Her arc" (restraint → memory → listening → nudges → barge-in → replay)
+shipped in v0.3.12, and the speculative planner race + factoring sweep shipped
+in **v0.3.13**. As of 2026-06-13 the milestone is defined as **all non-model
+PRDs**, and the codebase satisfies every pure-Swift, unit-testable acceptance
+slice across them. The backlog now splits into exactly two buckets:
 
-- **Actionable code work** (no model dependency): click executor manual ambiguity
-  evals, HUD visual-target disambiguation, executor real-app smoke flow, v10
-  grammar-constrained gate + runtime-default switch.
-- **Model-blocked**: WhisperKit streaming runtime, in-process VLM runtime,
-  trained dictation/voice-edit specialists, vector retrieval with bundled
-  embedding model, v9 latency demo.
+- **Code complete — awaiting one user runtime smoke** (no agent can run these;
+  they need a user Xcode Debug build because terminal `xcodebuild` invalidates
+  the interactive app's TCC grants):
+  - `click-executor-improvements.md` — scorer/recency unit suite landed
+    (`PaceClickCandidateScorerTests`); only the all-fail-path runtime smoke remains.
+  - `hud-intent-disambiguator.md` — all HUD states + visual-target ambiguity
+    wired; only the full manual HUD-state smoke remains.
+  - `pace-executor-surface.md` — dispatcher + handlers wired; only the real-app
+    AX + performance smokes remain.
+  - `pace-planner-v10-parameterized-actions.md` — typed envelope + schema-reject
+    defense shipped; the grammar-constrained decode gate + runtime-default model
+    switch are eval/model items (see the deferred track below).
+
+- **Deferred → future model-work track** (explicitly OUT OF SCOPE for the
+  local-only v0.3.x milestone; decided 2026-06-13). These need model
+  training/conversion/embedding work, not Swift:
+  - `whisperkit-streaming-asr.md` — real WhisperKit streaming runtime bridge.
+  - `local-vlm-runtime-port.md` — in-process CoreML/MLX VLM runtime.
+  - `dictation-postproc-and-voice-edit.md` — trained dictation/voice-edit specialists.
+  - `local-rag-layer.md` — vector retrieval + bundled embedding model (sqlite-vec).
+  - `pace-v9-body-streaming-wiring.md` — model-side body-streaming latency demo.
 
 Do not treat a PRD as permission to broaden scope. Each implementation pass
 should pick one PRD, satisfy its smallest useful acceptance slice, and run the

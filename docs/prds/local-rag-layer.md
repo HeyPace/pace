@@ -1,6 +1,6 @@
 # Local RAG layer
 
-Status: partial (model-blocked). Protocols, in-memory BM25-style lexical retrieval,
+Status: deferred — future model-work track (out of scope for the local-only v0.3.x milestone, decided 2026-06-13). Protocols, in-memory BM25-style lexical retrieval,
 secret-path exclusions, explicit file connector, local preference/history
 documents, explicit-root Spotlight file discovery, Settings file-root picker,
 permission-aware Calendar, Reminders, Contacts, Notes, and Mail indexing,

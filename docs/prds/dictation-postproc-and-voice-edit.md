@@ -1,6 +1,6 @@
 # Dictation post-processing and voice edit
 
-Status: partial (model-blocked). A rule-backed dictation post-processing scaffold
+Status: deferred — future model-work track (out of scope for the local-only v0.3.x milestone, decided 2026-06-13). A rule-backed dictation post-processing scaffold
 is wired for `intent:"dictate"` and a deterministic selected-text voice-edit
 scaffold is wired for common edit commands; the trained dictation and
 voice-edit specialists remain queued.

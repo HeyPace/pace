@@ -1,6 +1,6 @@
 # Local VLM runtime port
 
-Status: partial (model-blocked). The screen-analysis provider abstraction,
+Status: deferred — future model-work track (out of scope for the local-only v0.3.x milestone, decided 2026-06-13). The screen-analysis provider abstraction,
 configurable runtime selection, in-process placeholder, and LM Studio fallback
 are wired. Screen-context cache entries are invalidated by analyzer identity and
 display geometry. Missing VLM descriptions are synthesized from element labels
