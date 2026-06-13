@@ -1,6 +1,6 @@
 # Dictation post-processing and voice edit
 
-Status: deferred — future model-work track (out of scope for the local-only v0.3.x milestone, decided 2026-06-13). A rule-backed dictation post-processing scaffold
+Status: Pace-side complete — no pending Pace work. Deterministic rule-backed dictation/voice-edit ships today; a trained specialist swaps in only if it beats the scaffold on the eval gate (TinyGPT's call, not Pace backlog — see PROJECT_STATUS.md → "Model supply"). A rule-backed dictation post-processing scaffold
 is wired for `intent:"dictate"` and a deterministic selected-text voice-edit
 scaffold is wired for common edit commands; the trained dictation and
 voice-edit specialists remain queued.

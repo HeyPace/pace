@@ -1,6 +1,6 @@
 # Pace v9 — body streaming wiring (Pace-side)
 
-Status: deferred — future model-work track (out of scope for the local-only v0.3.x milestone, decided 2026-06-13). Counterpart to `tinygpt/docs/prds/pace-v9-body-streaming.md`. Pace now detects streaming `Mail.draft` planner JSON, opens the first draft through `mailto:` for fast recipient/subject setup, updates the visible Apple Mail draft while `body`/`bodyText` is still streaming through an AX-first body writer with typewriter/AppleScript fallback, finalizes that draft before executing remaining actions, and prewarms Mail at app launch behind `PrewarmMailForDrafts=true`. The manual latency demo remains queued.
+Status: Pace-side complete — no model dependency; only a manual latency demo remains. Counterpart to `tinygpt/docs/prds/pace-v9-body-streaming.md`. Pace now detects streaming `Mail.draft` planner JSON, opens the first draft through `mailto:` for fast recipient/subject setup, updates the visible Apple Mail draft while `body`/`bodyText` is still streaming through an AX-first body writer with typewriter/AppleScript fallback, finalizes that draft before executing remaining actions, and prewarms Mail at app launch behind `PrewarmMailForDrafts=true`. The manual latency demo remains queued.
 
 Unblocks when: TinyGPT's trained v9 specialist (or any planner with body-token
 streaming low enough to deliver the published latency numbers) replaces the
