@@ -1,6 +1,6 @@
 ---
 name: Click executor — accuracy improvements
-Status: partial (actionable) — coordinate/label top-K parser/scorer plus focused-window scoring, focused AX-tree verify/retry, recency hint scoring, and all-fail observations landed in Pace; manual ambiguity evals still queued
+Status: partial (actionable) — coordinate/label top-K parser/scorer plus focused-window scoring, focused AX-tree verify/retry, recency hint scoring, and all-fail observations landed in Pace; the top-K scorer + recency-hint logic now has a deterministic unit-test fixture suite (`PaceClickCandidateScorerTests`); only the live-app runtime smoke remains (requires a user Xcode Debug build)
 owner: future Pace-repo agent
 created: 2026-06-08
 source-conversation: tinygpt session 2026-06-08 (planner v5→v6 daily-drive feedback)
@@ -365,8 +365,13 @@ The executor side here is forward-compatible with these additions, so
 no second wave of clickyLocal work is needed when v7 lands.
 
 Remaining v1 scope:
-- Turn the manual ambiguity eval set into a unit-test fixture suite so
-  regressions in the top-K scorer/recency-hint logic surface in CI.
+- ~~Turn the manual ambiguity eval set into a unit-test fixture suite so
+  regressions in the top-K scorer/recency-hint logic surface in CI.~~
+  **Done** (2026-06-13): `PaceClickCandidateScorerTests` covers the
+  high-confidence shortcut, cursor-proximity dominance + linear falloff,
+  focused-window membership boost, recency rank/last-seen decay, the
+  max-of-both recency rule, and the deterministic equal-score tiebreak.
 - Add a runtime smoke flow (under `scripts/smoke-runtime-hooks.sh`) that
   drives the all-fail observation path through `PaceActionExecutor` to
-  the planner re-plan/user feedback surfaces.
+  the planner re-plan/user feedback surfaces. Runtime/manual — needs a
+  user Xcode Debug build (agents can't `xcodebuild` per the TCC rule).
