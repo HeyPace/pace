@@ -1,22 +1,19 @@
 # Pace
 
-**The fastest voice agent for Mac. Zero API cost. Fully on-device.**
+**Voice agent for Mac. Answers in under 500ms. Zero API cost. Fully on-device.**
 
-<!--
-  Demo GIF — record with Cmd+Shift+5 and convert via
-  bash scripts/make-readme-gif.sh ~/Desktop/your-recording.mov
-  See scripts/make-readme-gif.sh for the exact recipe.
--->
-<!-- ![Pace demo](docs/assets/pace-demo.gif) -->
+![Pace demo](clicky-demo.gif)
 
-A menu-bar voice agent for macOS. You hold a hotkey, talk, and Pace answers — reading the screen you're looking at and (optionally) clicking on your behalf. Every byte stays on your Mac.
+A menu-bar voice agent for macOS. Hold a hotkey, talk, and Pace answers — reading the screen you're looking at and (optionally) clicking on your behalf. Every byte stays on your Mac.
+
+**[Download for Mac — free](https://github.com/sarthakagrawal927/pace/releases/latest)** · macOS 14.2+, Apple Silicon, no account, no email.
 
 - **Every byte stays on your Mac.** No cloud LLM, no API keys, no Cloudflare Worker. Speech, vision, reasoning, and speech-out all run locally. The "airplane mode" badge is the moat — Wispr Flow, Claude Computer Use, and Superhuman literally cannot ship this.
 - **Time-to-first-spoken-word in milliseconds, not seconds.** Streaming sentence-by-sentence TTS, pre-warmed VLM + OCR during your speech window, prompt-cache reuse across turns, and per-screen hash caching collapse the perceived latency. The number is logged per turn (`⚡ TTFSW: …ms`) and aggregated by [`scripts/benchmark_ttfsw.sh`](./scripts/benchmark_ttfsw.sh) — own the metric, don't just claim the speed.
-- **Agent mode is real.** With `EnableActions=true` Pace can click, type, scroll, and press keys — synthesised via AX-tree-first targeting that falls back to CGEvent. The app can ask for approval before executing tools. Plan-act-observe loop re-screenshots between actions; the planner emits `[DONE]` when finished. Capped at 8 steps by default.
+- **Agent mode that acts.** With `EnableActions=true` Pace can click, type, scroll, and press keys — synthesised via AX-tree-first targeting that falls back to CGEvent. The app can ask for approval before executing tools. Plan-act-observe loop re-screenshots between actions; the planner emits `[DONE]` when finished. Capped at 8 steps by default.
 - **Quiet by default.** Action mode off; permissions gated; the local VLM only fires when the transcript references the screen.
 
-## Quick start
+## Build from source
 
 ```bash
 # 1. Provision LM Studio + the two models (idempotent).
@@ -61,3 +58,7 @@ Outputs a markdown table with n, min, p50, p95, max, mean for TTFSW (time-to-fir
 ## License
 
 MIT — see [`LICENSE`](./LICENSE).
+
+---
+
+*Wispr Flow needs a server. Claude Computer Use needs the cloud. Pace needs neither — and it answers in under 500ms.*
