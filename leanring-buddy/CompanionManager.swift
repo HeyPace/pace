@@ -18,37 +18,12 @@ import ScreenCaptureKit
 import Speech
 import SwiftUI
 
-/// Per-screen VLM analysis cached by the analyzer identity plus pixel hash.
-/// As long as the model/runtime/display and screen pixels haven't changed,
-/// repeat questions reuse the cached element map — zero VLM cost.
-private struct ScreenAnalysisCacheIdentity: Equatable {
-    let analyzerDisplayName: String
-    let screenshotWidthInPixels: Int
-    let screenshotHeightInPixels: Int
-    let displayWidthInPoints: Int
-    let displayHeightInPoints: Int
-    let displayFrame: CGRect
-
-    init(
-        analyzerDisplayName: String,
-        capture: CompanionScreenCapture
-    ) {
-        self.analyzerDisplayName = analyzerDisplayName
-        self.screenshotWidthInPixels = capture.screenshotWidthInPixels
-        self.screenshotHeightInPixels = capture.screenshotHeightInPixels
-        self.displayWidthInPoints = capture.displayWidthInPoints
-        self.displayHeightInPoints = capture.displayHeightInPoints
-        self.displayFrame = capture.displayFrame
-    }
-}
-
-private struct CachedScreenAnalysis {
-    let identity: ScreenAnalysisCacheIdentity
-    let pixelHash: String
-    let visualFingerprint: PaceScreenVisualFingerprint?
-    let analysis: LocalVLMScreenAnalysis
-    let capturedAt: Date
-}
+// Per-screen VLM analysis cache key + entry types moved into
+// `PaceScreenContextService.swift` as `PaceScreenAnalysisCacheIdentity`
+// and `PaceCachedScreenAnalysis` during the Wave 7b refactor. The
+// prewarm-task envelope (formerly `PrewarmedScreenContext`) lives
+// there too as `PaceScreenContextPrewarmedSnapshot`. CompanionManager
+// now talks to that service for everything screen-context related.
 
 enum CompanionVoiceState {
     case idle
@@ -128,6 +103,15 @@ final class CompanionManager: ObservableObject {
     private var lastSidecarTTSOfflineNarratedAt: Date?
 
     private var pendingIntentClarification: PacePendingIntentClarification?
+
+    /// Set when the executor's click-candidate scoring found multiple
+    /// near-tied, distinguishable targets and Pace paused to ask one
+    /// short HUD question instead of guessing (PRD
+    /// docs/prds/hud-intent-disambiguator.md). Holds the original
+    /// candidate set + screen captures so resolving an option clicks the
+    /// chosen target directly — it never re-runs the planner.
+    private var pendingClickTargetClarification: PacePendingClickTargetClarification?
+
     let activeTTSVoiceSummary: PaceTTSVoiceSummary = PaceTTSVoiceSummary.current()
 
     /// True when the configured LM Studio (or compatible) HTTP server
@@ -384,28 +368,22 @@ final class CompanionManager: ObservableObject {
     /// content with broken AX hints).
     private let axScreenReader = PaceAXScreenReader()
 
-    /// Task started at PTT press that captures the screen and runs the
-    /// VLM + OCR in parallel. By the time the user finishes speaking
-    /// (~2-5s typical), the result is usually ready. The agent loop
-    /// awaits this instead of doing the work serially after the
-    /// transcript arrives. nil when not started or when pre-warm is
-    /// disabled (e.g. "Read My Screen" toggle off).
-    private var prewarmedScreenContextTask: Task<PrewarmedScreenContext?, Never>?
-
-    /// Snapshot returned by the pre-warm task. Held briefly between
-    /// PTT press and transcript arrival; consumed once by the agent
-    /// loop's first step then cleared.
-    private struct PrewarmedScreenContext {
-        let screenCaptures: [CompanionScreenCapture]
-        let enrichedAnalysesByScreenLabel: [String: LocalVLMScreenAnalysis]
-    }
-
-    // Screen-analysis provider (LM Studio HTTP by default) that extracts a
-    // structured element map from screenshots. Only invoked when the
-    // `UseLocalVLMForScreenContext` Info.plist key is set to true.
-    // Always allocated so toggling the key doesn't require restart logic.
-    private lazy var screenAnalysisClient: any PaceScreenAnalysisClient = {
-        PaceScreenAnalysisClientFactory.makeDefaultClient()
+    // Screen-context coordinator: owns the per-screen VLM cache, the
+    // PTT-press prewarm task, and the AX + OCR + VLM merge logic.
+    // Extracted from CompanionManager during Wave 7b — behavior is
+    // byte-identical to the pre-extraction code. The `isReadMyScreenEnabled`
+    // closure reads the live `@Published` value so toggling the
+    // preference in Settings takes effect immediately without a
+    // service restart.
+    private lazy var screenContextService: PaceScreenContextService = {
+        PaceScreenContextService(
+            screenAnalysisClient: PaceScreenAnalysisClientFactory.makeDefaultClient(),
+            visionOCRClient: visionOCRClient,
+            axScreenReader: axScreenReader,
+            isReadMyScreenEnabled: { [weak self] in
+                self?.useLocalVLMForScreenContext ?? false
+            }
+        )
     }()
 
     /// User-facing toggle for "read my screen". Backed by UserDefaults so
@@ -534,14 +512,10 @@ final class CompanionManager: ObservableObject {
     /// "session live" indicators without needing a new user turn.
     private var threadMemoryIdleSweepTimer: Timer?
 
-    /// Per-screen VLM analysis cache keyed by screen label (e.g.
-    /// "primary focus", "screen 2"). Hash of the screenshot's JPEG
-    /// bytes is checked on each turn: hash match → reuse cached
-    /// analysis for free; hash mismatch → re-run VLM only on the
-    /// changed screens, in parallel with the rest. This is the
-    /// performance lever for "always-looking" — most turns hit the
-    /// cache for at least some screens.
-    private var perScreenAnalysisCache: [String: CachedScreenAnalysis] = [:]
+    // Per-screen VLM analysis cache lives inside `screenContextService`
+    // (Wave 7b extraction). All cache reads in CompanionManager go
+    // through `screenContextService.cachedDescriptionIfFresh(...)` or
+    // through the planner-prompt path on the service itself.
 
     /// The currently running AI response task, if any. Cancelled when the user
     /// speaks again so a new response can begin immediately.
@@ -968,8 +942,8 @@ You can turn this off at any time in Settings → Cloud bridge.
     func setFocusFatigueNudgesEnabled(_ enabled: Bool) {
         areFocusFatigueNudgesEnabled = enabled
         PaceUserPreferencesStore.setBool(enabled, for: .areFocusFatigueNudgesEnabled)
-        applyProactiveNudgeGeneratorEnablement(
-            identifier: focusFatigueNudgeGenerator.identifier,
+        proactivityPipeline.setGeneratorEnabled(
+            identifier: proactivityPipeline.focusFatigueNudgeGeneratorIdentifier,
             enabled: enabled
         )
     }
@@ -980,8 +954,8 @@ You can turn this off at any time in Settings → Cloud bridge.
     func setCalendarNudgesEnabled(_ enabled: Bool) {
         areCalendarNudgesEnabled = enabled
         PaceUserPreferencesStore.setBool(enabled, for: .areCalendarNudgesEnabled)
-        applyProactiveNudgeGeneratorEnablement(
-            identifier: calendarPreMeetingNudgeGenerator.identifier,
+        proactivityPipeline.setGeneratorEnabled(
+            identifier: proactivityPipeline.calendarPreMeetingNudgeGeneratorIdentifier,
             enabled: enabled
         )
     }
@@ -992,30 +966,9 @@ You can turn this off at any time in Settings → Cloud bridge.
     func setWatchObservationNudgesEnabled(_ enabled: Bool) {
         areWatchObservationNudgesEnabled = enabled
         PaceUserPreferencesStore.setBool(enabled, for: .areWatchObservationNudgesEnabled)
-        applyProactiveNudgeGeneratorEnablement(
-            identifier: watchModeObservationNudgeGenerator.identifier,
+        proactivityPipeline.setGeneratorEnabled(
+            identifier: proactivityPipeline.watchModeObservationNudgeGeneratorIdentifier,
             enabled: enabled
-        )
-    }
-
-    /// Routes a per-generator enable/disable through the orchestrator
-    /// without tearing down the rest. Closures match what `start()`
-    /// passes to `proactiveNudgeOrchestrator.start(...)` — the
-    /// orchestrator stores them per-start, so the user can flip
-    /// individual toggles after launch without restarting Pace.
-    private func applyProactiveNudgeGeneratorEnablement(
-        identifier: String,
-        enabled: Bool
-    ) {
-        proactiveNudgeOrchestrator.setGeneratorEnabled(
-            identifier: identifier,
-            enabled: enabled,
-            emit: { [weak self] utterance in
-                self?.speakProactiveNudge(utterance)
-            },
-            queueForLater: { [weak self] utterance in
-                self?.enqueueProactiveUtterance(utterance)
-            }
         )
     }
 
@@ -1038,287 +991,90 @@ You can turn this off at any time in Settings → Cloud bridge.
         proactivityProfile = profile
     }
 
-    // MARK: - Proactive utterance queue + idle drain
+    // MARK: - Proactive pipeline (Wave 7a extraction)
     //
-    // When the gate returns `.queueUntilIdle` (user is mid-input or on
-    // a call), the manager parks the utterance here and lets the
-    // 10-second drain timer try again. The queue is intentionally
-    // tiny — three entries — so a long busy period doesn't lead to a
-    // burst of stale nudges the moment the user pauses.
+    // The ≤3 ring buffer, 10s drain timer, three nudge generators,
+    // orchestrator wiring, and live restraint-context construction
+    // all live in `PaceProactivityPipeline`. CompanionManager keeps
+    // tiny forwarders so the test surface
+    // (`enqueueProactiveUtterance`, `proactiveUtteranceQueueSnapshot`,
+    // `drainProactiveQueueIfIdle`) stays byte-identical for callers.
 
-    /// Capped FIFO of nudges waiting for the user to pause. Cap is 3
-    /// — the oldest entry gets dropped on overflow. Mutations only
-    /// happen on the main actor; no separate lock needed.
-    private(set) var proactiveUtteranceQueue: [PaceProactiveUtterance] = []
+    private lazy var proactivityPipeline: PaceProactivityPipeline = {
+        // Use the same generator-identifier literals the generators
+        // themselves declare. Kept inline so the pipeline construction
+        // doesn't add a new generator-side static API.
+        let initiallyEnabledGeneratorIdentifiers: Set<String> = {
+            var enabledGeneratorIdentifiers: Set<String> = []
+            if areFocusFatigueNudgesEnabled {
+                enabledGeneratorIdentifiers.insert("focus-fatigue")
+            }
+            if areCalendarNudgesEnabled {
+                enabledGeneratorIdentifiers.insert("calendar-pre-meeting")
+            }
+            if areWatchObservationNudgesEnabled {
+                enabledGeneratorIdentifiers.insert("watch-mode-observation")
+            }
+            return enabledGeneratorIdentifiers
+        }()
+        return PaceProactivityPipeline(
+            userInputActivityMonitor: userInputActivityMonitor,
+            activeCallDetector: activeCallDetector,
+            proactivityProfileProvider: { [weak self] in
+                return self?.proactivityProfile ?? .balanced
+            },
+            currentVoiceStateProvider: { [weak self] in
+                return self?.voiceState ?? .idle
+            },
+            speakUtterance: { [weak self] utterance in
+                // Mirrors the pre-extraction `speakProactiveNudge`
+                // shape exactly: `Task { try? speakText }` with
+                // print-on-failure so a TTS error never escapes here.
+                guard let self else { return }
+                Task { @MainActor [weak self] in
+                    do {
+                        try await self?.ttsClient.speakText(utterance.spokenText)
+                    } catch {
+                        print("⚠️ Proactive nudge TTS failed: \(error.localizedDescription)")
+                    }
+                }
+            },
+            journalProactiveNudge: { [weak self] utterance in
+                // paceHistory breadcrumb so "what did you tell me
+                // earlier?" can recall the nudge later. Pre-existing
+                // journal-style surface, no new index.
+                guard let self else { return }
+                self.localRetriever.recordPaceHistory(
+                    userTranscript: "(system) proactive nudge",
+                    assistantResponse: utterance.spokenText
+                )
+                self.refreshLocalRetrievalPublishedState()
+            },
+            cachedScreenDescriptionProvider: { [weak self] screenLabel in
+                self?.screenContextService.cachedDescriptionIfFresh(screenLabel: screenLabel)
+            },
+            watchModeEventPublisher: screenWatchModeController.eventPublisher.eraseToAnyPublisher(),
+            calendarRetrievalConnector: calendarRetrievalConnector,
+            initiallyEnabledGeneratorIdentifiers: initiallyEnabledGeneratorIdentifiers
+        )
+    }()
 
-    /// Maximum entries kept in the queue. Above this the oldest is
-    /// dropped so a busy hour doesn't produce a five-utterance burst.
-    private static let proactiveUtteranceQueueMaximumCapacity: Int = 3
-
-    /// Backs the 10-second drain loop. Started in `start()`, torn
-    /// down in `stop()`. Each tick attempts at most one utterance —
-    /// the next tick handles the rest so we never speak two nudges
-    /// back-to-back in a single drain pass.
-    private var proactiveQueueDrainTimer: Timer?
-
-    /// Adds an utterance to the proactive queue, dropping the oldest
-    /// entry once the cap is exceeded. Exposed for nudge generators
-    /// and the morning-triage scheduler — both should call this when
-    /// the gate returns `.queueUntilIdle` instead of speaking
-    /// directly.
+    /// Thin forwarder. Tests and the morning-triage scheduler call
+    /// this to park an utterance for the idle drain.
     func enqueueProactiveUtterance(_ utterance: PaceProactiveUtterance) {
-        proactiveUtteranceQueue.append(utterance)
-        if proactiveUtteranceQueue.count > Self.proactiveUtteranceQueueMaximumCapacity {
-            proactiveUtteranceQueue.removeFirst(
-                proactiveUtteranceQueue.count - Self.proactiveUtteranceQueueMaximumCapacity
-            )
-        }
+        proactivityPipeline.enqueueProactiveUtterance(utterance)
     }
 
-    /// Test seam: read the queue contents without depending on
-    /// internal ordering invariants.
+    /// Test seam preserved from the pre-extraction surface.
     func proactiveUtteranceQueueSnapshot() -> [PaceProactiveUtterance] {
-        return proactiveUtteranceQueue
+        return proactivityPipeline.proactiveUtteranceQueueSnapshot()
     }
 
-    /// Speaks the oldest queued nudge if all three idle signals say
-    /// "now is a good time": no recent input, not on a call, voice
-    /// turn idle. Otherwise leaves the queue untouched for the next
-    /// tick. Called by the drain timer; safe to call manually.
+    /// Test seam preserved from the pre-extraction surface. Lets the
+    /// HerArc tests trigger a drain attempt without waiting for the
+    /// 10-second timer to fire.
     func drainProactiveQueueIfIdle(now: Date = Date()) {
-        guard proactiveUtteranceQueue.isEmpty == false else { return }
-
-        if let lastUserInputAt = userInputActivityMonitor.lastUserInputAt,
-           now.timeIntervalSince(lastUserInputAt) < PaceRestraintGate.activeInputWindowSeconds {
-            return
-        }
-        if activeCallDetector.isOnActiveCall {
-            return
-        }
-        guard voiceState == .idle else { return }
-
-        let nextUtterance = proactiveUtteranceQueue.removeFirst()
-        Task { @MainActor in
-            do {
-                try await ttsClient.speakText(nextUtterance.spokenText)
-            } catch {
-                print("⚠️ Proactive queue drain TTS failed: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    private static let proactiveQueueDrainIntervalSeconds: TimeInterval = 10
-
-    private func startProactiveQueueDrainTimer() {
-        proactiveQueueDrainTimer?.invalidate()
-        proactiveQueueDrainTimer = Timer.scheduledTimer(
-            withTimeInterval: Self.proactiveQueueDrainIntervalSeconds,
-            repeats: true
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.drainProactiveQueueIfIdle()
-            }
-        }
-    }
-
-    // MARK: - Proactive nudge orchestration (Wave 1b)
-    //
-    // Three generators, each subscribed to an already-running source,
-    // route their decisions through `PaceRestraintGate.decide(...)`
-    // BEFORE reaching the TTS layer. CompanionManager owns the
-    // orchestrator but lazy-builds it so the generators see the live
-    // restraint context closure (which reads `lastUserInputAt`,
-    // `isOnActiveCall`, `proactivityProfile`, etc.). All three
-    // generators default OFF — `start()` only kicks the ones whose
-    // user preference is on.
-
-    private lazy var focusFatigueNudgeGenerator: PaceFocusFatigueNudgeGenerator = {
-        return PaceFocusFatigueNudgeGenerator(
-            restraintContextProvider: { [weak self] in
-                self?.buildProactiveRestraintContextForGenerators() ?? PaceRestraintContext(
-                    now: Date(),
-                    lastProactiveUtteranceAt: nil,
-                    lastEpisodicRecallAt: nil,
-                    lastUserInputAt: nil,
-                    frontmostAppBundleIdentifier: nil,
-                    isOnActiveCall: false,
-                    wakeWordConfidence: nil,
-                    intent: .pureKnowledge,
-                    proactiveSource: .watchNudge,
-                    profile: .balanced
-                )
-            }
-        )
-    }()
-
-    private lazy var calendarPreMeetingNudgeGenerator: PaceCalendarPreMeetingNudgeGenerator = {
-        return PaceCalendarPreMeetingNudgeGenerator(
-            restraintContextProvider: { [weak self] in
-                self?.buildProactiveRestraintContextForGenerators() ?? PaceRestraintContext(
-                    now: Date(),
-                    lastProactiveUtteranceAt: nil,
-                    lastEpisodicRecallAt: nil,
-                    lastUserInputAt: nil,
-                    frontmostAppBundleIdentifier: nil,
-                    isOnActiveCall: false,
-                    wakeWordConfidence: nil,
-                    intent: .pureKnowledge,
-                    proactiveSource: .backgroundReminder,
-                    profile: .balanced
-                )
-            },
-            calendarConnector: calendarRetrievalConnector
-        )
-    }()
-
-    private lazy var watchModeObservationNudgeGenerator: PaceWatchModeObservationNudgeGenerator = {
-        return PaceWatchModeObservationNudgeGenerator(
-            restraintContextProvider: { [weak self] in
-                self?.buildProactiveRestraintContextForGenerators() ?? PaceRestraintContext(
-                    now: Date(),
-                    lastProactiveUtteranceAt: nil,
-                    lastEpisodicRecallAt: nil,
-                    lastUserInputAt: nil,
-                    frontmostAppBundleIdentifier: nil,
-                    isOnActiveCall: false,
-                    wakeWordConfidence: nil,
-                    intent: .screenDescription,
-                    proactiveSource: .watchNudge,
-                    profile: .balanced
-                )
-            },
-            watchEventPublisher: screenWatchModeController.eventPublisher.eraseToAnyPublisher(),
-            screenDescriptionProvider: { [weak self] screenLabel in
-                self?.cachedScreenDescriptionForNudgeGenerator(screenLabel: screenLabel)
-            }
-        )
-    }()
-
-    private lazy var proactiveNudgeOrchestrator: PaceProactiveNudgeOrchestrator = {
-        return PaceProactiveNudgeOrchestrator(
-            restraintContextProvider: { [weak self] in
-                self?.buildProactiveRestraintContextForGenerators() ?? PaceRestraintContext(
-                    now: Date(),
-                    lastProactiveUtteranceAt: nil,
-                    lastEpisodicRecallAt: nil,
-                    lastUserInputAt: nil,
-                    frontmostAppBundleIdentifier: nil,
-                    isOnActiveCall: false,
-                    wakeWordConfidence: nil,
-                    intent: .pureKnowledge,
-                    proactiveSource: .watchNudge,
-                    profile: .balanced
-                )
-            },
-            generators: [
-                focusFatigueNudgeGenerator,
-                calendarPreMeetingNudgeGenerator,
-                watchModeObservationNudgeGenerator,
-            ]
-        )
-    }()
-
-    /// Built by every nudge generator on every gate decision. Reads
-    /// the live `userInputActivityMonitor` / `activeCallDetector` /
-    /// `proactivityProfile` so a profile change or a Zoom launch
-    /// affects the next decision instantly.
-    private func buildProactiveRestraintContextForGenerators(
-        proactiveSource: PaceProactiveSource = .watchNudge,
-        intent: PaceIntent = .pureKnowledge
-    ) -> PaceRestraintContext {
-        let frontmostBundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        return PaceRestraintContext(
-            now: Date(),
-            lastProactiveUtteranceAt: lastProactiveUtteranceAt,
-            lastEpisodicRecallAt: nil,
-            lastUserInputAt: userInputActivityMonitor.lastUserInputAt,
-            frontmostAppBundleIdentifier: frontmostBundleIdentifier,
-            isOnActiveCall: activeCallDetector.isOnActiveCall,
-            wakeWordConfidence: nil,
-            intent: intent,
-            proactiveSource: proactiveSource,
-            profile: proactivityProfile
-        )
-    }
-
-    /// Pulls the most-recent per-screen VLM/OCR description out of
-    /// `perScreenAnalysisCache` for the watch-mode nudge generator.
-    /// Stale entries (>2 minutes) return nil so the generator does
-    /// not fire on a description that no longer matches what's on
-    /// screen. This is the SAME freshness gate
-    /// `recordWatchModeEventInJournal` already uses.
-    private func cachedScreenDescriptionForNudgeGenerator(screenLabel: String) -> String? {
-        guard let cachedScreenAnalysis = perScreenAnalysisCache[screenLabel] else { return nil }
-        guard Date().timeIntervalSince(cachedScreenAnalysis.capturedAt) <= 120 else { return nil }
-        let cachedDescription = cachedScreenAnalysis.analysis.description
-        return cachedDescription.isEmpty ? nil : cachedDescription
-    }
-
-    /// Updated whenever a proactive nudge or the morning brief speaks.
-    /// Feeds the gate's cooldown check so back-to-back nudges respect
-    /// the user's profile (talkative / balanced / reserved).
-    private var lastProactiveUtteranceAt: Date?
-
-    /// Speaks a proactive utterance through TTS and stamps the cooldown
-    /// clock. Used by the orchestrator's `emit` closure; tests that
-    /// don't want real audio call `enqueueProactiveUtterance` directly.
-    private func speakProactiveNudge(_ utterance: PaceProactiveUtterance) {
-        lastProactiveUtteranceAt = Date()
-        // Journal the nudge so paceHistory can recall it later. Pre-
-        // existing journal-style retrieval surface, no new index.
-        localRetriever.recordPaceHistory(
-            userTranscript: "(system) proactive nudge",
-            assistantResponse: utterance.spokenText
-        )
-        refreshLocalRetrievalPublishedState()
-        Task { @MainActor in
-            do {
-                try await ttsClient.speakText(utterance.spokenText)
-            } catch {
-                print("⚠️ Proactive nudge TTS failed: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    /// Starts whichever subset of generators the user has enabled.
-    /// Called from `start()` after the input/call monitors come up.
-    private func startProactiveNudgeOrchestrator() {
-        let emitClosure: (PaceProactiveUtterance) -> Void = { [weak self] utterance in
-            self?.speakProactiveNudge(utterance)
-        }
-        let queueClosure: (PaceProactiveUtterance) -> Void = { [weak self] utterance in
-            self?.enqueueProactiveUtterance(utterance)
-        }
-
-        proactiveNudgeOrchestrator.start(emit: emitClosure, queueForLater: queueClosure)
-        // Initial fan-out: stop generators whose preference is off.
-        // `start()` on the orchestrator brought ALL generators up;
-        // honoring the per-source toggles here keeps the default
-        // behavior (all off) intact.
-        if !areFocusFatigueNudgesEnabled {
-            proactiveNudgeOrchestrator.setGeneratorEnabled(
-                identifier: focusFatigueNudgeGenerator.identifier,
-                enabled: false,
-                emit: emitClosure,
-                queueForLater: queueClosure
-            )
-        }
-        if !areCalendarNudgesEnabled {
-            proactiveNudgeOrchestrator.setGeneratorEnabled(
-                identifier: calendarPreMeetingNudgeGenerator.identifier,
-                enabled: false,
-                emit: emitClosure,
-                queueForLater: queueClosure
-            )
-        }
-        if !areWatchObservationNudgesEnabled {
-            proactiveNudgeOrchestrator.setGeneratorEnabled(
-                identifier: watchModeObservationNudgeGenerator.identifier,
-                enabled: false,
-                emit: emitClosure,
-                queueForLater: queueClosure
-            )
-        }
+        proactivityPipeline.drainProactiveQueueIfIdle(now: now)
     }
 
     // MARK: - Morning triage (daily brief)
@@ -1713,14 +1469,11 @@ You can turn this off at any time in Settings → Cloud bridge.
         // Reuse the per-screen VLM cache only while it is fresh enough to
         // still describe roughly what the user is looking at. Never run the
         // VLM from here — journaling must stay free.
-        var freshCachedScreenDescription: String?
-        if let cachedScreenAnalysis = perScreenAnalysisCache[event.screenLabel],
-           event.detectedAt.timeIntervalSince(cachedScreenAnalysis.capturedAt) <= 120 {
-            let cachedDescription = cachedScreenAnalysis.analysis.description
-            if !cachedDescription.isEmpty {
-                freshCachedScreenDescription = cachedDescription
-            }
-        }
+        let freshCachedScreenDescription = screenContextService.cachedDescriptionIfFresh(
+            screenLabel: event.screenLabel,
+            maxAgeSeconds: 120,
+            referenceDate: event.detectedAt
+        )
         localRetriever.recordScreenWatchObservation(
             screenLabel: event.screenLabel,
             categoryDisplayName: event.category.displayName,
@@ -3214,7 +2967,7 @@ You can turn this off at any time in Settings → Cloud bridge.
         // Stamp intent-commit now so TTFSW latency logging stays meaningful
         // for deeplink turns (there is no PTT release to stamp it).
         streamingSentenceTTSPipeline.markIntentCommitted()
-        startScreenContextPrewarmIfEnabled()
+        screenContextService.prewarmScreenContext(reason: .deepLinkChat)
         voiceState = .processing
         sendTranscriptToPlannerWithScreenshot(transcript: transcript)
     }
@@ -3314,18 +3067,11 @@ You can turn this off at any time in Settings → Cloud bridge.
         userInputActivityMonitor.start()
         activeCallDetector.start()
 
-        // Background drain for utterances the gate parked while the
-        // user was busy. Tick every 10s — long enough that we don't
-        // churn TTS, short enough that a paused-for-30-seconds break
-        // doesn't feel stale.
-        startProactiveQueueDrainTimer()
-
-        // Wave 1b: bring up the proactive nudge orchestrator. Each
-        // generator routes through PaceRestraintGate so a Zoom call
-        // or recent typing silences/queues the nudge — fixing the
-        // pre-Wave-1b bug where PaceProactiveNudges.swift emitted
-        // utterances without consulting the gate.
-        startProactiveNudgeOrchestrator()
+        // Wave 7a: the proactive pipeline owns the 10s drain timer
+        // and the orchestrator wiring. Bringing it up here matches
+        // the pre-extraction startup order — input/call monitors
+        // first, drain timer + orchestrator second.
+        proactivityPipeline.start()
     }
 
     /// 5-minute idle sweep that drops thread-memory state when the
@@ -3392,9 +3138,7 @@ You can turn this off at any time in Settings → Cloud bridge.
 
         userInputActivityMonitor.stop()
         activeCallDetector.stop()
-        proactiveQueueDrainTimer?.invalidate()
-        proactiveQueueDrainTimer = nil
-        proactiveNudgeOrchestrator.stop()
+        proactivityPipeline.stop()
     }
 
     func refreshAllPermissions() {
@@ -3979,7 +3723,7 @@ You can turn this off at any time in Settings → Cloud bridge.
             // VLM + OCR run during the user's natural speech time (~2-5s)
             // and the result is awaited by the agent loop's first step —
             // perceived VLM latency drops to ~0 in the common case.
-            startScreenContextPrewarmIfEnabled()
+            screenContextService.prewarmScreenContext(reason: .pushToTalkPress)
             // Reject the press if the transcription provider's model
             // isn't loaded yet. Apple Speech (default) is always ready
             // on launch; only relevant when the user has switched to
@@ -4173,6 +3917,15 @@ You can turn this off at any time in Settings → Cloud bridge.
     }
 
     func resolveClarification(option: String) {
+        // A pending click-target clarification carries an exact target the
+        // user just chose, so it takes precedence over the transcript-rewrite
+        // path: resolving it clicks the chosen candidate directly instead of
+        // re-running the planner (which could re-rank into a different set).
+        if pendingClickTargetClarification != nil {
+            resolveClickTargetClarification(selectedOptionLabel: option)
+            return
+        }
+
         guard let pendingIntentClarification else {
             currentTurnHUDState = .failed("Clarification expired")
             return
@@ -4195,6 +3948,147 @@ You can turn this off at any time in Settings → Cloud bridge.
         responseOverlayManager.finishStreaming()
         currentTurnHUDState = .understanding("using \(option.lowercased())")
         sendTranscriptToPlannerWithScreenshot(transcript: clarifiedTranscript)
+    }
+
+    /// Visual-target ambiguity raise (PRD
+    /// docs/prds/hud-intent-disambiguator.md). When the parsed plan is a
+    /// single click whose candidate set has near-tied distinguishable
+    /// labels, set the HUD into the same clarification state the
+    /// edit/destructive path uses (so the panel renders option chips with
+    /// no new view code), store the candidate set + screen captures, and
+    /// return true to tell the agent loop to pause. Returns false when
+    /// there's a clear winner — the common, zero-friction case.
+    ///
+    /// Only fires for genuine click-candidate plans. Coordinate-only
+    /// `[CLICK:x,y]` planner output never reaches here because it parses
+    /// to `.click`, not `.clickCandidates` — when the planner gives exact
+    /// coordinates we trust them.
+    private func raiseClickTargetClarificationIfAmbiguous(
+        actionExecutionPlan: PaceActionExecutionPlan,
+        screenCaptures: [CompanionScreenCapture]
+    ) -> Bool {
+        // Only a single, lone click-candidates action qualifies. A
+        // multi-action plan (e.g. click then type) is the planner driving a
+        // sequence — interrupting it mid-stream would strand the rest.
+        let flattenedActions = actionExecutionPlan.flattenedActions
+        guard flattenedActions.count == 1,
+              case .clickCandidates(let clickCandidateSet) = flattenedActions[0] else {
+            return false
+        }
+
+        guard let offeredCandidates = PaceClickCandidateAmbiguity.isAmbiguous(clickCandidateSet),
+              let clarification = PaceClickTargetClarificationBuilder.makeClarification(
+                  offeredCandidates: offeredCandidates,
+                  in: clickCandidateSet
+              ) else {
+            return false
+        }
+
+        let optionLabels = clarification.options.map(\.label)
+        pendingClickTargetClarification = PacePendingClickTargetClarification(
+            prompt: clarification.prompt,
+            options: clarification.options,
+            candidateSet: clickCandidateSet,
+            screenCaptures: screenCaptures
+        )
+        currentTurnHUDState = .clarification(
+            question: clarification.prompt,
+            options: optionLabels
+        )
+        appendActionResult(PaceActionRunRecord(
+            status: .skipped,
+            title: "Which target?",
+            detail: optionLabels.joined(separator: " / ")
+        ))
+        print("❔ Click-target clarification: \(optionLabels.joined(separator: " / "))")
+        return true
+    }
+
+    /// Resolves a pending click-target clarification by clicking the
+    /// candidate the user tapped. Executes the chosen target directly via
+    /// a one-candidate plan — does NOT re-run the planner. Falls back to
+    /// the executor's existing top-candidate auto-click when the option
+    /// can't be matched, so a stray tap never strands the turn.
+    private func resolveClickTargetClarification(selectedOptionLabel: String) {
+        guard let pendingClickTargetClarification else {
+            currentTurnHUDState = .failed("Clarification expired")
+            return
+        }
+        self.pendingClickTargetClarification = nil
+
+        let screenCaptures = pendingClickTargetClarification.screenCaptures
+        let chosenCandidate = pendingClickTargetClarification
+            .candidate(forSelectedOptionLabel: selectedOptionLabel)
+
+        // The chosen candidate becomes the sole candidate of a fresh
+        // single-target plan. When the option can't be matched, fall back
+        // to the full original set so the executor's top-candidate
+        // auto-click still runs — never strand the turn.
+        let resolvedCandidateSet: PaceClickCandidateSet
+        if let chosenCandidate {
+            resolvedCandidateSet = PaceClickCandidateSet(
+                candidates: [chosenCandidate],
+                clickCount: pendingClickTargetClarification.candidateSet.clickCount
+            )
+        } else {
+            resolvedCandidateSet = pendingClickTargetClarification.candidateSet
+        }
+
+        currentTurnHUDState = .acting("clicking \(selectedOptionLabel)")
+        let clickPlan = PaceActionExecutionPlan.serial(
+            actions: [.clickCandidates(resolvedCandidateSet)]
+        )
+
+        currentResponseTask = Task { @MainActor in
+            let toolObservations = await actionExecutor.executeActionPlan(
+                clickPlan,
+                screenCaptures: screenCaptures
+            )
+            guard !Task.isCancelled else { return }
+            if !toolObservations.isEmpty {
+                appendActionResult(.completed(observations: toolObservations))
+                speakFailureForClickMissedIfApplicable(
+                    observations: toolObservations,
+                    clickTargetLabel: selectedOptionLabel
+                )
+            }
+            if currentTurnHUDState.status == .acting {
+                currentTurnHUDState = .done("clicked \(selectedOptionLabel)")
+            }
+            currentDictationTrigger = .keyboard
+            scheduleTransientHideIfNeeded()
+        }
+    }
+
+    /// Falls back to the executor's existing top-candidate auto-click when
+    /// a pending click-target clarification is dismissed or times out
+    /// without a choice, so an unanswered question never strands the turn.
+    /// Wired to outside-click dismissal / a new turn beginning.
+    func dismissPendingClickTargetClarificationWithAutoClick() {
+        guard let pendingClickTargetClarification else { return }
+        self.pendingClickTargetClarification = nil
+
+        let screenCaptures = pendingClickTargetClarification.screenCaptures
+        let originalCandidateSet = pendingClickTargetClarification.candidateSet
+        currentTurnHUDState = .acting("clicking best match")
+        let clickPlan = PaceActionExecutionPlan.serial(
+            actions: [.clickCandidates(originalCandidateSet)]
+        )
+        currentResponseTask = Task { @MainActor in
+            let toolObservations = await actionExecutor.executeActionPlan(
+                clickPlan,
+                screenCaptures: screenCaptures
+            )
+            guard !Task.isCancelled else { return }
+            if !toolObservations.isEmpty {
+                appendActionResult(.completed(observations: toolObservations))
+            }
+            if currentTurnHUDState.status == .acting {
+                currentTurnHUDState = .done("turn finished")
+            }
+            currentDictationTrigger = .keyboard
+            scheduleTransientHideIfNeeded()
+        }
     }
 
     private func handleUnsupportedTurn(
@@ -4489,6 +4383,10 @@ You can turn this off at any time in Settings → Cloud bridge.
         currentResponseTask?.cancel()
         ttsClient.stopPlayback()
         pendingIntentClarification = nil
+        // A new turn supersedes any unanswered click-target question —
+        // drop it silently rather than auto-clicking, because the user
+        // chose to keep talking instead of answering.
+        pendingClickTargetClarification = nil
 
         // Idle gate: if the thread sat quiet past the configured
         // threshold, drop the verbatim window + summary and journal
@@ -4636,13 +4534,12 @@ You can turn this off at any time in Settings → Cloud bridge.
                     // analysis, so re-capturing before consuming it just
                     // adds latency to the hot path.
                     let screenCaptureStartedAt = Date()
-                    var prewarmedContextForStep: PrewarmedScreenContext?
+                    var prewarmedContextForStep: PaceScreenContextPrewarmedSnapshot?
                     let screenCaptures: [CompanionScreenCapture]
                     if isFirstStep,
-                       let prewarmedTask = prewarmedScreenContextTask {
+                       screenContextService.hasInFlightPrewarmedTask {
                         print("👁️  Awaiting pre-warm capture for first agent step…")
-                        let prewarmedContext = await prewarmedTask.value
-                        prewarmedScreenContextTask = nil
+                        let prewarmedContext = await screenContextService.consumeInFlightPrewarmedSnapshot()
                         if let prewarmedContext,
                            !prewarmedContext.screenCaptures.isEmpty {
                             prewarmedContextForStep = prewarmedContext
@@ -4665,116 +4562,155 @@ You can turn this off at any time in Settings → Cloud bridge.
                     // (e.g.) screen capture vs. planner inference.
                     print("⏱  Step \(stepIndex) screen capture: \(screenCaptureElapsedMs)ms")
 
-                    // 2. Build image labels with the actual screenshot pixel
-                    //    dimensions so the planner's coordinate space matches
-                    //    the image it sees.
-                    let labeledImages = screenCaptures.map { capture in
-                        let dimensionInfo = " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
-                        return (data: capture.imageData, label: capture.label + dimensionInfo)
-                    }
-
-                    // 3. Optionally enrich the user prompt with the local VLM's
-                    //    structured element map — cuts perception cost on the
-                    //    planner side and is essential when the planner is text-only.
-                    let screenContextStartedAt = Date()
-                    let screenContextPrompt = await buildUserPromptWithLocalVLMContextIfEnabled(
-                        transcript: currentTurnUserPrompt,
-                        screenCaptures: screenCaptures,
-                        prewarmedContext: prewarmedContextForStep
-                    )
-                    let userPromptForPlanner = await appendLocalRetrievalContext(
-                        to: appendConfiguredMCPContext(to: screenContextPrompt),
-                        query: transcript,
-                        route: intentPrediction.route,
-                        isFirstPlannerStep: isFirstStep
-                    )
-                    let screenContextElapsedMs = Int(
-                        Date().timeIntervalSince(screenContextStartedAt) * 1000
-                    )
-                    print("⏱  Step \(stepIndex) screen context (VLM + OCR + AX): \(screenContextElapsedMs)ms")
-
-                    // Diagnostic: print the first 5 element lines we're
-                    // about to send to the planner. The single most
-                    // useful thing when a click misses is comparing
-                    // "what coordinates the planner saw" against "what
-                    // coordinates the planner emitted."
-                    logFirstElementsOfPromptForDiagnostics(
-                        userPromptForPlanner: userPromptForPlanner,
-                        stepIndex: stepIndex
-                    )
-
-                    // 4. Build conversation history (already includes prior steps)
-                    let historyForPlanner = conversationHistory.map { entry in
-                        (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
-                    }
-
-                    // 5. Run the planner. Text-only planners get an empty
-                    //    images list; the VLM element-map text inside
-                    //    userPromptForPlanner is their only view of the screen.
-                    let imagesForPlanner: [(data: Data, label: String)] =
-                        plannerClient.supportsImageInput ? labeledImages : []
-
-                    // System prompt is built per-turn from blocks so we
-                    // can omit the ~700-token agent-mode block when
-                    // EnableActions is off. That's pure
-                    // prefill savings every turn.
+                    // System prompt + thread-memory injection are cheap
+                    // (no VLM call) so they're computed BEFORE the planner
+                    // branch below. The agent-mode block is omitted when
+                    // EnableActions is off — pure prefill savings.
                     let isAgentModeEnabled = AppBundleConfiguration
                         .stringValue(forKey: "EnableActions")?
                         .lowercased() == "true"
+                    let threadSummaryInjectionForTurn = threadMemory.injectionPrefix()
+                    let systemPromptForTurn = CompanionSystemPrompt.build(
+                        includeAgentMode: isAgentModeEnabled,
+                        threadSummaryInjection: threadSummaryInjectionForTurn
+                    )
                     // Mark this turn as off-device for the amber-tint
                     // capsule when the active planner is anything other
-                    // than the on-device tiers. The Hybrid wrapper sets
-                    // its own bridge-specific flag right before its bridge
-                    // branch fires; this catches every non-Local call
-                    // shape (DirectAPI, alwaysBridge, hybrid-large-routing
-                    // already handled above).
+                    // than the on-device tiers (DirectAPI, alwaysBridge).
                     if plannerClient is DirectAPIPlannerClient
                         || plannerClient is CloudBridgePlannerClient {
                         isOffDeviceTurnInFlight = true
                     }
-                    let threadSummaryInjectionForTurn = threadMemory.injectionPrefix()
-                    let (fullResponseText, _) = try await plannerClient.generateResponseStreaming(
-                        images: imagesForPlanner,
-                        systemPrompt: CompanionSystemPrompt.build(
-                            includeAgentMode: isAgentModeEnabled,
-                            threadSummaryInjection: threadSummaryInjectionForTurn
-                        ),
-                        conversationHistory: historyForPlanner,
-                        userPrompt: userPromptForPlanner,
-                        onTextChunk: { [weak self] accumulatedPlannerText in
-                            // 1. Mirror raw text into the bubble so the user
-                            //    sees tags, thinking blocks, everything live.
-                            //    The end-of-turn step replaces this with the
-                            //    cleaned spoken text once parsing completes.
-                            self?.responseOverlayManager.updateStreamingText(accumulatedPlannerText)
-                            // 2. Hand the chunk to the streaming TTS so any
-                            //    newly-completed sentences get spoken before
-                            //    the planner has finished generating the rest.
-                            //    This is the dominant perceived-latency win.
-                            Task { @MainActor [weak self] in
-                                guard let self else { return }
-                                let shouldSuppressStreamingNarration = self.actionExecutor.actionsAreEnabled
-                                    && PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
-                                        forPlannerResponseText: accumulatedPlannerText
-                                    )
-                                guard !shouldSuppressStreamingNarration else { return }
-                                await self.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedPlannerText)
-                            }
-                            if let streamingMailDraftSnapshot = streamingMailDraftDetector
-                                .detectChange(in: accumulatedPlannerText) {
+
+                    // Wave 4 speculative race (FIRST STEP ONLY): when the
+                    // gate passes, the in-process Apple FM "lite" planner
+                    // (transcript only, NO VLM) runs CONCURRENTLY with the
+                    // full VLM-fed planner. Lite produces audio in ~150ms
+                    // while a cold VLM (2–3s) is still running; the full
+                    // path supersedes within 500ms if it catches up. The
+                    // full planner's COMPLETE text always drives action
+                    // parsing below — the lite path is spoken-feedback
+                    // only and can never emit a real action. When the gate
+                    // is false the single-planner else-branch is
+                    // byte-identical to pre-race behavior.
+                    let appleFoundationModelsIsAvailableForRace =
+                        textOnlyPlannerClient is AppleFoundationModelsPlannerClient
+                    let useSpeculativeRace = isFirstStep
+                        && speculativeRaceShouldFire(
+                            intent: intentPrediction.intent,
+                            appleFoundationModelsIsAvailable: appleFoundationModelsIsAvailableForRace
+                        )
+
+                    let fullResponseText: String
+                    var raceLiteWonSpokenText: String? = nil
+                    if useSpeculativeRace {
+                        let raceWiringResult = await performFirstStepSpeculativePlannerRace(
+                            transcript: currentTurnUserPrompt,
+                            systemPrompt: systemPromptForTurn,
+                            intent: intentPrediction.intent,
+                            route: intentPrediction.route,
+                            screenCaptures: screenCaptures,
+                            prewarmedContext: prewarmedContextForStep
+                        )
+                        guard !Task.isCancelled else { return }
+                        if raceWiringResult.bothPlannersFailed {
+                            isCloudBridgeCallActive = false
+                            isOffDeviceTurnInFlight = false
+                            currentTurnHUDState = .failed("planner offline")
+                            speakPlainLanguageFailure(.plannerOffline, context: "speculative-race")
+                            break agentStepLoop
+                        }
+                        fullResponseText = raceWiringResult.fullResponseTextForActionParsing
+                        raceLiteWonSpokenText = raceWiringResult.liteWonSpokenText
+                    } else {
+                        // ---- Single-planner path (byte-identical to pre-race) ----
+                        // 2. Build image labels with the actual screenshot pixel
+                        //    dimensions so the planner's coordinate space matches
+                        //    the image it sees.
+                        let labeledImages = screenCaptures.map { capture in
+                            let dimensionInfo = " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
+                            return (data: capture.imageData, label: capture.label + dimensionInfo)
+                        }
+
+                        // 3. Optionally enrich the user prompt with the local VLM's
+                        //    structured element map — cuts perception cost on the
+                        //    planner side and is essential when the planner is text-only.
+                        let screenContextStartedAt = Date()
+                        let screenContextPrompt = await screenContextService.buildUserPromptWithLocalVLMContextIfEnabled(
+                            transcript: currentTurnUserPrompt,
+                            screenCaptures: screenCaptures,
+                            prewarmedContext: prewarmedContextForStep
+                        )
+                        let userPromptForPlanner = await appendLocalRetrievalContext(
+                            to: appendConfiguredMCPContext(to: screenContextPrompt),
+                            query: transcript,
+                            route: intentPrediction.route,
+                            isFirstPlannerStep: isFirstStep
+                        )
+                        let screenContextElapsedMs = Int(
+                            Date().timeIntervalSince(screenContextStartedAt) * 1000
+                        )
+                        print("⏱  Step \(stepIndex) screen context (VLM + OCR + AX): \(screenContextElapsedMs)ms")
+
+                        // Diagnostic: print the first 5 element lines we're
+                        // about to send to the planner.
+                        logFirstElementsOfPromptForDiagnostics(
+                            userPromptForPlanner: userPromptForPlanner,
+                            stepIndex: stepIndex
+                        )
+
+                        // 4. Build conversation history (already includes prior steps)
+                        let historyForPlanner = conversationHistory.map { entry in
+                            (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
+                        }
+
+                        // 5. Run the planner. Text-only planners get an empty
+                        //    images list; the VLM element-map text inside
+                        //    userPromptForPlanner is their only view of the screen.
+                        let imagesForPlanner: [(data: Data, label: String)] =
+                            plannerClient.supportsImageInput ? labeledImages : []
+
+                        let (singlePlannerResponseText, _) = try await plannerClient.generateResponseStreaming(
+                            images: imagesForPlanner,
+                            systemPrompt: systemPromptForTurn,
+                            conversationHistory: historyForPlanner,
+                            userPrompt: userPromptForPlanner,
+                            onTextChunk: { [weak self] accumulatedPlannerText in
+                                // 1. Mirror raw text into the bubble so the user
+                                //    sees tags, thinking blocks, everything live.
+                                //    The end-of-turn step replaces this with the
+                                //    cleaned spoken text once parsing completes.
+                                self?.responseOverlayManager.updateStreamingText(accumulatedPlannerText)
+                                // 2. Hand the chunk to the streaming TTS so any
+                                //    newly-completed sentences get spoken before
+                                //    the planner has finished generating the rest.
+                                //    This is the dominant perceived-latency win.
                                 Task { @MainActor [weak self] in
-                                    guard let self,
-                                          self.actionExecutor.actionsAreEnabled,
-                                          !self.requiresActionApproval else {
-                                        return
+                                    guard let self else { return }
+                                    let shouldSuppressStreamingNarration = self.actionExecutor.actionsAreEnabled
+                                        && PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
+                                            forPlannerResponseText: accumulatedPlannerText
+                                        )
+                                    guard !shouldSuppressStreamingNarration else { return }
+                                    await self.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedPlannerText)
+                                }
+                                if let streamingMailDraftSnapshot = streamingMailDraftDetector
+                                    .detectChange(in: accumulatedPlannerText) {
+                                    Task { @MainActor [weak self] in
+                                        guard let self,
+                                              self.actionExecutor.actionsAreEnabled,
+                                              !self.requiresActionApproval else {
+                                            return
+                                        }
+                                        _ = await self.actionExecutor.beginOrUpdateStreamingMailDraft(
+                                            streamingMailDraftSnapshot
+                                        )
                                     }
-                                    _ = await self.actionExecutor.beginOrUpdateStreamingMailDraft(
-                                        streamingMailDraftSnapshot
-                                    )
                                 }
                             }
-                        }
-                    )
+                        )
+                        fullResponseText = singlePlannerResponseText
+                    }
                     guard !Task.isCancelled else { return }
 
                     // Clear the amber bridge indicator now that the stream has finished.
@@ -4820,7 +4756,16 @@ You can turn this off at any time in Settings → Cloud bridge.
                         }
                         return pointingParseResultRaw
                     }()
-                    let spokenText = parseResult.spokenText
+                    // When the speculative race's LITE path won the audio,
+                    // the user already heard the lite answer — so the
+                    // spoken/displayed/journaled string is the lite text,
+                    // NOT the full planner's text (which only drives the
+                    // action parse above). This keeps audio, bubble,
+                    // reply-replay, and thread memory consistent with what
+                    // was actually spoken, and prevents `flushFinal` from
+                    // diffing a different string against the already-spoken
+                    // lite prefix. nil in every non-race / full-won case.
+                    let spokenText = raceLiteWonSpokenText ?? parseResult.spokenText
                     let plannerProvidedFinalFeedback = actionParseResult.actions.isEmpty
                         && !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     if plannerProvidedFinalFeedback {
@@ -4929,6 +4874,22 @@ You can turn this off at any time in Settings → Cloud bridge.
                             actionExecutionPlan: actionParseResult.executionPlan,
                             preflightIssues: preflightIssues
                         ))
+
+                        // Visual-target ambiguity: if the executor's click
+                        // candidates have near-tied, distinguishable labels,
+                        // ask ONE short HUD question instead of guessing the
+                        // top one. Pauses this turn — resolving an option in
+                        // the panel executes the chosen candidate directly
+                        // (resolveClickTargetClarification), so we break out
+                        // of the agent loop here. See PRD
+                        // docs/prds/hud-intent-disambiguator.md.
+                        if actionExecutor.actionsAreEnabled,
+                           raiseClickTargetClarificationIfAmbiguous(
+                               actionExecutionPlan: actionParseResult.executionPlan,
+                               screenCaptures: screenCaptures
+                           ) {
+                            break agentStepLoop
+                        }
 
                         if actionExecutor.actionsAreEnabled {
                             if requestUserApprovalForActionPlan(
@@ -5108,6 +5069,171 @@ You can turn this off at any time in Settings → Cloud bridge.
         }
     }
 
+    /// Result of wiring ONE first agent step through the speculative
+    /// planner race. `fullResponseTextForActionParsing` is ALWAYS the
+    /// full planner's text when it succeeded (so actions parse from the
+    /// accurate, VLM-fed planner no matter who won the audio); it falls
+    /// back to the lite text only when the full path threw.
+    /// `liteWonSpokenText` is non-nil ONLY when the lite path won the
+    /// audio outright — it is the cleaned string the user actually heard,
+    /// which the caller uses as the spoken/displayed/journaled text.
+    /// `bothPlannersFailed` routes the caller to the failure narrator.
+    private struct PaceFirstStepRaceWiringResult {
+        let fullResponseTextForActionParsing: String
+        let liteWonSpokenText: String?
+        let bothPlannersFailed: Bool
+    }
+
+    /// Wave 4: wire the first agent step through `PaceSpeculativePlanner
+    /// Race`. The lite path (in-process Apple FM, transcript only, no VLM)
+    /// races the full VLM-fed planner; the winner's tokens stream to TTS +
+    /// the bubble as they arrive, while the full path's COMPLETE text
+    /// always comes back for action parsing. Only invoked when
+    /// `speculativeRaceShouldFire` is true for a FIRST step — multi-step
+    /// agent turns keep the single-planner path.
+    private func performFirstStepSpeculativePlannerRace(
+        transcript: String,
+        systemPrompt: String,
+        intent: PaceIntent,
+        route: PaceIntentRoute,
+        screenCaptures: [CompanionScreenCapture],
+        prewarmedContext: PaceScreenContextPrewarmedSnapshot?
+    ) async -> PaceFirstStepRaceWiringResult {
+        let fullClient = plannerClient
+        let liteClient = textOnlyPlannerClient
+
+        // The full path's expensive input prep (VLM + OCR + AX + retrieval)
+        // is deferred into this builder so it runs CONCURRENTLY with the
+        // lite path instead of blocking it — that overlap is the whole
+        // cold-path speed win. Assembly is identical to the single-planner
+        // else-branch in the agent loop.
+        let fullPlannerInputBuilder: @MainActor () async -> PaceChatTurnPart = { [weak self] in
+            guard let self else {
+                return PaceChatTurnPart(
+                    images: [],
+                    systemPrompt: systemPrompt,
+                    conversationHistory: [],
+                    userPrompt: transcript
+                )
+            }
+            let labeledImages = screenCaptures.map { capture -> (data: Data, label: String) in
+                let dimensionInfo = " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
+                return (data: capture.imageData, label: capture.label + dimensionInfo)
+            }
+            let screenContextStartedAt = Date()
+            let screenContextPrompt = await self.screenContextService.buildUserPromptWithLocalVLMContextIfEnabled(
+                transcript: transcript,
+                screenCaptures: screenCaptures,
+                prewarmedContext: prewarmedContext
+            )
+            let userPromptForPlanner = await self.appendLocalRetrievalContext(
+                to: self.appendConfiguredMCPContext(to: screenContextPrompt),
+                query: transcript,
+                route: route,
+                isFirstPlannerStep: true
+            )
+            print("⏱  Race full-path screen context (VLM + OCR + AX): \(Int(Date().timeIntervalSince(screenContextStartedAt) * 1000))ms")
+            self.logFirstElementsOfPromptForDiagnostics(
+                userPromptForPlanner: userPromptForPlanner,
+                stepIndex: 1
+            )
+            let historyForPlanner = self.conversationHistory.map { entry in
+                (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
+            }
+            let imagesForPlanner: [(data: Data, label: String)] =
+                fullClient.supportsImageInput ? labeledImages : []
+            return PaceChatTurnPart(
+                images: imagesForPlanner,
+                systemPrompt: systemPrompt,
+                conversationHistory: historyForPlanner,
+                userPrompt: userPromptForPlanner
+            )
+        }
+
+        // Winner box: shared by reference between the synchronous onToken
+        // callback (winner-flip detection) and the async TTS-dispatch Task
+        // (stale-lite-chunk guard after a supersede).
+        let winnerBox = PaceSpeculativeRaceWinnerBox()
+
+        let raceResult = await PaceSpeculativePlannerRace.raceSpeculative(
+            transcript: transcript,
+            systemPrompt: systemPrompt,
+            // The system prompt already carries the rolling thread-memory
+            // summary via CompanionSystemPrompt.build(threadSummaryInjection:),
+            // so the lite user prompt must NOT prepend it again.
+            threadMemoryPrefix: "",
+            intent: intent,
+            liteClient: liteClient,
+            fullClient: fullClient,
+            fullPlannerInputBuilder: fullPlannerInputBuilder,
+            spokenCharacterCountProbe: { [weak self] in
+                self?.streamingSentenceTTSPipeline.firstSpokenWordCharacterCount ?? 0
+            },
+            onToken: { [weak self] accumulatedText, winner in
+                guard let self else { return }
+                // The first full token while lite has been speaking is a
+                // supersede: reset the TTS pipeline so the full stream — a
+                // different string than lite — replays cleanly instead of
+                // being diffed against the already-spoken lite prefix.
+                if winnerBox.winner == .lite, winner == .full {
+                    self.streamingSentenceTTSPipeline.prepareForSupersedingStreamWithinTurn()
+                }
+                winnerBox.winner = winner
+                self.responseOverlayManager.updateStreamingText(accumulatedText)
+                let shouldSuppressStreamingNarration = self.actionExecutor.actionsAreEnabled
+                    && PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
+                        forPlannerResponseText: accumulatedText
+                    )
+                guard !shouldSuppressStreamingNarration else { return }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    // A lite chunk's dispatch Task scheduled BEFORE a
+                    // supersede must not re-speak lite over the freshly
+                    // reset full stream — drop it if the winner has moved on.
+                    guard winner == winnerBox.winner else { return }
+                    await self.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedText)
+                }
+            },
+            onCompletion: { _ in }
+        )
+
+        switch raceResult.outcome {
+        case .bothFailed:
+            return PaceFirstStepRaceWiringResult(
+                fullResponseTextForActionParsing: "",
+                liteWonSpokenText: nil,
+                bothPlannersFailed: true
+            )
+        case .liteWon:
+            // Actions (if any) still parse from the full planner's text
+            // when it succeeded; the user heard the lite answer, so the
+            // spoken/displayed string is the lite text cleaned the same
+            // way the full path's spoken text is.
+            let liteRawText = raceResult.litePlannerResponseText ?? ""
+            return PaceFirstStepRaceWiringResult(
+                fullResponseTextForActionParsing: raceResult.fullPlannerResponseText ?? liteRawText,
+                liteWonSpokenText: Self.cleanedSpokenTextForRace(from: liteRawText),
+                bothPlannersFailed: false
+            )
+        case .fullWon, .fullSupersededLite:
+            return PaceFirstStepRaceWiringResult(
+                fullResponseTextForActionParsing: raceResult.fullPlannerResponseText ?? "",
+                liteWonSpokenText: nil,
+                bothPlannersFailed: false
+            )
+        }
+    }
+
+    /// Strip tags from a planner response the same way the agent loop
+    /// derives `spokenText`, so the lite-won spoken string the user hears
+    /// matches the cleaning the full path gets. Pure + static — no actor
+    /// hops, unit-testable in isolation.
+    nonisolated private static func cleanedSpokenTextForRace(from rawText: String) -> String {
+        let actionParse = PaceActionTagParser.parseActions(from: rawText)
+        let (_, textAfterDoneStrip) = PaceTagParsers.parseAndStripDoneSignal(from: actionParse.spokenText)
+        return PaceTagParsers.parsePointingCoordinates(from: textAfterDoneStrip).spokenText
+    }
+
     /// Builds the prompt sent to the cloud planner. When the local VLM is
     /// enabled in Info.plist, runs the cursor screen through it first and
     /// prepends a structured element map. The cloud planner can then refer
@@ -5133,508 +5259,6 @@ You can turn this off at any time in Settings → Cloud bridge.
         print("🔬 Step \(stepIndex) planner sees (top 5 of element map):")
         for line in elementLines {
             print("     \(line)")
-        }
-    }
-
-    ///
-    /// If the VLM is unreachable or errors, returns the raw transcript
-    /// unchanged so the cloud-only path keeps working. Errors are logged
-    /// for debugging but never surfaced to the user.
-    private func buildUserPromptWithLocalVLMContextIfEnabled(
-        transcript: String,
-        screenCaptures: [CompanionScreenCapture],
-        prewarmedContext: PrewarmedScreenContext? = nil
-    ) async -> String {
-        guard useLocalVLMForScreenContext else {
-            print("👁️  VLM skipped — 'Read My Screen' toggle is off")
-            return transcript
-        }
-
-        if let prewarmedContext,
-           !prewarmedContext.screenCaptures.isEmpty {
-            print("👁️  Pre-warm context supplied by first-step capture path")
-            return buildPromptFromEnrichedAnalyses(
-                transcript: transcript,
-                captures: prewarmedContext.screenCaptures,
-                enrichedAnalysesByLabel: prewarmedContext.enrichedAnalysesByScreenLabel
-            )
-        }
-
-        // First try: did the PTT-press pre-warm finish? If yes, we
-        // consume its result and skip the synchronous VLM + OCR work
-        // entirely — perceived VLM latency drops to ~0.
-        if let prewarmedTask = prewarmedScreenContextTask {
-            print("👁️  Awaiting pre-warm result…")
-            let awaitStartedAt = Date()
-            let prewarmed = await prewarmedTask.value
-            prewarmedScreenContextTask = nil
-            let awaitedDuration = Date().timeIntervalSince(awaitStartedAt)
-            if let prewarmed, !prewarmed.screenCaptures.isEmpty {
-                print(String(format: "👁️  Pre-warm consumed in %.2fs", awaitedDuration))
-                return buildPromptFromEnrichedAnalyses(
-                    transcript: transcript,
-                    captures: prewarmed.screenCaptures,
-                    enrichedAnalysesByLabel: prewarmed.enrichedAnalysesByScreenLabel
-                )
-            }
-            print("⚠️ Pre-warm returned nothing — falling back to synchronous VLM")
-        }
-
-        guard !screenCaptures.isEmpty else {
-            print("⚠️ VLM skipped — no screen captures available")
-            return transcript
-        }
-
-        // Synchronous fallback: pre-warm wasn't started or failed.
-        // Cursor-screen-only by design — user is almost always asking
-        // about the screen they're looking at.
-        let orderedCaptures: [CompanionScreenCapture] = {
-            if let cursorScreenCapture = screenCaptures.first(where: { $0.isCursorScreen }) {
-                return [cursorScreenCapture]
-            }
-            if let firstCapture = screenCaptures.first {
-                return [firstCapture]
-            }
-            return []
-        }()
-
-        // Bucket captures into cache hits (free, reuse stored analysis)
-        // and misses (need a fresh VLM call). Hash is SHA256 of the JPEG
-        // bytes — stable across runs, cheap (~5ms for 1MB).
-        var perCaptureCachedAnalysis: [Int: LocalVLMScreenAnalysis] = [:]
-        var capturesToAnalyze: [(captureIndex: Int, capture: CompanionScreenCapture, pixelHash: String, visualFingerprint: PaceScreenVisualFingerprint?)] = []
-
-        for (captureIndex, capture) in orderedCaptures.enumerated() {
-            let pixelHash = Self.computePixelHash(for: capture.imageData)
-            let visualFingerprint = PaceScreenImageDiffer.fingerprint(for: capture.imageData)
-            let cacheIdentity = ScreenAnalysisCacheIdentity(
-                analyzerDisplayName: screenAnalysisClient.displayName,
-                capture: capture
-            )
-            if let cached = perScreenAnalysisCache[capture.label] {
-                guard cached.identity == cacheIdentity else {
-                    print("👁️  Cache MISS for \(capture.label) — analyzer or display changed")
-                    capturesToAnalyze.append((captureIndex, capture, pixelHash, visualFingerprint))
-                    continue
-                }
-                if cached.pixelHash == pixelHash {
-                    perCaptureCachedAnalysis[captureIndex] = cached.analysis
-                    print("👁️  Cache HIT for \(capture.label) — reusing \(cached.analysis.elements.count) elements")
-                    continue
-                }
-
-                if let cachedVisualFingerprint = cached.visualFingerprint,
-                   let visualFingerprint,
-                   let visualDiff = PaceScreenImageDiffer.diff(
-                    from: cachedVisualFingerprint,
-                    to: visualFingerprint
-                   ),
-                   !visualDiff.isMeaningful {
-                    perCaptureCachedAnalysis[captureIndex] = cached.analysis
-                    perScreenAnalysisCache[capture.label] = CachedScreenAnalysis(
-                        identity: cacheIdentity,
-                        pixelHash: pixelHash,
-                        visualFingerprint: visualFingerprint,
-                        analysis: cached.analysis,
-                        capturedAt: Date()
-                    )
-                    print(String(format: "👁️  Visual diff cache HIT for %@ — %.3f changed, %.1f mean delta", capture.label, visualDiff.changedPixelRatio, visualDiff.meanPixelDelta))
-                    continue
-                }
-            }
-
-            capturesToAnalyze.append((captureIndex, capture, pixelHash, visualFingerprint))
-        }
-
-        // Try the AX-tree first on the cursor screen (cheap, ~50ms);
-        // if it returns elements we skip the VLM for this in-loop
-        // re-analysis the same way the PTT-press pre-warm does. The
-        // 2B VLM was failing on every in-loop call last test run,
-        // leaving the planner with no screen context and looping on
-        // useless scrolls — AX fixes that.
-        var capturesStillNeedingVLM: [(captureIndex: Int, capture: CompanionScreenCapture, pixelHash: String, visualFingerprint: PaceScreenVisualFingerprint?)] = []
-        var freshAnalysesByCaptureIndex: [Int: LocalVLMScreenAnalysis] = [:]
-        if !capturesToAnalyze.isEmpty {
-            let axScreenReaderForLoopBody = self.axScreenReader
-            for (captureIndex, capture, pixelHash, visualFingerprint) in capturesToAnalyze {
-                let axElements = axScreenReaderForLoopBody.readFocusedWindow(
-                    scalingToScreenshot: capture
-                )
-                if !axElements.isEmpty {
-                    let ocrBoxes = (try? await visionOCRClient.recognizeText(
-                        in: capture.imageData,
-                        screenshotWidthInPixels: capture.screenshotWidthInPixels,
-                        screenshotHeightInPixels: capture.screenshotHeightInPixels
-                    )) ?? []
-                    let axBackedAnalysis = PaceScreenContextMerger.enrich(
-                        vlmAnalysis: LocalVLMScreenAnalysis(elements: axElements, description: ""),
-                        with: ocrBoxes
-                    )
-                    print("👁️  In-loop AX HIT for \(capture.label): \(axElements.count) elements + \(ocrBoxes.count) OCR boxes — skipping VLM")
-                    freshAnalysesByCaptureIndex[captureIndex] = axBackedAnalysis
-                    perScreenAnalysisCache[capture.label] = CachedScreenAnalysis(
-                        identity: ScreenAnalysisCacheIdentity(
-                            analyzerDisplayName: screenAnalysisClient.displayName,
-                            capture: capture
-                        ),
-                        pixelHash: pixelHash,
-                        visualFingerprint: visualFingerprint,
-                        analysis: axBackedAnalysis,
-                        capturedAt: Date()
-                    )
-                } else {
-                    capturesStillNeedingVLM.append((captureIndex, capture, pixelHash, visualFingerprint))
-                }
-            }
-        }
-
-        // Anything AX couldn't see falls back to the VLM. With the
-        // FM planner this is rarely hit; the LM Studio VLM path
-        // stays around for Electron / games / broken-AX apps.
-        if !capturesStillNeedingVLM.isEmpty {
-            print("👁️  Running VLM + OCR on \(capturesStillNeedingVLM.count) screen(s) (AX missed)…")
-            let analyses = await withTaskGroup(
-                of: (Int, String, LocalVLMScreenAnalysis?, String, PaceScreenVisualFingerprint?).self
-            ) { taskGroup in
-                for (captureIndex, capture, pixelHash, visualFingerprint) in capturesStillNeedingVLM {
-                    taskGroup.addTask { [screenAnalysisClient, visionOCRClient] in
-                        // VLM + OCR concurrent. OCR finishes much faster
-                        // (~100-200ms); we wait on the VLM and then merge.
-                        async let vlmAnalysisFuture = screenAnalysisClient.analyzeScreenshot(
-                            screenshotImageData: capture.imageData,
-                            userIntent: transcript
-                        )
-                        async let ocrBoxesFuture = visionOCRClient.recognizeText(
-                            in: capture.imageData,
-                            screenshotWidthInPixels: capture.screenshotWidthInPixels,
-                            screenshotHeightInPixels: capture.screenshotHeightInPixels
-                        )
-                        do {
-                            let vlmAnalysis = try await vlmAnalysisFuture
-                            let ocrBoxes = (try? await ocrBoxesFuture) ?? []
-                            let enriched = PaceScreenContextMerger.enrich(
-                                vlmAnalysis: vlmAnalysis,
-                                with: ocrBoxes
-                            )
-                            return (captureIndex, capture.label, enriched, pixelHash, visualFingerprint)
-                        } catch {
-                            print("⚠️ VLM failed for \(capture.label): \(error.localizedDescription)")
-                            return (captureIndex, capture.label, nil, pixelHash, visualFingerprint)
-                        }
-                    }
-                }
-                var collected: [(Int, String, LocalVLMScreenAnalysis?, String, PaceScreenVisualFingerprint?)] = []
-                for await result in taskGroup {
-                    collected.append(result)
-                }
-                return collected
-            }
-            for (captureIndex, label, maybeAnalysis, pixelHash, visualFingerprint) in analyses {
-                guard let analysis = maybeAnalysis else { continue }
-                freshAnalysesByCaptureIndex[captureIndex] = analysis
-                perScreenAnalysisCache[label] = CachedScreenAnalysis(
-                    identity: ScreenAnalysisCacheIdentity(
-                        analyzerDisplayName: screenAnalysisClient.displayName,
-                        capture: orderedCaptures[captureIndex]
-                    ),
-                    pixelHash: pixelHash,
-                    visualFingerprint: visualFingerprint,
-                    analysis: analysis,
-                    capturedAt: Date()
-                )
-                print("👁️  VLM analysed \(label): \(analysis.elements.count) elements")
-            }
-        }
-
-        // Merge cached + fresh analyses back into the original capture order.
-        var perScreenPromptSections: [String] = []
-        for (captureIndex, capture) in orderedCaptures.enumerated() {
-            let analysis = perCaptureCachedAnalysis[captureIndex]
-                ?? freshAnalysesByCaptureIndex[captureIndex]
-            guard let analysis else { continue }
-            perScreenPromptSections.append(Self.formatScreenAnalysisForPrompt(
-                screenLabel: capture.label,
-                analysis: analysis
-            ))
-        }
-
-        if perScreenPromptSections.isEmpty {
-            print("⚠️ All VLM calls failed — falling back to raw transcript")
-            return transcript
-        }
-
-        let joinedScreenSections = perScreenPromptSections.joined(separator: "\n\n")
-        return """
-        On-device screen analysis (auto-extracted by a local vision model on each connected display):
-
-        \(joinedScreenSections)
-
-        User said: \(transcript)
-        """
-    }
-
-    /// Build the planner prompt from already-enriched analyses (the
-    /// pre-warm path). Same formatting as the synchronous path so the
-    /// planner can't tell whether it's reading a pre-warmed or fresh
-    /// analysis — keeps prompt-engineering work consistent.
-    private func buildPromptFromEnrichedAnalyses(
-        transcript: String,
-        captures: [CompanionScreenCapture],
-        enrichedAnalysesByLabel: [String: LocalVLMScreenAnalysis]
-    ) -> String {
-        let perScreenPromptSections: [String] = captures.compactMap { capture in
-            guard let analysis = enrichedAnalysesByLabel[capture.label] else { return nil }
-            return Self.formatScreenAnalysisForPrompt(
-                screenLabel: capture.label,
-                analysis: analysis
-            )
-        }
-        guard !perScreenPromptSections.isEmpty else { return transcript }
-        return """
-        On-device screen analysis (auto-extracted by a local vision model + native OCR):
-
-        \(perScreenPromptSections.joined(separator: "\n\n"))
-
-        User said: \(transcript)
-        """
-    }
-
-    /// Render one screen's element map into the planner-prompt block.
-    /// Compact format: one element per line as `role|x,y|label|text`.
-    /// Cap reduced to 15 (down from 25) because Apple Foundation
-    /// Models' 4K context window busts on bigger element lists once
-    /// the system prompt + agent rules + history are added. 30-char
-    /// text cap (down from 60) keeps headings and button labels
-    /// intact while shedding the bulk of verbose OCR runs.
-    private static func formatScreenAnalysisForPrompt(
-        screenLabel: String,
-        analysis: LocalVLMScreenAnalysis
-    ) -> String {
-        let maxElementsRendered = 15
-        let maxTextCharsPerElement = 30
-        let elementSummaryLines = analysis.elements
-            .prefix(maxElementsRendered)
-            .enumerated()
-            .map { elementIndex, element -> String in
-                // Bbox CENTER, not top-left — Click landed half-element
-                // off when we sent corners.
-                let coordinateText = element.bbox.count == 4
-                    ? "\(element.bbox[0] + element.bbox[2] / 2),\(element.bbox[1] + element.bbox[3] / 2)"
-                    : "?,?"
-                let textSuffix = element.text.flatMap { text -> String? in
-                    let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmedText.isEmpty else { return nil }
-                    let truncatedText = trimmedText.count > maxTextCharsPerElement
-                        ? String(trimmedText.prefix(maxTextCharsPerElement)) + "…"
-                        : trimmedText
-                    return "|\(truncatedText)"
-                } ?? ""
-                // Numeric ID prefix lets the FM @Generable planner
-                // emit element IDs instead of free-text coords. The
-                // ID space is local to this turn; the planner client
-                // re-parses these lines to map ID → (x, y) on output.
-                return "[\(elementIndex)] \(element.role)|\(coordinateText)|\(element.label)\(textSuffix)"
-            }
-        let elementSummaryText = elementSummaryLines.joined(separator: "\n")
-        let elementCountSummary = analysis.elements.count > maxElementsRendered
-            ? "top \(maxElementsRendered) of \(analysis.elements.count)"
-            : "\(analysis.elements.count)"
-        let trimmedDescription = analysis.description.trimmingCharacters(in: .whitespacesAndNewlines)
-        let descriptionLine = trimmedDescription.isEmpty
-            ? ""
-            : "\nsummary: \(trimmedDescription)"
-        return """
-        === \(screenLabel) (\(elementCountSummary) elements) ===\(descriptionLine)
-        \(elementSummaryText)
-        """
-    }
-
-    /// SHA256 of the JPEG byte stream. Stable across runs, ~5ms for a
-    /// 1 MB capture on Apple Silicon. Used as the cache key for the
-    /// per-screen VLM analysis — if the pixels didn't change, the
-    /// element map didn't either.
-    nonisolated private static func computePixelHash(for jpegData: Data) -> String {
-        let digest = SHA256.hash(data: jpegData)
-        return digest.compactMap { String(format: "%02x", $0) }.joined()
-    }
-
-    /// Kicks off the screen-context pre-warm at PTT press. By the time
-    /// the user releases (~2-5s of speech), the VLM + OCR have usually
-    /// finished — so the planner can start immediately without waiting.
-    /// Cancellable: a quick press-release replaces the task with a new
-    /// one or nil.
-    private func startScreenContextPrewarmIfEnabled() {
-        prewarmedScreenContextTask?.cancel()
-        guard useLocalVLMForScreenContext else {
-            prewarmedScreenContextTask = nil
-            print("👁️  Skipping prewarm — Read My Screen is off")
-            return
-        }
-        // Snapshot the dependencies so the detached task doesn't have
-        // to hop back to MainActor for them.
-        let vlmClient = screenAnalysisClient
-        let ocrClient = visionOCRClient
-        prewarmedScreenContextTask = Task { [weak self] in
-            do {
-                let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
-                guard let cursorScreenCapture = screenCaptures.first(where: { $0.isCursorScreen })
-                    ?? screenCaptures.first else {
-                    return nil
-                }
-
-                // Hash check — reuse cached analysis if the screen
-                // hasn't changed since last turn. Cache lookups are
-                // MainActor-bound so we hop briefly.
-                let pixelHash = Self.computePixelHash(for: cursorScreenCapture.imageData)
-                let visualFingerprint = PaceScreenImageDiffer.fingerprint(for: cursorScreenCapture.imageData)
-                let cacheIdentity = ScreenAnalysisCacheIdentity(
-                    analyzerDisplayName: vlmClient.displayName,
-                    capture: cursorScreenCapture
-                )
-                let cachedAnalysis = await MainActor.run { () -> LocalVLMScreenAnalysis? in
-                    guard let self else { return nil }
-                    guard let cached = self.perScreenAnalysisCache[cursorScreenCapture.label] else {
-                        return nil
-                    }
-                    guard cached.identity == cacheIdentity else {
-                        print("👁️  Prewarm cache MISS for \(cursorScreenCapture.label) — analyzer or display changed")
-                        return nil
-                    }
-                    if cached.pixelHash == pixelHash {
-                        print("👁️  Prewarm cache HIT for \(cursorScreenCapture.label)")
-                        return cached.analysis
-                    }
-                    if let cachedVisualFingerprint = cached.visualFingerprint,
-                       let visualFingerprint,
-                       let visualDiff = PaceScreenImageDiffer.diff(
-                        from: cachedVisualFingerprint,
-                        to: visualFingerprint
-                       ),
-                       !visualDiff.isMeaningful {
-                        self.perScreenAnalysisCache[cursorScreenCapture.label] = CachedScreenAnalysis(
-                            identity: cacheIdentity,
-                            pixelHash: pixelHash,
-                            visualFingerprint: visualFingerprint,
-                            analysis: cached.analysis,
-                            capturedAt: Date()
-                        )
-                        print(String(format: "👁️  Prewarm visual diff cache HIT for %@ — %.3f changed, %.1f mean delta", cursorScreenCapture.label, visualDiff.changedPixelRatio, visualDiff.meanPixelDelta))
-                        return cached.analysis
-                    }
-                    return nil
-                }
-
-                if let cachedAnalysis {
-                    return PrewarmedScreenContext(
-                        screenCaptures: [cursorScreenCapture],
-                        enrichedAnalysesByScreenLabel: [cursorScreenCapture.label: cachedAnalysis]
-                    )
-                }
-
-                // Fast tier: try the AX tree of the focused window
-                // before standing up the VLM. AX is 10-100x faster
-                // than the VLM and covers most AppKit / SwiftUI /
-                // Catalyst apps cleanly. Fires in parallel with OCR
-                // so we still get verbatim text enrichment.
-                // Scaled to the cursor screen's actual screenshot
-                // dimensions so the planner sees coordinates in the
-                // same pixel space the executor uses for clicks
-                // (downsampled to maxDimension=1280, not Retina-native).
-                async let axElementsFuture: [LocalVLMScreenElement] = MainActor.run { [weak self] in
-                    self?.axScreenReader.readFocusedWindow(scalingToScreenshot: cursorScreenCapture) ?? []
-                }
-                async let earlyOCRBoxesFuture = ocrClient.recognizeText(
-                    in: cursorScreenCapture.imageData,
-                    screenshotWidthInPixels: cursorScreenCapture.screenshotWidthInPixels,
-                    screenshotHeightInPixels: cursorScreenCapture.screenshotHeightInPixels
-                )
-                let axElements = await axElementsFuture
-                if !axElements.isEmpty {
-                    let earlyOCRBoxes = (try? await earlyOCRBoxesFuture) ?? []
-                    let synthesizedAnalysisFromAX = LocalVLMScreenAnalysis(
-                        elements: axElements,
-                        description: ""
-                    )
-                    let enrichedFromAX = PaceScreenContextMerger.enrich(
-                        vlmAnalysis: synthesizedAnalysisFromAX,
-                        with: earlyOCRBoxes
-                    )
-                    print("👁️  Prewarm AX HIT: \(axElements.count) elements + \(earlyOCRBoxes.count) OCR boxes — skipping VLM")
-                    await MainActor.run { [weak self] in
-                        self?.perScreenAnalysisCache[cursorScreenCapture.label] = CachedScreenAnalysis(
-                            identity: cacheIdentity,
-                            pixelHash: pixelHash,
-                            visualFingerprint: visualFingerprint,
-                            analysis: enrichedFromAX,
-                            capturedAt: Date()
-                        )
-                    }
-                    return PrewarmedScreenContext(
-                        screenCaptures: [cursorScreenCapture],
-                        enrichedAnalysesByScreenLabel: [cursorScreenCapture.label: enrichedFromAX]
-                    )
-                }
-
-                print("👁️  Prewarm AX returned nothing — falling back to VLM + OCR…")
-                // Reuse the OCR future from the AX attempt above —
-                // it's been running concurrently and we don't want to
-                // double-spend on the same screenshot.
-                async let vlmAnalysisFuture = vlmClient.analyzeScreenshot(
-                    screenshotImageData: cursorScreenCapture.imageData,
-                    userIntent: "general screen analysis"
-                )
-
-                let vlmAnalysis: LocalVLMScreenAnalysis
-                do {
-                    vlmAnalysis = try await vlmAnalysisFuture
-                } catch {
-                    print("⚠️ Prewarm VLM failed: \(error.localizedDescription)")
-                    // Fall back to OCR-only context
-                    let ocrBoxesFallback = (try? await earlyOCRBoxesFuture) ?? []
-                    let descriptionFromOCR = ocrBoxesFallback.prefix(8)
-                        .map { $0.text }
-                        .joined(separator: " · ")
-                    let ocrOnlyAnalysis = LocalVLMScreenAnalysis(
-                        elements: PaceScreenContextMerger.enrich(
-                            vlmAnalysis: LocalVLMScreenAnalysis(elements: [], description: ""),
-                            with: ocrBoxesFallback
-                        ).elements,
-                        description: descriptionFromOCR.isEmpty
-                            ? "VLM failed; OCR text only."
-                            : "VLM failed. OCR text snippets: \(descriptionFromOCR)"
-                    )
-                    return PrewarmedScreenContext(
-                        screenCaptures: [cursorScreenCapture],
-                        enrichedAnalysesByScreenLabel: [cursorScreenCapture.label: ocrOnlyAnalysis]
-                    )
-                }
-
-                let ocrBoxes = (try? await earlyOCRBoxesFuture) ?? []
-                let enriched = PaceScreenContextMerger.enrich(
-                    vlmAnalysis: vlmAnalysis,
-                    with: ocrBoxes
-                )
-
-                // Update cache for next turn.
-                await MainActor.run { [weak self] in
-                    self?.perScreenAnalysisCache[cursorScreenCapture.label] = CachedScreenAnalysis(
-                        identity: cacheIdentity,
-                        pixelHash: pixelHash,
-                        visualFingerprint: visualFingerprint,
-                        analysis: enriched,
-                        capturedAt: Date()
-                    )
-                }
-                print("👁️  Prewarm complete: \(enriched.elements.count) elements (\(ocrBoxes.count) OCR boxes merged)")
-
-                return PrewarmedScreenContext(
-                    screenCaptures: [cursorScreenCapture],
-                    enrichedAnalysesByScreenLabel: [cursorScreenCapture.label: enriched]
-                )
-            } catch {
-                print("⚠️ Prewarm failed: \(error.localizedDescription)")
-                return nil
-            }
         }
     }
 

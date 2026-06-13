@@ -276,6 +276,121 @@ struct PaceSpeculativeRaceCoordinatorTests {
         #expect(finalOutcome == .bothFailed)
     }
 
+    /// Regression test for the coordinator fix: once full is the
+    /// established winner it must forward EVERY accumulated chunk to
+    /// `onToken`, not just its first token. Before the fix the full path
+    /// streamed one token then went silent until the end-of-turn flush,
+    /// which defeated sentence-by-sentence TTS on the full-won path.
+    @Test func fullWonStreamsEveryChunkNotJustTheFirst() async throws {
+        let liteFakeStream = FakeStreamingPlannerClient(
+            displayName: "lite-stub",
+            chunks: [(text: "ok.", delayMs: 500)]
+        )
+        let fullFakeStream = FakeStreamingPlannerClient(
+            displayName: "full-stub",
+            chunks: [
+                (text: "The toolbar ", delayMs: 5),
+                (text: "is empty ", delayMs: 10),
+                (text: "right now.", delayMs: 10),
+            ]
+        )
+
+        var capturedFullTokens: [String] = []
+        let result = await PaceSpeculativePlannerRace.raceSpeculative(
+            transcript: "what's there?",
+            systemPrompt: "system",
+            threadMemoryPrefix: "",
+            intent: .screenDescription,
+            liteClient: liteFakeStream,
+            fullClient: fullFakeStream,
+            fullPlannerInputBuilder: {
+                PaceChatTurnPart(images: [], systemPrompt: "system", conversationHistory: [], userPrompt: "what's there?")
+            },
+            spokenCharacterCountProbe: { 0 },
+            onToken: { text, winner in
+                if winner == .full { capturedFullTokens.append(text) }
+            },
+            onCompletion: { _ in }
+        )
+
+        #expect(result.outcome == .fullWon)
+        // Three accumulated chunks ⇒ three onToken(.full) calls, the last
+        // carrying the complete accumulated text.
+        #expect(capturedFullTokens.count == 3)
+        #expect(capturedFullTokens.last == "The toolbar is empty right now.")
+        // The returned full text is the action-parsing source of truth.
+        #expect(result.fullPlannerResponseText == "The toolbar is empty right now.")
+    }
+
+    /// The result struct must carry BOTH planners' final text so the
+    /// caller can parse actions from the full path while speaking the
+    /// lite text when lite won the audio.
+    @Test func resultCarriesBothPlannersFinalText() async throws {
+        let liteFakeStream = FakeStreamingPlannerClient(
+            displayName: "lite-stub",
+            chunks: [(text: "sure, looking.", delayMs: 5)]
+        )
+        let fullFakeStream = FakeStreamingPlannerClient(
+            displayName: "full-stub",
+            chunks: [(text: "the file menu is closed.", delayMs: 250)]
+        )
+
+        let result = await PaceSpeculativePlannerRace.raceSpeculative(
+            transcript: "what's on screen?",
+            systemPrompt: "system",
+            threadMemoryPrefix: "",
+            intent: .screenDescription,
+            liteClient: liteFakeStream,
+            fullClient: fullFakeStream,
+            fullPlannerInputBuilder: {
+                PaceChatTurnPart(images: [], systemPrompt: "system", conversationHistory: [], userPrompt: "what's on screen?")
+            },
+            spokenCharacterCountProbe: { 80 },  // lite stays the winner
+            onToken: { _, _ in },
+            onCompletion: { _ in }
+        )
+
+        #expect(result.outcome == .liteWon)
+        #expect(result.litePlannerResponseText == "sure, looking.")
+        // Even though lite won the audio, the FULL text is still returned
+        // so the caller can parse any actions from the accurate planner.
+        #expect(result.fullPlannerResponseText == "the file menu is closed.")
+    }
+
+    /// When the full path throws, the result's `fullPlannerResponseText`
+    /// is nil but the lite text survives — the caller falls back to lite
+    /// for action parsing (which simply yields no actions).
+    @Test func resultFullTextIsNilWhenFullPlannerThrows() async throws {
+        let liteFakeStream = FakeStreamingPlannerClient(
+            displayName: "lite-stub",
+            chunks: [(text: "here's what i see.", delayMs: 5)]
+        )
+        let fullFakeStream = FakeStreamingPlannerClient(
+            displayName: "full-stub",
+            chunks: [],
+            shouldThrow: true
+        )
+
+        let result = await PaceSpeculativePlannerRace.raceSpeculative(
+            transcript: "what's on screen?",
+            systemPrompt: "system",
+            threadMemoryPrefix: "",
+            intent: .screenDescription,
+            liteClient: liteFakeStream,
+            fullClient: fullFakeStream,
+            fullPlannerInputBuilder: {
+                PaceChatTurnPart(images: [], systemPrompt: "system", conversationHistory: [], userPrompt: "what's on screen?")
+            },
+            spokenCharacterCountProbe: { 80 },
+            onToken: { _, _ in },
+            onCompletion: { _ in }
+        )
+
+        #expect(result.outcome == .liteWon)
+        #expect(result.fullPlannerResponseText == nil)
+        #expect(result.litePlannerResponseText == "here's what i see.")
+    }
+
     @Test func fullWonWhenItStreamsBeforeLiteEver() async throws {
         let liteFakeStream = FakeStreamingPlannerClient(
             displayName: "lite-stub",

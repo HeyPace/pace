@@ -64,6 +64,35 @@ struct PaceChatTurnPart {
     let userPrompt: String
 }
 
+/// What `raceSpeculative` hands back to the caller. The outcome enum
+/// alone isn't enough for the agent loop: it ALWAYS needs the full
+/// planner's complete text to parse actions from (the lite path is
+/// text-only and can never emit a real `[CLICK]`/`<tool_calls>` block),
+/// regardless of which path won the spoken-audio race. So the result
+/// carries both planners' final text. `fullPlannerResponseText` is nil
+/// only when the full path threw; `litePlannerResponseText` is nil only
+/// when the lite path threw.
+struct PaceSpeculativeRaceResult {
+    let outcome: PaceSpeculativeOutcome
+    let fullPlannerResponseText: String?
+    let litePlannerResponseText: String?
+}
+
+/// Tiny main-actor box shared by reference between the synchronous
+/// `onToken` callback and the async TTS-dispatch `Task` the
+/// CompanionManager wiring schedules. Two jobs: (1) detect the
+/// lite→full winner flip so the supersede pipeline reset fires exactly
+/// once, and (2) let a lite chunk whose dispatch `Task` was scheduled
+/// BEFORE a supersede drop itself on arrival (its `winner` no longer
+/// matches the live winner) instead of re-speaking lite text over the
+/// freshly-reset full stream. `@MainActor final class` ⇒ Sendable, so
+/// capturing it in the `@Sendable` dispatch task is safe.
+@MainActor
+final class PaceSpeculativeRaceWinnerBox {
+    var winner: PaceSpeculativeWinner?
+    init() {}
+}
+
 // MARK: - Race driver
 
 @MainActor
@@ -97,6 +126,7 @@ enum PaceSpeculativePlannerRace {
     /// unit tests substitute a fake. The race's behavior is
     /// type-agnostic — it only calls `generateResponseStreaming`.
     /// Discipline is enforced at the call site by the gate predicate.
+    @discardableResult
     static func raceSpeculative(
         transcript: String,
         systemPrompt: String,
@@ -104,11 +134,11 @@ enum PaceSpeculativePlannerRace {
         intent: PaceIntent,
         liteClient: any BuddyPlannerClient,
         fullClient: any BuddyPlannerClient,
-        fullPlannerInputBuilder: @escaping @Sendable () async -> PaceChatTurnPart,
+        fullPlannerInputBuilder: @escaping @MainActor () async -> PaceChatTurnPart,
         spokenCharacterCountProbe: @escaping @MainActor () -> Int,
         onToken: @escaping @MainActor (String, PaceSpeculativeWinner) -> Void,
         onCompletion: @escaping @MainActor (PaceSpeculativeOutcome) -> Void
-    ) async {
+    ) async -> PaceSpeculativeRaceResult {
         // Coordinator: tracks which path has produced its first token
         // and routes tokens through the right callback. Lives on the
         // main actor so the @Published state on the pipeline stays
@@ -150,6 +180,23 @@ enum PaceSpeculativePlannerRace {
             intent: intent
         )
         onCompletion(resolvedOutcome)
+
+        // The full planner's COMPLETE text is the action-parsing source
+        // of truth no matter who won the audio — surface it (plus the
+        // lite text, used as the spoken/displayed string when lite won).
+        let fullPlannerResponseText: String? = {
+            if case .success(let text) = fullOutcome { return text }
+            return nil
+        }()
+        let litePlannerResponseText: String? = {
+            if case .success(let text) = liteOutcome { return text }
+            return nil
+        }()
+        return PaceSpeculativeRaceResult(
+            outcome: resolvedOutcome,
+            fullPlannerResponseText: fullPlannerResponseText,
+            litePlannerResponseText: litePlannerResponseText
+        )
     }
 
     // MARK: - Lite path
@@ -183,7 +230,7 @@ enum PaceSpeculativePlannerRace {
 
     private static func runFullPlanner(
         client: any BuddyPlannerClient,
-        inputBuilder: @Sendable () async -> PaceChatTurnPart,
+        inputBuilder: @MainActor () async -> PaceChatTurnPart,
         coordinator: SpeculativeRaceCoordinator
     ) async -> Result<String, Error> {
         let plannerInputs = await inputBuilder()
@@ -273,6 +320,16 @@ private final class SpeculativeRaceCoordinator {
             didWinnerProduceAnyTokens = true
             onToken(accumulatedText, .full)
             print("🧠 Speculative race: full path produced first token")
+            return
+        }
+        // FULL is already the established winner (it won outright, or it
+        // superseded lite on a prior chunk). Keep forwarding every
+        // accumulated chunk so the downstream TTS pipeline can speak the
+        // full answer sentence-by-sentence instead of only its first
+        // token + a tail flush at the end.
+        if currentWinner == .full {
+            didWinnerProduceAnyTokens = true
+            onToken(accumulatedText, .full)
             return
         }
         // FULL produced text AFTER lite won. Decide whether to
