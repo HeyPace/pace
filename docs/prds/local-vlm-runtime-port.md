@@ -1,6 +1,6 @@
 # Local VLM runtime port
 
-Status: deferred — future model-work track (out of scope for the local-only v0.3.x milestone, decided 2026-06-13). The screen-analysis provider abstraction,
+Status: Pace-side complete — no pending Pace work. Screen VLM ships today via LM Studio HTTP (UI-Venus-2B); the in-process CoreML/MLX provider scaffold swaps in when TinyGPT lands the runtime port (not Pace backlog — see PROJECT_STATUS.md → "Model supply"). The screen-analysis provider abstraction,
 configurable runtime selection, in-process placeholder, and LM Studio fallback
 are wired. Screen-context cache entries are invalidated by analyzer identity and
 display geometry. Missing VLM descriptions are synthesized from element labels
