@@ -56,6 +56,10 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
         PaceToolRegistry.validateForAppStartup()
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 0])
+        // One-shot migration of the prototype-era UserDefaults flow
+        // snapshot into the on-disk JSON store. No-op on a fresh
+        // install or after the migration has already run.
+        PaceFlowStore().migrateLegacyUserDefaultsFlowsIfNeeded()
 
         PaceAnalytics.configure()
         PaceAnalytics.trackAppOpened()

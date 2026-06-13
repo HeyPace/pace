@@ -629,6 +629,23 @@ final class PaceActionExecutor {
     private var mutationLog: [PaceActionMutation] = []
     private var activeStreamingMailDraftState: PaceStreamingMailDraftState?
 
+    /// Callback wired by `CompanionManager` so the planner's
+    /// `record_flow` tool can kick off the live recorder + persist on
+    /// stop. The closure returns a short user-facing summary the
+    /// executor folds into its observation. Default no-op preserves
+    /// dry-run / unit-test behavior.
+    var startFlowRecordingCallback: (String) -> String = { flowName in
+        "Ready to record flow \"\(flowName)\". Recorder hook isn't wired."
+    }
+
+    /// Callback wired by `CompanionManager` so the planner's
+    /// `run_flow` tool can drive the live replayer. Returns true when
+    /// the caller already kicked the replay off (so the executor's
+    /// observation can say "replaying now"); false signals the
+    /// approval flow short-circuited and the executor should report a
+    /// neutral status instead.
+    var runFlowCallback: (PaceRecordedFlow) -> Bool = { _ in false }
+
     init(
         actionsAreEnabledOverride: Bool? = nil,
         mcpClient: PaceMCPStdioClient = PaceMCPStdioClient(),
@@ -1338,9 +1355,20 @@ final class PaceActionExecutor {
                 summary: "Flow recording needs a name."
             )
         }
+        guard actionsAreEnabled else {
+            return PaceActionExecutionObservation(
+                toolName: "record_flow",
+                summary: "Would record flow \"\(flowName)\"."
+            )
+        }
+        // CompanionManager owns the live recorder + the eventual save
+        // into PaceFlowStore on stop. The callback returns the
+        // spoken-ready summary so the executor observation reads
+        // exactly like the panel TTS would say it.
+        let recorderSummary = startFlowRecordingCallback(flowName)
         return PaceActionExecutionObservation(
             toolName: "record_flow",
-            summary: "Ready to record flow \"\(flowName)\". The AX event recorder is queued; no screen pixels or coordinates will be stored."
+            summary: recorderSummary
         )
     }
 
@@ -1359,9 +1387,26 @@ final class PaceActionExecutor {
                 summary: "No recorded flow named \"\(flowName)\" was found."
             )
         }
+        guard actionsAreEnabled else {
+            return PaceActionExecutionObservation(
+                toolName: "run_flow",
+                summary: "Would replay flow \"\(storedFlow.name)\" (\(storedFlow.steps.count) step\(storedFlow.steps.count == 1 ? "" : "s"))."
+            )
+        }
+        // CompanionManager applies the per-session approval cache,
+        // drives the replayer, and speaks completion/failure copy. The
+        // executor just kicks off the call and reports a neutral
+        // observation back to the planner loop.
+        let didStartReplay = runFlowCallback(storedFlow)
+        if didStartReplay {
+            return PaceActionExecutionObservation(
+                toolName: "run_flow",
+                summary: "Replaying flow \"\(storedFlow.name)\" (\(storedFlow.steps.count) step\(storedFlow.steps.count == 1 ? "" : "s"))."
+            )
+        }
         return PaceActionExecutionObservation(
             toolName: "run_flow",
-            summary: "Flow \"\(storedFlow.name)\" has \(storedFlow.steps.count) saved step(s). Replay execution is approval-gated and queued for the AX replayer."
+            summary: "Flow \"\(storedFlow.name)\" is ready — pending approval."
         )
     }
 

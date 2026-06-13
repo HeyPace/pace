@@ -681,3 +681,56 @@ final class PaceFlowReplayTests: XCTestCase {
         XCTAssertEqual(runRequest.name, "morning standup")
     }
 }
+
+// MARK: - PaceFlowReplayOutcome contract
+
+/// The outcome enum is the only piece of state the replayer surfaces
+/// past the `play(...)` boundary. Pinning its `Equatable` cases here
+/// keeps `CompanionManager.speakFlowReplayOutcome(...)` honest: any
+/// shape change forces the narration switch to update at compile time.
+final class PaceFlowReplayOutcomeContractTests: XCTestCase {
+
+    func testOutcomeCasesCompareCorrectly() {
+        XCTAssertEqual(PaceFlowReplayOutcome.completed, .completed)
+        XCTAssertNotEqual(PaceFlowReplayOutcome.completed, .userCancelled)
+        XCTAssertEqual(
+            PaceFlowReplayOutcome.stoppedBeforeSendStep(stepIndex: 2),
+            .stoppedBeforeSendStep(stepIndex: 2)
+        )
+        XCTAssertNotEqual(
+            PaceFlowReplayOutcome.stoppedBeforeSendStep(stepIndex: 2),
+            .stoppedBeforeSendStep(stepIndex: 3)
+        )
+        XCTAssertEqual(
+            PaceFlowReplayOutcome.failedToFindTarget(stepIndex: 1, axLabel: "Send"),
+            .failedToFindTarget(stepIndex: 1, axLabel: "Send")
+        )
+        XCTAssertNotEqual(
+            PaceFlowReplayOutcome.failedToFindTarget(stepIndex: 1, axLabel: "Send"),
+            .failedToFindTarget(stepIndex: 1, axLabel: "Submit")
+        )
+    }
+
+    func testSendRestrictionHeuristicFiresOnLastSendStep() {
+        // The replayer relies on PaceFlowReplayPlanner.shouldPauseBeforeSend
+        // for its hard halt. Pin the contract that "Send" matches as
+        // the LAST step but not as a mid-flow step.
+        let sendStep = PaceRecordedStep.axPress(rolePath: ["AXButton"], label: "Send")
+        XCTAssertTrue(
+            PaceFlowReplayPlanner.shouldPauseBeforeSend(step: sendStep, isLastStep: true)
+        )
+        XCTAssertFalse(
+            PaceFlowReplayPlanner.shouldPauseBeforeSend(step: sendStep, isLastStep: false)
+        )
+    }
+
+    func testSendRestrictionHeuristicMatchesReplyAndPost() {
+        for label in ["Reply", "Post", "Submit", "send"] {
+            let step = PaceRecordedStep.axPress(rolePath: ["AXButton"], label: label)
+            XCTAssertTrue(
+                PaceFlowReplayPlanner.shouldPauseBeforeSend(step: step, isLastStep: true),
+                "Expected last-step send heuristic to match label \(label)"
+            )
+        }
+    }
+}

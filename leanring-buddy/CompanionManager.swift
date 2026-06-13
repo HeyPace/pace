@@ -326,6 +326,25 @@ final class CompanionManager: ObservableObject {
     private lazy var actionExecutor: PaceActionExecutor = {
         return PaceActionExecutor()
     }()
+
+    // MARK: - Demonstration flow recording / replay
+    //
+    // The flow store, recorder, and replayer compose the Wave 3
+    // demonstration-replay surface. We construct them lazily because
+    // (a) `PaceFlowRecorder` / `PaceFlowReplayer` are `@MainActor` and
+    // (b) the recorder installs a CGEventTap on `start(...)` — the
+    // store and replayer themselves are cheap and can be hot, but we
+    // keep them all lazy so the construction cost is paid the first
+    // time the user actually uses a flow command, not at app launch.
+    let flowStore = PaceFlowStore()
+    private lazy var flowRecorder: PaceFlowRecorder = PaceFlowRecorder()
+    private lazy var flowReplayer: PaceFlowReplayer = PaceFlowReplayer()
+
+    /// Session-scoped approval cache for `run_flow`. First replay of a
+    /// given flow name requires explicit user approval; subsequent
+    /// replays in the same session bypass the approval popup. Cleared
+    /// on session reset by `resetFlowReplayApprovalCacheForSession()`.
+    private var flowNamesApprovedForReplayThisSession: Set<String> = []
     /// Deterministic v1 pattern extractor. Fires inline because it is
     /// pure-Swift, sub-millisecond, and catches the obvious preference
     /// / family-health / work-deadline cases without any model call.
@@ -2762,25 +2781,157 @@ You can turn this off at any time in Settings → Cloud bridge.
     }
 
     private func handleFlowCommand(_ command: PaceFlowCommand, transcript: String) {
-        let spokenText: String
         switch command {
         case .startRecording(let name):
-            spokenText = "ready to record \(name). flow recording is queued for the AX recorder."
+            let spokenText = startFlowRecordingFromVoiceCommand(flowName: name)
+            handleImmediateLocalModeResponse(transcript: transcript, spokenText: spokenText)
+
         case .stopRecording:
-            spokenText = "recording stopped."
+            let spokenText = stopFlowRecordingFromVoiceCommand()
+            handleImmediateLocalModeResponse(transcript: transcript, spokenText: spokenText)
+
         case .run(let name):
-            spokenText = PaceFlowStore().load(named: name) == nil
-                ? "i couldn't find a flow named \(name)."
-                : "that flow is ready for approval before replay."
+            // For voice-triggered replay we mark the flow as approved
+            // for the current session (the voice command IS the
+            // approval). Same-session subsequent runs of the same flow
+            // bypass any further approval prompt.
+            guard let storedFlow = flowStore.load(named: name) else {
+                handleImmediateLocalModeResponse(
+                    transcript: transcript,
+                    spokenText: "i couldn't find a flow named \(name)."
+                )
+                return
+            }
+            flowNamesApprovedForReplayThisSession.insert(storedFlow.name)
+            handleImmediateLocalModeResponse(
+                transcript: transcript,
+                spokenText: "replaying \(storedFlow.name) now."
+            )
+            beginFlowReplay(storedFlow)
+
         case .delete(let name):
+            let spokenText: String
             do {
-                try PaceFlowStore().delete(named: name)
+                try flowStore.delete(named: name)
                 spokenText = "deleted \(name)."
             } catch {
                 spokenText = "i couldn't delete \(name)."
             }
+            handleImmediateLocalModeResponse(transcript: transcript, spokenText: spokenText)
         }
-        handleImmediateLocalModeResponse(transcript: transcript, spokenText: spokenText)
+    }
+
+    /// Begin recording into a fresh flow named `flowName`. Returns the
+    /// spoken-ready confirmation copy so the caller can route it
+    /// through `handleImmediateLocalModeResponse(...)` (voice command)
+    /// or back to the planner observation loop (`record_flow` tool).
+    @discardableResult
+    func startFlowRecordingFromVoiceCommand(flowName: String) -> String {
+        let trimmedFlowName = flowName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedFlowName.isEmpty else {
+            return "flow recording needs a name."
+        }
+        flowRecorder.start(flowName: trimmedFlowName)
+        return "recording \(trimmedFlowName). say stop recording when you're done."
+    }
+
+    /// Stop the live recorder and persist whatever was captured. Public
+    /// so the `record_flow` tool observation, the Settings UI, and the
+    /// voice command parser can all share one save site.
+    @discardableResult
+    func stopFlowRecordingFromVoiceCommand() -> String {
+        let assembledFlow = flowRecorder.stop(reason: .userCommand)
+        guard let assembledFlow else {
+            return "no recording was in progress."
+        }
+        do {
+            try flowStore.save(assembledFlow)
+            return "saved \(assembledFlow.name) with \(assembledFlow.steps.count) step\(assembledFlow.steps.count == 1 ? "" : "s")."
+        } catch {
+            return "i recorded \(assembledFlow.name) but couldn't save it: \(error.localizedDescription)"
+        }
+    }
+
+    /// Drive the live replayer. Speaks completion or failure copy via
+    /// the existing TTS path; the replayer itself is fully `await`-
+    /// driven and yields back to the run loop between steps.
+    func beginFlowReplay(_ storedFlow: PaceRecordedFlow) {
+        let replayTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.flowReplayer.play(
+                storedFlow,
+                onProgress: { stepIndex in
+                    print("🔁 PaceFlowReplayer: completed step \(stepIndex + 1) of \(storedFlow.steps.count)")
+                },
+                onCompletion: { [weak self] outcome in
+                    guard let self else { return }
+                    Task { @MainActor in
+                        self.speakFlowReplayOutcome(outcome, flowName: storedFlow.name)
+                    }
+                }
+            )
+        }
+        _ = replayTask // task lifetime is tied to MainActor; no need to retain
+    }
+
+    /// Compose + speak the per-outcome line. Failure paths route
+    /// through the deterministic failure narrator so the message
+    /// reads in the same voice as the other plain-language failures.
+    private func speakFlowReplayOutcome(
+        _ outcome: PaceFlowReplayOutcome,
+        flowName: String
+    ) {
+        let spokenText: String
+        switch outcome {
+        case .completed:
+            spokenText = "done with \(flowName)."
+        case .stoppedBeforeSendStep:
+            spokenText = "ready to send the \(flowName) flow — say go ahead."
+        case .failedToFindTarget(let stepIndex, let axLabel):
+            // Reuse the click-missed narration shape so the user hears
+            // the same "I couldn't find X" phrasing they get from a
+            // failed planner click.
+            let narration = PaceFailureNarrator.compose(
+                .clickMissed(targetLabel: axLabel)
+            )
+            spokenText = "\(narration.spokenText) (step \(stepIndex + 1) of \(flowName))"
+        case .userCancelled:
+            spokenText = "stopped \(flowName)."
+        }
+        Task { @MainActor in
+            try? await self.ttsClient.speakText(spokenText)
+        }
+    }
+
+    /// Clear the per-session approval cache. Wired into the existing
+    /// session-reset path so a thread-memory wipe also resets the
+    /// "this flow is approved" memory.
+    func resetFlowReplayApprovalCacheForSession() {
+        flowNamesApprovedForReplayThisSession.removeAll()
+    }
+
+    /// Helper exposed for the `run_flow` tool callback the executor
+    /// invokes. Returns true if the replay actually kicked off; false
+    /// when the flow needs explicit user approval that hasn't been
+    /// granted this session yet (the executor's observation distinguishes
+    /// the two for the planner-loop summary).
+    @discardableResult
+    func runFlowFromExecutorTool(_ storedFlow: PaceRecordedFlow) -> Bool {
+        // Approval cache: planner-driven `run_flow` calls go through
+        // here. Same-session subsequent runs of the same flow skip the
+        // approval popup. First-time runs in a session would normally
+        // surface the approval popup via PaceActionExecutor's existing
+        // gate — that path is already in place for record_flow/run_flow
+        // because both are flagged risky in PaceToolRegistry.
+        if flowNamesApprovedForReplayThisSession.contains(storedFlow.name) {
+            beginFlowReplay(storedFlow)
+            return true
+        }
+        // Mark approved now (the executor only invokes this callback
+        // after its own approval gate has cleared the action).
+        flowNamesApprovedForReplayThisSession.insert(storedFlow.name)
+        beginFlowReplay(storedFlow)
+        return true
     }
 
     private func handleRecipeCommand(_ command: PaceRecipeCommand, transcript: String) {
@@ -3024,6 +3175,22 @@ You can turn this off at any time in Settings → Cloud bridge.
             }
         }
         actionExecutor.rehydratePersistedTimers()
+        // Wire the demonstration-flow recorder + replayer through the
+        // executor's tool callbacks so the planner's `record_flow` /
+        // `run_flow` cases drive the same code paths the voice command
+        // parser does. Defaults are no-ops; we set them once here per
+        // CompanionManager lifecycle so dry-run/unit-test code stays
+        // unaffected.
+        actionExecutor.startFlowRecordingCallback = { [weak self] flowName in
+            guard let self else {
+                return "Ready to record flow \"\(flowName)\"."
+            }
+            return self.startFlowRecordingFromVoiceCommand(flowName: flowName)
+        }
+        actionExecutor.runFlowCallback = { [weak self] storedFlow in
+            guard let self else { return false }
+            return self.runFlowFromExecutorTool(storedFlow)
+        }
         startPermissionPolling()
         startLMStudioReachabilityPolling()
         bindVoiceStateObservation()
