@@ -4562,116 +4562,155 @@ You can turn this off at any time in Settings → Cloud bridge.
                     // (e.g.) screen capture vs. planner inference.
                     print("⏱  Step \(stepIndex) screen capture: \(screenCaptureElapsedMs)ms")
 
-                    // 2. Build image labels with the actual screenshot pixel
-                    //    dimensions so the planner's coordinate space matches
-                    //    the image it sees.
-                    let labeledImages = screenCaptures.map { capture in
-                        let dimensionInfo = " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
-                        return (data: capture.imageData, label: capture.label + dimensionInfo)
-                    }
-
-                    // 3. Optionally enrich the user prompt with the local VLM's
-                    //    structured element map — cuts perception cost on the
-                    //    planner side and is essential when the planner is text-only.
-                    let screenContextStartedAt = Date()
-                    let screenContextPrompt = await screenContextService.buildUserPromptWithLocalVLMContextIfEnabled(
-                        transcript: currentTurnUserPrompt,
-                        screenCaptures: screenCaptures,
-                        prewarmedContext: prewarmedContextForStep
-                    )
-                    let userPromptForPlanner = await appendLocalRetrievalContext(
-                        to: appendConfiguredMCPContext(to: screenContextPrompt),
-                        query: transcript,
-                        route: intentPrediction.route,
-                        isFirstPlannerStep: isFirstStep
-                    )
-                    let screenContextElapsedMs = Int(
-                        Date().timeIntervalSince(screenContextStartedAt) * 1000
-                    )
-                    print("⏱  Step \(stepIndex) screen context (VLM + OCR + AX): \(screenContextElapsedMs)ms")
-
-                    // Diagnostic: print the first 5 element lines we're
-                    // about to send to the planner. The single most
-                    // useful thing when a click misses is comparing
-                    // "what coordinates the planner saw" against "what
-                    // coordinates the planner emitted."
-                    logFirstElementsOfPromptForDiagnostics(
-                        userPromptForPlanner: userPromptForPlanner,
-                        stepIndex: stepIndex
-                    )
-
-                    // 4. Build conversation history (already includes prior steps)
-                    let historyForPlanner = conversationHistory.map { entry in
-                        (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
-                    }
-
-                    // 5. Run the planner. Text-only planners get an empty
-                    //    images list; the VLM element-map text inside
-                    //    userPromptForPlanner is their only view of the screen.
-                    let imagesForPlanner: [(data: Data, label: String)] =
-                        plannerClient.supportsImageInput ? labeledImages : []
-
-                    // System prompt is built per-turn from blocks so we
-                    // can omit the ~700-token agent-mode block when
-                    // EnableActions is off. That's pure
-                    // prefill savings every turn.
+                    // System prompt + thread-memory injection are cheap
+                    // (no VLM call) so they're computed BEFORE the planner
+                    // branch below. The agent-mode block is omitted when
+                    // EnableActions is off — pure prefill savings.
                     let isAgentModeEnabled = AppBundleConfiguration
                         .stringValue(forKey: "EnableActions")?
                         .lowercased() == "true"
+                    let threadSummaryInjectionForTurn = threadMemory.injectionPrefix()
+                    let systemPromptForTurn = CompanionSystemPrompt.build(
+                        includeAgentMode: isAgentModeEnabled,
+                        threadSummaryInjection: threadSummaryInjectionForTurn
+                    )
                     // Mark this turn as off-device for the amber-tint
                     // capsule when the active planner is anything other
-                    // than the on-device tiers. The Hybrid wrapper sets
-                    // its own bridge-specific flag right before its bridge
-                    // branch fires; this catches every non-Local call
-                    // shape (DirectAPI, alwaysBridge, hybrid-large-routing
-                    // already handled above).
+                    // than the on-device tiers (DirectAPI, alwaysBridge).
                     if plannerClient is DirectAPIPlannerClient
                         || plannerClient is CloudBridgePlannerClient {
                         isOffDeviceTurnInFlight = true
                     }
-                    let threadSummaryInjectionForTurn = threadMemory.injectionPrefix()
-                    let (fullResponseText, _) = try await plannerClient.generateResponseStreaming(
-                        images: imagesForPlanner,
-                        systemPrompt: CompanionSystemPrompt.build(
-                            includeAgentMode: isAgentModeEnabled,
-                            threadSummaryInjection: threadSummaryInjectionForTurn
-                        ),
-                        conversationHistory: historyForPlanner,
-                        userPrompt: userPromptForPlanner,
-                        onTextChunk: { [weak self] accumulatedPlannerText in
-                            // 1. Mirror raw text into the bubble so the user
-                            //    sees tags, thinking blocks, everything live.
-                            //    The end-of-turn step replaces this with the
-                            //    cleaned spoken text once parsing completes.
-                            self?.responseOverlayManager.updateStreamingText(accumulatedPlannerText)
-                            // 2. Hand the chunk to the streaming TTS so any
-                            //    newly-completed sentences get spoken before
-                            //    the planner has finished generating the rest.
-                            //    This is the dominant perceived-latency win.
-                            Task { @MainActor [weak self] in
-                                guard let self else { return }
-                                let shouldSuppressStreamingNarration = self.actionExecutor.actionsAreEnabled
-                                    && PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
-                                        forPlannerResponseText: accumulatedPlannerText
-                                    )
-                                guard !shouldSuppressStreamingNarration else { return }
-                                await self.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedPlannerText)
-                            }
-                            if let streamingMailDraftSnapshot = streamingMailDraftDetector
-                                .detectChange(in: accumulatedPlannerText) {
+
+                    // Wave 4 speculative race (FIRST STEP ONLY): when the
+                    // gate passes, the in-process Apple FM "lite" planner
+                    // (transcript only, NO VLM) runs CONCURRENTLY with the
+                    // full VLM-fed planner. Lite produces audio in ~150ms
+                    // while a cold VLM (2–3s) is still running; the full
+                    // path supersedes within 500ms if it catches up. The
+                    // full planner's COMPLETE text always drives action
+                    // parsing below — the lite path is spoken-feedback
+                    // only and can never emit a real action. When the gate
+                    // is false the single-planner else-branch is
+                    // byte-identical to pre-race behavior.
+                    let appleFoundationModelsIsAvailableForRace =
+                        textOnlyPlannerClient is AppleFoundationModelsPlannerClient
+                    let useSpeculativeRace = isFirstStep
+                        && speculativeRaceShouldFire(
+                            intent: intentPrediction.intent,
+                            appleFoundationModelsIsAvailable: appleFoundationModelsIsAvailableForRace
+                        )
+
+                    let fullResponseText: String
+                    var raceLiteWonSpokenText: String? = nil
+                    if useSpeculativeRace {
+                        let raceWiringResult = await performFirstStepSpeculativePlannerRace(
+                            transcript: currentTurnUserPrompt,
+                            systemPrompt: systemPromptForTurn,
+                            intent: intentPrediction.intent,
+                            route: intentPrediction.route,
+                            screenCaptures: screenCaptures,
+                            prewarmedContext: prewarmedContextForStep
+                        )
+                        guard !Task.isCancelled else { return }
+                        if raceWiringResult.bothPlannersFailed {
+                            isCloudBridgeCallActive = false
+                            isOffDeviceTurnInFlight = false
+                            currentTurnHUDState = .failed("planner offline")
+                            speakPlainLanguageFailure(.plannerOffline, context: "speculative-race")
+                            break agentStepLoop
+                        }
+                        fullResponseText = raceWiringResult.fullResponseTextForActionParsing
+                        raceLiteWonSpokenText = raceWiringResult.liteWonSpokenText
+                    } else {
+                        // ---- Single-planner path (byte-identical to pre-race) ----
+                        // 2. Build image labels with the actual screenshot pixel
+                        //    dimensions so the planner's coordinate space matches
+                        //    the image it sees.
+                        let labeledImages = screenCaptures.map { capture in
+                            let dimensionInfo = " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
+                            return (data: capture.imageData, label: capture.label + dimensionInfo)
+                        }
+
+                        // 3. Optionally enrich the user prompt with the local VLM's
+                        //    structured element map — cuts perception cost on the
+                        //    planner side and is essential when the planner is text-only.
+                        let screenContextStartedAt = Date()
+                        let screenContextPrompt = await screenContextService.buildUserPromptWithLocalVLMContextIfEnabled(
+                            transcript: currentTurnUserPrompt,
+                            screenCaptures: screenCaptures,
+                            prewarmedContext: prewarmedContextForStep
+                        )
+                        let userPromptForPlanner = await appendLocalRetrievalContext(
+                            to: appendConfiguredMCPContext(to: screenContextPrompt),
+                            query: transcript,
+                            route: intentPrediction.route,
+                            isFirstPlannerStep: isFirstStep
+                        )
+                        let screenContextElapsedMs = Int(
+                            Date().timeIntervalSince(screenContextStartedAt) * 1000
+                        )
+                        print("⏱  Step \(stepIndex) screen context (VLM + OCR + AX): \(screenContextElapsedMs)ms")
+
+                        // Diagnostic: print the first 5 element lines we're
+                        // about to send to the planner.
+                        logFirstElementsOfPromptForDiagnostics(
+                            userPromptForPlanner: userPromptForPlanner,
+                            stepIndex: stepIndex
+                        )
+
+                        // 4. Build conversation history (already includes prior steps)
+                        let historyForPlanner = conversationHistory.map { entry in
+                            (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
+                        }
+
+                        // 5. Run the planner. Text-only planners get an empty
+                        //    images list; the VLM element-map text inside
+                        //    userPromptForPlanner is their only view of the screen.
+                        let imagesForPlanner: [(data: Data, label: String)] =
+                            plannerClient.supportsImageInput ? labeledImages : []
+
+                        let (singlePlannerResponseText, _) = try await plannerClient.generateResponseStreaming(
+                            images: imagesForPlanner,
+                            systemPrompt: systemPromptForTurn,
+                            conversationHistory: historyForPlanner,
+                            userPrompt: userPromptForPlanner,
+                            onTextChunk: { [weak self] accumulatedPlannerText in
+                                // 1. Mirror raw text into the bubble so the user
+                                //    sees tags, thinking blocks, everything live.
+                                //    The end-of-turn step replaces this with the
+                                //    cleaned spoken text once parsing completes.
+                                self?.responseOverlayManager.updateStreamingText(accumulatedPlannerText)
+                                // 2. Hand the chunk to the streaming TTS so any
+                                //    newly-completed sentences get spoken before
+                                //    the planner has finished generating the rest.
+                                //    This is the dominant perceived-latency win.
                                 Task { @MainActor [weak self] in
-                                    guard let self,
-                                          self.actionExecutor.actionsAreEnabled,
-                                          !self.requiresActionApproval else {
-                                        return
+                                    guard let self else { return }
+                                    let shouldSuppressStreamingNarration = self.actionExecutor.actionsAreEnabled
+                                        && PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
+                                            forPlannerResponseText: accumulatedPlannerText
+                                        )
+                                    guard !shouldSuppressStreamingNarration else { return }
+                                    await self.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedPlannerText)
+                                }
+                                if let streamingMailDraftSnapshot = streamingMailDraftDetector
+                                    .detectChange(in: accumulatedPlannerText) {
+                                    Task { @MainActor [weak self] in
+                                        guard let self,
+                                              self.actionExecutor.actionsAreEnabled,
+                                              !self.requiresActionApproval else {
+                                            return
+                                        }
+                                        _ = await self.actionExecutor.beginOrUpdateStreamingMailDraft(
+                                            streamingMailDraftSnapshot
+                                        )
                                     }
-                                    _ = await self.actionExecutor.beginOrUpdateStreamingMailDraft(
-                                        streamingMailDraftSnapshot
-                                    )
                                 }
                             }
-                        }
-                    )
+                        )
+                        fullResponseText = singlePlannerResponseText
+                    }
                     guard !Task.isCancelled else { return }
 
                     // Clear the amber bridge indicator now that the stream has finished.
@@ -4717,7 +4756,16 @@ You can turn this off at any time in Settings → Cloud bridge.
                         }
                         return pointingParseResultRaw
                     }()
-                    let spokenText = parseResult.spokenText
+                    // When the speculative race's LITE path won the audio,
+                    // the user already heard the lite answer — so the
+                    // spoken/displayed/journaled string is the lite text,
+                    // NOT the full planner's text (which only drives the
+                    // action parse above). This keeps audio, bubble,
+                    // reply-replay, and thread memory consistent with what
+                    // was actually spoken, and prevents `flushFinal` from
+                    // diffing a different string against the already-spoken
+                    // lite prefix. nil in every non-race / full-won case.
+                    let spokenText = raceLiteWonSpokenText ?? parseResult.spokenText
                     let plannerProvidedFinalFeedback = actionParseResult.actions.isEmpty
                         && !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     if plannerProvidedFinalFeedback {
@@ -5019,6 +5067,171 @@ You can turn this off at any time in Settings → Cloud bridge.
                 scheduleTransientHideIfNeeded()
             }
         }
+    }
+
+    /// Result of wiring ONE first agent step through the speculative
+    /// planner race. `fullResponseTextForActionParsing` is ALWAYS the
+    /// full planner's text when it succeeded (so actions parse from the
+    /// accurate, VLM-fed planner no matter who won the audio); it falls
+    /// back to the lite text only when the full path threw.
+    /// `liteWonSpokenText` is non-nil ONLY when the lite path won the
+    /// audio outright — it is the cleaned string the user actually heard,
+    /// which the caller uses as the spoken/displayed/journaled text.
+    /// `bothPlannersFailed` routes the caller to the failure narrator.
+    private struct PaceFirstStepRaceWiringResult {
+        let fullResponseTextForActionParsing: String
+        let liteWonSpokenText: String?
+        let bothPlannersFailed: Bool
+    }
+
+    /// Wave 4: wire the first agent step through `PaceSpeculativePlanner
+    /// Race`. The lite path (in-process Apple FM, transcript only, no VLM)
+    /// races the full VLM-fed planner; the winner's tokens stream to TTS +
+    /// the bubble as they arrive, while the full path's COMPLETE text
+    /// always comes back for action parsing. Only invoked when
+    /// `speculativeRaceShouldFire` is true for a FIRST step — multi-step
+    /// agent turns keep the single-planner path.
+    private func performFirstStepSpeculativePlannerRace(
+        transcript: String,
+        systemPrompt: String,
+        intent: PaceIntent,
+        route: PaceIntentRoute,
+        screenCaptures: [CompanionScreenCapture],
+        prewarmedContext: PaceScreenContextPrewarmedSnapshot?
+    ) async -> PaceFirstStepRaceWiringResult {
+        let fullClient = plannerClient
+        let liteClient = textOnlyPlannerClient
+
+        // The full path's expensive input prep (VLM + OCR + AX + retrieval)
+        // is deferred into this builder so it runs CONCURRENTLY with the
+        // lite path instead of blocking it — that overlap is the whole
+        // cold-path speed win. Assembly is identical to the single-planner
+        // else-branch in the agent loop.
+        let fullPlannerInputBuilder: @MainActor () async -> PaceChatTurnPart = { [weak self] in
+            guard let self else {
+                return PaceChatTurnPart(
+                    images: [],
+                    systemPrompt: systemPrompt,
+                    conversationHistory: [],
+                    userPrompt: transcript
+                )
+            }
+            let labeledImages = screenCaptures.map { capture -> (data: Data, label: String) in
+                let dimensionInfo = " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
+                return (data: capture.imageData, label: capture.label + dimensionInfo)
+            }
+            let screenContextStartedAt = Date()
+            let screenContextPrompt = await self.screenContextService.buildUserPromptWithLocalVLMContextIfEnabled(
+                transcript: transcript,
+                screenCaptures: screenCaptures,
+                prewarmedContext: prewarmedContext
+            )
+            let userPromptForPlanner = await self.appendLocalRetrievalContext(
+                to: self.appendConfiguredMCPContext(to: screenContextPrompt),
+                query: transcript,
+                route: route,
+                isFirstPlannerStep: true
+            )
+            print("⏱  Race full-path screen context (VLM + OCR + AX): \(Int(Date().timeIntervalSince(screenContextStartedAt) * 1000))ms")
+            self.logFirstElementsOfPromptForDiagnostics(
+                userPromptForPlanner: userPromptForPlanner,
+                stepIndex: 1
+            )
+            let historyForPlanner = self.conversationHistory.map { entry in
+                (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
+            }
+            let imagesForPlanner: [(data: Data, label: String)] =
+                fullClient.supportsImageInput ? labeledImages : []
+            return PaceChatTurnPart(
+                images: imagesForPlanner,
+                systemPrompt: systemPrompt,
+                conversationHistory: historyForPlanner,
+                userPrompt: userPromptForPlanner
+            )
+        }
+
+        // Winner box: shared by reference between the synchronous onToken
+        // callback (winner-flip detection) and the async TTS-dispatch Task
+        // (stale-lite-chunk guard after a supersede).
+        let winnerBox = PaceSpeculativeRaceWinnerBox()
+
+        let raceResult = await PaceSpeculativePlannerRace.raceSpeculative(
+            transcript: transcript,
+            systemPrompt: systemPrompt,
+            // The system prompt already carries the rolling thread-memory
+            // summary via CompanionSystemPrompt.build(threadSummaryInjection:),
+            // so the lite user prompt must NOT prepend it again.
+            threadMemoryPrefix: "",
+            intent: intent,
+            liteClient: liteClient,
+            fullClient: fullClient,
+            fullPlannerInputBuilder: fullPlannerInputBuilder,
+            spokenCharacterCountProbe: { [weak self] in
+                self?.streamingSentenceTTSPipeline.firstSpokenWordCharacterCount ?? 0
+            },
+            onToken: { [weak self] accumulatedText, winner in
+                guard let self else { return }
+                // The first full token while lite has been speaking is a
+                // supersede: reset the TTS pipeline so the full stream — a
+                // different string than lite — replays cleanly instead of
+                // being diffed against the already-spoken lite prefix.
+                if winnerBox.winner == .lite, winner == .full {
+                    self.streamingSentenceTTSPipeline.prepareForSupersedingStreamWithinTurn()
+                }
+                winnerBox.winner = winner
+                self.responseOverlayManager.updateStreamingText(accumulatedText)
+                let shouldSuppressStreamingNarration = self.actionExecutor.actionsAreEnabled
+                    && PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
+                        forPlannerResponseText: accumulatedText
+                    )
+                guard !shouldSuppressStreamingNarration else { return }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    // A lite chunk's dispatch Task scheduled BEFORE a
+                    // supersede must not re-speak lite over the freshly
+                    // reset full stream — drop it if the winner has moved on.
+                    guard winner == winnerBox.winner else { return }
+                    await self.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedText)
+                }
+            },
+            onCompletion: { _ in }
+        )
+
+        switch raceResult.outcome {
+        case .bothFailed:
+            return PaceFirstStepRaceWiringResult(
+                fullResponseTextForActionParsing: "",
+                liteWonSpokenText: nil,
+                bothPlannersFailed: true
+            )
+        case .liteWon:
+            // Actions (if any) still parse from the full planner's text
+            // when it succeeded; the user heard the lite answer, so the
+            // spoken/displayed string is the lite text cleaned the same
+            // way the full path's spoken text is.
+            let liteRawText = raceResult.litePlannerResponseText ?? ""
+            return PaceFirstStepRaceWiringResult(
+                fullResponseTextForActionParsing: raceResult.fullPlannerResponseText ?? liteRawText,
+                liteWonSpokenText: Self.cleanedSpokenTextForRace(from: liteRawText),
+                bothPlannersFailed: false
+            )
+        case .fullWon, .fullSupersededLite:
+            return PaceFirstStepRaceWiringResult(
+                fullResponseTextForActionParsing: raceResult.fullPlannerResponseText ?? "",
+                liteWonSpokenText: nil,
+                bothPlannersFailed: false
+            )
+        }
+    }
+
+    /// Strip tags from a planner response the same way the agent loop
+    /// derives `spokenText`, so the lite-won spoken string the user hears
+    /// matches the cleaning the full path gets. Pure + static — no actor
+    /// hops, unit-testable in isolation.
+    nonisolated private static func cleanedSpokenTextForRace(from rawText: String) -> String {
+        let actionParse = PaceActionTagParser.parseActions(from: rawText)
+        let (_, textAfterDoneStrip) = PaceTagParsers.parseAndStripDoneSignal(from: actionParse.spokenText)
+        return PaceTagParsers.parsePointingCoordinates(from: textAfterDoneStrip).spokenText
     }
 
     /// Builds the prompt sent to the cloud planner. When the local VLM is

@@ -185,6 +185,33 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         fillerWasDispatchedThisTurn = false
     }
 
+    /// Wave 4 speculative-race supersede entry point. Distinct from
+    /// `drainQueueAndStopForBargeIn()`: a supersede is NOT a user
+    /// interruption — it's Pace deciding the full pipeline's answer is
+    /// better and swapping it in for the lite answer mid-turn. So this:
+    ///
+    /// 1. Stops the lite sentence currently playing (the user hears a
+    ///    brief silence, then the full answer starts).
+    /// 2. Resets the dispatch cursor + first-sentence/in-flight state so
+    ///    the full stream's accumulated text — which is a DIFFERENT string
+    ///    from the lite text — replays cleanly as fresh sentences instead
+    ///    of being diffed against the lite prefix (which would dispatch
+    ///    garbage or nothing).
+    /// 3. Does NOT set `hasBeenDrainedForBargeInThisTurn`, so the full
+    ///    stream's subsequent `acceptStreamedText` calls are accepted —
+    ///    unlike the barge-in lock, which permanently silences the turn.
+    /// 4. PRESERVES `intentCommittedAt` and `hasLoggedTimeToFirstSpokenWord`
+    ///    so the TTFSW measurement already taken at the lite first word is
+    ///    not lost or re-logged. The headline latency metric still reflects
+    ///    when the user first heard audio, race or not.
+    func prepareForSupersedingStreamWithinTurn() {
+        ttsClient.stopPlayback()
+        alreadyDispatchedSafeText = ""
+        inFlightStreamedText = ""
+        hasDispatchedFirstSentenceOfTurn = false
+        firstSpokenWordCharacterCount = 0
+    }
+
     /// Barge-in entry point: empties the in-memory sentence queue, stops
     /// the current sentence on the underlying TTS client, and locks the
     /// pipeline so any speculative sentence (Wave 4's prefetch results,
