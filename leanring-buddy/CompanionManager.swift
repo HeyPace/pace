@@ -36,6 +36,11 @@ enum CompanionVoiceState {
 final class CompanionManager: ObservableObject {
     @Published private(set) var voiceState: CompanionVoiceState = .idle
     @Published private(set) var lastTranscript: String?
+    /// The live speech transcript shown as an in-progress user bubble in the
+    /// chat panel while the user is talking. Holds the streaming partial
+    /// during listening, then the final transcript through the turn, and is
+    /// cleared once the committed user message lands in the chat transcript.
+    @Published private(set) var liveSpeechDraft: String = ""
 
     /// Most recent partial transcript from the active dictation session.
     /// Used by the post-release safety net so a slow WhisperKit finalize
@@ -54,6 +59,14 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var shouldRequestCalendarPermission = false
     @Published private(set) var shouldRequestRemindersPermission = false
     @Published private(set) var recentActionResults: [PaceActionRunRecord] = []
+    /// Per-turn tool-call debug captures for Settings → Debug. Surfaces the
+    /// raw planner output + parsed tool calls + dispatch outcome so a turn
+    /// that spoke but did nothing becomes legible. Newest first.
+    @Published private(set) var recentToolCallDebugRecords: [PaceToolCallDebugRecord] = []
+    /// Element-map line count from the most recent planner prompt, stashed by
+    /// `logFirstElementsOfPromptForDiagnostics` so the post-execution debug
+    /// capture can report whether the planner actually saw the screen.
+    private var lastPlannerElementLineCountForDebug: Int?
     @Published private(set) var localMemorySummary: String = PaceLocalMemoryStore.summaryText
     @Published private(set) var localRetrievalSummary: String = "Retrieval: local preferences and Pace history"
     @Published private(set) var localRetrievalSourceStatuses: [PaceRetrievalSourceStatus] = []
@@ -508,6 +521,270 @@ final class CompanionManager: ObservableObject {
         PaceThreadSummarizerClientFactory.makeDefault()
     }()
 
+    /// On-device persistence for `threadMemory` so a conversation
+    /// survives quit/relaunch ("resume always, until reset"). Only the
+    /// store touches disk; `threadMemory` stays I/O-free.
+    private let threadMemoryStore = PaceThreadMemoryStore()
+
+    /// Whether thread memory (and therefore its persistence) is active.
+    /// When off, we neither restore nor write the conversation to disk,
+    /// and we clear any existing file so disabling the feature honors
+    /// the user's privacy intent.
+    private var isThreadMemoryEnabled: Bool {
+        PaceUserPreferencesStore.bool(.isThreadMemoryEnabled, default: true)
+    }
+
+    /// Persist the current thread-memory state. Best-effort and cheap;
+    /// called after every mutation (turn recorded, summary updated,
+    /// session reset). No-op (and clears the file) when the feature is
+    /// disabled so a stale conversation can't linger on disk.
+    private func persistThreadMemorySnapshot() {
+        guard isThreadMemoryEnabled else {
+            threadMemoryStore.clear()
+            return
+        }
+        threadMemoryStore.save(threadMemory.snapshot(now: Date()))
+    }
+
+    /// Rehydrate the prior conversation at launch. Called once from
+    /// `start()`. Skips restore (and wipes the file) when the feature
+    /// is disabled.
+    private func restorePersistedThreadMemoryIfEnabled() {
+        guard isThreadMemoryEnabled else {
+            threadMemoryStore.clear()
+            return
+        }
+        guard let persistedSnapshot = threadMemoryStore.load() else { return }
+        threadMemory.restore(from: persistedSnapshot)
+        print("🧠 Thread memory restored: \(persistedSnapshot.verbatimWindow.count) verbatim turn(s), summary=\(persistedSnapshot.summary != nil)")
+    }
+
+    // MARK: - Unified memory (Phase 2: dual-write)
+
+    /// The single unified memory index (docs/prds/unified-memory.md). In
+    /// Phase 2 it is DUAL-WRITTEN alongside the existing thread/episodic/
+    /// retrieval stores — those stay authoritative; this ships dark and
+    /// nothing reads it yet. Phase 3 cuts recall over to it behind a flag.
+    private let memoryIndex = PaceMemoryIndex()
+    private let memoryStore = PaceMemoryStore()
+
+    /// Phase 3 recall: semantically ranks the unified index for the
+    /// LOCAL CONTEXT block. Gated by `useUnifiedMemoryRecall` (default
+    /// off) at the call site; falls back to lexical recall when the
+    /// embedding endpoint is unavailable. Reads the sensitive-topic
+    /// opt-in live so a Settings change takes effect without relaunch.
+    private lazy var memoryRetriever = PaceMemoryRetriever(
+        memoryIndex: memoryIndex,
+        embeddingClient: LMStudioEmbeddingClient(),
+        shouldInjectSensitiveTopics: {
+            PaceUserPreferencesStore.bool(.injectSensitiveEpisodicTopics, default: false)
+        }
+    )
+
+    /// Rehydrate the unified index at launch and drop tombstones past the
+    /// 30-day retention window. Called once from `start()`.
+    private func restoreUnifiedMemory() {
+        memoryIndex.replaceAll(memoryStore.load())
+        memoryIndex.purgeTombstonesOlderThan(
+            PaceEpisodicTombstone.retentionInterval,
+            now: Date()
+        )
+    }
+
+    /// Persist the whole index. Best-effort; the file is small for one
+    /// user and the store swallows any write failure.
+    private func persistUnifiedMemory() {
+        memoryStore.save(memoryIndex.allEntries())
+    }
+
+    /// Dual-write a completed conversation turn into the unified index.
+    /// Mirrors the `paceHistory` write — same combined "User: …\nPace: …"
+    /// surface form — so recall can later rank turns semantically.
+    private func recordUnifiedMemoryTurn(
+        userTranscript: String,
+        assistantResponse: String,
+        turnId: String,
+        recordedAt: Date
+    ) {
+        let combinedTurnText = "User: \(userTranscript)\nPace: \(assistantResponse)"
+        memoryIndex.upsert(
+            PaceMemoryEntry(
+                id: turnId,
+                kind: .conversationTurn,
+                text: combinedTurnText,
+                structured: nil,
+                source: .paceHistory,
+                createdAt: recordedAt,
+                updatedAt: recordedAt,
+                embedding: nil,
+                confidence: nil,
+                topicTags: [],
+                tombstonedAt: nil
+            )
+        )
+        persistUnifiedMemory()
+        scheduleLazyEmbedding([(id: turnId, text: combinedTurnText)])
+    }
+
+    /// Dual-write extracted durable facts into the unified index, and
+    /// tombstone any fact a dedup `.replaced` outcome superseded so the
+    /// stale value can't be recalled. Mirrors the episodic store.
+    private func upsertUnifiedMemoryFacts(
+        _ facts: [PaceEpisodicFact],
+        replacedPreviousFactIds: [String]
+    ) {
+        let now = Date()
+        for previousFactId in replacedPreviousFactIds {
+            memoryIndex.tombstone(id: previousFactId, now: now)
+        }
+        var entryIdsAndTextsToEmbed: [(id: String, text: String)] = []
+        for fact in facts {
+            let factText = "\(fact.subject) \(fact.predicate) \(fact.value)"
+            memoryIndex.upsert(
+                PaceMemoryEntry(
+                    id: fact.identifier,
+                    kind: .fact,
+                    text: factText,
+                    structured: [
+                        "subject": fact.subject,
+                        "predicate": fact.predicate,
+                        "value": fact.value
+                    ],
+                    source: .episodicMemory,
+                    createdAt: fact.extractedAt,
+                    updatedAt: fact.extractedAt,
+                    embedding: nil,
+                    confidence: fact.confidence,
+                    topicTags: fact.topicHashtags,
+                    tombstonedAt: nil
+                )
+            )
+            entryIdsAndTextsToEmbed.append((id: fact.identifier, text: factText))
+        }
+        persistUnifiedMemory()
+        scheduleLazyEmbedding(entryIdsAndTextsToEmbed)
+    }
+
+    /// Compute embeddings off the hot path so the user-facing turn never
+    /// waits. Constructs a fresh embedding client inside the detached task
+    /// to avoid capturing main-actor state. Best-effort: any failure (e.g.
+    /// the embedding model isn't loaded in LM Studio) just leaves the
+    /// entries nil-embedded, which excludes them from semantic recall — the
+    /// lexical retriever still covers them.
+    private func scheduleLazyEmbedding(_ entryIdsAndTexts: [(id: String, text: String)]) {
+        guard !entryIdsAndTexts.isEmpty else { return }
+        let entryIds = entryIdsAndTexts.map { $0.id }
+        let entryTexts = entryIdsAndTexts.map { $0.text }
+        Task.detached(priority: .utility) { [weak self] in
+            let embeddingClient = LMStudioEmbeddingClient()
+            guard
+                let embeddingVectors = try? await embeddingClient.embed(entryTexts),
+                embeddingVectors.count == entryIds.count
+            else {
+                return
+            }
+            await MainActor.run {
+                guard let self else { return }
+                for (entryId, embeddingVector) in zip(entryIds, embeddingVectors) {
+                    self.memoryIndex.setEmbedding(embeddingVector, forEntryId: entryId)
+                }
+                self.persistUnifiedMemory()
+            }
+        }
+    }
+
+    // MARK: - Unified memory (Phase 4: UI accessors + cascade)
+
+    /// Durable facts currently indexed for semantic recall. Surfaced as a
+    /// status line in Settings → Memory so the user can SEE the unified
+    /// memory accruing.
+    func unifiedMemoryFactCount() -> Int {
+        memoryIndex.activeEntries().filter { $0.kind == .fact }.count
+    }
+
+    /// Conversation turns currently indexed for semantic recall.
+    func unifiedMemoryConversationCount() -> Int {
+        memoryIndex.activeEntries().filter { $0.kind == .conversationTurn }.count
+    }
+
+    /// Cascade target: tombstone one unified entry so a fact deleted in the
+    /// Memory view stops surfacing in semantic recall too. The unified fact
+    /// entry shares its id with the episodic fact identifier.
+    private func tombstoneUnifiedMemoryEntry(id: String) {
+        memoryIndex.tombstone(id: id, now: Date())
+        persistUnifiedMemory()
+    }
+
+    /// Cascade target: tombstone every unified fact entry when the user
+    /// resets episodic memory, so semantic recall and the episodic roster
+    /// stay in lockstep. Conversation-turn entries are left intact.
+    private func tombstoneAllUnifiedMemoryFacts() {
+        let now = Date()
+        for factEntry in memoryIndex.activeEntries() where factEntry.kind == .fact {
+            memoryIndex.tombstone(id: factEntry.id, now: now)
+        }
+        persistUnifiedMemory()
+    }
+
+    /// Throttle so the connector resync runs at most once a minute even
+    /// though `refreshLocalRetrievalPublishedState()` fires after every
+    /// retrieval write.
+    private var lastUnifiedMemoryConnectorSyncAt: Date?
+    private static let unifiedMemoryConnectorSyncMinimumInterval: TimeInterval = 60
+
+    /// Phase 5 step 2: pull every connector source's current retrieval
+    /// documents into the unified index as `.journalEvent` / `.preference`
+    /// producers, making the index a superset of the lexical store. `.paceHistory`
+    /// and `.episodicMemory` are skipped — Phase 2 already dual-writes those with
+    /// richer typing. Read-only against the retriever; idempotent per source via
+    /// `replaceEntries`. Embeddings are preserved across resyncs when an entry's
+    /// text is unchanged, and scheduled only for new/changed entries so a resync
+    /// doesn't re-embed the whole corpus.
+    private func syncConnectorsIntoUnifiedMemory() {
+        let now = Date()
+        var entryIdsAndTextsToEmbed: [(id: String, text: String)] = []
+        for source in PaceRetrievalSource.allCases
+        where source != .paceHistory && source != .episodicMemory {
+            let documents = localRetriever.documents(forSource: source)
+            let entries: [PaceMemoryEntry] = documents.map { document in
+                let existingEntry = memoryIndex.entry(id: document.id)
+                let textIsUnchanged = existingEntry?.text == document.text
+                let preservedEmbedding = textIsUnchanged ? existingEntry?.embedding : nil
+                if preservedEmbedding == nil {
+                    entryIdsAndTextsToEmbed.append((id: document.id, text: document.text))
+                }
+                return PaceMemoryEntry(
+                    id: document.id,
+                    kind: source == .localPreference ? .preference : .journalEvent,
+                    text: document.text,
+                    structured: nil,
+                    source: source,
+                    createdAt: existingEntry?.createdAt ?? document.modifiedAt ?? now,
+                    updatedAt: document.modifiedAt ?? now,
+                    embedding: preservedEmbedding,
+                    confidence: nil,
+                    topicTags: [],
+                    tombstonedAt: nil
+                )
+            }
+            memoryIndex.replaceEntries(forSource: source, with: entries)
+        }
+        persistUnifiedMemory()
+        scheduleLazyEmbedding(entryIdsAndTextsToEmbed)
+    }
+
+    /// Debounced entry point called from `refreshLocalRetrievalPublishedState()`
+    /// after retrieval writes, so the unified index trails connector changes
+    /// without re-mapping every source on every single write.
+    private func syncConnectorsIntoUnifiedMemoryIfDue(now: Date = Date()) {
+        if let lastSyncAt = lastUnifiedMemoryConnectorSyncAt,
+           now.timeIntervalSince(lastSyncAt) < Self.unifiedMemoryConnectorSyncMinimumInterval {
+            return
+        }
+        lastUnifiedMemoryConnectorSyncAt = now
+        syncConnectorsIntoUnifiedMemory()
+    }
+
     /// Low-frequency idle sweep so the menu-bar surface can drop
     /// "session live" indicators without needing a new user turn.
     private var threadMemoryIdleSweepTimer: Timer?
@@ -667,6 +944,24 @@ final class CompanionManager: ObservableObject {
         setCursorAnnotationsEnabled(enabled)
         return areCursorAnnotationsEnabled
     }
+
+    /// Mascot mode: the top-right perch + panel are the only conversation
+    /// surfaces, so silence BOTH cursor-level overlays — the blue cursor
+    /// companion and the response text bubble — so nothing renders near the
+    /// mouse pointer. Does not touch the user's persisted toggles (it's a
+    /// runtime surface choice, not a preference change).
+    func suppressCursorOverlaysForMascotMode() {
+        mascotModeActive = true
+        overlayWindowManager.isSuppressed = true
+        overlayWindowManager.hideOverlay()
+        isOverlayVisible = false
+        responseOverlayManager.setAnnotationsEnabled(false)
+    }
+
+    /// True when the top-right mascot perch + panel are the conversation
+    /// surface. Gates legacy behaviors that assumed the response shows near
+    /// the cursor — notably dismissing the panel on push-to-talk.
+    private var mascotModeActive = false
 
     /// User preference for whether Pace asks before higher-risk local tools.
     /// Routine reversible or visible actions auto-run; non-undoable app
@@ -1596,6 +1891,58 @@ You can turn this off at any time in Settings → Cloud bridge.
         }
     }
 
+    /// Append one tool-call debug capture for Settings → Debug. Newest
+    /// first, capped so the buffer never grows unbounded. Purely an
+    /// observability sink — never affects routing, speech, or execution.
+    private func recordToolCallDebug(_ record: PaceToolCallDebugRecord) {
+        var updatedDebugRecords = recentToolCallDebugRecords
+        updatedDebugRecords.insert(record, at: 0)
+        let maximumRetainedDebugRecords = 25
+        if updatedDebugRecords.count > maximumRetainedDebugRecords {
+            updatedDebugRecords.removeLast(updatedDebugRecords.count - maximumRetainedDebugRecords)
+        }
+        recentToolCallDebugRecords = updatedDebugRecords
+        // Persist to the JSONL trace file so the history survives restarts
+        // and can be inspected outside the app (off the main actor).
+        PaceToolCallDebugTrace.append(record)
+    }
+
+    /// Clear the Settings → Debug tool-call capture buffer AND the persisted
+    /// trace file.
+    func clearToolCallDebugRecords() {
+        recentToolCallDebugRecords = []
+        PaceToolCallDebugTrace.clear()
+    }
+
+    /// Seed the in-memory debug list from the persisted trace file so the
+    /// Debug tab shows history from previous sessions, not just this one.
+    private func loadPersistedToolCallDebugRecords() {
+        recentToolCallDebugRecords = PaceToolCallDebugTrace.loadRecent(limit: 25)
+    }
+
+    /// One line per parsed tool call, e.g. "open_url: Open URL:
+    /// https://google.com". "no actions parsed" means the planner produced
+    /// only spoken text — which is exactly the "opening the browser menu did
+    /// nothing" signature.
+    /// True when the streamed planner text is the v10 JSON envelope rather
+    /// than free prose. The main (action) planner is decode-constrained to
+    /// emit `{spokenText,…}`, so its stream must NOT be spoken raw — the
+    /// parsed `spokenText` is flushed at turn end instead. Free prose
+    /// (answers, descriptions, the lite race path) never starts with "{".
+    nonisolated static func streamedPlannerTextIsStructuredEnvelope(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{")
+    }
+
+    private static func toolCallDebugSummary(
+        for executionPlan: PaceActionExecutionPlan
+    ) -> String {
+        let parsedActions = executionPlan.flattenedActions
+        guard !parsedActions.isEmpty else { return "no actions parsed" }
+        return parsedActions
+            .map { "\($0.auditOperationName): \($0.approvalDescription)" }
+            .joined(separator: "\n")
+    }
+
     // MARK: - Trust surfaces (undo banner + reply replay)
 
     /// Returns the first click candidate's text label (if known) from
@@ -1876,6 +2223,15 @@ You can turn this off at any time in Settings → Cloud bridge.
         userTranscript: String,
         assistantResponse: String
     ) {
+        // The committed user message is about to land in the chat transcript,
+        // so retire the live in-progress speech bubble (no duplicate).
+        liveSpeechDraft = ""
+        // Same reasoning on the assistant side: the committed reply is about
+        // to land, so retire the live streamed-reply row or the panel shows
+        // the reply twice (streaming row + committed row). This LOCKS the row
+        // retired for the rest of the turn, so the final flushFinal dispatch
+        // and any late stream chunk can't re-populate it.
+        streamingSentenceTTSPipeline.finalizeInFlightStreamedTextForTurn()
         let recordedAt = Date()
         let stableTurnId = "turn-\(Int(recordedAt.timeIntervalSince1970))-\(abs(userTranscript.hashValue))"
 
@@ -1926,6 +2282,19 @@ You can turn this off at any time in Settings → Cloud bridge.
             intentRoute: lastIntentRouteForEpisodicExtraction
         )
 
+        // Persist the conversation after every turn so it survives
+        // quit/relaunch. Before the displaced-pair guard below, which
+        // returns early on turns that didn't overflow the window.
+        persistThreadMemorySnapshot()
+
+        // Dual-write the turn into the unified memory index (ships dark).
+        recordUnifiedMemoryTurn(
+            userTranscript: userTranscript,
+            assistantResponse: assistantResponse,
+            turnId: stableTurnId,
+            recordedAt: recordedAt
+        )
+
         guard let displacedTurnPair else { return }
         scheduleDetachedThreadSummarizationCall(
             displacedTurnPair: displacedTurnPair,
@@ -1964,6 +2333,7 @@ You can turn this off at any time in Settings → Cloud bridge.
                         summaryVersion: reservedSummaryVersion,
                         updatedAt: Date()
                     )
+                    self?.persistThreadMemorySnapshot()
                 }
             } catch {
                 // Summarizer failure leaves the prior summary in
@@ -1997,14 +2367,21 @@ You can turn this off at any time in Settings → Cloud bridge.
         // For replacements, drop the previous fact's retrieval doc
         // so the store never carries two `(subject, predicate)`
         // rows when the dedup policy said "replace".
+        var replacedPreviousFactIds: [String] = []
         for (_, outcome) in appliedOutcomes {
             if case .replaced(let previousFactId) = outcome {
                 localRetriever.removeEpisodicFactDocument(withId: previousFactId)
+                replacedPreviousFactIds.append(previousFactId)
             }
         }
         if !survivingFacts.isEmpty {
             localRetriever.recordEpisodicFacts(survivingFacts)
         }
+        // Dual-write the same facts into the unified memory index (ships dark).
+        upsertUnifiedMemoryFacts(
+            survivingFacts,
+            replacedPreviousFactIds: replacedPreviousFactIds
+        )
     }
 
     /// Fires the LLM-backed episodic extractor on a DETACHED utility
@@ -2055,6 +2432,9 @@ You can turn this off at any time in Settings → Cloud bridge.
     func deleteEpisodicFact(withIdentifier factId: String) {
         guard let _ = episodicFactStore.deleteFact(withIdentifier: factId) else { return }
         localRetriever.removeEpisodicFactDocument(withId: factId)
+        // Cascade into the unified index so semantic recall also stops
+        // surfacing the deleted fact (same id as the episodic identifier).
+        tombstoneUnifiedMemoryEntry(id: factId)
         refreshLocalRetrievalPublishedState()
     }
 
@@ -2064,6 +2444,9 @@ You can turn this off at any time in Settings → Cloud bridge.
     func resetAllEpisodicMemory() {
         episodicFactStore.resetAll()
         localRetriever.clearDocuments(forSource: .episodicMemory)
+        // Cascade into the unified index so semantic recall and the
+        // episodic roster stay in lockstep after a reset.
+        tombstoneAllUnifiedMemoryFacts()
         refreshLocalRetrievalPublishedState()
     }
 
@@ -2078,6 +2461,10 @@ You can turn this off at any time in Settings → Cloud bridge.
         }
         let endingSessionId = threadMemory.currentSessionId
         threadMemory.resetSession(cause: sessionEndCause, now: now)
+        // Mirror the now-empty live state to disk so a relaunch after an
+        // idle-while-running reset starts fresh rather than resurrecting
+        // the conversation the idle gate just decided to drop.
+        persistThreadMemorySnapshot()
         let causeDisplayName: String
         switch sessionEndCause {
         case .idleTimeout:
@@ -2098,6 +2485,9 @@ You can turn this off at any time in Settings → Cloud bridge.
         let now = Date()
         let endingSessionId = threadMemory.currentSessionId
         threadMemory.resetSession(cause: .userReset, now: now)
+        // "Until I reset" — an explicit reset wipes the on-disk copy too,
+        // so the conversation does not come back on the next launch.
+        threadMemoryStore.clear()
         localRetriever.recordPaceHistory(
             userTranscript: "session ended (cause: userReset)",
             assistantResponse: "session \(endingSessionId) ended",
@@ -2129,22 +2519,35 @@ You can turn this off at any time in Settings → Cloud bridge.
             return userPrompt
         }
 
-        let retrievalQuery = PaceRetrievalQuery(
-            text: query,
-            maximumResultCount: 3,
-            maximumSnippetCharacters: 180
-        )
         defer {
+            // Updates the Settings retrieval status AND debounce-triggers the
+            // connector → unified-index resync, so the single recall path below
+            // keeps trailing connector changes.
             refreshLocalRetrievalPublishedState()
         }
-        // Embedding-reranked when the local embeddings endpoint responds in
-        // time; degrades to plain lexical order otherwise.
-        guard let localContextBlock = await localRetriever.rerankedLocalContextBlock(
-            for: retrievalQuery
+
+        // Phase 5 step 3 (docs/prds/unified-memory.md): the unified index is
+        // now the SINGLE recall path. It's a superset — conversation turns +
+        // durable facts (dual-written) + every connector source (synced in) —
+        // and the retriever ranks it semantically when embeddings are loaded,
+        // by BM25 keyword otherwise. The legacy parallel lexical-injection path
+        // (`rerankedLocalContextBlock`) has been retired; `PaceLocalRetrieval`
+        // remains only as the connector ingestion layer the resync reads from.
+        // Verbatim-window turns are excluded — they already ship to the planner
+        // as conversation history, so re-injecting them would duplicate.
+        guard PaceUserPreferencesStore.bool(.useUnifiedMemoryRecall, default: true) else {
+            return userPrompt
+        }
+        let verbatimWindowTurnIds = Set(threadMemory.verbatimWindow().map { $0.turnId })
+        guard let memoryContextBlock = await memoryRetriever.assembleContextBlock(
+            forQuery: query,
+            excludingEntryIds: verbatimWindowTurnIds,
+            maxEntries: 8,
+            now: Date()
         ) else {
             return userPrompt
         }
-        return "\(localContextBlock)\n\nUSER REQUEST\n\(userPrompt)"
+        return "\(memoryContextBlock)\n\nUSER REQUEST\n\(userPrompt)"
     }
 
     private func localRetrievalSummaryText(
@@ -2172,6 +2575,9 @@ You can turn this off at any time in Settings → Cloud bridge.
             from: sourceStatuses,
             lastQueryDurationMilliseconds: localRetriever.lastQueryDurationMilliseconds
         )
+        // Trail connector changes into the unified index (debounced). This
+        // only READS from the retriever, so it can't re-enter this method.
+        syncConnectorsIntoUnifiedMemoryIfDue()
     }
 
     func addLocalRetrievalFileRootURLs(_ rootURLs: [URL]) {
@@ -2549,6 +2955,47 @@ You can turn this off at any time in Settings → Cloud bridge.
         refreshLocalRetrievalPublishedState()
         currentTurnHUDState = .done("retrieval reset")
         print("🔎 Local retrieval index reset")
+    }
+
+    private func handleRememberSiteCommand(
+        _ command: PaceRememberSiteCommand,
+        transcript: String
+    ) {
+        let spokenText: String
+        switch command {
+        case .forget(let name):
+            let didForget = PaceNamedDestinationStore.shared.forget(displayName: name)
+            spokenText = didForget
+                ? "forgotten."
+                : "i don't have a saved site called \(name)."
+        case .remember(let requestedName):
+            if let captured = PaceBrowserURLReader.currentTab() {
+                let displayName = requestedName
+                    ?? PaceBrowserURLReader.defaultName(forURL: captured.url)
+                PaceNamedDestinationStore.shared.save(
+                    displayName: displayName,
+                    url: captured.url
+                )
+                spokenText = "got it — i'll remember \(displayName)."
+            } else {
+                // Frontmost app isn't a scriptable browser, or the read failed.
+                spokenText = "i couldn't read this page's address — make sure the site is open in your browser and try again."
+            }
+        }
+
+        responseOverlayManager.showOverlayAndBeginStreaming()
+        responseOverlayManager.updateStreamingText(spokenText)
+        recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
+        currentResponseTask = Task {
+            voiceState = .responding
+            await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
+            while ttsClient.isPlaying {
+                try? await Task.sleep(nanoseconds: 80_000_000)
+            }
+            responseOverlayManager.finishStreaming()
+            voiceState = .idle
+            currentTurnHUDState = .done("done")
+        }
     }
 
     private func handleLocalMemoryCommand(_ command: PaceLocalMemoryCommand) {
@@ -2974,6 +3421,18 @@ You can turn this off at any time in Settings → Cloud bridge.
 
     func start() {
         refreshAllPermissions()
+        loadPersistedToolCallDebugRecords()
+        // Resume the prior conversation across quit/relaunch. "Always,
+        // until reset" — no staleness expiry; the file is only cleared on
+        // an explicit thread reset or when the feature is disabled.
+        restorePersistedThreadMemoryIfEnabled()
+        // Rehydrate the unified memory index (Phase 2 dual-write; ships dark).
+        restoreUnifiedMemory()
+        // Phase 5 step 2: pull any already-indexed connector docs (preferences,
+        // competitive research, rehydrated journals) into the unified index.
+        // Sources that populate later in the session get synced via the
+        // debounced hook in refreshLocalRetrievalPublishedState().
+        syncConnectorsIntoUnifiedMemoryIfDue()
         print("🔑 Pace start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
         // Wire the timer-scheduler speak callback to the active TTS
         // client and rehydrate any persisted timers. Doing this before
@@ -3683,8 +4142,13 @@ You can turn this off at any time in Settings → Cloud bridge.
                 isOverlayVisible = true
             }
 
-            // Dismiss the menu bar panel so it doesn't cover the screen
-            NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+            // Dismiss the menu bar panel so it doesn't cover the screen.
+            // NOT in mascot mode — there the panel IS the conversation
+            // surface, so dismissing it on push-to-talk is the open/close
+            // flicker. presentConversationPanel keeps it up instead.
+            if !mascotModeActive {
+                NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+            }
 
             // Cancel any in-progress response and TTS from a previous utterance
             currentResponseTask?.cancel()
@@ -3737,6 +4201,12 @@ You can turn this off at any time in Settings → Cloud bridge.
                 voiceState = .idle
                 return
             }
+            // Surface the conversation at the mascot perch (top-right) the
+            // moment a turn starts, so the live transcript + reply appear
+            // THERE rather than only near the cursor. No-op in legacy mode
+            // (onConversationStart unset).
+            avatarOverlayManager?.presentConversationPanel()
+
             // Set the response bubble's anchor based on what triggered
             // this turn. Keyboard → next to the cursor (rides with the
             // Codex arrow); avatar tap → next to the walking character.
@@ -3772,6 +4242,7 @@ You can turn this off at any time in Settings → Cloud bridge.
                         guard !trimmedPartial.isEmpty else { return }
                         Task { @MainActor [weak self] in
                             self?.lastPartialTranscriptFromActiveDictation = trimmedPartial
+                            self?.liveSpeechDraft = trimmedPartial
                             self?.responseOverlayManager.updateStreamingText(trimmedPartial)
                         }
                     },
@@ -3782,6 +4253,10 @@ You can turn this off at any time in Settings → Cloud bridge.
                             // safety timer skips its cleanup pass.
                             self.transcriptArrivedSinceRelease = true
                             self.lastTranscript = finalTranscript
+                            // Keep the live user bubble showing the final
+                            // transcript through the turn; recordConversationTurn
+                            // clears it when the committed message lands.
+                            self.liveSpeechDraft = finalTranscript
                             _ = PaceAPIAuditLog.shared.beginTurn()
                             print("🗣️ Companion received transcript: \(finalTranscript)")
                             PaceAnalytics.trackUserMessageSent(transcript: finalTranscript)
@@ -4156,27 +4631,7 @@ You can turn this off at any time in Settings → Cloud bridge.
 
                 let threadSummaryInjectionForTurn = threadMemory.injectionPrefix()
 
-                // Wave 4: eager-filler debouncer. If the planner doesn't
-                // produce its first token within 600ms, dispatch one
-                // short "okay" / "let me think" token through TTS so the
-                // user hears acknowledgement instead of silence. Only
-                // fires on pure-knowledge + chitchat (this path) and is
-                // rate-limited across consecutive slow turns.
                 let plannerStartedAt = Date()
-                let eagerFillerTask: Task<Void, Never> = Task { [weak self] in
-                    try? await Task.sleep(
-                        nanoseconds: UInt64(StreamingSentenceTTSPipeline
-                            .eagerFillerThresholdMillis) * 1_000_000
-                    )
-                    guard !Task.isCancelled, let self else { return }
-                    let elapsedSinceStartMs = Int(
-                        Date().timeIntervalSince(plannerStartedAt) * 1000
-                    )
-                    await self.streamingSentenceTTSPipeline
-                        .dispatchEagerFillerIfThresholdExceeded(
-                            plannerTTFTMilliseconds: elapsedSinceStartMs
-                        )
-                }
 
                 let (fullResponseText, _) = try await plannerForTextOnlyTurn.generateResponseStreaming(
                     images: [],
@@ -4186,23 +4641,38 @@ You can turn this off at any time in Settings → Cloud bridge.
                     conversationHistory: historyForPlanner,
                     userPrompt: userPromptForPlanner,
                     onTextChunk: { [weak self] accumulatedPlannerText in
-                        // Real text arrived — cancel the filler watcher
-                        // so we never speak "okay" right before the real
-                        // first sentence lands.
-                        eagerFillerTask.cancel()
                         self?.responseOverlayManager.updateStreamingText(accumulatedPlannerText)
                         Task { @MainActor [weak self] in
                             await self?.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedPlannerText)
                         }
                     }
                 )
-                eagerFillerTask.cancel()
                 guard !Task.isCancelled else { return }
 
                 let actionParseResult = PaceActionTagParser.parseActions(from: fullResponseText)
                 let (_, textAfterDoneStrip) = PaceTagParsers.parseAndStripDoneSignal(from: actionParseResult.spokenText)
                 let pointingParseResult = PaceTagParsers.parsePointingCoordinates(from: textAfterDoneStrip)
                 let spokenText = pointingParseResult.spokenText
+
+                // Settings → Debug capture: pure-knowledge turns never run a
+                // screenshot/VLM and never execute actions here — surfaced so
+                // a misrouted action command (answered instead of acted) is
+                // visible as a text-only row.
+                recordToolCallDebug(PaceToolCallDebugRecord(
+                    transcript: transcript,
+                    lane: .textOnly,
+                    routingDetail: "pureKnowledge · text-only planner (no screen)",
+                    plannerPathDetail: plannerForTextOnlyTurn.displayName,
+                    rawPlannerOutput: fullResponseText,
+                    spokenText: spokenText,
+                    parsedActionsSummary: Self.toolCallDebugSummary(
+                        for: actionParseResult.executionPlan
+                    ),
+                    dispatchSummary: "spoken-only — the text-only path does not execute actions",
+                    plannerLatencyMs: Int(Date().timeIntervalSince(plannerStartedAt) * 1000),
+                    totalTurnLatencyMs: Int(Date().timeIntervalSince(plannerStartedAt) * 1000),
+                    userPrompt: userPromptForPlanner
+                ))
 
                 recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
 
@@ -4249,6 +4719,7 @@ You can turn this off at any time in Settings → Cloud bridge.
         responseOverlayManager.updateStreamingText(spokenText)
 
         currentResponseTask = Task {
+            let turnStartedAt = Date()
             voiceState = .responding
             let shouldSpeakInitialFastActionText = !actionExecutor.actionsAreEnabled
                 || !PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
@@ -4269,6 +4740,7 @@ You can turn this off at any time in Settings → Cloud bridge.
                 preflightIssues: preflightIssues
             ))
 
+            var fastPathDispatchSummaryForDebug = "executed"
             if actionExecutor.actionsAreEnabled {
                 if requestUserApprovalForActionPlan(
                     fastActionParseResult.executionPlan,
@@ -4278,6 +4750,9 @@ You can turn this off at any time in Settings → Cloud bridge.
                         fastActionParseResult.executionPlan,
                         screenCaptures: []
                     )
+                    fastPathDispatchSummaryForDebug = toolObservations.isEmpty
+                        ? "executed — no observations returned"
+                        : PaceActionExecutionObservation.formatForPlanner(toolObservations)
                     if !toolObservations.isEmpty {
                         appendActionResult(.completed(observations: toolObservations))
                         noteReversibleActionExecuted(
@@ -4299,6 +4774,7 @@ You can turn this off at any time in Settings → Cloud bridge.
                         await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: userFeedbackText)
                     }
                 } else {
+                    fastPathDispatchSummaryForDebug = "denied by user"
                     appendActionResult(PaceActionRunRecord(
                         status: .denied,
                         title: "Action denied",
@@ -4307,6 +4783,7 @@ You can turn this off at any time in Settings → Cloud bridge.
                     print("🛑 Fast local action approval denied")
                 }
             } else {
+                fastPathDispatchSummaryForDebug = "EnableActions=false — not executed"
                 appendActionResult(PaceActionRunRecord(
                     status: .skipped,
                     title: "Actions disabled",
@@ -4314,6 +4791,23 @@ You can turn this off at any time in Settings → Cloud bridge.
                 ))
                 print("🤖 Fast local action parsed but EnableActions is false")
             }
+
+            // Settings → Debug capture: the fast path matched before any
+            // planner ran, so this row proves a command stayed local and
+            // shows exactly what it parsed to.
+            recordToolCallDebug(PaceToolCallDebugRecord(
+                transcript: transcript,
+                lane: .fastPath,
+                routingDetail: "fast local parser matched (no screenshot, VLM, or planner)",
+                rawPlannerOutput: "",
+                spokenText: spokenText,
+                parsedActionsSummary: Self.toolCallDebugSummary(
+                    for: fastActionParseResult.executionPlan
+                ),
+                dispatchSummary: fastPathDispatchSummaryForDebug,
+                totalTurnLatencyMs: Int(Date().timeIntervalSince(turnStartedAt) * 1000),
+                userPrompt: transcript
+            ))
 
             while ttsClient.isPlaying {
                 try? await Task.sleep(nanoseconds: 80_000_000)
@@ -4440,6 +4934,29 @@ You can turn this off at any time in Settings → Cloud bridge.
             return
         }
 
+        // "remember this as the cloudflare dashboard" — capture the current
+        // tab URL under a user-chosen name (Tier 1 × Tier 3).
+        if let rememberSiteCommand = PaceRememberSiteCommandParser.parse(transcript: transcript) {
+            print("🔖 Remember-site command: \(rememberSiteCommand)")
+            handleRememberSiteCommand(rememberSiteCommand, transcript: transcript)
+            return
+        }
+
+        // "open the cloudflare dashboard" — recall a user-taught destination
+        // on the fast path (no VLM, no planner). Only matches names the user
+        // actually saved, so non-matching opens fall through below.
+        if let destination = PaceNamedDestinationStore.shared.recall(matching: transcript) {
+            print("🔖 Opening user-named destination: \(destination.displayName)")
+            handleFastLocalActionPath(
+                transcript: transcript,
+                fastActionParseResult: PaceFastActionParseResult(
+                    spokenText: "opening \(destination.displayName).",
+                    executionPlan: .serial(actions: [.openURL(destination.url)])
+                )
+            )
+            return
+        }
+
         // Fast-path chitchat ("hi pace", "thanks") with a canned response
         // — skips VLM + planner + agent loop entirely. ~2200ms → ~50ms.
         // Conservative: only fires when the classifier is confident
@@ -4522,6 +5039,7 @@ You can turn this off at any time in Settings → Cloud bridge.
         currentResponseTask = Task {
             voiceState = .processing
 
+            let turnStartedAt = Date()
             let maxAgentStepCount = PaceTagParsers.readMaxAgentStepCount()
             var stepIndex = 0
             var currentTurnUserPrompt = transcript
@@ -4608,9 +5126,18 @@ You can turn this off at any time in Settings → Cloud bridge.
                             appleFoundationModelsIsAvailable: appleFoundationModelsIsAvailableForRace
                         )
 
+                    // Latency + planner-input capture for the Settings → Debug
+                    // trace. plannerSectionStartedAt is measured AFTER screen
+                    // capture, so it covers VLM+OCR+planner (single path) or
+                    // the race. userPromptForPlannerForDebug records the exact
+                    // variable half of the planner input so a failing turn can
+                    // be reproduced offline (system prompt is static in source).
+                    let plannerSectionStartedAt = Date()
+                    var userPromptForPlannerForDebug = ""
                     let fullResponseText: String
                     var raceLiteWonSpokenText: String? = nil
                     if useSpeculativeRace {
+                        userPromptForPlannerForDebug = "(speculative race — full-path prompt assembled inside the race; lite path is transcript-only)"
                         let raceWiringResult = await performFirstStepSpeculativePlannerRace(
                             transcript: currentTurnUserPrompt,
                             systemPrompt: systemPromptForTurn,
@@ -4654,6 +5181,7 @@ You can turn this off at any time in Settings → Cloud bridge.
                             route: intentPrediction.route,
                             isFirstPlannerStep: isFirstStep
                         )
+                        userPromptForPlannerForDebug = userPromptForPlanner
                         let screenContextElapsedMs = Int(
                             Date().timeIntervalSince(screenContextStartedAt) * 1000
                         )
@@ -4687,17 +5215,23 @@ You can turn this off at any time in Settings → Cloud bridge.
                                 //    sees tags, thinking blocks, everything live.
                                 //    The end-of-turn step replaces this with the
                                 //    cleaned spoken text once parsing completes.
-                                self?.responseOverlayManager.updateStreamingText(accumulatedPlannerText)
+                                //    EXCEPT a structured (v10 JSON) stream —
+                                //    show a thinking ellipsis, not raw JSON.
+                                self?.responseOverlayManager.updateStreamingText(
+                                    Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText)
+                                        ? "…" : accumulatedPlannerText
+                                )
                                 // 2. Hand the chunk to the streaming TTS so any
                                 //    newly-completed sentences get spoken before
                                 //    the planner has finished generating the rest.
                                 //    This is the dominant perceived-latency win.
                                 Task { @MainActor [weak self] in
                                     guard let self else { return }
-                                    let shouldSuppressStreamingNarration = self.actionExecutor.actionsAreEnabled
-                                        && PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
-                                            forPlannerResponseText: accumulatedPlannerText
-                                        )
+                                    let shouldSuppressStreamingNarration = Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText)
+                                        || (self.actionExecutor.actionsAreEnabled
+                                            && PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
+                                                forPlannerResponseText: accumulatedPlannerText
+                                            ))
                                     guard !shouldSuppressStreamingNarration else { return }
                                     await self.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedPlannerText)
                                 }
@@ -4718,6 +5252,9 @@ You can turn this off at any time in Settings → Cloud bridge.
                         )
                         fullResponseText = singlePlannerResponseText
                     }
+                    let plannerSectionElapsedMs = Int(
+                        Date().timeIntervalSince(plannerSectionStartedAt) * 1000
+                    )
                     guard !Task.isCancelled else { return }
 
                     // Clear the amber bridge indicator now that the stream has finished.
@@ -4973,17 +5510,68 @@ You can turn this off at any time in Settings → Cloud bridge.
                         )
                     }
 
+                    // Settings → Debug capture: record this planner step's
+                    // raw output, parsed tool calls, and dispatch outcome.
+                    // Pure observability sink — never affects the loop.
+                    let dispatchSummaryForDebug: String = {
+                        if actionParseResult.actions.isEmpty {
+                            return "no actions parsed — spoken-only turn"
+                        }
+                        if userDeniedActionApproval {
+                            return "denied by user"
+                        }
+                        if !actionExecutor.actionsAreEnabled {
+                            return "EnableActions=false — not executed"
+                        }
+                        if toolObservations.isEmpty {
+                            return "executed — no observations returned"
+                        }
+                        return PaceActionExecutionObservation.formatForPlanner(toolObservations)
+                    }()
+                    recordToolCallDebug(PaceToolCallDebugRecord(
+                        transcript: isFirstStep ? transcript : "(agent step \(stepIndex))",
+                        lane: .planner,
+                        routingDetail: "\(intentPrediction.intent.rawValue) · conf \(String(format: "%.2f", intentPrediction.confidence)) · \(intentPrediction.route.rawValue)",
+                        plannerPathDetail: useSpeculativeRace
+                            ? (raceLiteWonSpokenText != nil
+                                ? "speculative race · lite (Apple FM, no screen) won audio"
+                                : "speculative race · full planner won")
+                            : "single planner",
+                        userHeardScreenlessAnswer: raceLiteWonSpokenText,
+                        screenElementCount: lastPlannerElementLineCountForDebug,
+                        rawPlannerOutput: fullResponseText,
+                        spokenText: spokenText,
+                        parsedActionsSummary: Self.toolCallDebugSummary(
+                            for: actionParseResult.executionPlan
+                        ),
+                        dispatchSummary: dispatchSummaryForDebug,
+                        plannerLatencyMs: plannerSectionElapsedMs,
+                        totalTurnLatencyMs: Int(
+                            Date().timeIntervalSince(turnStartedAt) * 1000
+                        ),
+                        userPrompt: userPromptForPlannerForDebug
+                    ))
+
                     // 11. Exit conditions for the agent loop:
                     //     - planner emitted [DONE]
                     //     - planner emitted no action tags (pure answer turn)
                     //     - actions are disabled (treat every turn as single-shot)
+                    // Structured-output turns are SINGLE-SHOT: the v10 JSON
+                    // envelope can't carry a [DONE] tag and always contains an
+                    // action, so re-looping makes the constrained planner
+                    // invent spurious follow-ups (it dictated the user's own
+                    // command on an 8-step runaway). Multi-action sequences
+                    // ride in one envelope via payload.calls instead.
                     let exitLoop = plannerSignaledDone
                         || actionParseResult.actions.isEmpty
                         || !actionExecutor.actionsAreEnabled
                         || userDeniedActionApproval
+                        || plannerClient.usesStructuredActionOutput
                     if exitLoop {
                         if plannerSignaledDone {
                             print("✅ Agent loop: planner signaled [DONE] at step \(stepIndex)")
+                        } else if plannerClient.usesStructuredActionOutput {
+                            print("✅ Agent loop: structured-output turn is single-shot — stopping after step \(stepIndex)")
                         }
                         break agentStepLoop
                     }
@@ -5186,11 +5774,19 @@ You can turn this off at any time in Settings → Cloud bridge.
                     self.streamingSentenceTTSPipeline.prepareForSupersedingStreamWithinTurn()
                 }
                 winnerBox.winner = winner
-                self.responseOverlayManager.updateStreamingText(accumulatedText)
-                let shouldSuppressStreamingNarration = self.actionExecutor.actionsAreEnabled
-                    && PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
-                        forPlannerResponseText: accumulatedText
-                    )
+                self.responseOverlayManager.updateStreamingText(
+                    Self.streamedPlannerTextIsStructuredEnvelope(accumulatedText)
+                        ? "…" : accumulatedText
+                )
+                // The full (main) planner is decode-constrained to the v10
+                // JSON envelope, so its stream is raw JSON — never speak it;
+                // the parsed spokenText is flushed at turn end instead. The
+                // lite path stays free prose and streams normally.
+                let shouldSuppressStreamingNarration = Self.streamedPlannerTextIsStructuredEnvelope(accumulatedText)
+                    || (self.actionExecutor.actionsAreEnabled
+                        && PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
+                            forPlannerResponseText: accumulatedText
+                        ))
                 guard !shouldSuppressStreamingNarration else { return }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
@@ -5255,10 +5851,14 @@ You can turn this off at any time in Settings → Cloud bridge.
         userPromptForPlanner: String,
         stepIndex: Int
     ) {
-        let elementLines = userPromptForPlanner
+        let allElementLines = userPromptForPlanner
             .split(separator: "\n")
             .filter { $0.contains("|") && !$0.hasPrefix("===") }
-            .prefix(5)
+        // Stash the full count for the Settings → Debug post-execution
+        // capture so a "did the planner even see the screen?" question is
+        // answerable per turn.
+        lastPlannerElementLineCountForDebug = allElementLines.count
+        let elementLines = allElementLines.prefix(5)
         guard !elementLines.isEmpty else {
             print("🔬 Step \(stepIndex) planner sees: <no element-list lines in prompt>")
             return

@@ -31,10 +31,14 @@ struct PaceEmbeddingClientError: LocalizedError {
 
 /// OpenAI-compatible /v1/embeddings client (LM Studio locally).
 final class LMStudioEmbeddingClient: PaceTextEmbedding {
-    // Matches the artifact name `lms ls` reports for the downloaded model
-    // (the 8bit suffix is a quantization detail LM Studio's API identifier
-    // does not carry). Override via the RetrievalEmbeddingModel plist key.
-    static let defaultModelIdentifier = "qwen3-embedding-0.6b"
+    // A DEDICATED embedding model — LM Studio loads it as `type: embeddings`,
+    // so `/v1/embeddings` serves it. (qwen3-embedding-0.6b, despite the name,
+    // loads as `type: llm` in LM Studio's MLX runtime and the embeddings route
+    // refuses it — verified via scripts/eval-memory-recall.py.) The shipped
+    // Info.plist `RetrievalEmbeddingModel` key already pins this; this constant
+    // is the fallback when that key is absent, so it must also be a model that
+    // actually serves embeddings.
+    static let defaultModelIdentifier = "text-embedding-nomic-embed-text-v1.5"
 
     private let baseURL: URL
     private let modelIdentifier: String
