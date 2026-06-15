@@ -374,4 +374,30 @@ struct PaceMemoryRetrieverTests {
         #expect(block.contains("user: hello / assistant: hi there"))
         #expect(!block.contains("assistant: hi there\n"))
     }
+
+    // MARK: - Hybrid (RRF) fusion
+
+    @Test func reciprocalRankFusionRewardsEntriesRankedByBothLists() async throws {
+        let both = makeEntry(id: "both", text: "ranked high by both rankers")
+        let semanticOnly = makeEntry(id: "sem", text: "semantic only")
+        let keywordOnly = makeEntry(id: "kw", text: "keyword only")
+
+        // semantic order: both, sem, kw ; keyword order: both, kw, sem.
+        let fused = PaceMemoryRetriever.reciprocalRankFusion([
+            [both, semanticOnly, keywordOnly],
+            [both, keywordOnly, semanticOnly],
+        ])
+
+        // "both" is rank-0 in BOTH lists → highest fused score → first.
+        #expect(fused.first?.id == "both")
+        // Every entry from either list survives the fusion.
+        #expect(Set(fused.map(\.id)) == ["both", "sem", "kw"])
+    }
+
+    @Test func reciprocalRankFusionIncludesEntriesFromAnySingleList() async throws {
+        let onlyInSemantic = makeEntry(id: "s", text: "semantic")
+        let onlyInKeyword = makeEntry(id: "k", text: "keyword")
+        let fused = PaceMemoryRetriever.reciprocalRankFusion([[onlyInSemantic], [onlyInKeyword]])
+        #expect(Set(fused.map(\.id)) == ["s", "k"])
+    }
 }

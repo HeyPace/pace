@@ -37,14 +37,17 @@ final class PaceMemoryRetriever {
     }
 
     /// Assembles the recall context block for `query`, or nil when there is
-    /// nothing to inject (empty query, or no surviving entries after
-    /// filtering on either ranking path). Ranks the unified index
-    /// semantically when an embedding is available, otherwise falls back to
-    /// keyword/BM25 ranking over the SAME index — so an embedding failure no
-    /// longer means "no memory," it just means "rank by keyword instead."
-    /// `excludingEntryIds` lets the caller drop entries already shown
-    /// elsewhere (e.g. the always-include verbatim window). `maxEntries` caps
-    /// the rendered line count.
+    /// nothing to inject. When an embedding is available it HYBRID-RANKS the
+    /// unified index: it fuses the semantic (cosine) and keyword (BM25)
+    /// rankings via Reciprocal Rank Fusion, which beats either alone — a turn
+    /// that's a near-semantic match AND shares a rare keyword should rank
+    /// above one that's only one or the other. Validated on LoCoMo
+    /// (scripts/eval-locomo-recall.py): hybrid lifted recall@1 over
+    /// semantic-only. When embeddings are unavailable it ranks by keyword
+    /// alone over the SAME index — so an embedding failure means "rank by
+    /// keyword," never "no memory." `excludingEntryIds` drops entries already
+    /// shown elsewhere (e.g. the verbatim window); `maxEntries` caps the
+    /// rendered lines.
     func assembleContextBlock(
         forQuery query: String,
         excludingEntryIds: Set<String>,
@@ -59,36 +62,58 @@ final class PaceMemoryRetriever {
         // drops) still leaves up to `maxEntries` survivors.
         let overFetchCount = maxEntries + excludingEntryIds.count + 8
 
-        // Semantic path first. Best-effort embedding: any failure or empty
-        // vector falls through to the lexical ranker rather than blocking.
+        let keywordRankedEntries = memoryIndex.rankByKeywordSimilarity(
+            toQuery: trimmedQuery,
+            topN: overFetchCount
+        )
+
+        // Best-effort embedding: any failure or empty vector drops to keyword
+        // ranking rather than blocking the turn.
         let queryVectors = try? await embeddingClient.embed([trimmedQuery])
+        let rankedEntries: [PaceMemoryEntry]
         if let queryVector = queryVectors?.first, !queryVector.isEmpty {
             let semanticallyRankedEntries = memoryIndex.rankBySemanticSimilarity(
                 toQueryEmbedding: queryVector,
                 topN: overFetchCount
             )
-            if let semanticBlock = filteredContextBlock(
-                fromRankedEntries: semanticallyRankedEntries,
-                excludingEntryIds: excludingEntryIds,
-                maxEntries: maxEntries,
-                now: now
-            ) {
-                return semanticBlock
-            }
+            rankedEntries = Self.reciprocalRankFusion(
+                [semanticallyRankedEntries, keywordRankedEntries]
+            )
+        } else {
+            rankedEntries = keywordRankedEntries
         }
 
-        // Lexical fallback over the SAME unified index when embeddings are
-        // unavailable (or the semantic path yielded nothing after filtering).
-        let keywordRankedEntries = memoryIndex.rankByKeywordSimilarity(
-            toQuery: trimmedQuery,
-            topN: overFetchCount
-        )
         return filteredContextBlock(
-            fromRankedEntries: keywordRankedEntries,
+            fromRankedEntries: rankedEntries,
             excludingEntryIds: excludingEntryIds,
             maxEntries: maxEntries,
             now: now
         )
+    }
+
+    /// Reciprocal Rank Fusion: combine several ranked lists of the same
+    /// entries into one, scoring each entry by `Σ 1/(k0 + rank)` across the
+    /// lists it appears in. Rewards entries ranked highly by MULTIPLE rankers
+    /// (semantic + keyword), which is the hybrid-recall win. `k0` = 60 is the
+    /// standard RRF constant. Deterministic tie-break by id.
+    static func reciprocalRankFusion(
+        _ orderings: [[PaceMemoryEntry]],
+        rankConstant k0: Double = 60
+    ) -> [PaceMemoryEntry] {
+        var fusedScoreByEntryId: [String: Double] = [:]
+        var entryById: [String: PaceMemoryEntry] = [:]
+        for ordering in orderings {
+            for (rankIndex, entry) in ordering.enumerated() {
+                fusedScoreByEntryId[entry.id, default: 0] += 1.0 / (k0 + Double(rankIndex))
+                entryById[entry.id] = entry
+            }
+        }
+        return fusedScoreByEntryId
+            .sorted { lhs, rhs in
+                if lhs.value == rhs.value { return lhs.key < rhs.key }
+                return lhs.value > rhs.value
+            }
+            .compactMap { entryById[$0.key] }
     }
 
     /// Shared tail for both ranking paths: drop excluded entries, drop
