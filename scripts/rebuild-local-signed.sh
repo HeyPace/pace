@@ -37,11 +37,20 @@ APP_PATH="$BUILD_DIR/Build/Products/Release/${APP_NAME}.app"
 # this Mac, so the installed app pins the 8b@4bit build instead.
 LOCAL_VLM_MODEL_ID="ui-venus-1.5-8b@4bit"
 
-# The working Xcode (the /Applications/Xcode.app stub is broken on this beta).
+# The working full Xcode. Probe known locations in order — the beta has been
+# installed under both /Applications (via Xcodes.app) and ~/Downloads, and the
+# plain /Applications/Xcode.app stub is broken on this machine.
 if [[ -z "${DEVELOPER_DIR:-}" ]]; then
-    if [[ -d "/Users/sarthak/Downloads/Xcode-beta.app/Contents/Developer" ]]; then
-        export DEVELOPER_DIR="/Users/sarthak/Downloads/Xcode-beta.app/Contents/Developer"
-    fi
+    for candidateDeveloperDir in \
+        "/Applications/Xcode-27.0.0-Beta.app/Contents/Developer" \
+        "/Applications/Xcode-beta.app/Contents/Developer" \
+        "/Users/sarthak/Downloads/Xcode-beta.app/Contents/Developer" \
+        "/Applications/Xcode.app/Contents/Developer"; do
+        if [[ -d "$candidateDeveloperDir" ]]; then
+            export DEVELOPER_DIR="$candidateDeveloperDir"
+            break
+        fi
+    done
 fi
 
 # Locate the stable signing identity. Use the dedicated keychain so we never
