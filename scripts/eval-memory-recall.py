@@ -17,7 +17,7 @@ It scores two rankers over the same fixtures:
 Usage:
   python3 scripts/eval-memory-recall.py
   python3 scripts/eval-memory-recall.py --base-url http://localhost:1234/v1 \
-      --model qwen3-embedding-0.6b --top-k 1
+      --model text-embedding-nomic-embed-text-v1.5 --top-k 1
 
 Exit code: 0 when the eval ran (even keyword-only). Non-zero only when a
 requested semantic run was reachable but FAILED its pass bar, so CI can gate on
@@ -180,7 +180,7 @@ def top_k_hit(ranked, expect, k):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://localhost:1234/v1")
-    parser.add_argument("--model", default="qwen3-embedding-0.6b")
+    parser.add_argument("--model", default="text-embedding-nomic-embed-text-v1.5")
     parser.add_argument("--top-k", type=int, default=1)
     args = parser.parse_args()
 
