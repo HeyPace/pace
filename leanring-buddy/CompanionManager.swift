@@ -5162,29 +5162,42 @@ You can turn this off at any time in Settings → Cloud bridge.
                     confidence: intentPrediction.confidence
                 )
             case .cliBridge:
-                // The user explicitly picked .cliBridge as their
-                // research tier, so we treat that as research-scoped
-                // consent and don't gate on the global
-                // hasUserAcceptedConsent flag — but we DO need a
-                // working bridge URL. PaceCloudBridgeConsent owns the
-                // canonical base URL (loopback-validated by
-                // PaceLocalEndpointGuard).
-                let bridgeConfiguration = PaceCloudBridgeConsent.loadConfiguration()
-                researchTurnPlannerOverride = CloudBridgePlannerClient(
-                    bridgeBaseURL: bridgeConfiguration.baseURL,
-                    upstreamProvider: loadedResearchConfiguration.cliBridgeUpstream,
-                    modelIdentifier: loadedResearchConfiguration.cliBridgeModel
-                )
-                // Record first-use so the 24-hour soak gate starts
-                // ticking the moment the user runs a research turn
-                // via the bridge — same accounting as the existing
-                // phoneLargeModel route.
-                PaceCloudBridgeConsent.markFirstUsedIfUnset(now: Date())
+                // Direct-spawn the local CLI — no Node bridge needed.
+                // Maps `claude`/`codex` upstream choices to the
+                // direct-spawn planner; the deprecated `.gemini`
+                // upstream falls back to the legacy Node bridge
+                // because gemini-cli's headless contract is too
+                // different to port (see PaceLocalCLIPlannerClient).
+                let directSpawnUpstream: PaceLocalCLIUpstream?
+                switch loadedResearchConfiguration.cliBridgeUpstream {
+                case .claude:
+                    directSpawnUpstream = .claude
+                case .codex:
+                    directSpawnUpstream = .codex
+                case .gemini:
+                    directSpawnUpstream = nil
+                }
+                if let directSpawnUpstream {
+                    researchTurnPlannerOverride = PaceLocalCLIPlannerClient(
+                        upstream: directSpawnUpstream,
+                        modelIdentifier: loadedResearchConfiguration.cliBridgeModel
+                    )
+                    print("🔬 Routing research turn to local CLI (\(directSpawnUpstream.displayLabel)/\(loadedResearchConfiguration.cliBridgeModel))")
+                } else {
+                    // Legacy bridge fallback for gemini-cli only.
+                    let bridgeConfiguration = PaceCloudBridgeConsent.loadConfiguration()
+                    researchTurnPlannerOverride = CloudBridgePlannerClient(
+                        bridgeBaseURL: bridgeConfiguration.baseURL,
+                        upstreamProvider: loadedResearchConfiguration.cliBridgeUpstream,
+                        modelIdentifier: loadedResearchConfiguration.cliBridgeModel
+                    )
+                    PaceCloudBridgeConsent.markFirstUsedIfUnset(now: Date())
+                    print("🔬 Routing research turn to legacy Node bridge (gemini fallback)")
+                }
                 researchTurnMaxAgentSteps = loadedResearchConfiguration.maximumAgentSteps
                 isOffDeviceTurnInFlight = true
                 let upstreamLabel = loadedResearchConfiguration.cliBridgeUpstream.displayLabel.lowercased()
                 currentTurnHUDState = .understanding("researching with \(upstreamLabel) \(loadedResearchConfiguration.cliBridgeModel.lowercased())…")
-                print("🔬 Routing research turn to CLI bridge (\(upstreamLabel)/\(loadedResearchConfiguration.cliBridgeModel))")
                 Task { [weak self] in
                     try? await self?.ttsClient.speakText(
                         "Researching that — give me a minute."

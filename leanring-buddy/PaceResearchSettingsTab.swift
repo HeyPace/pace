@@ -125,7 +125,7 @@ struct PaceResearchSettingsTab: View {
                 .font(.system(size: 12, design: .monospaced))
             }
 
-            Text("Requires the local-ai Node bridge running on localhost:3456 (same one Cloud Bridge uses). Free if you've already authenticated the upstream CLI.")
+            Text("Spawns the local `\(researchConfiguration.cliBridgeUpstream.rawValue)` CLI directly — no Node bridge needed. Free if you've already authenticated. (Pace falls back to the local-ai bridge only for the legacy `gemini` upstream.)")
                 .font(.system(size: 11))
                 .foregroundColor(DS.Colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
