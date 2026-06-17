@@ -5162,17 +5162,29 @@ You can turn this off at any time in Settings → Cloud bridge.
                     confidence: intentPrediction.confidence
                 )
             case .cliBridge:
-                let cliBridgeBaseURL = URL(string: "http://localhost:3456") ?? URL(fileURLWithPath: "/")
+                // The user explicitly picked .cliBridge as their
+                // research tier, so we treat that as research-scoped
+                // consent and don't gate on the global
+                // hasUserAcceptedConsent flag — but we DO need a
+                // working bridge URL. PaceCloudBridgeConsent owns the
+                // canonical base URL (loopback-validated by
+                // PaceLocalEndpointGuard).
+                let bridgeConfiguration = PaceCloudBridgeConsent.loadConfiguration()
                 researchTurnPlannerOverride = CloudBridgePlannerClient(
-                    bridgeBaseURL: cliBridgeBaseURL,
+                    bridgeBaseURL: bridgeConfiguration.baseURL,
                     upstreamProvider: loadedResearchConfiguration.cliBridgeUpstream,
                     modelIdentifier: loadedResearchConfiguration.cliBridgeModel
                 )
+                // Record first-use so the 24-hour soak gate starts
+                // ticking the moment the user runs a research turn
+                // via the bridge — same accounting as the existing
+                // phoneLargeModel route.
+                PaceCloudBridgeConsent.markFirstUsedIfUnset(now: Date())
                 researchTurnMaxAgentSteps = loadedResearchConfiguration.maximumAgentSteps
                 isOffDeviceTurnInFlight = true
                 let upstreamLabel = loadedResearchConfiguration.cliBridgeUpstream.displayLabel.lowercased()
-                currentTurnHUDState = .understanding("researching with \(upstreamLabel) opus…")
-                print("🔬 Routing research turn to CLI bridge (\(upstreamLabel))")
+                currentTurnHUDState = .understanding("researching with \(upstreamLabel) \(loadedResearchConfiguration.cliBridgeModel.lowercased())…")
+                print("🔬 Routing research turn to CLI bridge (\(upstreamLabel)/\(loadedResearchConfiguration.cliBridgeModel))")
                 Task { [weak self] in
                     try? await self?.ttsClient.speakText(
                         "Researching that — give me a minute."

@@ -29,22 +29,26 @@ import Foundation
 // MARK: - PaceResearchTier
 
 /// The three user-selectable backend tiers for research-escalation
-/// turns. `.off` is the default — it preserves existing behavior by
-/// falling through to the normal `.phoneLargeModel` route, which
-/// itself respects the user's Cloud Bridge consent.
+/// turns. **Default is `.cliBridge`** — research is supposed to "just
+/// call the local CLI" (Claude Code or Codex) so the user gets a real
+/// answer without manual configuration. Users without a working bridge
+/// can flip to `.off` (falls back to `.phoneLargeModel`) or `.directAPI`
+/// in Settings → Research.
 nonisolated enum PaceResearchTier: String, Equatable, Codable, CaseIterable {
-    /// No research escalation. `.research` intents fall back to the
-    /// normal `.phoneLargeModel` route (Cloud Bridge if configured,
-    /// "I can't" message otherwise). Default.
-    case off
     /// Spawn a one-turn CloudBridgePlannerClient bound to the configured
-    /// upstream + model. Free when the user already has Claude Code /
-    /// Codex / Gemini CLI installed and authenticated.
+    /// upstream + model. **Default.** Free when the user already has
+    /// Claude Code / Codex / Gemini CLI installed and authenticated;
+    /// requires the local-ai Node bridge running on localhost:3456.
     case cliBridge
     /// Spawn a one-turn DirectAPIPlannerClient against the user's
     /// stored Direct-API key. Real money per turn, capped by
     /// `perTurnTokenBudgetCap`.
     case directAPI
+    /// No research escalation. `.research` intents fall back to the
+    /// normal `.phoneLargeModel` route (Cloud Bridge if configured,
+    /// "I can't" message otherwise). Pick this when the user prefers
+    /// the local Qwen for research too.
+    case off
 }
 
 // MARK: - PaceResearchTierConfiguration
@@ -110,11 +114,42 @@ enum PaceResearchTierStore {
 
     // MARK: Load
 
+    /// First-launch detection: returns true iff none of the research-
+    /// tier UserDefaults keys are set. New installs get `.cliBridge` as
+    /// the default ("just call the local CLI" goal); users who have
+    /// ever opened Settings → Research and explicitly picked a tier
+    /// see that pick honored verbatim.
+    static func hasAnyResearchTierUserDefaultsState() -> Bool {
+        let researchTierUserDefaultsKeys: [ResearchTierUserDefaultsKey] = [
+            .selectedTier,
+            .directAPIProvider,
+            .directAPIModelIdentifier,
+            .directAPICustomEndpointURLString,
+            .cliBridgeUpstream,
+            .cliBridgeModel,
+            .maximumAgentSteps,
+            .perTurnTokenBudgetCap
+        ]
+        for key in researchTierUserDefaultsKeys {
+            if UserDefaults.standard.object(forKey: key.rawValue) != nil {
+                return true
+            }
+        }
+        return false
+    }
+
     static func loadConfiguration() -> PaceResearchTierConfiguration {
+        // Brand-new installs get .cliBridge so research "just calls
+        // the local CLI" out of the box; existing users with any
+        // prior research-tier UserDefaults state see their pick
+        // honored unchanged.
+        let firstLaunchFallbackTier: PaceResearchTier =
+            hasAnyResearchTierUserDefaultsState() ? .off : .cliBridge
+
         let rawSelectedTier = UserDefaults.standard.string(
             forKey: ResearchTierUserDefaultsKey.selectedTier.rawValue
-        ) ?? PaceResearchTier.off.rawValue
-        let resolvedTier = PaceResearchTier(rawValue: rawSelectedTier) ?? .off
+        ) ?? firstLaunchFallbackTier.rawValue
+        let resolvedTier = PaceResearchTier(rawValue: rawSelectedTier) ?? firstLaunchFallbackTier
 
         let rawDirectAPIProvider = UserDefaults.standard.string(
             forKey: ResearchTierUserDefaultsKey.directAPIProvider.rawValue
