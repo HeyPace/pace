@@ -72,7 +72,14 @@ struct PaceAnnotationOverlayControllerTests {
     }
 
     @Test func newSetAnnotationsResetsAutoFadeWindow() async throws {
-        let overlayController = PaceAnnotationOverlayController(autoFadeDelaySeconds: 0.15)
+        // Use a deliberately generous window — Task.sleep precision on
+        // a busy CI machine slips by tens of milliseconds, so the
+        // original 150 ms window was too tight. The behavior we're
+        // pinning is "a second setAnnotations restarts the timer,"
+        // not "the timer fires within 150ms of nominal" — so longer
+        // windows + a larger safety margin keep this stable without
+        // weakening the assertion.
+        let overlayController = PaceAnnotationOverlayController(autoFadeDelaySeconds: 0.5)
         overlayController.setAnnotations([
             PaceRenderedAnnotation(
                 geometry: .rect(CGRect(x: 0, y: 0, width: 10, height: 10)),
@@ -80,10 +87,10 @@ struct PaceAnnotationOverlayControllerTests {
                 screenIndex: 1
             )
         ])
-        try await Task.sleep(nanoseconds: 100_000_000)
-        // Re-set just before the prior timer would have fired. The
-        // first task should be cancelled and a fresh 150 ms window
-        // started.
+        try await Task.sleep(nanoseconds: 300_000_000) // 60% into the first window
+
+        // Re-set BEFORE the first timer fires; the old one must be
+        // cancelled and a fresh 500ms window must begin.
         overlayController.setAnnotations([
             PaceRenderedAnnotation(
                 geometry: .rect(CGRect(x: 0, y: 0, width: 10, height: 10)),
@@ -96,14 +103,20 @@ struct PaceAnnotationOverlayControllerTests {
                 screenIndex: 1
             )
         ])
-        // The original 150 ms window has now elapsed (we slept 100 ms
-        // + a re-set), but the fresh window restarted at the re-set
-        // moment, so the layer should still be present.
-        try await Task.sleep(nanoseconds: 80_000_000)
+
+        // The ORIGINAL window (0.5s from time 0) is now in its 5th
+        // tenth. Wait past the original-window expiry to confirm the
+        // layer is still present — i.e. the re-set DID cancel the
+        // first timer.
+        try await Task.sleep(nanoseconds: 300_000_000) // 600ms total elapsed; orig would have fired at 500ms
         #expect(overlayController.activeAnnotations.count == 2)
 
-        // Now wait past the fresh window and the layer should clear.
-        try await Task.sleep(nanoseconds: 120_000_000)
+        // Now wait past the FRESH window's expiry. Fresh window
+        // started at 300ms-into-test; we're now at 600ms, so the
+        // fresh timer should fire around 800ms. Wait until 950ms+
+        // to give the MainActor task room to run.
+        try await Task.sleep(nanoseconds: 450_000_000)
+        await Task.yield()
         #expect(overlayController.activeAnnotations.isEmpty)
     }
 }

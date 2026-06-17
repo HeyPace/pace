@@ -34,6 +34,38 @@ enum PaceMCPClientError: Error, CustomStringConvertible {
     }
 }
 
+/// Pure helper that builds the spawn-time `environment` map for an MCP
+/// subprocess. Empty values in `serverConfigurationEnvironment` are
+/// the sentinel the bundled catalog uses to say "look this one up at
+/// spawn time" — see `PaceMCPSecretStore`. The `secretLookup` closure
+/// is injected so tests can drive the substitution without touching
+/// the real Keychain.
+///
+/// Layering rule: secrets always win over the base process env, but
+/// only when the user has stored one. A missing secret leaves the
+/// empty sentinel in place so the subprocess can fail loudly with a
+/// clear "missing API key" message rather than silently inheriting an
+/// unrelated env var the parent shell happened to set.
+nonisolated enum PaceMCPClientEnvironmentBuilder {
+    static func buildSpawnEnvironment(
+        baseEnvironment: [String: String],
+        serverConfigurationEnvironment: [String: String],
+        serverSlug: String,
+        secretLookup: (_ server: String, _ key: String) -> String?
+    ) -> [String: String] {
+        var resolvedEnvironment = baseEnvironment
+        for (envKey, envValue) in serverConfigurationEnvironment {
+            if envValue.isEmpty,
+               let storedSecret = secretLookup(serverSlug, envKey) {
+                resolvedEnvironment[envKey] = storedSecret
+            } else {
+                resolvedEnvironment[envKey] = envValue
+            }
+        }
+        return resolvedEnvironment
+    }
+}
+
 nonisolated struct PaceMCPServerConfiguration: Decodable, Equatable {
     let command: String
     let args: [String]
@@ -311,22 +343,14 @@ private func runSynchronousToolCall(
         process.currentDirectoryURL = URL(fileURLWithPath: NSString(string: workingDirectory).expandingTildeInPath)
     }
 
-    var environment = ProcessInfo.processInfo.environment
-    for (key, value) in serverConfiguration.env {
-        if value.isEmpty,
-           let storedSecret = PaceMCPSecretStore.loadSecret(
-               server: toolCall.serverName,
-               key: key
-           ) {
-            // Empty value is the sentinel marker the catalog uses to
-            // say "fill this from Keychain at spawn time" — see
-            // PaceMCPSecretStore. Never logs the secret value.
-            environment[key] = storedSecret
-        } else {
-            environment[key] = value
+    process.environment = PaceMCPClientEnvironmentBuilder.buildSpawnEnvironment(
+        baseEnvironment: ProcessInfo.processInfo.environment,
+        serverConfigurationEnvironment: serverConfiguration.env,
+        serverSlug: toolCall.serverName,
+        secretLookup: { server, key in
+            PaceMCPSecretStore.loadSecret(server: server, key: key)
         }
-    }
-    process.environment = environment
+    )
 
     let stdinPipe = Pipe()
     let stdoutPipe = Pipe()

@@ -273,7 +273,11 @@ final class DirectAPIPlannerClient: BuddyPlannerClient {
     ///   - Top-level `usage` (OpenAI include_usage final chunk).
     ///   - `message.usage` (Anthropic message_start event shape).
     ///   - Nested under any "usage" key one level deep.
-    nonisolated private static func extractUsageDictionary(
+    ///
+    /// `internal` (not `private`) so unit tests can pin the
+    /// Anthropic vs OpenAI vs absent-usage shapes without spinning up
+    /// an SSE fixture server.
+    nonisolated static func extractUsageDictionary(
         from payloadDictionary: [String: Any]
     ) -> [String: Any]? {
         if let topLevelUsage = payloadDictionary["usage"] as? [String: Any] {
@@ -289,7 +293,9 @@ final class DirectAPIPlannerClient: BuddyPlannerClient {
     /// First integer value for the first matching key in `keys`. Used
     /// to fold OpenAI's `prompt_tokens`/`completion_tokens` and
     /// Anthropic's `input_tokens`/`output_tokens` into the same lookup.
-    nonisolated private static func firstIntValue(
+    /// `internal` for the same testability reason as
+    /// `extractUsageDictionary`.
+    nonisolated static func firstIntValue(
         in dictionary: [String: Any],
         forKeys keys: [String]
     ) -> Int? {

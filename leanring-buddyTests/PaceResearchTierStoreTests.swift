@@ -33,21 +33,44 @@ struct PaceResearchTierStoreTests {
         }
     }
 
-    @Test func defaultsAreOpaqueAndOptIn() async throws {
+    @Test func firstLaunchDefaultsToCLIBridgeForResearch() async throws {
         Self.cleanUserDefaults()
         defer { Self.cleanUserDefaults() }
 
         let configuration = PaceResearchTierStore.loadConfiguration()
-        // Default tier is OFF so the feature stays opt-in — existing
-        // users see zero behavior change until they touch Settings →
-        // Research.
-        #expect(configuration.tier == .off)
+        // Default tier on a brand-new install is .cliBridge so
+        // research "just calls the local CLI" out of the box.
+        #expect(configuration.tier == .cliBridge)
         #expect(configuration.directAPIProvider == .anthropic)
         #expect(configuration.directAPIModelIdentifier == "claude-opus-4-7")
         #expect(configuration.cliBridgeUpstream == .claude)
         #expect(configuration.cliBridgeModel == "claude-opus-4-7")
         #expect(configuration.maximumAgentSteps == PaceResearchTierStore.defaultMaximumAgentSteps)
         #expect(configuration.perTurnTokenBudgetCap == PaceResearchTierStore.defaultPerTurnTokenBudgetCap)
+    }
+
+    @Test func existingUserExplicitOffStaysOff() async throws {
+        Self.cleanUserDefaults()
+        defer { Self.cleanUserDefaults() }
+
+        // Existing user who explicitly disabled research must keep
+        // their pick. The first-launch detector must not override
+        // a user's deliberate choice.
+        PaceResearchTierStore.saveTier(.off)
+        let configurationAfterOff = PaceResearchTierStore.loadConfiguration()
+        #expect(configurationAfterOff.tier == .off)
+    }
+
+    @Test func hasAnyResearchTierUserDefaultsStateFlipsAfterAnySave() async throws {
+        Self.cleanUserDefaults()
+        defer { Self.cleanUserDefaults() }
+
+        #expect(!PaceResearchTierStore.hasAnyResearchTierUserDefaultsState())
+        // Saving ANY field (even one unrelated to tier) should mark
+        // the user as "having state" so the first-launch default
+        // doesn't reapply on next load.
+        PaceResearchTierStore.saveMaximumAgentSteps(20)
+        #expect(PaceResearchTierStore.hasAnyResearchTierUserDefaultsState())
     }
 
     @Test func saveTierPersistsAcrossLoads() async throws {
