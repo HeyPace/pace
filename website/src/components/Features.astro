@@ -6,7 +6,7 @@
 const features = [
   {
     verb: "Listens",
-    body: "Hold ctrl+option, say something, let go. Push-to-talk via a system-wide CGEvent tap. The first spoken word back arrives in about 420 milliseconds.",
+    body: "Hold ctrl+option, say something, let go. Or press ctrl three times for always-on mode. Push-to-talk via a system-wide CGEvent tap. The first spoken word back arrives in about 420 milliseconds.",
     margin: "Apple Speech by default. WhisperKit-Large if you put the model on disk — Pace picks it up automatically.",
   },
   {
@@ -18,6 +18,11 @@ const features = [
     verb: "Clicks",
     body: "\"Click submit,\" \"snap this window left,\" \"add this to my calendar.\" Pace executes through Accessibility — the right way to drive a Mac — and falls back to CGEvent only when AX can't find the element.",
     margin: "Every reversible change leaves a 5-second undo banner. Tap to roll back.",
+  },
+  {
+    verb: "Teaches",
+    body: "Learn Figma. Learn Cursor. Learn the obscure internal tool nobody documented. Pace draws on your screen, points at the next thing to click, waits for you to do it, then advances. Step-by-step, at your pace.",
+    margin: "Click-follow-along is verification-driven: Pace knows when you actually clicked the right thing and moves you to the next step automatically.",
   },
   {
     verb: "Remembers",
@@ -44,7 +49,7 @@ const features = [
     </p>
 
     <h2 class="pace-display text-4xl md:text-6xl text-white mb-16 max-w-3xl">
-      Six verbs. <em>That's the whole product.</em>
+      Seven verbs. <em>That's the whole product.</em>
     </h2>
 
     <div class="space-y-16 md:space-y-20">
