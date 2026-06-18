@@ -823,6 +823,81 @@ nonisolated enum PaceFastActionCommandParser {
                 modifiers: [.command, .shift],
                 spokenText: "reopening the tab."
             )
+        // Lever #5: keyboard shortcut fast-paths. Each match here
+        // skips the planner entirely, so latency drops from
+        // ~hundreds of ms to single-digit ms.
+        case "lock", "lock my mac", "lock the mac", "lock screen", "lock my screen", "lock the screen":
+            return FastKeyPressCommand(
+                keyName: "q",
+                modifiers: [.control, .command],
+                spokenText: "locking."
+            )
+        case "screenshot", "take a screenshot", "capture screen", "capture the screen", "take screen capture":
+            return FastKeyPressCommand(
+                keyName: "3",
+                modifiers: [.command, .shift],
+                spokenText: "screenshot taken."
+            )
+        case "screenshot a region", "capture a region", "capture region", "screenshot region", "select an area to screenshot", "screenshot selection":
+            return FastKeyPressCommand(
+                keyName: "4",
+                modifiers: [.command, .shift],
+                spokenText: "select the area."
+            )
+        case "hide window", "hide this app", "hide app", "hide the app", "command h", "cmd h", "press command h":
+            return FastKeyPressCommand(
+                keyName: "h",
+                modifiers: [.command],
+                spokenText: "hiding."
+            )
+        case "minimize window", "minimize the window", "minimize this window", "command m", "cmd m", "press command m":
+            return FastKeyPressCommand(
+                keyName: "m",
+                modifiers: [.command],
+                spokenText: "minimizing."
+            )
+        case "mission control", "open mission control", "show all windows", "show every window":
+            return FastKeyPressCommand(
+                keyName: "ArrowUp",
+                modifiers: [.control],
+                spokenText: "mission control."
+            )
+        case "show desktop", "hide everything", "clear desktop", "show me the desktop":
+            return FastKeyPressCommand(
+                keyName: "F11",
+                modifiers: [],
+                spokenText: "showing the desktop."
+            )
+        case "copy", "copy that", "copy this", "command c", "cmd c", "press command c":
+            return FastKeyPressCommand(
+                keyName: "c",
+                modifiers: [.command],
+                spokenText: "copied."
+            )
+        case "paste", "paste here", "paste that", "command v", "cmd v", "press command v":
+            return FastKeyPressCommand(
+                keyName: "v",
+                modifiers: [.command],
+                spokenText: "pasting."
+            )
+        case "select all", "select everything", "command a", "cmd a", "press command a":
+            return FastKeyPressCommand(
+                keyName: "a",
+                modifiers: [.command],
+                spokenText: "all selected."
+            )
+        case "find", "find on page", "find in page", "search this page", "command f", "cmd f", "press command f":
+            return FastKeyPressCommand(
+                keyName: "f",
+                modifiers: [.command],
+                spokenText: "find ready."
+            )
+        case "refresh", "refresh page", "reload", "reload page", "reload this page", "command r", "cmd r", "press command r":
+            return FastKeyPressCommand(
+                keyName: "r",
+                modifiers: [.command],
+                spokenText: "reloading."
+            )
         default:
             return nil
         }

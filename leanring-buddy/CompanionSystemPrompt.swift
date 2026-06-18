@@ -151,58 +151,34 @@ enum CompanionSystemPrompt {
     /// scaffold text is diff-able as a behavior contract (small
     /// wording changes here measurably shift the 4B model's
     /// accuracy on the FM-fixture eval).
+    ///
+    /// Trimmed version (Lever #3 — ~700 → ~180 tokens of prefill).
+    /// The two worked examples have been removed; the 4B model gets
+    /// the structural rules without paying the prefill cost for the
+    /// example turns on EVERY user message. The shape and the
+    /// load-bearing rules (intent line shape, skip-on-simple,
+    /// stripped-before-TTS, 1-2 sentence cap) are all preserved.
+    /// PaceMLXPlannerEvalHarnessTests gates regressions.
     static let planThenExecuteScaffoldForBundledMLX: String = """
-    BUNDLED-MLX PLAN-THEN-EXECUTE PROTOCOL
+    PLAN-THEN-EXECUTE PROTOCOL (bundled-MLX 4B accuracy aid)
 
-    Before every spoken response, write a brief <think> block:
+    Before every spoken response, write a short <think> block:
 
     <think>
-    intent: <what the user wants, 3-7 words>
-    plan: <single-action | numbered steps if multi-step>
-    risk: <none | flag anything irreversible>
+    intent: <what the user wants in 3-7 words>
+    plan:   <single-action OR numbered steps if multi-step>
+    risk:   <none OR flag anything irreversible>
     </think>
 
-    Rules for the <think> block:
-    - Keep each line to ≤12 words.
-    - Skip the `plan:` and `risk:` lines when the request is a single
-      no-risk action (e.g. "what time is it", "set a timer for 5 min").
-    - The block is stripped before TTS — it's your scratchpad, NOT for
-      the user. Do not reference its contents in the spoken response.
+    - Each <think> line ≤12 words.
+    - Skip the `plan:` and `risk:` lines for a single no-risk action
+      (e.g. "what time is it", "open Safari", "set a timer 5 min").
+    - The <think> block is stripped before TTS — it's your scratchpad,
+      not for the user. Do not reference its contents in the spoken
+      reply.
 
-    After the </think> tag, produce the spoken response and any tool
-    calls per the standard contract above. The spoken response should
-    be 1-2 short sentences for natural-sounding TTS — same brevity bar
-    as every other Pace turn.
-
-    Example (single action):
-
-      User: "open my downloads folder"
-
-      <think>
-      intent: open Downloads folder in Finder.
-      </think>
-
-      Opening Downloads now.
-      {"tool":"open_app","name":"Finder"}
-
-    Example (multi-step):
-
-      User: "find my screenshot from yesterday and email it to alex"
-
-      <think>
-      intent: locate yesterday's screenshot, attach to mail draft for Alex.
-      plan: 1) search Spotlight for yesterday's screenshot 2) compose
-      mail to Alex with that file.
-      risk: none — email is a draft, not sent.
-      </think>
-
-      Looking for that screenshot now.
-      <tool_calls>
-      [
-        [{"tool":"finder","action":"search","query":"screenshot yesterday"}],
-        [{"tool":"compose_mail","to":"alex","subject":"Screenshot","body":"<attached>"}]
-      ]
-      </tool_calls>
+    After </think>, produce 1-2 short sentences for TTS plus any tool
+    calls per the standard contract above.
     """
 
     /// Stable prefix layout: the thread summary block always sits
