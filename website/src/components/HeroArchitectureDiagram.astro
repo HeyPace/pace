@@ -85,10 +85,16 @@
     <text x="120" y="92" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9" fill="rgba(255,255,255,0.4)">partials @ 1.2 s cadence</text>
   </g>
 
-  <!-- Wire ASR → Planner -->
+  <!-- Wire ASR → Planner — with a packet of data traveling along it -->
   <g stroke="rgba(255,255,255,0.45)" stroke-width="1.2" fill="none">
-    <path d="M 620 150 L 700 150 L 700 350 L 760 350" marker-end="url(#paceArrow)" />
+    <path id="paceWireAsrPlanner" d="M 620 150 L 700 150 L 700 350 L 760 350" marker-end="url(#paceArrow)" />
   </g>
+  <circle r="3" fill="#4f8bff" opacity="0.9">
+    <animateMotion dur="3.5s" repeatCount="indefinite" rotate="auto">
+      <mpath href="#paceWireAsrPlanner" />
+    </animateMotion>
+    <animate attributeName="opacity" values="0;1;1;0" dur="3.5s" repeatCount="indefinite" />
+  </circle>
   <text x="700" y="252" text-anchor="middle" font-family="ui-monospace, monospace" font-size="10" fill="rgba(255,255,255,0.5)" transform="rotate(-90 700 252)" letter-spacing="1">transcript</text>
 
   <!-- ====== Block 2: Screen context (parallel branch) ====== -->
@@ -112,11 +118,23 @@
   </g>
   <!-- Wire screen → VLM -->
   <g stroke="rgba(255,255,255,0.45)" stroke-width="1.2" fill="none">
-    <path d="M 220 385 L 380 370" marker-end="url(#paceArrow)" />
+    <path id="paceWireScreenVlm" d="M 220 385 L 380 370" marker-end="url(#paceArrow)" />
   </g>
+  <circle r="2.5" fill="#4f8bff" opacity="0.85">
+    <animateMotion dur="2.4s" repeatCount="indefinite" begin="0.8s">
+      <mpath href="#paceWireScreenVlm" />
+    </animateMotion>
+    <animate attributeName="opacity" values="0;1;1;0" dur="2.4s" begin="0.8s" repeatCount="indefinite" />
+  </circle>
 
   <!-- ====== Block 4: Planner (centerpiece) ====== -->
   <g transform="translate(760, 280)">
+    <!-- Pulsing glow ring around the planner — it's the brain of
+         the whole diagram, deserves the visual weight. -->
+    <rect width="380" height="180" rx="3" fill="none" stroke="#4f8bff" stroke-width="2" opacity="0.5">
+      <animate attributeName="opacity" values="0.5;0.15;0.5" dur="2.8s" repeatCount="indefinite" />
+      <animate attributeName="stroke-width" values="2;5;2" dur="2.8s" repeatCount="indefinite" />
+    </rect>
     <rect width="380" height="180" rx="3" fill="rgba(11,11,13,0.85)" stroke="#4f8bff" stroke-width="1.5" />
     <text x="190" y="38" text-anchor="middle" font-family="'Instrument Serif', serif" font-size="28" fill="#4f8bff" font-style="italic">Planner</text>
     <text x="190" y="60" text-anchor="middle" font-family="ui-monospace, monospace" font-size="10" fill="rgba(255,255,255,0.6)" letter-spacing="1">Qwen3-4B-Instruct-2507 · bf16</text>
@@ -131,8 +149,14 @@
 
   <!-- Wire VLM → Planner (joins the transcript stream) -->
   <g stroke="rgba(255,255,255,0.45)" stroke-width="1.2" fill="none">
-    <path d="M 620 370 L 760 370" marker-end="url(#paceArrow)" />
+    <path id="paceWireVlmPlanner" d="M 620 370 L 760 370" marker-end="url(#paceArrow)" />
   </g>
+  <circle r="2.5" fill="#4f8bff" opacity="0.85">
+    <animateMotion dur="2.2s" repeatCount="indefinite" begin="1.6s">
+      <mpath href="#paceWireVlmPlanner" />
+    </animateMotion>
+    <animate attributeName="opacity" values="0;1;1;0" dur="2.2s" begin="1.6s" repeatCount="indefinite" />
+  </circle>
 
   <!-- ====== Block 5: Action Executor ====== -->
   <g transform="translate(1240, 280)">
@@ -149,8 +173,22 @@
 
   <!-- Planner → Executor (the accent-coloured spine) -->
   <g stroke="#4f8bff" stroke-width="1.5" fill="none">
-    <path d="M 1140 370 L 1240 370" marker-end="url(#paceArrowAccent)" />
+    <path id="paceWirePlannerExec" d="M 1140 370 L 1240 370" marker-end="url(#paceArrowAccent)" />
   </g>
+  <!-- Two packets traveling on the spine so it feels "live" -->
+  <circle r="3.5" fill="#4f8bff" opacity="0">
+    <animateMotion dur="1.8s" repeatCount="indefinite" begin="2.2s">
+      <mpath href="#paceWirePlannerExec" />
+    </animateMotion>
+    <animate attributeName="opacity" values="0;1;1;0" dur="1.8s" begin="2.2s" repeatCount="indefinite" />
+    <animate attributeName="r" values="2;4;2" dur="1.8s" begin="2.2s" repeatCount="indefinite" />
+  </circle>
+  <circle r="3.5" fill="#4f8bff" opacity="0">
+    <animateMotion dur="1.8s" repeatCount="indefinite" begin="3.1s">
+      <mpath href="#paceWirePlannerExec" />
+    </animateMotion>
+    <animate attributeName="opacity" values="0;1;1;0" dur="1.8s" begin="3.1s" repeatCount="indefinite" />
+  </circle>
 
   <!-- ====== Block 6: TTS feedback loop ====== -->
   <g transform="translate(760, 540)">
@@ -160,8 +198,14 @@
   </g>
   <!-- Planner → TTS -->
   <g stroke="rgba(255,255,255,0.45)" stroke-width="1.2" fill="none">
-    <path d="M 950 460 L 950 540" marker-end="url(#paceArrow)" />
+    <path id="paceWirePlannerTts" d="M 950 460 L 950 540" marker-end="url(#paceArrow)" />
   </g>
+  <circle r="2.5" fill="#4f8bff" opacity="0.85">
+    <animateMotion dur="2s" repeatCount="indefinite" begin="3s">
+      <mpath href="#paceWirePlannerTts" />
+    </animateMotion>
+    <animate attributeName="opacity" values="0;1;1;0" dur="2s" begin="3s" repeatCount="indefinite" />
+  </circle>
 
   <!-- ====== Memory loop ====== -->
   <g transform="translate(1240, 540)">
@@ -178,9 +222,13 @@
     <path d="M 1240 578 L 950 578 L 950 460" />
   </g>
 
-  <!-- ====== "No network" boundary box around the whole thing ====== -->
-  <g stroke="rgba(52,211,153,0.45)" stroke-width="1" fill="none" stroke-dasharray="6 6">
-    <rect x="80" y="80" width="1440" height="600" rx="6" />
+  <!-- ====== "No network" boundary box around the whole thing.
+        Animated stroke-dashoffset to give a subtle "scanning" feel
+        — implies the boundary is actively defending. ====== -->
+  <g stroke="rgba(52,211,153,0.5)" stroke-width="1" fill="none" stroke-dasharray="6 6">
+    <rect x="80" y="80" width="1440" height="600" rx="6">
+      <animate attributeName="stroke-dashoffset" from="0" to="-24" dur="2s" repeatCount="indefinite" />
+    </rect>
   </g>
   <g font-family="ui-monospace, monospace" fill="rgba(52,211,153,0.7)">
     <text x="1520" y="74" text-anchor="end" font-size="11" letter-spacing="2">YOUR MAC ────────────────────────────────────────────</text>
