@@ -182,7 +182,34 @@ struct PaceBundledModelsSettingsTab: View {
                     .buttonStyle(.bordered)
                     .disabled(!isUsingMLXPlanner)
             }
-            Text("On first use, ~8 GB is downloaded into the HuggingFace cache (~/.cache/huggingface). bf16 trades disk + RAM for materially better accuracy than the 4-bit variant; on 16 GB Macs prefer the 4-bit identifier instead. Subsequent launches load from cache.")
+            // Fast Mode preset — swaps the bf16 identifier for the
+            // 4-bit variant of the same checkpoint. ~2x faster
+            // inference, ~3x less RAM, ~1-2 points lower on the
+            // FM-fixture eval set. Right call on 16 GB Macs.
+            HStack(spacing: 10) {
+                Button(action: applyFastModePlannerPreset) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 11))
+                        Text("Fast mode (4-bit)")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(!isUsingMLXPlanner || isOnFastModeIdentifier)
+                Button(action: applyHighQualityPlannerPreset) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 11))
+                        Text("High quality (bf16)")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(!isUsingMLXPlanner || isOnHighQualityIdentifier)
+                Spacer()
+            }
+            Text("On first use, ~8 GB is downloaded into the HuggingFace cache (~/.cache/huggingface). bf16 trades disk + RAM for materially better accuracy than the 4-bit variant; on 16 GB Macs use Fast mode instead. Subsequent launches load from cache.")
                 .font(.system(size: 11))
                 .foregroundColor(DS.Colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -331,5 +358,32 @@ struct PaceBundledModelsSettingsTab: View {
     private func commitEmbedderModelIdentifier() {
         PaceBundledModelsSettings.setEmbedderModelIdentifier(embedderModelIdentifier)
         embedderModelIdentifier = PaceBundledModelsSettings.embedderModelIdentifier()
+    }
+
+    // MARK: - Fast Mode preset helpers (Lever #4)
+
+    /// True when the user's current planner identifier matches the
+    /// 4-bit Fast Mode preset. Drives the "Fast mode" button's
+    /// disabled state.
+    private var isOnFastModeIdentifier: Bool {
+        plannerModelIdentifier == PaceBundledModelsSettings.fastModePlannerModelIdentifier
+    }
+
+    /// True when the current planner identifier is the bf16
+    /// "High quality" preset (the Info.plist shipping default).
+    private var isOnHighQualityIdentifier: Bool {
+        plannerModelIdentifier == PaceBundledModelsSettings.defaultPlannerModelIdentifier
+    }
+
+    private func applyFastModePlannerPreset() {
+        let fastIdentifier = PaceBundledModelsSettings.fastModePlannerModelIdentifier
+        PaceBundledModelsSettings.setPlannerModelIdentifier(fastIdentifier)
+        plannerModelIdentifier = PaceBundledModelsSettings.plannerModelIdentifier()
+    }
+
+    private func applyHighQualityPlannerPreset() {
+        let bf16Identifier = PaceBundledModelsSettings.defaultPlannerModelIdentifier
+        PaceBundledModelsSettings.setPlannerModelIdentifier(bf16Identifier)
+        plannerModelIdentifier = PaceBundledModelsSettings.plannerModelIdentifier()
     }
 }

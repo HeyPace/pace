@@ -42,6 +42,13 @@ nonisolated enum PaceBundledModelsSettings {
     // point at Pace-tuned models (e.g. `pace-ai/pace-planner-v1`)
     // without touching this source file.
     nonisolated static let compileTimeFallbackPlannerModelIdentifier = "mlx-community/Qwen3-4B-Instruct-2507-bf16"
+
+    // Fast Mode preset — the 4-bit variant of the same checkpoint.
+    // ~2x faster inference (less memory bandwidth on the same
+    // weights), ~3x less RAM (fits comfortably on 16 GB Macs),
+    // ~1-2 points lower on the FM-fixture eval set. Exposed as a
+    // one-click preset in Settings → Models.
+    nonisolated static let fastModePlannerModelIdentifier = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
     nonisolated static let compileTimeFallbackEmbedderModelIdentifier = "mlx-community/nomic-embed-text-v1.5"
     nonisolated static let compileTimeFallbackVLMModelIdentifier = "mlx-community/Qwen3-VL-4B-Instruct-4bit"
 
