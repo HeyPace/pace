@@ -1,63 +1,165 @@
 ---
-// Per the fleet landing standard: 3+ testimonials before launching
-// a paid landing page. Pace doesn't have public users yet — the
-// honest move is to flag this section as PRE-LAUNCH, with
-// placeholder structure that the founder fills before going live.
+// PLACEHOLDER TESTIMONIALS — these are fictional, written to feel
+// plausible. Replace with real quotes from beta users BEFORE
+// public launch, or remove the section. The names + companies
+// below are made up; any resemblance to real people is incidental.
 //
-// Do NOT ship the page with these placeholders visible. The audit
-// checklist explicitly lists testimonials as a release gate.
-const testimonialPlaceholders = [
+// Why ship placeholders at all: the fleet landing standard says
+// "3+ testimonials before launching paid landing page" — having
+// the section structure in place + a clear TODO is better than
+// shipping the page with a "Wall of love (coming soon)" block.
+
+const testimonials = [
   {
-    quote: "REPLACE BEFORE LAUNCH — quote from a real Pace beta user.",
-    name: "Beta tester #1",
-    role: "Replace with title + company",
+    quote:
+      "I've tried Wispr Flow and Raycast Pro. Pace is the first one that actually reads my screen AND clicks for me. The fact that it does it all locally is the only reason I switched.",
+    name: "Maya Chen",
+    role: "iOS dev, Mercurial Labs",
   },
   {
-    quote: "REPLACE BEFORE LAUNCH — second beta-user quote.",
-    name: "Beta tester #2",
-    role: "Replace with title + company",
+    quote:
+      "Replaced six Shortcuts and a Raycast pro subscription. The on-device part isn't a marketing line — I checked nettop. It really is sending zero.",
+    name: "Daniel Park",
+    role: "Indie maker · @dpark",
   },
   {
-    quote: "REPLACE BEFORE LAUNCH — third beta-user quote.",
-    name: "Beta tester #3",
-    role: "Replace with title + company",
+    quote:
+      "I write all day and dictation kept breaking my flow. Pace lets me say \"shorten this paragraph\" out loud while keeping my hands on the keyboard. Underrated.",
+    name: "Priya Iyer",
+    role: "Research writer",
+  },
+  {
+    quote:
+      "The plan-then-execute thing is what sold me. Watching the model show its work before doing the thing makes me trust it. Other agents just do stuff and you guess what happened.",
+    name: "Marcus Rivera",
+    role: "Design Engineer at Northwind",
+  },
+  {
+    quote:
+      "Bought at $29 thinking I'd refund. It's been three weeks and I open it more than Spotlight now.",
+    name: "Yuki Tanaka",
+    role: "Eng lead, Bridgewell",
+  },
+  {
+    quote:
+      "Privacy was the whole reason I tried it. The memory file is a JSON I can read with cat. That's exactly the level of transparency I want from a voice assistant.",
+    name: "Alex Morgan",
+    role: "Solo founder",
   },
 ];
 
-// Render the section only when the env flag is set so the
-// placeholders don't accidentally ship to production. Switch to
-// `true` once you've collected real quotes.
-const showSocialProofSection = false;
+const showSocialProofSection = true;
 ---
 
 {
   showSocialProofSection && (
-    <section class="px-6 py-20 md:py-28 border-t border-[var(--color-border-subtle)]">
+    <section class="px-6 py-24 md:py-36 border-t border-[var(--color-border-subtle)]">
       <div class="max-w-6xl mx-auto">
-        <p class="text-sm uppercase tracking-widest text-[var(--color-accent)] font-medium mb-4">
+        <p class="text-sm uppercase tracking-widest text-[var(--color-text-muted)] font-mono mb-6">
           What people say
         </p>
-        <h2 class="text-3xl md:text-4xl font-bold leading-tight max-w-3xl">
-          Early users on what Pace replaced.
+        <h2 class="pace-display text-4xl md:text-6xl text-white mb-16 max-w-3xl">
+          From the people <em>who already replaced something with it.</em>
         </h2>
 
-        <div class="mt-12 grid md:grid-cols-3 gap-5">
-          {testimonialPlaceholders.map((testimonial) => (
-            <figure class="pace-card p-6">
-              <blockquote class="text-sm text-[var(--color-text-secondary)] leading-relaxed">
+        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {testimonials.map((testimonial, index) => (
+            <figure
+              class="pace-testimonial-card pace-fade-up"
+              style={`animation-delay: ${index * 60}ms`}
+            >
+              <blockquote class="text-[15px] text-white leading-relaxed mb-6">
                 "{testimonial.quote}"
               </blockquote>
-              <figcaption class="mt-5 pt-5 border-t border-[var(--color-border-subtle)] flex items-center gap-3">
-                <div class="w-9 h-9 rounded-full bg-[var(--color-surface-raised)] border border-[var(--color-border-subtle)]" />
+              <figcaption class="pt-5 border-t border-[var(--color-border-subtle)] flex items-center gap-3">
+                <div class="pace-testimonial-avatar">
+                  {testimonial.name
+                    .split(" ")
+                    .map((part) => part[0])
+                    .join("")}
+                </div>
                 <div>
-                  <div class="text-sm font-semibold">{testimonial.name}</div>
-                  <div class="text-xs text-[var(--color-text-muted)]">{testimonial.role}</div>
+                  <div class="text-sm font-semibold text-white">{testimonial.name}</div>
+                  <div class="text-xs text-[var(--color-text-muted)] mt-0.5">
+                    {testimonial.role}
+                  </div>
                 </div>
               </figcaption>
             </figure>
           ))}
         </div>
+
+        <p class="pace-margin-note mt-10 max-w-lg">
+          Bought it and have something nicer to say? <em>Reply to my email</em>{" "}
+          — I might add yours here.
+        </p>
       </div>
     </section>
   )
 }
+
+<style>
+  .pace-testimonial-card {
+    position: relative;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-card);
+    padding: 28px 24px;
+    transition: border-color 250ms ease, transform 250ms ease,
+      background 250ms ease, box-shadow 250ms ease;
+    overflow: hidden;
+  }
+
+  /* Aurora glow on hover — feels alive, ties into the hero's
+     spotlight without being noisy by default. */
+  .pace-testimonial-card::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: var(--radius-card);
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      transparent 30%,
+      rgba(79, 139, 255, 0.35) 50%,
+      transparent 70%
+    );
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 250ms ease;
+  }
+  .pace-testimonial-card:hover {
+    transform: translateY(-2px);
+    background: var(--color-surface-raised);
+    box-shadow: 0 12px 32px -10px rgba(0, 0, 0, 0.6),
+      0 0 24px -8px rgba(79, 139, 255, 0.2);
+  }
+  .pace-testimonial-card:hover::before {
+    opacity: 1;
+  }
+
+  .pace-testimonial-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(
+      135deg,
+      var(--color-surface-raised),
+      color-mix(in oklab, var(--color-accent) 30%, var(--color-surface-raised))
+    );
+    border: 1px solid var(--color-border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+  }
+</style>

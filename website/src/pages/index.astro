@@ -1,6 +1,9 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
 import Nav from "../components/Nav.astro";
+import MouseSpotlight from "../components/MouseSpotlight.astro";
+import CursorFollower from "../components/CursorFollower.astro";
+import SpecMarquee from "../components/SpecMarquee.astro";
 import Hero from "../components/Hero.astro";
 import OnDevice from "../components/OnDevice.astro";
 import Features from "../components/Features.astro";
@@ -10,21 +13,25 @@ import SocialProof from "../components/SocialProof.astro";
 import FAQ from "../components/FAQ.astro";
 import Footer from "../components/Footer.astro";
 
-// Hero copy under 10 words: "The voice assistant that doesn't phone home."
-// Subhead is the page <meta description> — feeds both the OG preview and
-// Google's snippet.
 const description = "Talk to your Mac. Pace listens, reads your screen, and clicks for you — all on your own silicon. No accounts, no cloud, no monthly bill. One-time $29.";
 ---
 
 <BaseLayout title="Pace — voice control for macOS, on-device" description={description}>
+  <!-- Global decoration layers: ambient spotlight tracking the
+       mouse + a custom blue cursor that mirrors Pace's actual
+       in-app cursor. Both no-op on touch / coarse-pointer devices. -->
+  <MouseSpotlight />
+  <CursorFollower />
+
   <Nav />
+  <SpecMarquee />
   <main>
     <Hero />
     <OnDevice />
     <Features />
     <Comparison />
-    <Pricing />
     <SocialProof />
+    <Pricing />
     <FAQ />
   </main>
   <Footer />

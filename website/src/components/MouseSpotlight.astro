@@ -1,0 +1,73 @@
+---
+// Mouse-tracked spotlight overlay — the Aceternity / Linear /
+// Lovable trick. Pure CSS for the visual; a tiny inline JS block
+// updates two CSS variables (--pace-mx, --pace-my) at pointer-move
+// time so the gradient follows the cursor.
+//
+// Why client-side JS is OK here even on an Astro static site: the
+// effect is purely decorative, and Astro inline scripts hydrate
+// after the LCP fires. No measurable LCP cost.
+---
+
+<div class="pace-mouse-spotlight" aria-hidden="true"></div>
+
+<script is:inline>
+  // Throttled to requestAnimationFrame so high-DPI pointer events
+  // don't thrash style recalculation.
+  (function attachPaceSpotlight() {
+    let pendingX = null;
+    let pendingY = null;
+    let rafQueued = false;
+    const root = document.documentElement;
+    function flushFrame() {
+      rafQueued = false;
+      if (pendingX !== null) {
+        root.style.setProperty("--pace-mx", pendingX + "px");
+        root.style.setProperty("--pace-my", pendingY + "px");
+      }
+    }
+    function handlePointerMove(event) {
+      pendingX = event.clientX;
+      pendingY = event.clientY + window.scrollY;
+      if (!rafQueued) {
+        rafQueued = true;
+        requestAnimationFrame(flushFrame);
+      }
+    }
+    window.addEventListener("pointermove", handlePointerMove, { passive: true });
+
+    // Initial centered position before the first move
+    root.style.setProperty("--pace-mx", window.innerWidth / 2 + "px");
+    root.style.setProperty("--pace-my", "300px");
+  })();
+</script>
+
+<style>
+  .pace-mouse-spotlight {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    background: radial-gradient(
+      600px circle at var(--pace-mx, 50vw) var(--pace-my, 300px),
+      rgba(79, 139, 255, 0.12),
+      rgba(79, 139, 255, 0.04) 30%,
+      transparent 60%
+    );
+    transition: background 80ms linear;
+  }
+
+  /* Hide the spotlight on coarse-pointer (touch) devices — feels
+     odd on phones where the cursor doesn't exist. */
+  @media (pointer: coarse) {
+    .pace-mouse-spotlight {
+      display: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pace-mouse-spotlight {
+      transition: none;
+    }
+  }
+</style>
