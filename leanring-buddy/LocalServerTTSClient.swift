@@ -214,6 +214,19 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
         startDrainingPlaybackQueueIfNeeded()
     }
 
+    /// Public push-to-talk-press entry point. Warms Kokoro's MLX weights
+    /// during the user's speech window (~2-5s of dead time) instead of
+    /// waiting for the first `speakText(...)`. Because the single-space
+    /// prewarm synthesis completes BEFORE any real sentence is enqueued,
+    /// it never competes with a real utterance for the sidecar — the
+    /// serialized drain loop exists precisely to avoid that concurrency.
+    /// Idempotent via the `hasWarmedUpForFirstSessionCall` guard, so the
+    /// fallback call still made from `speakText(...)` becomes a no-op once
+    /// this has already fired for the process.
+    func prewarmSidecarForUpcomingTurnIfNeeded() {
+        prewarmIfFirstSessionCall()
+    }
+
     /// Wave 4: fires ONCE per process lifetime on the user's first
     /// `speakText(...)` call. Synthesizes a silent " " (single space)
     /// phrase non-blocking so Kokoro's MLX cache is hot before the

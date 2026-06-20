@@ -96,8 +96,18 @@ enum CompanionScreenCaptureUtility {
                 configuration: configuration
             )
 
-            guard let jpegData = NSBitmapImageRep(cgImage: cgImage)
-                    .representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else {
+            // JPEG encoding is pure CPU work on an immutable CGImage with no
+            // dependency on this @MainActor enum's state. Run it off the main
+            // actor so it cannot serialize against the speculative planner
+            // race's TTS dispatch during the first-step capture window — that
+            // dispatch is what produces the first spoken word (TTFSW), and a
+            // synchronous encode here would otherwise hold the main actor for
+            // the duration of the compression.
+            let encodedJPEGData = await Task.detached(priority: .userInitiated) {
+                NSBitmapImageRep(cgImage: cgImage)
+                    .representation(using: .jpeg, properties: [.compressionFactor: 0.8])
+            }.value
+            guard let jpegData = encodedJPEGData else {
                 continue
             }
 

@@ -396,6 +396,16 @@ extension CompanionManager {
             // and the result is awaited by the agent loop's first step —
             // perceived VLM latency drops to ~0 in the common case.
             screenContextService.prewarmScreenContext(reason: .pushToTalkPress)
+            // Warm the Kokoro TTS sidecar in the same PTT-press dead-time
+            // window. The single-space prewarm synthesis runs while the user
+            // is still speaking, so the first real sentence after the planner
+            // responds hits a hot MLX cache instead of paying the cold-load
+            // tax — and, finishing before any real utterance is enqueued, it
+            // never competes with one for the sidecar. Idempotent: a no-op
+            // after the first PTT press of the process.
+            if let localServerTTSClient = ttsClient as? LocalServerTTSClient {
+                localServerTTSClient.prewarmSidecarForUpcomingTurnIfNeeded()
+            }
             // Reject the press if the transcription provider's model
             // isn't loaded yet. Apple Speech (default) is always ready
             // on launch; only relevant when the user has switched to
