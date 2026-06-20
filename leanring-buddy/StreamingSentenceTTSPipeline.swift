@@ -347,6 +347,21 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// look like a "sentence" to the boundary detector), then action
     /// tags + POINT, then sentence segmentation.
     nonisolated private static func computeSpeakableSafePrefix(from rawAccumulatedText: String) -> String {
+        // Fast path: every strip stage below only removes `<think>`,
+        // `<tool_calls>…</tool_calls>`, and `[…]` action/POINT tags, and the
+        // structured-JSON suppression only triggers on a leading `{`. When
+        // the accumulated text contains none of `<`, `[`, or `{`, all of
+        // those stages are provably no-ops, so we can skip straight to
+        // sentence bounding. This is the common case for plain-prose answers
+        // and avoids re-running four scans over the whole (growing) prefix on
+        // every single stream chunk. Output is byte-identical to the full
+        // path for any text lacking those three characters.
+        if !rawAccumulatedText.contains("<")
+            && !rawAccumulatedText.contains("[")
+            && !rawAccumulatedText.contains("{") {
+            return computeLastSentenceBoundedPrefix(of: rawAccumulatedText)
+        }
+
         // 1. Thinking blocks — handles unterminated `<think>` mid-stream
         //    by dropping everything from the opening tag to end-of-text.
         let thinkStripped = LocalPlannerClient.stripThinkingBlocks(from: rawAccumulatedText)

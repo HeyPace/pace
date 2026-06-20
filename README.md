@@ -6,7 +6,7 @@
 
 **Voice agent for Mac. Answers in under 500ms. Zero API cost. Fully on-device.**
 
-![Pace demo](clicky-demo.gif)
+![Pace demo](pace-demo.gif)
 
 <sub>Meet the mascot — the notch, alive. Brand assets in [`docs/brand/`](docs/brand/).</sub>
 
@@ -49,7 +49,7 @@ Architecture and per-file responsibilities: see [`AGENTS.md`](./AGENTS.md).
 - macOS 14.2+ (ScreenCaptureKit)
 - Xcode 16+ (for SwiftPM synchronized folder groups)
 - Apple Silicon recommended (MLX acceleration in LM Studio)
-- ~12-25 GB free RAM with both LM Studio models loaded (default 2B VLM + 14B planner)
+- ~20-28 GB free RAM with both LM Studio models loaded (default 2B VLM + 30B MoE planner)
 - Homebrew (for LM Studio install via the setup script)
 
 ## Benchmark your own latency

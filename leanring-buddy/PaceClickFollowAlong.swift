@@ -5,8 +5,8 @@
 //  Click-verification + auto-advance for Tuition Mode. Pace draws
 //  a sequence of "click here" annotations; when the user clicks
 //  inside the current step's target bbox, Pace advances to the
-//  next step automatically. Matches the teaching loop competitors
-//  like Clicky just shipped.
+//  next step automatically. Mirrors a guided "click-along"
+//  teaching loop.
 //
 //  Architecture:
 //

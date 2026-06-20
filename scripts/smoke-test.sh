@@ -20,7 +20,7 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_PATH="$REPO_ROOT/leanring-buddy.xcodeproj"
 SCHEME="leanring-buddy"
-DERIVED_DATA="/tmp/clicky-build"
+DERIVED_DATA="/tmp/pace-build"
 LM_STUDIO_API="http://localhost:1234/v1"
 PLANNER_MODEL="qwen/qwen3-14b"
 VLM_MODEL="ui-venus-1.5-8b"

@@ -95,5 +95,5 @@ style first-party integrations, and an MCP bridge.
 
 This project is currently outside the fleet registry. The PROJECT_STATUS
 "Fleet registry identity" item is still open — decide between
-`clickyLocal`, `pace`, or `space` as the canonical slug, or document
+`pace` or `space` as the canonical slug, or document
 why it remains external.
