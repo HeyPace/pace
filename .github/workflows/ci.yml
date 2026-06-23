@@ -35,30 +35,69 @@ jobs:
           xcodebuild -version
           xcodebuild -showsdks
 
+      - name: Cache SPM packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+            .build
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
       - name: Build for testing
         run: |
-          xcodebuild build-for-testing \
-            -project leanring-buddy.xcodeproj \
-            -scheme leanring-buddy \
-            -destination "platform=macOS" \
-            -configuration Debug \
-            CLANG_ENABLE_CODE_COVERAGE=YES \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+          set -o pipefail
+          if command -v xcpretty &>/dev/null; then
+            xcodebuild build-for-testing \
+              -project leanring-buddy.xcodeproj \
+              -scheme leanring-buddy \
+              -destination "platform=macOS" \
+              -configuration Debug \
+              CLANG_ENABLE_CODE_COVERAGE=YES \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" \
+              2>&1 | xcpretty --color
+          else
+            echo "xcpretty not found — using raw xcodebuild output"
+            xcodebuild build-for-testing \
+              -project leanring-buddy.xcodeproj \
+              -scheme leanring-buddy \
+              -destination "platform=macOS" \
+              -configuration Debug \
+              CLANG_ENABLE_CODE_COVERAGE=YES \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY=""
+          fi
 
       - name: Test
         run: |
-          xcodebuild test-without-building \
-            -project leanring-buddy.xcodeproj \
-            -scheme leanring-buddy \
-            -destination "platform=macOS" \
-            -configuration Debug \
-            CLANG_ENABLE_CODE_COVERAGE=YES \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            | xcpretty --color --report junit
+          set -o pipefail
+          if command -v xcpretty &>/dev/null; then
+            xcodebuild test-without-building \
+              -project leanring-buddy.xcodeproj \
+              -scheme leanring-buddy \
+              -destination "platform=macOS" \
+              -configuration Debug \
+              CLANG_ENABLE_CODE_COVERAGE=YES \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" \
+              2>&1 | xcpretty --color --report junit
+          else
+            echo "xcpretty not found — using raw xcodebuild output"
+            xcodebuild test-without-building \
+              -project leanring-buddy.xcodeproj \
+              -scheme leanring-buddy \
+              -destination "platform=macOS" \
+              -configuration Debug \
+              CLANG_ENABLE_CODE_COVERAGE=YES \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY=""
+          fi
 
       - name: Extract coverage
         run: |
