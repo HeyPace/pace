@@ -424,6 +424,7 @@ extension CompanionManager {
                 let threadSummaryInjectionForTurn = threadMemory.injectionPrefix()
 
                 let plannerStartedAt = Date()
+                PaceLatencyBudget.shared.mark(.plannerStart)
 
                 let (fullResponseText, _) = try await plannerForTextOnlyTurn.generateResponseStreaming(
                     images: [],
@@ -433,6 +434,7 @@ extension CompanionManager {
                     conversationHistory: historyForPlanner,
                     userPrompt: userPromptForPlanner,
                     onTextChunk: { [weak self] accumulatedPlannerText in
+                        PaceLatencyBudget.shared.mark(.plannerFirstToken)
                         self?.responseOverlayManager.updateStreamingText(accumulatedPlannerText)
                         Task { @MainActor [weak self] in
                             await self?.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedPlannerText)
@@ -440,6 +442,7 @@ extension CompanionManager {
                     }
                 )
                 guard !Task.isCancelled else { return }
+                PaceLatencyBudget.shared.mark(.plannerComplete)
 
                 let actionParseResult = PaceActionTagParser.parseActions(from: fullResponseText)
                 let (_, textAfterDoneStrip) = PaceTagParsers.parseAndStripDoneSignal(from: actionParseResult.spokenText)
@@ -481,6 +484,8 @@ extension CompanionManager {
                 }
 
                 responseOverlayManager.finishStreaming()
+                PaceLatencyBudget.shared.mark(.ttsComplete)
+                PaceLatencyBudget.shared.finishTurn()
                 voiceState = .idle
                 currentTurnHUDState = .done("answered")
                 if isWalkingAvatarEnabled {
@@ -823,6 +828,7 @@ extension CompanionManager {
         // enough to return .chitchat (not .unknown). Anything ambiguous
         // falls through to the full pipeline.
         let intentPrediction = await intentClassifier.classify(transcript)
+        PaceLatencyBudget.shared.mark(.intentClassified)
         lastIntentRouteForEpisodicExtraction = intentPrediction.intent
         currentTurnHUDState = .understanding(routeHUDDetail(for: intentPrediction))
         if let clarification = PaceIntentClarifier.clarification(for: transcript) {
@@ -1166,6 +1172,7 @@ extension CompanionManager {
                     // variable half of the planner input so a failing turn can
                     // be reproduced offline (system prompt is static in source).
                     let plannerSectionStartedAt = Date()
+                    PaceLatencyBudget.shared.mark(.plannerStart)
                     var userPromptForPlannerForDebug = ""
                     let fullResponseText: String
                     var raceLiteWonSpokenText: String? = nil
@@ -1204,11 +1211,13 @@ extension CompanionManager {
                         //    structured element map — cuts perception cost on the
                         //    planner side and is essential when the planner is text-only.
                         let screenContextStartedAt = Date()
+                        PaceLatencyBudget.shared.mark(.vlmStart)
                         let screenContextPrompt = await screenContextService.buildUserPromptWithLocalVLMContextIfEnabled(
                             transcript: currentTurnUserPrompt,
                             screenCaptures: screenCaptures,
                             prewarmedContext: prewarmedContextForStep
                         )
+                        PaceLatencyBudget.shared.mark(.vlmComplete)
                         let userPromptForPlanner = await appendLocalRetrievalContext(
                             to: appendConfiguredMCPContext(to: screenContextPrompt),
                             query: transcript,
@@ -1248,6 +1257,8 @@ extension CompanionManager {
                             conversationHistory: historyForPlanner,
                             userPrompt: userPromptForPlanner,
                             onTextChunk: { [weak self] accumulatedPlannerText in
+                                // Mark planner first-token on the first chunk.
+                                PaceLatencyBudget.shared.mark(.plannerFirstToken)
                                 // 1. Mirror raw text into the bubble so the user
                                 //    sees tags, thinking blocks, everything live.
                                 //    The end-of-turn step replaces this with the
@@ -1300,6 +1311,7 @@ extension CompanionManager {
                         )
                         fullResponseText = singlePlannerResponseText
                     }
+                    PaceLatencyBudget.shared.mark(.plannerComplete)
                     turnFullResponseText = fullResponseText
                     let plannerSectionElapsedMs = Int(
                         Date().timeIntervalSince(plannerSectionStartedAt) * 1000
@@ -1509,6 +1521,7 @@ extension CompanionManager {
                                 // before the synthetic click fires.
                                 try? await Task.sleep(nanoseconds: 350_000_000)
                                 guard !Task.isCancelled else { return }
+                                PaceLatencyBudget.shared.mark(.toolExecStart)
                                 if actionExecutor.hasActiveStreamingMailDraft,
                                    let finalMailDraft = streamedMailDraftForFinalization {
                                     if let streamingMailObservation = await actionExecutor
@@ -1536,6 +1549,7 @@ extension CompanionManager {
                                     observations: toolObservations,
                                     screenCaptures: screenCaptures
                                 )
+                                PaceLatencyBudget.shared.mark(.toolExecComplete)
                                 if !toolObservations.isEmpty {
                                     print("🧰 Tool observations:\n\(PaceActionExecutionObservation.formatForPlanner(toolObservations))")
                                     appendActionResult(.completed(observations: toolObservations))
@@ -1706,6 +1720,7 @@ extension CompanionManager {
                 isCloudBridgeCallActive = false
                 isOffDeviceTurnInFlight = false
                 responseOverlayManager.hideOverlay()
+                PaceLatencyBudget.shared.cancelTurn()
             } catch {
                 PaceAnalytics.trackResponseError(error: error.localizedDescription)
                 print("⚠️ Companion response error: \(error)")
@@ -1745,6 +1760,10 @@ extension CompanionManager {
                     spokenWordCount: spokenWordCount,
                     plannerTokenCount: plannerTokenEstimate
                 )
+                // Finish the per-turn latency budget and emit the
+                // structured BUDGET= log line.
+                PaceLatencyBudget.shared.mark(.ttsComplete)
+                PaceLatencyBudget.shared.finishTurn()
                 // Keep the bubble up while TTS is still speaking so the
                 // user can read along, then fade ~800ms after audio ends.
                 let weakTTSClient = ttsClient

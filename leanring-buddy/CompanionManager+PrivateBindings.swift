@@ -397,6 +397,8 @@ extension CompanionManager {
             print("🎙️ PTT pressed — starting dictation (trigger=\(currentDictationTrigger))")
             // Stamp PTT press for STT latency measurement.
             pttPressedAt = Date()
+            // Start a per-turn latency budget tracker.
+            PaceLatencyBudget.shared.startTurn(trigger: .pushToTalk)
             // Fire the screen-context pre-warm in parallel with dictation.
             // VLM + OCR run during the user's natural speech time (~2-5s)
             // and the result is awaited by the agent loop's first step —
@@ -493,6 +495,8 @@ extension CompanionManager {
                                 )
                                 self.pttPressedAt = nil
                             }
+                            // Mark STT complete in the latency budget.
+                            PaceLatencyBudget.shared.mark(.sttComplete)
                             PaceAnalytics.trackUserMessageSent(transcript: finalTranscript)
                             self.currentTurnHUDState = .understanding("classifying intent")
                             self.responseOverlayManager.updateStreamingText(finalTranscript)
