@@ -430,6 +430,11 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
 
         print("🎙️ PacePushToTalkManager: start requested (\(startSource))")
 
+        // Dual-agent pre-fetch: start VLM screen context pre-fetch
+        // immediately on PTT press. By the time the user finishes
+        // speaking, the VLM element map may already be ready.
+        PaceDualAgentPrefetch.shared.onPTTPress()
+
         if needsInitialPermissionPrompt {
             print("🎙️ PacePushToTalkManager: requesting initial permissions")
             NSApplication.shared.activate(ignoringOtherApps: true)
@@ -653,6 +658,11 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         // perceived latency for common commands like "open Music" or
         // "volume up". Only fires once per session.
         checkSpeculativeFastAction(stablePartialTranscript)
+
+        // Dual-agent pre-fetch: feed the stable partial to the
+        // background pre-fetcher so it can pre-compute episodic memory
+        // and RAG results before PTT release.
+        PaceDualAgentPrefetch.shared.onStablePartial(stablePartialTranscript)
     }
 
     /// Check if a stable partial transcript matches a deterministic

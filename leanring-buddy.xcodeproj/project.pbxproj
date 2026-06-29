@@ -282,6 +282,7 @@
 			59F70863A6C7423E94B3329C /* PaceAmbientContextStore.swift in Sources */,
 			117E6885086C43BF97EF99DB /* PaceSubagentCommandParser.swift in Sources */,
 			1465AB92AE824F38AD94D0EB /* PaceDictationFastPath.swift in Sources */,
+			EC58C099AD9F44D18E3AD1D3 /* PaceDualAgentPrefetch.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

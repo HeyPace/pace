@@ -1321,12 +1321,27 @@ extension CompanionManager {
                         //    planner side and is essential when the planner is text-only.
                         let screenContextStartedAt = Date()
                         PaceLatencyBudget.shared.mark(.vlmStart)
-                        let screenContextPrompt = await screenContextService.buildUserPromptWithLocalVLMContextIfEnabled(
+
+                        // Dual-agent pre-fetch: check if the background
+                        // pre-fetcher already produced a VLM element map
+                        // while the user was speaking. If so, skip the
+                        // VLM call entirely — saves ~1-3s on the critical
+                        // path.
+                        let prefetchResult = PaceDualAgentPrefetch.shared.consume()
+                        let screenContextPrompt: String
+                        if let prefetchedVLM = prefetchResult?.vlmElementMap,
+                           !prefetchedVLM.isEmpty {
+                            PaceLatencyBudget.shared.mark(.vlmComplete)
+                            screenContextPrompt = prefetchedVLM
+                            print("🔮 Pre-fetch HIT: using pre-computed VLM element map, skipping VLM call")
+                        } else {
+                            screenContextPrompt = await screenContextService.buildUserPromptWithLocalVLMContextIfEnabled(
                             transcript: currentTurnUserPrompt,
                             screenCaptures: screenCaptures,
                             prewarmedContext: prewarmedContextForStep
                         )
                         PaceLatencyBudget.shared.mark(.vlmComplete)
+                        }
                         let userPromptForPlanner = await appendLocalRetrievalContext(
                             to: appendConfiguredMCPContext(to: screenContextPrompt),
                             query: transcript,
