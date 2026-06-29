@@ -1098,6 +1098,26 @@ extension CompanionManager {
             handleSubagentDecomposition(command: subagentCommand)
             return
         }
+        // Dictation fast path: "type ..." / "dictate ..." / "write ..."
+        // → STT cleanup → paste, no planner. Zero-latency text input.
+        if researchTurnPlannerOverride == nil,
+           let dictationText = PaceDictationFastPath.extractDictationText(from: transcript) {
+            print("🎯 Intent: dictationFastPath — skipping planner, typing directly")
+            currentTurnHUDState = .understanding("typing")
+            currentResponseTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                let result = await PaceDictationFastPath.shared.dictate(transcript: dictationText)
+                if let typedText = result {
+                    self.recordConversationTurn(
+                        userTranscript: transcript,
+                        assistantResponse: "[typed: \(typedText.prefix(100))]"
+                    )
+                }
+                self.currentTurnHUDState = .idle
+                self.voiceState = .idle
+            }
+            return
+        }
         print("🎯 Intent: \(mutableIntentPrediction.intent.rawValue) (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence))) — \(mutableIntentPrediction.route.rawValue)")
         currentTurnHUDState = .understanding(routeHUDDetail(for: mutableIntentPrediction))
 

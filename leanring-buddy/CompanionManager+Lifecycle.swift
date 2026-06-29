@@ -12,6 +12,7 @@ import Combine
 import Contacts
 import EventKit
 import Foundation
+import FoundationModels
 import ScreenCaptureKit
 import Speech
 
@@ -352,6 +353,33 @@ extension CompanionManager {
                         continuation.resume(returning: text)
                     } catch {
                         continuation.resume(returning: concatenated)
+                    }
+                }
+            }
+        }
+
+        // 1c. Dictation fast path: type text directly into the focused
+        //     field without invoking the planner. The typeText callback
+        //     uses the same CGEvent path as [TYPE:...].
+        PaceDictationFastPath.shared.typeTextCallback = { [weak self] text in
+            guard let self else { return }
+            await self.actionExecutor.typeText(text)
+        }
+        // Apple FM cleanup callback for disfluency removal. Only set
+        // when Apple Intelligence is available.
+        if SystemLanguageModel.default.availability == .available {
+            PaceDictationFastPath.shared.appleFMCleanupCallback = { text in
+                await withCheckedContinuation { continuation in
+                    Task { @MainActor in
+                        do {
+                            let session = LanguageModelSession(
+                                instructions: "Remove filler words (um, uh, like), repeated words, and false starts from the following dictated text. Preserve the original meaning, tone, and language. Output ONLY the cleaned text, no explanation."
+                            )
+                            let response = try await session.respond(to: text)
+                            continuation.resume(returning: response.content)
+                        } catch {
+                            continuation.resume(returning: nil)
+                        }
                     }
                 }
             }
