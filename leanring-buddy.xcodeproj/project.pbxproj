@@ -279,6 +279,7 @@
 			buildActionMask = 2147483647;
 			files = (
 			14A7422C535C4119B1B36551 /* PaceSubagentCoordinator.swift in Sources */,
+			59F70863A6C7423E94B3329C /* PaceAmbientContextStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
