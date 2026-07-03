@@ -28,9 +28,12 @@ struct PaceDictationFastPathTests {
     }
 
     @Test
-    func writeTrigger_detects() {
-        let result = PaceDictationFastPath.extractDictationText(from: "write dear team, the meeting is at 3pm")
-        #expect(result == "dear team, the meeting is at 3pm")
+    func writeTrigger_doesNotDetect_composeIntentsBelongToPlanner() {
+        // "write" must NOT trigger the dictation fast path — "write an
+        // email to Alice" is a Mail-compose intent for the planner, not
+        // literal text to type into the focused field.
+        let result = PaceDictationFastPath.extractDictationText(from: "write an email to Alice about the meeting")
+        #expect(result == nil)
     }
 
     @Test

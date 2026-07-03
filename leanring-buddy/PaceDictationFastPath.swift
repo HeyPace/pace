@@ -18,9 +18,10 @@
 //
 //  No screenshot, no VLM, no planner, no TTS. The text just appears.
 //
-//  Trigger: a dedicated dictation shortcut (default: ctrl+shift) or
-//  a voice command "dictate ..." / "type ..." that routes here before
-//  the planner.
+//  Trigger: a voice command "dictate ..." / "type ..." that routes
+//  here before the planner. "write ..." intentionally does NOT
+//  trigger — it is a compose verb ("write an email to Alice") that
+//  belongs to the planner.
 //
 
 import Foundation
@@ -85,7 +86,10 @@ final class PaceDictationFastPath {
     }
 
     /// Check if a transcript looks like a dictation command.
-    /// "dictate ..." / "type ..." / "write ..." trigger the fast path.
+    /// "dictate ..." / "type ..." trigger the fast path. "write" is
+    /// deliberately NOT a trigger: compose intents like "write an
+    /// email to Alice" must reach the planner's Mail-compose flow,
+    /// not get literally typed into the focused field.
     /// Returns the text to dictate (with the trigger word stripped),
     /// or nil if the transcript isn't a dictation command.
     static func extractDictationText(from transcript: String) -> String? {
@@ -93,7 +97,7 @@ final class PaceDictationFastPath {
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Check for trigger words at the start.
-        let triggers = ["dictate", "type", "write"]
+        let triggers = ["dictate", "type"]
 
         for trigger in triggers {
             // Match "dictate " or "dictate, " or "dictate: "

@@ -98,6 +98,12 @@ final class PaceSubagentCoordinator: ObservableObject {
     /// Maximum concurrent subagents per batch.
     private let maxConcurrent = 4
 
+    /// Maximum completed batches kept in `batches`. Older completed
+    /// batches are trimmed when a new batch starts so the array cannot
+    /// grow without bound over the app's lifetime (nothing in the app
+    /// calls `clearCompleted()` on a schedule).
+    private let maxRetainedCompletedBatches = 20
+
     /// Token budget per subagent (in planner response chars).
     /// Prevents a single subagent from monopolizing the context.
     private let subagentCharBudget = 4000
@@ -136,6 +142,7 @@ final class PaceSubagentCoordinator: ObservableObject {
             completedAt: nil,
             mergedResult: nil
         )
+        trimOldCompletedBatchesIfNeeded()
         batches.append(batch)
 
         runBatch(batchId)
@@ -161,6 +168,19 @@ final class PaceSubagentCoordinator: ObservableObject {
     func clearCompleted() {
         batches.removeAll { batch in
             batch.completedAt != nil
+        }
+    }
+
+    /// Drop the oldest completed batches beyond the retention cap.
+    /// Running batches are never trimmed.
+    private func trimOldCompletedBatchesIfNeeded() {
+        let completedBatchIndices = batches.indices.filter { batches[$0].completedAt != nil }
+        let overflowCount = completedBatchIndices.count - maxRetainedCompletedBatches
+        guard overflowCount > 0 else { return }
+        // Indices are ascending; the first N completed batches are the
+        // oldest because batches are appended in start order.
+        for indexToRemove in completedBatchIndices.prefix(overflowCount).reversed() {
+            batches.remove(at: indexToRemove)
         }
     }
 

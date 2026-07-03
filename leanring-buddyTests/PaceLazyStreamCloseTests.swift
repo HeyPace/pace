@@ -18,11 +18,12 @@ import Testing
 @MainActor
 struct PaceLazyStreamCloseTests {
 
-    /// The lazy close delay should be 30 seconds (the value that
-    /// balances "warm for back-to-back commands" vs "don't waste
-    /// power"). If this changes, update the test.
+    /// The lazy close delay should be 10 seconds — warm enough for
+    /// back-to-back commands, short enough that the macOS mic-in-use
+    /// indicator doesn't linger and read as "Pace is still listening".
+    /// If this changes, update the test.
     @Test
-    func lazyCloseDelayIs30Seconds() {
+    func lazyCloseDelayIs10Seconds() {
         // We can't access the private property directly, but we can
         // verify the feature is wired by checking the manager exists
         // and doesn't crash on init.

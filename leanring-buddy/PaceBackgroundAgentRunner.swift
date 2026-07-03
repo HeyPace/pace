@@ -162,21 +162,24 @@ final class PaceBackgroundAgentRunner: ObservableObject {
 
     // MARK: - Execution
 
-    /// Start the highest-priority queued task, if any.
+    /// Start the highest-priority queued task, if any. Same-priority
+    /// tasks dequeue in insertion (FIFO) order — a single linear scan
+    /// that only replaces on strictly-greater priority guarantees this,
+    /// where `sorted` with an equal-elements comparator would not
+    /// (Swift's sort is not documented as stable).
     private func startNextQueuedTask() {
         guard runningTasks.count < maxConcurrent else { return }
-        // Sort queued tasks by priority (highest first), then by
-        // insertion order (oldest first).
-        let queuedTasks = tasks
-            .filter { $0.state == .queued }
-            .sorted { lhs, rhs in
-                if lhs.priority != rhs.priority {
-                    return lhs.priority > rhs.priority
+        var nextTask: PaceBackgroundAgentTask?
+        for queuedTask in tasks where queuedTask.state == .queued {
+            if let currentBest = nextTask {
+                if queuedTask.priority > currentBest.priority {
+                    nextTask = queuedTask
                 }
-                // Preserve insertion order for same-priority tasks.
-                return false
+            } else {
+                nextTask = queuedTask
             }
-        guard let nextTask = queuedTasks.first else { return }
+        }
+        guard let nextTask else { return }
         startTask(nextTask.id)
     }
 

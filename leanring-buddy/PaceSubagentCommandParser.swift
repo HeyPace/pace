@@ -49,22 +49,47 @@ nonisolated enum PaceSubagentCommandParser {
     /// Conjunctions used to split sub-topics.
     private static let conjunctions = ["and", "plus", "as well as"]
 
+    /// Politeness prefixes stripped before checking whether the trigger
+    /// keyword starts the command, so "please research X and Y" still
+    /// anchors correctly.
+    private static let politenessPrefixes = ["please", "can you", "could you", "hey pace", "pace", "hey"]
+
+    /// Pronoun-like fragments that are never researchable topics.
+    /// "look into it and tell me" must not spawn parallel subagents.
+    private static let pronounOnlyTopics: Set<String> = [
+        "it", "this", "that", "them", "me", "us", "him", "her",
+        "these", "those", "everything", "something",
+    ]
+
     /// Parse a transcript into a subagent command, if it matches.
-    /// Returns nil if the transcript doesn't contain a trigger keyword
-    /// or doesn't have enough sub-topics (needs 2+).
+    /// Returns nil if the transcript doesn't START with a trigger
+    /// keyword (after politeness prefixes) or doesn't have enough
+    /// sub-topics (needs 2+). Anchoring at the start is deliberate:
+    /// a mid-sentence "research" ("I need to research why X and Y")
+    /// is conversational and belongs to the planner.
     static func parse(_ transcript: String) -> PaceSubagentCommand? {
-        let normalized = transcript
+        var anchoredTranscript = transcript
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
 
-        // Check if any trigger keyword is present.
-        guard let keyword = triggerKeywords.first(where: { normalized.contains($0) }) else {
+        // Strip politeness prefixes ("please", "hey pace", ...) so the
+        // trigger-keyword anchor below still matches polite phrasings.
+        var didStripPolitenessPrefix = true
+        while didStripPolitenessPrefix {
+            didStripPolitenessPrefix = false
+            for politenessPrefix in politenessPrefixes where anchoredTranscript.hasPrefix(politenessPrefix + " ") {
+                anchoredTranscript = String(anchoredTranscript.dropFirst(politenessPrefix.count + 1))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                didStripPolitenessPrefix = true
+            }
+        }
+
+        // The trigger keyword must start the command.
+        guard let keyword = triggerKeywords.first(where: { anchoredTranscript.hasPrefix($0 + " ") }) else {
             return nil
         }
 
-        // Extract the part after the trigger keyword.
-        guard let keywordRange = normalized.range(of: keyword) else { return nil }
-        let afterKeyword = String(normalized[keywordRange.upperBound...])
+        let afterKeyword = String(anchoredTranscript.dropFirst(keyword.count))
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !afterKeyword.isEmpty else { return nil }
@@ -133,10 +158,18 @@ nonisolated enum PaceSubagentCommandParser {
             topics.append(contentsOf: subParts)
         }
 
-        // Clean up and dedupe.
+        // Clean up and drop fragments that can't be topics.
         return topics
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && $0.count > 1 } // filter out single chars
+            .filter { topic in
+                guard !topic.isEmpty && topic.count > 1 else { return false } // single chars
+                // Pronouns and command-chain fragments are not
+                // researchable topics — "look into it and then tell me"
+                // must not spawn agents for "it" / "then tell me".
+                guard !pronounOnlyTopics.contains(topic) else { return false }
+                guard !topic.hasPrefix("then ") else { return false }
+                return true
+            }
     }
 
     /// Split a string on conjunctions like "and", "plus".

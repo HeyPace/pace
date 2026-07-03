@@ -502,7 +502,6 @@ extension CompanionManager {
         }
     }
 
-    /// Fast path for deterministic local actions that do not need screen
     /// Handle a subagent decomposition command. Spawns N parallel
     /// subagents via the coordinator, waits for results, and speaks
     /// the merged response.
@@ -536,8 +535,16 @@ extension CompanionManager {
             }
 
             guard let result = mergedResult, !result.isEmpty else {
-                self.currentTurnHUDState = .idle
+                // Timed out or produced nothing — tell the user instead
+                // of going silently idle, and close the latency budget
+                // so the stale turn can't pollute a later turn's stats.
+                self.responseOverlayManager.updateStreamingText("the parallel agents didn't finish in time.")
+                await self.streamingSentenceTTSPipeline.flushFinal(
+                    finalSpokenText: "the parallel agents didn't finish in time."
+                )
+                self.currentTurnHUDState = .failed("Subagents timed out")
                 self.voiceState = .idle
+                PaceLatencyBudget.shared.cancelTurn()
                 return
             }
 
@@ -553,6 +560,10 @@ extension CompanionManager {
 
             self.currentTurnHUDState = .idle
             self.voiceState = .idle
+            // Close out the per-turn latency budget — this route never
+            // reaches the main loop's finishTurn call.
+            PaceLatencyBudget.shared.mark(.ttsComplete)
+            PaceLatencyBudget.shared.finishTurn()
         }
     }
 
@@ -581,6 +592,7 @@ extension CompanionManager {
         )
     }
 
+    /// Fast path for deterministic local actions that do not need screen
     /// perception or planner reasoning. This keeps "open Raycast" /
     /// "volume down" in the sub-second local-control lane while preserving
     /// the same approval, preflight, result, and TTS surfaces as planner
@@ -1098,8 +1110,8 @@ extension CompanionManager {
             handleSubagentDecomposition(command: subagentCommand)
             return
         }
-        // Dictation fast path: "type ..." / "dictate ..." / "write ..."
-        // → STT cleanup → paste, no planner. Zero-latency text input.
+        // Dictation fast path: "type ..." / "dictate ..." → STT cleanup
+        // → paste, no planner. Zero-latency text input.
         if researchTurnPlannerOverride == nil,
            let dictationText = PaceDictationFastPath.extractDictationText(from: transcript) {
             print("🎯 Intent: dictationFastPath — skipping planner, typing directly")
@@ -1115,6 +1127,11 @@ extension CompanionManager {
                 }
                 self.currentTurnHUDState = .idle
                 self.voiceState = .idle
+                // Close out the per-turn latency budget — this route
+                // never reaches the main loop's finishTurn call, and a
+                // dangling turn would absorb the next chat-submit
+                // turn's marks and emit a bogus BUDGET line.
+                PaceLatencyBudget.shared.finishTurn()
             }
             return
         }
@@ -1321,27 +1338,12 @@ extension CompanionManager {
                         //    planner side and is essential when the planner is text-only.
                         let screenContextStartedAt = Date()
                         PaceLatencyBudget.shared.mark(.vlmStart)
-
-                        // Dual-agent pre-fetch: check if the background
-                        // pre-fetcher already produced a VLM element map
-                        // while the user was speaking. If so, skip the
-                        // VLM call entirely — saves ~1-3s on the critical
-                        // path.
-                        let prefetchResult = PaceDualAgentPrefetch.shared.consume()
-                        let screenContextPrompt: String
-                        if let prefetchedVLM = prefetchResult?.vlmElementMap,
-                           !prefetchedVLM.isEmpty {
-                            PaceLatencyBudget.shared.mark(.vlmComplete)
-                            screenContextPrompt = prefetchedVLM
-                            print("🔮 Pre-fetch HIT: using pre-computed VLM element map, skipping VLM call")
-                        } else {
-                            screenContextPrompt = await screenContextService.buildUserPromptWithLocalVLMContextIfEnabled(
+                        let screenContextPrompt = await screenContextService.buildUserPromptWithLocalVLMContextIfEnabled(
                             transcript: currentTurnUserPrompt,
                             screenCaptures: screenCaptures,
                             prewarmedContext: prewarmedContextForStep
                         )
                         PaceLatencyBudget.shared.mark(.vlmComplete)
-                        }
                         let userPromptForPlanner = await appendLocalRetrievalContext(
                             to: appendConfiguredMCPContext(to: screenContextPrompt),
                             query: transcript,

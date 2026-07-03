@@ -300,7 +300,12 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
     /// the next PTT press skips engine.prepare()+start(). Saves ~100-200ms
     /// on back-to-back commands. Generation counter cancels pending
     /// closes if a new session starts before the timeout fires.
-    private let lazyCloseDelaySeconds: TimeInterval = 30.0
+    /// Kept at 10s (not longer) because macOS shows the mic-in-use
+    /// indicator while the engine input is running — a lingering orange
+    /// dot after every command reads as "Pace is still listening", which
+    /// contradicts the privacy posture. 10s still covers back-to-back
+    /// follow-up commands.
+    private let lazyCloseDelaySeconds: TimeInterval = 10.0
     private var lazyCloseWorkItem: DispatchWorkItem?
     private var lazyCloseGeneration: Int = 0
     private var isAudioEngineKeptWarm: Bool = false
@@ -429,11 +434,6 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         guard !isDictationInProgress else { return }
 
         print("🎙️ PacePushToTalkManager: start requested (\(startSource))")
-
-        // Dual-agent pre-fetch: start VLM screen context pre-fetch
-        // immediately on PTT press. By the time the user finishes
-        // speaking, the VLM element map may already be ready.
-        PaceDualAgentPrefetch.shared.onPTTPress()
 
         if needsInitialPermissionPrompt {
             print("🎙️ PacePushToTalkManager: requesting initial permissions")
@@ -658,11 +658,6 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         // perceived latency for common commands like "open Music" or
         // "volume up". Only fires once per session.
         checkSpeculativeFastAction(stablePartialTranscript)
-
-        // Dual-agent pre-fetch: feed the stable partial to the
-        // background pre-fetcher so it can pre-compute episodic memory
-        // and RAG results before PTT release.
-        PaceDualAgentPrefetch.shared.onStablePartial(stablePartialTranscript)
     }
 
     /// Check if a stable partial transcript matches a deterministic
@@ -687,6 +682,17 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         speculativeExecutedTranscript = stablePartial
         print("⚡️ Speculative fast-action on stable partial: \"\(stablePartial)\"")
         callbacks.speculativeFastAction?(stablePartial)
+    }
+
+    /// Lowercase and strip punctuation/whitespace so a final transcript
+    /// like "Open Music." matches the stable partial "open music" it was
+    /// speculatively executed from.
+    private static func normalizedForSpeculativeComparison(_ transcriptText: String) -> String {
+        transcriptText
+            .lowercased()
+            .components(separatedBy: CharacterSet.punctuationCharacters)
+            .joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Track how much real audio we delivered to the recogniser this
@@ -755,6 +761,11 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
             currentDraftCallbacks?.updateDraftText(finalDraftText)
         }
 
+        // Capture the speculative marker BEFORE resetSessionState()
+        // clears it — the dedup check below must see the value from
+        // the session that just ended, not the freshly reset nil.
+        let speculativeTranscriptExecutedThisSession = speculativeExecutedTranscript
+
         // Lazy stream close: remove tap + cancel session, but defer
         // the engine stop so a quick follow-up PTT is faster.
         audioEngine.inputNode.removeTap(onBus: 0)
@@ -770,9 +781,14 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         // the speculative partial, the action already executed via
         // the speculativeFastAction callback — skip submitDraftText
         // entirely to avoid double-execution. The CompanionManager
-        // already spoke the confirmation and updated UI.
-        if let speculative = speculativeExecutedTranscript,
-           finalTranscriptText.lowercased() == speculative.lowercased() {
+        // already spoke the confirmation and updated UI. Comparison
+        // ignores case and punctuation because Apple Speech finals
+        // often add punctuation the stable partial lacked ("Open
+        // Music." vs "open music") — an exact match would defeat the
+        // dedup and re-execute the action.
+        if let speculative = speculativeTranscriptExecutedThisSession,
+           Self.normalizedForSpeculativeComparison(finalTranscriptText)
+               == Self.normalizedForSpeculativeComparison(speculative) {
             print("⚡️ Speculative fast-action confirmed — skipping normal submit (action already executed)")
             return
         }

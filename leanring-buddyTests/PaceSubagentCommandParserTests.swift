@@ -113,4 +113,35 @@ struct PaceSubagentCommandParserTests {
         #expect(result != nil)
         #expect(result?.subtasks.count == 2)
     }
+
+    // MARK: - Over-trigger guards
+
+    @Test
+    func midSentenceKeyword_doesNotTrigger() {
+        // "research" appears mid-sentence — this is conversational and
+        // belongs to the planner, not the subagent coordinator.
+        let result = PaceSubagentCommandParser.parse("I need to research why X and Y happened")
+        #expect(result == nil)
+    }
+
+    @Test
+    func pronounTopics_doNotTrigger() {
+        // "it" and "then tell me" are not researchable topics.
+        let result = PaceSubagentCommandParser.parse("look into it and then tell me")
+        #expect(result == nil)
+    }
+
+    @Test
+    func politenessPrefix_stillTriggers() {
+        let result = PaceSubagentCommandParser.parse("please research React and Vue")
+        #expect(result != nil)
+        #expect(result?.subtasks.count == 2)
+    }
+
+    @Test
+    func heyPacePrefix_stillTriggers() {
+        let result = PaceSubagentCommandParser.parse("hey pace compare AWS, GCP, and Azure")
+        #expect(result != nil)
+        #expect(result?.subtasks.count == 3)
+    }
 }

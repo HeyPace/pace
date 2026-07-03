@@ -13,8 +13,9 @@
 //  2. Single structured log line so `log stream --subsystem com.pace.app`
 //     can grep "BUDGET=" and parse the full breakdown.
 //  3. Rolling p50/p90 window for the HUD ("last turn: 480ms").
-//  4. No allocation in the hot path — all timestamps are stored as
-//     `ContinuousClock.Instant` (value type, no heap traffic).
+//  4. Timestamps are plain `Date` values in a per-stage dictionary —
+//     one small dictionary write per stage boundary, nothing on the
+//     audio/TTS hot path itself.
 //
 
 import Foundation

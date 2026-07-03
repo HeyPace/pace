@@ -278,11 +278,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-			14A7422C535C4119B1B36551 /* PaceSubagentCoordinator.swift in Sources */,
-			59F70863A6C7423E94B3329C /* PaceAmbientContextStore.swift in Sources */,
-			117E6885086C43BF97EF99DB /* PaceSubagentCommandParser.swift in Sources */,
-			1465AB92AE824F38AD94D0EB /* PaceDictationFastPath.swift in Sources */,
-			EC58C099AD9F44D18E3AD1D3 /* PaceDualAgentPrefetch.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -290,7 +285,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-			51849AC3C85043A6A78E186E /* PaceSubagentCoordinatorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

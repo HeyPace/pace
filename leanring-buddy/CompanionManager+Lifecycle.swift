@@ -125,6 +125,11 @@ extension CompanionManager {
         // Stamp intent-commit now so TTFSW latency logging stays meaningful
         // for deeplink turns (there is no PTT release to stamp it).
         streamingSentenceTTSPipeline.markIntentCommitted()
+        // Start a fresh latency budget for this non-PTT turn. Without
+        // this, the turn's marks would land on a stale budget left over
+        // from an earlier PTT turn and emit a bogus BUDGET line.
+        PaceLatencyBudget.shared.startTurn(trigger: .deeplink)
+        PaceLatencyBudget.shared.mark(.sttComplete)
         screenContextService.prewarmScreenContext(reason: .deepLinkChat)
         voiceState = .processing
         sendTranscriptToPlannerWithScreenshot(transcript: transcript)

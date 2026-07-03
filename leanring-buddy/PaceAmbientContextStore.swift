@@ -12,15 +12,16 @@
 //  from free, permission-less system APIs in <1ms, not from a 3s
 //  VLM screenshot cycle.
 //
-//  What this stores (all permission-free, all <1ms to read):
+//  What this stores (all permission-free, cheap to read):
 //    - Frontmost app name + bundle ID
 //    - Focused window title (via AX)
 //    - Frontmost app's AX tree summary (top-level elements only)
 //    - Clipboard change count + last change timestamp (not content)
-//    - Active display count + resolution
-//    - Current audio output device
+//    - Active display count
 //    - Time of day / day of week
-//    - Active Focus Mode name (if any)
+//    - Active Focus Mode name (currently always nil — macOS exposes
+//      no public API for the active Focus name; kept as a field so
+//      the prompt fragment gains it if an API appears)
 //
 //  What this does NOT store (privacy boundaries):
 //    - Clipboard content (only metadata — "user copied something")
@@ -224,10 +225,15 @@ final class PaceAmbientContextStore: ObservableObject {
 
         var focusedWindowRef: CFTypeRef?
         AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &focusedWindowRef)
-        guard let focusedWindow = focusedWindowRef else { return nil }
+        // Type-check before casting — a force cast here would crash the
+        // 3-second poll timer on the MainActor if an app ever returns an
+        // unexpected CFTypeRef for the focused-window attribute.
+        guard let focusedWindow = focusedWindowRef,
+              CFGetTypeID(focusedWindow) == AXUIElementGetTypeID() else { return nil }
+        let focusedWindowElement = unsafeDowncast(focusedWindow as AnyObject, to: AXUIElement.self)
 
         var titleRef: CFTypeRef?
-        AXUIElementCopyAttributeValue(focusedWindow as! AXUIElement, kAXTitleAttribute as CFString, &titleRef)
+        AXUIElementCopyAttributeValue(focusedWindowElement, kAXTitleAttribute as CFString, &titleRef)
         return titleRef as? String
     }
 
