@@ -2227,13 +2227,18 @@ extension CompanionManager {
 
     func handleMeetingModeCommand(_ command: PaceMeetingModeCommand, transcript: String) {
         let controller = PaceMeetingModeController.shared
+        // Inject the retriever + a privacy-pinned LOCAL planner. Meeting
+        // transcripts never ride the active tier — a Direct API / CLI
+        // bridge selection must not send the whole meeting off-device.
+        controller.localRetriever = localRetriever
+        controller.plannerClient = BuddyPlannerClientFactory.makeLocalOnlyPlannerForPrivacyPinnedFeatures()
         switch command {
         case .start:
             PaceUserPreferencesStore.setBool(true, for: .isMeetingModeEnabled)
             controller.isEnabled = true
             Task {
                 await controller.start()
-                try? await ttsClient.speakText("Meeting mode on. I'm listening to system audio.")
+                try? await ttsClient.speakText("Meeting mode on. Recording — I'll generate notes when you stop.")
                 voiceState = .idle
             }
         case .stop:
@@ -2241,7 +2246,14 @@ extension CompanionManager {
             controller.isEnabled = false
             Task {
                 await controller.stop()
-                try? await ttsClient.speakText("Meeting mode off.")
+                if let notes = controller.lastMeetingNotes, !notes.summary.isEmpty {
+                    let brief = notes.synthesisFailed
+                        ? "Meeting stopped. Notes synthesis failed, but the transcript is saved."
+                        : "Meeting stopped. \(notes.summary)"
+                    try? await ttsClient.speakText(brief)
+                } else {
+                    try? await ttsClient.speakText("Meeting stopped. No speech detected.")
+                }
                 voiceState = .idle
             }
         case .status:

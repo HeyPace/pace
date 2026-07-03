@@ -6,8 +6,14 @@
 	<string>8</string>
 	<key>AlwaysRunLocalVLMRegardlessOfTranscript</key>
 	<string>false</string>
+	<key>BundledMLXEmbedderModelIdentifier</key>
+	<string>nomic-ai/nomic-embed-text-v1.5</string>
+	<key>BundledMLXPlannerModelIdentifier</key>
+	<string>mlx-community/Qwen3-4B-Instruct-2507-bf16</string>
+	<key>BundledMLXVLMModelIdentifier</key>
+	<string>mlx-community/Qwen3-VL-4B-Instruct-4bit</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.3.16</string>
+	<string>0.3.17</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -20,7 +26,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>16</string>
+	<string>17</string>
 	<key>CloudBridgeBaseURL</key>
 	<string>http://localhost:3456</string>
 	<key>CloudBridgeDefaultModel</key>
@@ -69,10 +75,10 @@
 	<string>Pace uses calendar access only when you ask it to check your schedule.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Pace uses the camera only for the optional posture watch. Frames are analyzed on-device and never stored or sent anywhere.</string>
-	<key>NSFocusStatusUsageDescription</key>
-	<string>Pace checks your macOS Focus state so proactive nudges (morning brief, posture, fatigue) stay silent during Do Not Disturb, Work, Sleep, and other Focus modes.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Pace uses contacts access only to address local mail drafts by name and retrieve contact context locally when access is already granted.</string>
+	<key>NSFocusStatusUsageDescription</key>
+	<string>Pace checks your macOS Focus state so proactive nudges (morning brief, posture, fatigue) stay silent during Do Not Disturb, Work, Sleep, and other Focus modes.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Pace uses your microphone so you can talk to it</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
@@ -103,12 +109,6 @@
 	<string>UGbOz43wfHeH3fwSu45Z0dNFIlomd1Tra+B9mjOFdSI=</string>
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
-	<key>BundledMLXEmbedderModelIdentifier</key>
-	<string>nomic-ai/nomic-embed-text-v1.5</string>
-	<key>BundledMLXPlannerModelIdentifier</key>
-	<string>mlx-community/Qwen3-4B-Instruct-2507-bf16</string>
-	<key>BundledMLXVLMModelIdentifier</key>
-	<string>mlx-community/Qwen3-VL-4B-Instruct-4bit</string>
 	<key>ScreenAnalysisProvider</key>
 	<string>lmStudio</string>
 	<key>TTSProvider</key>

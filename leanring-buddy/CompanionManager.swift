@@ -906,6 +906,15 @@ final class CompanionManager: ObservableObject {
     /// during the v1 cycle and continues to set/reset alongside this flag.
     @Published var isOffDeviceTurnInFlight: Bool = false
 
+    /// Count of HEADLESS planner calls (background agents, subagents,
+    /// cron, plugin auto-repair) currently in flight on an off-device
+    /// tier. Drives `isOffDeviceTurnInFlight` via
+    /// `withHeadlessOffDeviceIndicator` so the capsule tints amber for
+    /// planner traffic the user didn't just speak — counter-based
+    /// because up to 4 subagents run concurrently and the tint must
+    /// hold until the LAST one finishes.
+    var headlessOffDevicePlannerCallCount: Int = 0
+
 
 
     @Published var isAlwaysListeningEnabled: Bool = PaceUserPreferencesStore

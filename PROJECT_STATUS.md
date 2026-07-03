@@ -200,8 +200,9 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 3. **Permissioned public testimonials** — replace private-beta theme cards when 3+ real quotes exist.
 4. **Voice Mail latency demo** — manual `<700 ms` check with Mail prewarm.
 5. **WhisperKit streaming bridge** — complete scaffold when `TranscriptionProvider=whisperKit` selected.
-6. **Speaking-time context prefetch (episodic/RAG)** — the dual-agent prefetch implementation was removed (unwired callbacks, self-cancelling VLM task, and it duplicated `prewarmScreenContext`); the right shape is folding episodic-memory + RAG prewarm into the existing `prewarmScreenContext` path keyed off stable partials. Idea tracked in `docs/competitive/steal-catalog.md`.
-7. **Amber off-device indicator for headless planner turns** — subagent coordinator, background agent runner, and cron turns call `plannerClient` directly and bypass `isOffDeviceTurnInFlight`, so a non-Local tier serving those turns doesn't tint the capsule amber.
+6. **Fast-follow release for meeting-notes audio fix** — v0.3.17 shipped with both meeting tracks recorded at hardware rate but labeled 16 kHz (playback ~3× slow, degraded ASR); fixed on `main` post-release. Cut v0.3.18 when convenient (walk `docs/release-smoke-checklist.md`).
+7. **Meeting audio capture off the main actor** — per-buffer `Task { @MainActor }` hops carry no FIFO guarantee and put PCM conversion + file writes on the main thread; move to an `AsyncStream` on a serial executor.
+8. **Speaking-time context prefetch (episodic/RAG)** — the dual-agent prefetch implementation was removed (unwired callbacks, self-cancelling VLM task, and it duplicated `prewarmScreenContext`); the right shape is folding episodic-memory + RAG prewarm into the existing `prewarmScreenContext` path keyed off stable partials. Idea tracked in `docs/competitive/steal-catalog.md`.
 
 ### Deferred
 
