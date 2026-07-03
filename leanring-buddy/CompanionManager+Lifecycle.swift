@@ -294,6 +294,8 @@ extension CompanionManager {
                         threadSummaryInjection: nil,
                         ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment
                     )
+                    self.beginHeadlessOffDeviceIndicatorIfNeeded()
+                    defer { self.endHeadlessOffDeviceIndicatorIfNeeded() }
                     do {
                         let (text, _) = try await self.plannerClient.generateResponseStreaming(
                             images: [],
@@ -333,6 +335,8 @@ extension CompanionManager {
                         threadSummaryInjection: nil,
                         ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment
                     )
+                    self.beginHeadlessOffDeviceIndicatorIfNeeded()
+                    defer { self.endHeadlessOffDeviceIndicatorIfNeeded() }
                     do {
                         let (text, _) = try await self.plannerClient.generateResponseStreaming(
                             images: [],
@@ -357,6 +361,8 @@ extension CompanionManager {
                         return
                     }
                     let summaryPrompt = "Summarize the following research results into a concise, readable summary. Keep key findings and actionable items:\n\n\(concatenated)"
+                    self.beginHeadlessOffDeviceIndicatorIfNeeded()
+                    defer { self.endHeadlessOffDeviceIndicatorIfNeeded() }
                     do {
                         let (text, _) = try await self.plannerClient.generateResponseStreaming(
                             images: [],
@@ -376,6 +382,10 @@ extension CompanionManager {
         // 1c. Dictation fast path: type text directly into the focused
         //     field without invoking the planner. The typeText callback
         //     uses the same CGEvent path as [TYPE:...].
+        //     (Headless amber-indicator helpers live at the bottom of
+        //     this file; every headless planner call above and below
+        //     wraps itself in begin/end so the capsule tints amber for
+        //     off-device planner traffic the user didn't just speak.)
         PaceDictationFastPath.shared.typeTextCallback = { [weak self] text in
             guard let self else { return }
             await self.actionExecutor.typeText(text)
@@ -409,6 +419,7 @@ extension CompanionManager {
                 threadSummaryInjection: nil,
                 ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment
             )
+            await self.beginHeadlessOffDeviceIndicatorIfNeeded()
             do {
                 let (text, _) = try await self.plannerClient.generateResponseStreaming(
                     images: [],
@@ -417,9 +428,11 @@ extension CompanionManager {
                     userPrompt: task.taskPrompt,
                     onTextChunk: { _ in }
                 )
+                await self.endHeadlessOffDeviceIndicatorIfNeeded()
                 let summary = String(text.prefix(200))
                 try? await self.ttsClient.speakText(summary)
             } catch {
+                await self.endHeadlessOffDeviceIndicatorIfNeeded()
                 try? await self.ttsClient.speakText("Scheduled task failed: \(error.localizedDescription)")
             }
         }
@@ -437,6 +450,7 @@ extension CompanionManager {
                 includeAgentMode: false,
                 threadSummaryInjection: nil
             )
+            await self.beginHeadlessOffDeviceIndicatorIfNeeded()
             do {
                 let (text, _) = try await self.plannerClient.generateResponseStreaming(
                     images: [],
@@ -445,12 +459,14 @@ extension CompanionManager {
                     userPrompt: prompt,
                     onTextChunk: { _ in }
                 )
+                await self.endHeadlessOffDeviceIndicatorIfNeeded()
                 let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
                     .replacingOccurrences(of: "```", with: "")
                     .replacingOccurrences(of: "bash", with: "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 return cleaned.isEmpty ? nil : cleaned
             } catch {
+                await self.endHeadlessOffDeviceIndicatorIfNeeded()
                 return nil
             }
         }
@@ -755,6 +771,28 @@ extension CompanionManager {
                 print("⚠️ Screen content permission request failed: \(error)")
                 await MainActor.run { isRequestingScreenContent = false }
             }
+        }
+    }
+
+    // MARK: - Headless off-device indicator
+
+    /// Tint the capsule amber while a HEADLESS planner call (background
+    /// agent, subagent, cron, plugin auto-repair) runs on an off-device
+    /// tier. Counter-based: up to 4 subagents run concurrently and the
+    /// tint must hold until the LAST one finishes. Known limitation: a
+    /// user-spoken off-device turn ending mid-headless-call clears the
+    /// flag from its own path; the tint returns on the next begin call.
+    func beginHeadlessOffDeviceIndicatorIfNeeded() {
+        guard activePlannerTierIsOffDevice else { return }
+        headlessOffDevicePlannerCallCount += 1
+        isOffDeviceTurnInFlight = true
+    }
+
+    func endHeadlessOffDeviceIndicatorIfNeeded() {
+        guard headlessOffDevicePlannerCallCount > 0 else { return }
+        headlessOffDevicePlannerCallCount -= 1
+        if headlessOffDevicePlannerCallCount == 0 {
+            isOffDeviceTurnInFlight = false
         }
     }
 }

@@ -113,7 +113,9 @@ final class PaceAmbientContextStore: ObservableObject {
     @Published private(set) var currentSnapshot: PaceAmbientContextSnapshot?
 
     /// Polling interval in seconds. 3s balances freshness vs CPU cost.
-    /// Each poll is <1ms (AX title read + NSWorkspace query + timer).
+    /// The main-actor part of each poll is <1ms (NSWorkspace query +
+    /// clipboard/display/time reads); the AX reads run on a background
+    /// task and merge in when they land.
     private let pollIntervalSeconds: TimeInterval = 3.0
     private var pollTimer: Timer?
     private(set) var isRunning = false
@@ -122,6 +124,10 @@ final class PaceAmbientContextStore: ObservableObject {
     private var clipboardChangeCount: Int = 0
     private var clipboardLastChangedAt: Date?
     private var lastClipboardChangeCount: Int = 0
+
+    /// True while a background AX read is pending. Skips kicking a new
+    /// one so a hung frontmost app can't pile up blocked tasks.
+    private var isAXReadInFlight = false
 
     static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -166,20 +172,18 @@ final class PaceAmbientContextStore: ObservableObject {
 
     // MARK: - Snapshot
 
-    /// Take a fresh snapshot of the system state.
+    /// Take a fresh snapshot of the system state. Cheap fields
+    /// (frontmost app, clipboard metadata, displays, time) publish
+    /// synchronously; the AX fields (window title, tree summary) carry
+    /// over from the previous snapshot and refresh from a background
+    /// task — AX attribute reads are synchronous IPC into the frontmost
+    /// app, and a hung app would otherwise stall the MainActor every
+    /// 3-second poll.
     private func refreshSnapshot() {
         let frontmostApp = NSWorkspace.shared.frontmostApplication
         let appName = frontmostApp?.localizedName
         let bundleID = frontmostApp?.bundleIdentifier
-
-        // Read the focused window title via AX. This is <1ms for most
-        // apps; we don't walk the full tree here (that's the job of
-        // PaceAXScreenReader when a screenshot is needed).
-        let windowTitle = readFocusedWindowTitle()
-
-        // Read a lightweight AX tree summary (just top-level element
-        // counts by role). This is much cheaper than a full tree walk.
-        let axSummary = readAXTreeSummary()
+        let frontmostProcessIdentifier = frontmostApp?.processIdentifier
 
         // Track clipboard changes (metadata only).
         let currentChangeCount = NSPasteboard.general.changeCount
@@ -193,12 +197,16 @@ final class PaceAmbientContextStore: ObservableObject {
         let focusMode = readFocusMode()
         let (timeOfDay, weekday) = computeTimeContext()
 
+        // Carry the previous poll's AX values only while the app they
+        // were read from is still frontmost — a stale title from
+        // another app is worse than none.
+        let previousAXValuesStillApply = currentSnapshot?.frontmostBundleID == bundleID
         let snapshot = PaceAmbientContextSnapshot(
             timestamp: Date(),
             frontmostAppName: appName,
             frontmostBundleID: bundleID,
-            focusedWindowTitle: windowTitle,
-            axTreeSummary: axSummary,
+            focusedWindowTitle: previousAXValuesStillApply ? currentSnapshot?.focusedWindowTitle : nil,
+            axTreeSummary: previousAXValuesStillApply ? currentSnapshot?.axTreeSummary : nil,
             clipboardChangeCount: clipboardChangeCount,
             clipboardLastChangedAt: clipboardLastChangedAt,
             displayCount: displayCount,
@@ -212,15 +220,54 @@ final class PaceAmbientContextStore: ObservableObject {
         if snapshot != currentSnapshot {
             currentSnapshot = snapshot
         }
+
+        // Refresh the AX fields off the main actor.
+        guard let frontmostProcessIdentifier, !isAXReadInFlight else { return }
+        isAXReadInFlight = true
+        Task.detached(priority: .utility) { [weak self] in
+            let windowTitle = Self.readFocusedWindowTitle(processIdentifier: frontmostProcessIdentifier)
+            let axSummary = Self.readAXTreeSummary(processIdentifier: frontmostProcessIdentifier)
+            await MainActor.run { [weak self] in
+                self?.applyAXReadResult(
+                    windowTitle: windowTitle,
+                    axSummary: axSummary,
+                    forBundleID: bundleID
+                )
+            }
+        }
+    }
+
+    /// Merge a completed background AX read into the published
+    /// snapshot — unless the frontmost app changed while the read ran.
+    private func applyAXReadResult(windowTitle: String?, axSummary: String?, forBundleID bundleID: String?) {
+        isAXReadInFlight = false
+        guard let snapshot = currentSnapshot, snapshot.frontmostBundleID == bundleID else { return }
+        let merged = PaceAmbientContextSnapshot(
+            timestamp: snapshot.timestamp,
+            frontmostAppName: snapshot.frontmostAppName,
+            frontmostBundleID: snapshot.frontmostBundleID,
+            focusedWindowTitle: windowTitle,
+            axTreeSummary: axSummary,
+            clipboardChangeCount: snapshot.clipboardChangeCount,
+            clipboardLastChangedAt: snapshot.clipboardLastChangedAt,
+            displayCount: snapshot.displayCount,
+            focusModeName: snapshot.focusModeName,
+            timeOfDayBucket: snapshot.timeOfDayBucket,
+            dayOfWeek: snapshot.dayOfWeek
+        )
+        if merged != currentSnapshot {
+            currentSnapshot = merged
+        }
     }
 
     // MARK: - System readers
 
     /// Read the focused window title via AX. Returns nil if AX is
     /// not available or the app doesn't expose a window title.
-    private func readFocusedWindowTitle() -> String? {
-        let frontmostApp = NSWorkspace.shared.frontmostApplication
-        guard let pid = frontmostApp?.processIdentifier else { return nil }
+    /// Nonisolated — runs on a background task because AX attribute
+    /// reads are synchronous IPC into the target app.
+    private nonisolated static func readFocusedWindowTitle(processIdentifier: pid_t) -> String? {
+        let pid = processIdentifier
         let axApp = AXUIElementCreateApplication(pid)
 
         var focusedWindowRef: CFTypeRef?
@@ -239,10 +286,10 @@ final class PaceAmbientContextStore: ObservableObject {
 
     /// Read a lightweight summary of the frontmost app's AX tree.
     /// Only counts top-level elements by role — doesn't walk the
-    /// full tree. This is <5ms for most apps.
-    private func readAXTreeSummary() -> String? {
-        let frontmostApp = NSWorkspace.shared.frontmostApplication
-        guard let pid = frontmostApp?.processIdentifier else { return nil }
+    /// full tree. Nonisolated — runs on a background task (synchronous
+    /// AX IPC, same reasoning as the window-title read).
+    private nonisolated static func readAXTreeSummary(processIdentifier: pid_t) -> String? {
+        let pid = processIdentifier
         let axApp = AXUIElementCreateApplication(pid)
 
         var childrenRef: CFTypeRef?
