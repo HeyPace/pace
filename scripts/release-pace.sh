@@ -333,13 +333,13 @@ fi
 # ── Publish GitHub Release ─────────────────────────────────────────────────
 
 echo "🏷  Publishing GitHub Release $tag..."
-gh release create "$tag" "$zip_path" \
+gh release create "$tag" "$package_path" \
     --repo "$GITHUB_REPO" \
     --title "Pace ${next_version}" \
     --notes "Pace ${next_version} (build ${next_build}) — auto-update enabled." \
     --latest
 
-download_url="https://github.com/${GITHUB_REPO}/releases/download/${tag}/${zip_name}"
+download_url="https://github.com/${GITHUB_REPO}/releases/download/${tag}/${package_name}"
 
 # ── Update appcast.xml ─────────────────────────────────────────────────────
 
@@ -351,7 +351,7 @@ new_item=$(cat <<EOF
             <sparkle:version>${next_build}</sparkle:version>
             <sparkle:shortVersionString>${next_version}</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="${download_url}" length="${zip_size}" type="application/octet-stream" sparkle:edSignature="${ed_signature}"/>
+            <enclosure url="${download_url}" length="${package_size}" type="application/octet-stream" sparkle:edSignature="${ed_signature}"/>
         </item>
 EOF
 )
