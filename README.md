@@ -21,7 +21,7 @@ A menu-bar voice agent for macOS. Hold a hotkey, talk, and Pace answers — read
 
 ## Install (users)
 
-Grab the latest build from [Releases](https://github.com/sarthakagrawal927/pace/releases/latest) and launch it. On-device models download from **Settings → Models** inside the app (bundled MLX planner/VLM/ASR/TTS manifest, delivered via Sparkle) — no external tools required. Apple Intelligence Macs can talk to Pace immediately via the Apple Foundation Models tier while models download.
+Grab the latest build from [Releases](https://github.com/sarthakagrawal927/pace/releases/latest) and launch it. Apple Intelligence Macs can talk to Pace immediately via the Apple Foundation Models tier — zero external installs. Bigger local models (in-process MLX planner/VLM/ASR/TTS) download from **Settings → Models** inside the app and enable with one toggle there; no external tools required.
 
 ## Build from source (developers)
 
@@ -42,7 +42,7 @@ Architecture and per-file responsibilities: see [`AGENTS.md`](./AGENTS.md).
 
 - **Speech-to-text**: Apple `SFSpeechRecognizer` (on-device, instant); WhisperKit auto-preferred when its model is installed.
 - **Screen understanding**: a small vision-language model — bundled MLX VLM by default, or LM Studio (UI-Venus-1.5-2B, the GUI-specialist 2B model) on the power-user path — merged with native Apple Vision OCR for text fidelity.
-- **Reasoning / planning**: bundled in-process MLX planner (Qwen3-4B) or any OpenAI-compatible local reasoner via LM Studio (Qwen3-30B-A3B MoE scored 15/15 on Pace's eval at ~925ms mean). `cache_prompt: true` sent on every request. Optional tiers: Apple Foundation Models, BYO-key Direct API, CLI bridge — all opt-in, all visibly indicated.
+- **Reasoning / planning**: Apple Foundation Models out of the box; one toggle enables the in-process MLX planner (Qwen3-4B); or any OpenAI-compatible local reasoner via LM Studio (Qwen3-30B-A3B MoE scored 15/15 on Pace's eval at ~925ms mean). `cache_prompt: true` sent on every request. Optional tiers: Apple Foundation Models, BYO-key Direct API, CLI bridge — all opt-in, all visibly indicated.
 - **Text-to-speech**: Kokoro-82M via a loopback sidecar (~150 ms/sentence warm) with `AVSpeechSynthesizer` fallback, sentence-streamed so audio starts within ~500ms of the planner's first token.
 - **Click / keystroke synthesis**: `AXUIElement` (semantic press) then `CGEvent` fallback.
 - **Meeting notes**: mic + system audio captured as two 16 kHz tracks, segmented, transcribed, and summarized entirely on-device.

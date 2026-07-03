@@ -202,11 +202,12 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 5. **WhisperKit streaming bridge** — complete scaffold when `TranscriptionProvider=whisperKit` selected.
 6. **Fast-follow release for meeting-notes audio fix** — v0.3.17 shipped with both meeting tracks recorded at hardware rate but labeled 16 kHz (playback ~3× slow, degraded ASR); fixed on `main` post-release. Cut v0.3.18 when convenient (walk `docs/release-smoke-checklist.md`).
 7. **Meeting audio capture off the main actor** — per-buffer `Task { @MainActor }` hops carry no FIFO guarantee and put PCM conversion + file writes on the main thread; move to an `AsyncStream` on a serial executor.
-8. **Speaking-time context prefetch (episodic/RAG)** — the dual-agent prefetch implementation was removed (unwired callbacks, self-cancelling VLM task, and it duplicated `prewarmScreenContext`); the right shape is folding episodic-memory + RAG prewarm into the existing `prewarmScreenContext` path keyed off stable partials. Idea tracked in `docs/competitive/steal-catalog.md`.
+8. **Bundled-MLX planner default decision** — the site and PROJECT_STATUS described the in-process Qwen3-4B planner as the shipping default; in code it is opt-in (`isUsingMLXInProcessPlanner`, UserDefaults default false). Either flip the default using the WhisperKit precedent (downloaded-model-on-disk = opt-in signal, explicit setting always wins) or keep it opt-in and align the copy — needs an eval-gate check (4B vs 30B planner quality) before flipping.
+9. **Speaking-time context prefetch (episodic/RAG)** — the dual-agent prefetch implementation was removed (unwired callbacks, self-cancelling VLM task, and it duplicated `prewarmScreenContext`); the right shape is folding episodic-memory + RAG prewarm into the existing `prewarmScreenContext` path keyed off stable partials. Idea tracked in `docs/competitive/steal-catalog.md`.
 
 ### Deferred
 
-- **Persistent KV planner backend** — blocked on TinyGPT oMLX qualification; in-process MLX is default.
+- **Persistent KV planner backend** — blocked on TinyGPT oMLX qualification. (Note: the in-process MLX planner is available behind the Settings → Models toggle, NOT the default — fresh installs talk via Apple FM or LM Studio.)
 - **Grammar-constrained v10 runtime default** — TinyGPT/eval gated; shipping planner remains current MLX/Qwen stack.
 - **Real-app AX smokes in CI** — manual-only; TCC makes automated live-app tests fragile.
 - **Cloud bridge / Direct API as default** — contradicts on-device moat; opt-in tiers only.
