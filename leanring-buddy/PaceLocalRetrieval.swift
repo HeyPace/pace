@@ -983,7 +983,8 @@ final class PaceLocalRetriever: PaceRetriever {
     private func rehydratedMeetingNotesJournal(now: Date) -> PaceMeetingNotesJournal {
         var journal = PaceMeetingNotesJournal(
             rehydratingFrom: store.documents(withSource: .meetingNotes),
-            now: now
+            now: now,
+            retentionDays: PaceUserPreferencesStore.meetingNotesRetentionDays()
         )
         replaceDocuments(journal.allDocuments(now: now), forSource: .meetingNotes)
         return journal

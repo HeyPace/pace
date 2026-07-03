@@ -17,8 +17,14 @@
 import Foundation
 
 nonisolated struct PaceMeetingNotesJournal {
+    /// Default retention window. The live value comes from the
+    /// Settings stepper via `PaceUserPreferencesStore
+    /// .meetingNotesRetentionDays()`, passed in at construction.
     static let retentionDays: Int = 30
     static let documentIdPrefix = "meeting-notes"
+
+    /// Retention window this journal instance prunes against.
+    private let retentionDays: Int
 
     private struct MeetingEntry {
         let meetingID: UUID
@@ -34,7 +40,12 @@ nonisolated struct PaceMeetingNotesJournal {
 
     private var entriesByMeetingID: [UUID: MeetingEntry] = [:]
 
-    init(rehydratingFrom persistedDocuments: [PaceRetrievalDocument], now: Date) {
+    init(
+        rehydratingFrom persistedDocuments: [PaceRetrievalDocument],
+        now: Date,
+        retentionDays: Int = PaceMeetingNotesJournal.retentionDays
+    ) {
+        self.retentionDays = max(1, retentionDays)
         for document in persistedDocuments where document.source == .meetingNotes {
             guard let entry = Self.parseEntry(from: document) else { continue }
             entriesByMeetingID[entry.meetingID] = entry
@@ -73,7 +84,7 @@ nonisolated struct PaceMeetingNotesJournal {
     // MARK: - Pruning
 
     private mutating func pruneOldEntries(now: Date) {
-        let cutoff = now.addingTimeInterval(-TimeInterval(Self.retentionDays) * 86_400)
+        let cutoff = now.addingTimeInterval(-TimeInterval(retentionDays) * 86_400)
         entriesByMeetingID = entriesByMeetingID.filter { _, entry in
             entry.startedAt >= cutoff
         }

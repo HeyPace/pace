@@ -170,4 +170,48 @@ struct PaceMeetingAudioRecorderTests {
         #expect(recording.systemTrack == nil)
         #expect(recording.systemFileURL == nil)
     }
+
+    // MARK: - Disk read-back round trip
+
+    @Test func stopReadsTracksBackFromDiskWithinQuantizationError() async throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pace-recorder-test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let recorder = makeRecorder(in: tempDir)
+        let originalSamples = sineWave(amplitude: 0.3, durationSeconds: 0.25)
+        recorder.appendMicSamples(originalSamples)
+
+        let recording = await recorder.stop()
+        let readBackSamples = recording.micTrack?.samples ?? []
+
+        // Recording no longer keeps samples in RAM — the track is read
+        // back from the finalized WAV, so values round-trip through
+        // 16-bit PCM. Same count, each sample within one quantization
+        // step of the original.
+        #expect(readBackSamples.count == originalSamples.count)
+        let quantizationStep: Float = 1.0 / Float(Int16.max)
+        let maxError = zip(readBackSamples, originalSamples)
+            .map { abs($0 - $1) }
+            .max() ?? 0
+        #expect(maxError <= quantizationStep)
+    }
+
+    // MARK: - Static all-directories crash repair
+
+    @Test func readMonoFloatSamplesReturnsNilForMissingOrHeaderOnlyFile() async throws {
+        let missingURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pace-missing-\(UUID().uuidString).wav")
+        #expect(PaceMeetingAudioRecorder.readMonoFloatSamplesFromPCM16WAV(at: missingURL) == nil)
+
+        // A header-only file (44 bytes, no PCM data) is not readable audio.
+        let headerOnlyURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pace-header-only-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: headerOnlyURL) }
+        let header = PaceMeetingAudioRecorder.riffHeaderPlaceholder(
+            dataByteCount: 0, sampleRate: sampleRate, channels: 1
+        )
+        try Data(header).write(to: headerOnlyURL)
+        #expect(PaceMeetingAudioRecorder.readMonoFloatSamplesFromPCM16WAV(at: headerOnlyURL) == nil)
+    }
 }

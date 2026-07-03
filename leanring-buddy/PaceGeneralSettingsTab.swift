@@ -341,7 +341,9 @@ struct PaceGeneralSettingsTab: View {
             HStack {
                 Spacer()
                 paceSettingsButton("Repair crashed recordings", systemName: "wrench.and.screwdriver") {
-                    PaceMeetingAudioRecorder(meetingID: UUID()).crashRepairIfNeeded()
+                    // Static sweep over EVERY meeting directory — a fresh
+                    // recorder instance can't know a crashed meeting's UUID.
+                    PaceMeetingAudioRecorder.crashRepairAllMeetingRecordings()
                 }
             }
             .padding(.top, 8)

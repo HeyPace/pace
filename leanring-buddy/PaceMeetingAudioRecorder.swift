@@ -16,6 +16,12 @@
 import AVFoundation
 import Foundation
 
+/// Errors thrown by the meeting audio recorder's mic capture setup.
+nonisolated enum PaceMeetingAudioRecorderError: Error {
+    case cannotCreateTargetAudioFormat
+    case cannotCreateSampleRateConverter
+}
+
 /// The result of a clean recording stop: final URLs for both tracks.
 nonisolated struct PaceMeetingRecording: Equatable, Sendable {
     let meetingID: UUID
@@ -41,8 +47,15 @@ final class PaceMeetingAudioRecorder {
     private let channelCount: Int
 
     private var audioEngine: AVAudioEngine?
-    private var micSamples: [Float] = []
-    private var systemSamples: [Float] = []
+    /// Converts the mic tap's hardware format (typically 44.1/48 kHz,
+    /// possibly multi-channel) down to the recorder's target format.
+    /// One converter instance for the whole meeting so the resampler's
+    /// internal filter state stays continuous across buffers. Without
+    /// this conversion the WAV header would claim 16 kHz for 48 kHz
+    /// samples and every downstream consumer (playback, WhisperKit,
+    /// turn timestamps) would run ~3× slow.
+    private var micFormatConverter: AVAudioConverter?
+    private var micConverterOutputFormat: AVAudioFormat?
     private var micPartURL: URL?
     private var systemPartURL: URL?
     private var micFileHandle: FileHandle?
@@ -67,13 +80,36 @@ final class PaceMeetingAudioRecorder {
     // MARK: - Mic capture
 
     /// Start mic capture via AVAudioEngine input node tap. Throws on
-    /// engine start failure or missing input node.
+    /// engine start failure or missing input node. The tap delivers
+    /// buffers in the hardware format; they are resampled to the
+    /// recorder's target sample rate (16 kHz mono) before writing so
+    /// the WAV header and the actual PCM data agree.
     func startMicCapture() async throws {
         try ensureMicPartFile()
 
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
+
+        guard let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: sampleRate,
+            channels: AVAudioChannelCount(channelCount),
+            interleaved: false
+        ) else {
+            throw PaceMeetingAudioRecorderError.cannotCreateTargetAudioFormat
+        }
+        if inputFormat.sampleRate == targetFormat.sampleRate,
+           inputFormat.channelCount == targetFormat.channelCount {
+            // Hardware already matches the target — no conversion needed.
+            micFormatConverter = nil
+        } else {
+            guard let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
+                throw PaceMeetingAudioRecorderError.cannotCreateSampleRateConverter
+            }
+            micFormatConverter = converter
+        }
+        micConverterOutputFormat = targetFormat
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
             Task { @MainActor [weak self] in
@@ -98,21 +134,49 @@ final class PaceMeetingAudioRecorder {
     }
 
     private func appendMicBuffer(_ buffer: AVAudioPCMBuffer) {
-        guard let channelData = buffer.floatChannelData else { return }
-        let frameCount = Int(buffer.frameLength)
+        // Resample the hardware-format buffer to the target format
+        // first, so downmix and disk writes always operate on samples
+        // that match the WAV header's declared rate.
+        let convertedBuffer: AVAudioPCMBuffer
+        if let converter = micFormatConverter, let outputFormat = micConverterOutputFormat {
+            let rateRatio = outputFormat.sampleRate / buffer.format.sampleRate
+            let outputCapacity = AVAudioFrameCount((Double(buffer.frameLength) * rateRatio).rounded(.up) + 16)
+            guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: outputCapacity) else {
+                return
+            }
+            var didProvideInputBuffer = false
+            var conversionError: NSError?
+            let status = converter.convert(to: outputBuffer, error: &conversionError) { _, inputStatus in
+                if didProvideInputBuffer {
+                    inputStatus.pointee = .noDataNow
+                    return nil
+                }
+                didProvideInputBuffer = true
+                inputStatus.pointee = .haveData
+                return buffer
+            }
+            guard status != .error, conversionError == nil else { return }
+            convertedBuffer = outputBuffer
+        } else {
+            convertedBuffer = buffer
+        }
+
+        guard let channelData = convertedBuffer.floatChannelData else { return }
+        let frameCount = Int(convertedBuffer.frameLength)
+        guard frameCount > 0 else { return }
         // Mono: take channel 0. Multi-channel: downmix to mono.
         let incoming: [Float]
-        if buffer.format.channelCount == 1 {
+        if convertedBuffer.format.channelCount == 1 {
             incoming = Array(UnsafeBufferPointer(start: channelData[0], count: frameCount))
         } else {
             var mixed = [Float](repeating: 0, count: frameCount)
-            for channelIndex in 0..<Int(buffer.format.channelCount) {
+            for channelIndex in 0..<Int(convertedBuffer.format.channelCount) {
                 let channel = channelData[channelIndex]
                 for i in 0..<frameCount {
                     mixed[i] += channel[i]
                 }
             }
-            let scale: Float = 1.0 / Float(buffer.format.channelCount)
+            let scale: Float = 1.0 / Float(convertedBuffer.format.channelCount)
             for i in 0..<frameCount {
                 mixed[i] *= scale
             }
@@ -122,6 +186,9 @@ final class PaceMeetingAudioRecorder {
     }
 
     /// Append mic samples directly (test hook + internal path).
+    /// Samples go straight to the disk writer — nothing accumulates in
+    /// memory, so an hour-long meeting costs disk, not RAM. The tracks
+    /// are read back from the finalized WAVs at `stop()`.
     func appendMicSamples(_ samples: [Float]) {
         if micPartURL == nil {
             do {
@@ -131,7 +198,6 @@ final class PaceMeetingAudioRecorder {
             }
         }
         guard !samples.isEmpty else { return }
-        micSamples.append(contentsOf: samples)
         writePCMSamples(samples, to: micFileHandle, byteCount: &micDataByteCount)
     }
 
@@ -149,7 +215,6 @@ final class PaceMeetingAudioRecorder {
             }
         }
         guard !samples.isEmpty else { return }
-        systemSamples.append(contentsOf: samples)
         writePCMSamples(samples, to: systemFileHandle, byteCount: &systemDataByteCount)
     }
 
@@ -169,19 +234,26 @@ final class PaceMeetingAudioRecorder {
 
     /// Flush both tracks, finalize RIFF headers, and atomically rename
     /// `.part` files to their final paths. Returns the recording
-    /// descriptor with final URLs and in-memory tracks.
+    /// descriptor with final URLs and tracks read back from the
+    /// finalized files (recording keeps nothing in RAM; the read-back
+    /// is a transient allocation for segmentation/transcription).
     func stop() async -> PaceMeetingRecording {
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine?.stop()
         audioEngine = nil
-
-        micTrack = PaceMeetingAudioTrack(samples: micSamples, sampleRate: sampleRate, channelCount: channelCount)
-        systemTrack = systemSamples.isEmpty
-            ? nil
-            : PaceMeetingAudioTrack(samples: systemSamples, sampleRate: sampleRate, channelCount: channelCount)
+        micFormatConverter = nil
+        micConverterOutputFormat = nil
 
         let micFinalURL = finalizeTrack(partURL: micPartURL, fileHandle: micFileHandle, dataByteCount: micDataByteCount, finalName: "mic.wav")
         let systemFinalURL = finalizeTrack(partURL: systemPartURL, fileHandle: systemFileHandle, dataByteCount: systemDataByteCount, finalName: "system.wav")
+
+        let micSamplesFromDisk = micFinalURL.flatMap { Self.readMonoFloatSamplesFromPCM16WAV(at: $0) } ?? []
+        let systemSamplesFromDisk = systemFinalURL.flatMap { Self.readMonoFloatSamplesFromPCM16WAV(at: $0) } ?? []
+
+        micTrack = PaceMeetingAudioTrack(samples: micSamplesFromDisk, sampleRate: sampleRate, channelCount: channelCount)
+        systemTrack = systemSamplesFromDisk.isEmpty
+            ? nil
+            : PaceMeetingAudioTrack(samples: systemSamplesFromDisk, sampleRate: sampleRate, channelCount: channelCount)
 
         micPartURL = nil
         systemPartURL = nil
@@ -237,26 +309,73 @@ final class PaceMeetingAudioRecorder {
 
     // MARK: - Crash repair
 
-    /// Scan the recording directory for `.part` files and patch
-    /// truncated RIFF headers by recomputing chunk sizes from the
-    /// actual file length. Called at launch. Safe to call when no
-    /// recording is in progress (no-op).
+    /// Repair `.part` files in THIS recorder's directory. Test hook /
+    /// convenience — the launch path uses the static all-directories
+    /// sweep below, because after a force-quit the crashed meeting's
+    /// UUID is unknowable to a freshly constructed recorder.
     func crashRepairIfNeeded() {
+        Self.crashRepairPartFiles(inDirectory: recordingDirectoryURL)
+    }
+
+    /// Sweep EVERY meeting directory under the meetings root and patch
+    /// any `.part` file left behind by a crash. Called from
+    /// `CompanionManager.start()` at launch and from the Settings
+    /// repair button. Safe no-op when nothing needs repair.
+    nonisolated static func crashRepairAllMeetingRecordings() {
         let fm = FileManager.default
-        guard let candidates = try? fm.contentsOfDirectory(at: recordingDirectoryURL, includingPropertiesForKeys: nil) else {
-            return
-        }
-        for partURL in candidates where partURL.pathExtension == "part" {
-            repairRIFFPartFile(at: partURL)
+        guard let meetingDirectories = try? fm.contentsOfDirectory(
+            at: meetingsRootDirectoryURL(),
+            includingPropertiesForKeys: [.isDirectoryKey]
+        ) else { return }
+        for meetingDirectory in meetingDirectories {
+            crashRepairPartFiles(inDirectory: meetingDirectory)
         }
     }
 
-    private func repairRIFFPartFile(at partURL: URL) {
+    /// Delete meeting recording directories older than the retention
+    /// window (matched against the directory's content-modification
+    /// date). Recordings are continuous room audio — retaining them
+    /// forever contradicts the privacy posture, so the same retention
+    /// preference that prunes the notes journal prunes the audio.
+    nonisolated static func pruneMeetingRecordings(olderThanDays retentionDays: Int, now: Date = Date()) {
+        let fm = FileManager.default
+        let cutoff = now.addingTimeInterval(-TimeInterval(retentionDays) * 86_400)
+        guard let meetingDirectories = try? fm.contentsOfDirectory(
+            at: meetingsRootDirectoryURL(),
+            includingPropertiesForKeys: [.contentModificationDateKey]
+        ) else { return }
+        for meetingDirectory in meetingDirectories {
+            guard let modificationDate = (try? meetingDirectory.resourceValues(
+                forKeys: [.contentModificationDateKey]
+            ))?.contentModificationDate else { continue }
+            if modificationDate < cutoff {
+                try? fm.removeItem(at: meetingDirectory)
+            }
+        }
+    }
+
+    nonisolated private static func crashRepairPartFiles(inDirectory directory: URL) {
+        let fm = FileManager.default
+        guard let candidates = try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
+            return
+        }
+        for partURL in candidates where partURL.pathExtension == "part" {
+            repairRIFFPartFile(at: partURL, inDirectory: directory)
+        }
+    }
+
+    /// Patch a `.part` file's RIFF chunk sizes from the actual file
+    /// length, then rename it to its final `.wav` name. Only the two
+    /// size fields are rewritten — the sample rate and channel count
+    /// already in the placeholder header are the truth about how the
+    /// PCM data was recorded and must be preserved.
+    nonisolated private static func repairRIFFPartFile(at partURL: URL, inDirectory directory: URL) {
         let fm = FileManager.default
         guard let attributes = try? fm.attributesOfItem(atPath: partURL.path),
               let fileSize = attributes[.size] as? Int else { return }
         guard fileSize >= 44 else { return }
         let dataByteCount = UInt32(fileSize - 44)
+        let chunkSize = UInt32(fileSize - 8)
         let finalName: String
         if partURL.lastPathComponent.hasPrefix("mic") {
             finalName = "mic.wav"
@@ -265,19 +384,19 @@ final class PaceMeetingAudioRecorder {
         } else {
             finalName = partURL.deletingPathExtension().lastPathComponent + ".wav"
         }
-        let header = Self.riffHeaderPlaceholder(
-            dataByteCount: dataByteCount,
-            sampleRate: sampleRate,
-            channels: UInt16(channelCount)
-        )
-        let headerData = Data(header)
         if let handle = try? FileHandle(forUpdating: partURL) {
-            _ = try? handle.seek(toOffset: 0)
-            try? handle.write(contentsOf: headerData)
+            var chunkSizeBytes = [UInt8](repeating: 0, count: 4)
+            writeUInt32LE(into: &chunkSizeBytes, at: 0, value: chunkSize)
+            var dataByteCountBytes = [UInt8](repeating: 0, count: 4)
+            writeUInt32LE(into: &dataByteCountBytes, at: 0, value: dataByteCount)
+            _ = try? handle.seek(toOffset: 4)
+            try? handle.write(contentsOf: Data(chunkSizeBytes))
+            _ = try? handle.seek(toOffset: 40)
+            try? handle.write(contentsOf: Data(dataByteCountBytes))
             try? handle.synchronize()
             try? handle.close()
         }
-        let finalURL = recordingDirectoryURL.appendingPathComponent(finalName)
+        let finalURL = directory.appendingPathComponent(finalName)
         do {
             if fm.fileExists(atPath: finalURL.path) {
                 try fm.removeItem(at: finalURL)
@@ -342,15 +461,49 @@ final class PaceMeetingAudioRecorder {
             pcmBytes[byteOffset] = UInt8(intValue & 0xFF)
             pcmBytes[byteOffset + 1] = UInt8((intValue >> 8) & 0xFF)
         }
-        try? fileHandle.write(contentsOf: Data(pcmBytes))
-        byteCount += pcmBytes.count
+        do {
+            try fileHandle.write(contentsOf: Data(pcmBytes))
+            // Only count bytes that actually landed — a silently failed
+            // write must not drift the RIFF header from the file contents.
+            byteCount += pcmBytes.count
+        } catch {
+            // Dropped buffer; the header stays consistent with the file.
+        }
+    }
+
+    // MARK: - PCM reading
+
+    /// Read a 16-bit PCM mono WAV written by this recorder back into
+    /// Float samples. Used at `stop()` so recording never holds the
+    /// meeting's audio in RAM. Returns nil when the file is missing or
+    /// shorter than a RIFF header.
+    nonisolated static func readMonoFloatSamplesFromPCM16WAV(at fileURL: URL) -> [Float]? {
+        guard let fileData = try? Data(contentsOf: fileURL), fileData.count > 44 else { return nil }
+        let pcmData = fileData.dropFirst(44)
+        let sampleCount = pcmData.count / 2
+        var samples = [Float](repeating: 0, count: sampleCount)
+        let scale = 1.0 / Float(Int16.max)
+        pcmData.withUnsafeBytes { rawBuffer in
+            let base = rawBuffer.baseAddress!
+            for sampleIndex in 0..<sampleCount {
+                let low = base.load(fromByteOffset: sampleIndex * 2, as: UInt8.self)
+                let high = base.load(fromByteOffset: sampleIndex * 2 + 1, as: UInt8.self)
+                let intValue = Int16(bitPattern: UInt16(low) | (UInt16(high) << 8))
+                samples[sampleIndex] = Float(intValue) * scale
+            }
+        }
+        return samples
     }
 
     // MARK: - Directory
 
-    nonisolated static func defaultRecordingDirectoryURL(for meetingID: UUID) -> URL {
+    nonisolated static func meetingsRootDirectoryURL() -> URL {
         FileManager.default
             .homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Pace/meetings/\(meetingID.uuidString)")
+            .appendingPathComponent("Library/Application Support/Pace/meetings")
+    }
+
+    nonisolated static func defaultRecordingDirectoryURL(for meetingID: UUID) -> URL {
+        meetingsRootDirectoryURL().appendingPathComponent(meetingID.uuidString)
     }
 }

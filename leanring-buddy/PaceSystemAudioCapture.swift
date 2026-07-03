@@ -72,9 +72,12 @@ final class PaceMeetingModeController: ObservableObject {
     private var streamDelegate: PaceSystemAudioStreamDelegate?
     private var captureStartedAt: Date?
     private var recorder: PaceMeetingAudioRecorder?
-    /// The current meeting's ID, created at start so the recorder and
-    /// any downstream artifacts share one identifier.
-    private var currentMeetingID: UUID?
+    /// Monotonic token bumped by every start()/stop(). Both methods
+    /// suspend at awaits on the MainActor, so a stop() (or a second
+    /// start()) can interleave mid-lifecycle; each await in start()
+    /// re-checks this token and aborts if another lifecycle call has
+    /// superseded it, instead of clobbering the newer session's state.
+    private var lifecycleGeneration: Int = 0
 
     private init() {}
 
@@ -87,14 +90,24 @@ final class PaceMeetingModeController: ObservableObject {
     /// two-track disk writer; the SCStream delegate appends system
     /// samples to the recorder as they arrive.
     func start() async {
-        guard state != .active, state != .starting else { return }
+        // Reject while a previous meeting is anywhere in its lifecycle —
+        // including .transcribing/.synthesizing, where a new capture
+        // would race the old stop() pipeline for `state` and
+        // `lastMeetingNotes`. Retry from .failed is allowed.
+        switch state {
+        case .inactive, .failed:
+            break
+        case .starting, .active, .transcribing, .synthesizing:
+            return
+        }
+        lifecycleGeneration += 1
+        let thisStartGeneration = lifecycleGeneration
         state = .starting
         lastMeetingNotes = nil
 
         // Create the recorder + meeting ID up front so both tracks
         // share one identifier even if the SCStream fails to start.
         let meetingID = UUID()
-        currentMeetingID = meetingID
         let newRecorder = PaceMeetingAudioRecorder(meetingID: meetingID)
         recorder = newRecorder
 
@@ -107,12 +120,16 @@ final class PaceMeetingModeController: ObservableObject {
             // system-only capture. The recorder's mic track will be
             // empty/nil at stop, which the segmenter handles.
         }
+        // A stop() (or newer start) interleaved during the mic await —
+        // it already owns the recorder teardown; abort quietly.
+        guard lifecycleGeneration == thisStartGeneration else { return }
 
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(
                 false,
                 onScreenWindowsOnly: true
             )
+            guard lifecycleGeneration == thisStartGeneration else { return }
 
             // Capture the primary display's audio. We use the display
             // filter (not per-app) because meeting audio may come from
@@ -136,6 +153,12 @@ final class PaceMeetingModeController: ObservableObject {
             let configuration = SCStreamConfiguration()
             configuration.capturesAudio = true
             configuration.excludesCurrentProcessAudio = true
+            // Ask SCStream for 16 kHz mono directly so the delegate's
+            // samples match the recorder's WAV header. Without this,
+            // SCStream delivers 48 kHz and every downstream consumer
+            // (playback, ASR, turn timestamps) runs ~3× slow.
+            configuration.sampleRate = 16_000
+            configuration.channelCount = 1
             // Low-latency audio capture for real-time VAD.
             configuration.minimumFrameInterval = CMTime(value: 1, timescale: 10)
 
@@ -156,9 +179,17 @@ final class PaceMeetingModeController: ObservableObject {
             self.stream = scStream
 
             try await scStream.startCapture()
+            guard lifecycleGeneration == thisStartGeneration else {
+                // A stop() superseded this start while the capture was
+                // spinning up — shut the stream back down and bail
+                // without touching the newer lifecycle's state.
+                try? await scStream.stopCapture()
+                return
+            }
             state = .active
             captureStartedAt = Date()
         } catch {
+            guard lifecycleGeneration == thisStartGeneration else { return }
             state = .failed(error.localizedDescription)
         }
     }
@@ -169,6 +200,20 @@ final class PaceMeetingModeController: ObservableObject {
     /// skipped only when the injected retriever or planner is nil
     /// (graceful degradation — the user still gets their audio files).
     func stop() async {
+        // Only one stop pipeline may run — a second stop() (voice
+        // command + settings toggle racing) or a stop while a previous
+        // meeting is still transcribing/synthesizing must not tear the
+        // in-flight pipeline's state down. Claiming the lifecycle
+        // generation also aborts any suspended start().
+        switch state {
+        case .active, .starting:
+            break
+        case .inactive, .transcribing, .synthesizing, .failed:
+            return
+        }
+        lifecycleGeneration += 1
+        state = .transcribing
+
         if let stream {
             try? await stream.stopCapture()
             self.stream = nil
@@ -200,7 +245,9 @@ final class PaceMeetingModeController: ObservableObject {
 
         // Transcribe each turn's audio slice. When segmentation yields
         // zero turns (pure silence), skip transcription entirely.
-        state = .transcribing
+        // The transcription backend follows the Settings preference;
+        // "apple" skips WhisperKit entirely.
+        let preferWhisperKitBackend = PaceUserPreferencesStore.meetingNotesTranscriptionBackend() == "whisperkit"
         var turnRecords: [PaceMeetingTurnRecord] = []
         var transcriptParts: [String] = []
         for turn in turns {
@@ -220,7 +267,10 @@ final class PaceMeetingModeController: ObservableObject {
             guard !slice.isEmpty else { continue }
             let sliceURL = Self.sliceToTempWAV(samples: slice, sampleRate: sampleRate)
             do {
-                let segments = try await PaceAudioFileTranscriber.transcribeAudioFileSegmented(at: sliceURL)
+                let segments = try await PaceAudioFileTranscriber.transcribeAudioFileSegmented(
+                    at: sliceURL,
+                    preferWhisperKit: preferWhisperKitBackend
+                )
                 let turnText = segments.map { $0.text }.joined(separator: " ")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 if !turnText.isEmpty {
@@ -282,9 +332,10 @@ final class PaceMeetingModeController: ObservableObject {
         state = .inactive
     }
 
-    /// Toggle meeting mode on/off.
+    /// Toggle meeting mode on/off. A toggle during `.starting` stops
+    /// the spinning-up capture rather than being ignored.
     func toggle() async {
-        if state == .active {
+        if state == .active || state == .starting {
             await stop()
         } else {
             await start()

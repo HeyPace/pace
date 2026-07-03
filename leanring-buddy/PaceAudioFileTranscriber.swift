@@ -110,7 +110,14 @@ enum PaceAudioFileTranscriber {
     /// a single segment spanning the whole file (it has no segment
     /// API), so segmented callers degrade to one block on the
     /// fallback path. Empty audio → empty array (not a crash).
-    static func transcribeAudioFileSegmented(at fileURL: URL) async throws -> [PaceTranscriptionSegment] {
+    ///
+    /// - Parameter preferWhisperKit: when false (Settings → meeting
+    ///   notes backend = "apple"), WhisperKit is skipped entirely and
+    ///   Apple Speech transcribes directly.
+    static func transcribeAudioFileSegmented(
+        at fileURL: URL,
+        preferWhisperKit: Bool = true
+    ) async throws -> [PaceTranscriptionSegment] {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             throw PaceAudioFileTranscriberError.fileNotFound(fileURL)
         }
@@ -120,11 +127,13 @@ enum PaceAudioFileTranscriber {
 
         var whisperKitError: String?
         #if canImport(WhisperKit)
-        do {
-            return try await transcribeWithWhisperKitSegmented(pcmSamples: pcmSamples)
-        } catch {
-            whisperKitError = error.localizedDescription
-            // Fall through to Apple Speech.
+        if preferWhisperKit {
+            do {
+                return try await transcribeWithWhisperKitSegmented(pcmSamples: pcmSamples)
+            } catch {
+                whisperKitError = error.localizedDescription
+                // Fall through to Apple Speech.
+            }
         }
         #endif
 
@@ -244,17 +253,7 @@ enum PaceAudioFileTranscriber {
 
     #if canImport(WhisperKit)
     nonisolated private static func transcribeWithWhisperKit(pcmSamples: [Float]) async throws -> String {
-        guard FileManager.default.fileExists(atPath: WhisperKitTranscriptionProvider.modelFolderURL.path) else {
-            throw PaceAudioFileTranscriberError.unreadableAudio(
-                underlyingErrorDescription: "WhisperKit model not installed at \(WhisperKitTranscriptionProvider.modelFolderURL.path)"
-            )
-        }
-        let pipelineConfig = WhisperKitConfig(
-            model: WhisperKitTranscriptionProvider.modelName,
-            modelFolder: WhisperKitTranscriptionProvider.modelFolderURL.path,
-            download: false
-        )
-        let pipeline = try await WhisperKit(pipelineConfig)
+        let pipeline = try await PaceWhisperKitFilePipelineCache.shared.pipeline()
         var decodingOptions = DecodingOptions()
         // language: nil → auto-detect. Long-form files may not be
         // English (a podcast, a Spanish-language meeting recording);
@@ -268,17 +267,7 @@ enum PaceAudioFileTranscriber {
     }
 
     nonisolated private static func transcribeWithWhisperKitSegmented(pcmSamples: [Float]) async throws -> [PaceTranscriptionSegment] {
-        guard FileManager.default.fileExists(atPath: WhisperKitTranscriptionProvider.modelFolderURL.path) else {
-            throw PaceAudioFileTranscriberError.unreadableAudio(
-                underlyingErrorDescription: "WhisperKit model not installed at \(WhisperKitTranscriptionProvider.modelFolderURL.path)"
-            )
-        }
-        let pipelineConfig = WhisperKitConfig(
-            model: WhisperKitTranscriptionProvider.modelName,
-            modelFolder: WhisperKitTranscriptionProvider.modelFolderURL.path,
-            download: false
-        )
-        let pipeline = try await WhisperKit(pipelineConfig)
+        let pipeline = try await PaceWhisperKitFilePipelineCache.shared.pipeline()
         var decodingOptions = DecodingOptions()
         decodingOptions.language = nil
         decodingOptions.temperature = 0
@@ -303,6 +292,7 @@ enum PaceAudioFileTranscriber {
     #endif
 
     // MARK: - Apple Speech backend
+
 
     nonisolated private static func transcribeWithAppleSpeech(fileURL: URL) async throws -> String {
         // SFSpeechRecognizer.recognitionTask completion-callback API
@@ -348,3 +338,44 @@ enum PaceAudioFileTranscriber {
         }
     }
 }
+
+#if canImport(WhisperKit)
+/// Process-wide cache for the file-transcription WhisperKit pipeline.
+/// Meeting-notes transcription calls the transcriber once PER TURN —
+/// without this cache a 30-minute meeting with dozens of turns would
+/// reload the multi-gigabyte Whisper model dozens of times. Storing a
+/// Task (not the pipeline) deduplicates concurrent first callers: they
+/// all await the same load. A failed load clears the slot so the next
+/// call retries instead of caching the error forever.
+private actor PaceWhisperKitFilePipelineCache {
+    static let shared = PaceWhisperKitFilePipelineCache()
+
+    private var pipelineLoadTask: Task<WhisperKit, Error>?
+
+    func pipeline() async throws -> WhisperKit {
+        if let pipelineLoadTask {
+            return try await pipelineLoadTask.value
+        }
+        guard FileManager.default.fileExists(atPath: WhisperKitTranscriptionProvider.modelFolderURL.path) else {
+            throw PaceAudioFileTranscriberError.unreadableAudio(
+                underlyingErrorDescription: "WhisperKit model not installed at \(WhisperKitTranscriptionProvider.modelFolderURL.path)"
+            )
+        }
+        let loadTask = Task {
+            let pipelineConfig = WhisperKitConfig(
+                model: WhisperKitTranscriptionProvider.modelName,
+                modelFolder: WhisperKitTranscriptionProvider.modelFolderURL.path,
+                download: false
+            )
+            return try await WhisperKit(pipelineConfig)
+        }
+        pipelineLoadTask = loadTask
+        do {
+            return try await loadTask.value
+        } catch {
+            pipelineLoadTask = nil
+            throw error
+        }
+    }
+}
+#endif

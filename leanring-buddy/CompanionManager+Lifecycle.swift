@@ -132,6 +132,16 @@ extension CompanionManager {
     func start() {
         refreshAllPermissions()
         loadPersistedToolCallDebugRecords()
+        // Meeting recordings launch sweep, off the main actor (file IO):
+        // repair any `.part` WAVs a force-quit left behind, then prune
+        // recording directories past the retention window — continuous
+        // room audio must not accumulate forever on a privacy-first
+        // product.
+        let meetingRecordingRetentionDays = PaceUserPreferencesStore.meetingNotesRetentionDays()
+        Task.detached(priority: .utility) {
+            PaceMeetingAudioRecorder.crashRepairAllMeetingRecordings()
+            PaceMeetingAudioRecorder.pruneMeetingRecordings(olderThanDays: meetingRecordingRetentionDays)
+        }
         // Begin observing macOS Focus state. Idempotent — only the
         // first call triggers the one-shot INFocusStatus permission
         // ask; the rest are no-ops. Denied permission means the
