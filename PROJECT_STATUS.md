@@ -1,6 +1,6 @@
 # pace — PROJECT STATUS
 
-Last updated: 2026-06-28
+Last updated: 2026-07-04
 
 ## Why/What
 
@@ -32,7 +32,7 @@ Last updated: 2026-06-28
 | Surface | Stack | Commands |
 | --- | --- | --- |
 | macOS app | Swift/SwiftUI, Xcode `leanring-buddy.xcodeproj` | Open in Xcode → Cmd+R (**do not** `xcodebuild` — invalidates TCC) |
-| Tests | XCTest via isolated DerivedData | `bash scripts/test-pace.sh` — **1079/1079 passing** |
+| Tests | XCTest via isolated DerivedData | `bash scripts/test-pace.sh` — **1283 tests, all passing (~21 s locally)** |
 | Local models | MLX, WhisperKit, TTSKit, Apple Speech | Settings → Models; Sparkle manifest in Info.plist |
 | Landing | Astro 5 + Tailwind v4 + Lightning CSS | `cd website && npm install && npm run dev` (:4321) |
 | Deploy landing | Cloudflare Pages project `pace` | `npm run build && npm run deploy` |
@@ -65,8 +65,9 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 
 - **v0.3.12–0.3.14 cycle:** Her-arc voice loop, trust surfaces, on-device model supply, macOS integrations, executor/planner v10, MCP/recipes, landing shipped.
 - **2026-06-20:** Restraint policy, episodic memory, wake word, proactive nudges, barge-in VAD, demonstration replay, trust-and-failures, recipe library, planner tier picker, cloud-bridge toggle, chat interface, conversational thread memory, first-run experience, morning triage, inclusivity surface, always-listening mode, unified memory, local RAG layer (substrate), local VLM runtime port, WhisperKit streaming scaffold, HUD intent disambiguator, dictation postproc, v8/v9/v10 planner iterations, click executor improvements, set-of-mark click recovery, executor surface, Her-arc roadmap meta — all landed.
+- **2026-07-04:** Quality overhaul — sprint payload reviewed + fixed (speculative fast-action double-execution, dead dual-agent prefetch removed, dictation trigger tightening); meeting-notes shipping bugs fixed (16 kHz sample-rate labeling, stop-time OOB crash, crash repair, O(1) memory, cross-track alignment, privacy-pinned synthesis); amber indicator extended to headless planner turns; release-from-main guard + hardware smoke checklist; premium chat panel phase 1 (flag-gated); landing meeting-notes wedge + /privacy + /terms; PRs #57–#63 landed.
 - **Active plan:** `docs/plans/pace-tuned-model-v1.md` — export wired; LoRA pending data.
-- **Test suite:** 1079/1079 XCTest cases via `scripts/test-pace.sh`; CI runs the full suite on every push/PR via `.github/workflows/ci.yml` (macos-latest, `xcodebuild test` with `CODE_SIGNING_ALLOWED=NO`).
+- **Test suite:** 1283 test cases via `scripts/test-pace.sh`; CI runs the full suite on every push/PR via `.github/workflows/ci.yml` (macos-latest, `xcodebuild test` with `CODE_SIGNING_ALLOWED=NO`).
 
 ## Products
 
@@ -202,11 +203,12 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 5. **WhisperKit streaming bridge** — complete scaffold when `TranscriptionProvider=whisperKit` selected.
 6. **Fast-follow release for meeting-notes audio fix** — v0.3.17 shipped with both meeting tracks recorded at hardware rate but labeled 16 kHz (playback ~3× slow, degraded ASR); fixed on `main` post-release. Cut v0.3.18 when convenient (walk `docs/release-smoke-checklist.md`).
 7. **Meeting audio capture off the main actor** — per-buffer `Task { @MainActor }` hops carry no FIFO guarantee and put PCM conversion + file writes on the main thread; move to an `AsyncStream` on a serial executor.
-8. **Speaking-time context prefetch (episodic/RAG)** — the dual-agent prefetch implementation was removed (unwired callbacks, self-cancelling VLM task, and it duplicated `prewarmScreenContext`); the right shape is folding episodic-memory + RAG prewarm into the existing `prewarmScreenContext` path keyed off stable partials. Idea tracked in `docs/competitive/steal-catalog.md`.
+8. **Bundled-MLX planner default decision** — the site and PROJECT_STATUS described the in-process Qwen3-4B planner as the shipping default; in code it is opt-in (`isUsingMLXInProcessPlanner`, UserDefaults default false). Either flip the default using the WhisperKit precedent (downloaded-model-on-disk = opt-in signal, explicit setting always wins) or keep it opt-in and align the copy — needs an eval-gate check (4B vs 30B planner quality) before flipping.
+9. **Speaking-time context prefetch (episodic/RAG)** — the dual-agent prefetch implementation was removed (unwired callbacks, self-cancelling VLM task, and it duplicated `prewarmScreenContext`); the right shape is folding episodic-memory + RAG prewarm into the existing `prewarmScreenContext` path keyed off stable partials. Idea tracked in `docs/competitive/steal-catalog.md`.
 
 ### Deferred
 
-- **Persistent KV planner backend** — blocked on TinyGPT oMLX qualification; in-process MLX is default.
+- **Persistent KV planner backend** — blocked on TinyGPT oMLX qualification. (Note: the in-process MLX planner is available behind the Settings → Models toggle, NOT the default — fresh installs talk via Apple FM or LM Studio.)
 - **Grammar-constrained v10 runtime default** — TinyGPT/eval gated; shipping planner remains current MLX/Qwen stack.
 - **Real-app AX smokes in CI** — manual-only; TCC makes automated live-app tests fragile.
 - **Cloud bridge / Direct API as default** — contradicts on-device moat; opt-in tiers only.
@@ -216,7 +218,6 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 
 - Live-app click ambiguity smokes not CI-automated.
 - Social proof section gated until real user quotes.
-- README still references LM Studio as primary setup path; bundled MLX + Settings → Models is the shipping path for downloads.
 - Known non-blocking Xcode warnings (Swift 6 concurrency, deprecated onChange) — intentionally not fixed per AGENTS.md.
 - Pace-tuned LoRA run blocked on sufficient exported turn volume.
 - **TCC:** Never run terminal `xcodebuild` for routine dev — re-requests screen recording, accessibility, mic permissions.
