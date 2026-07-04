@@ -65,7 +65,7 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 
 - **v0.3.12–0.3.14 cycle:** Her-arc voice loop, trust surfaces, on-device model supply, macOS integrations, executor/planner v10, MCP/recipes, landing shipped.
 - **2026-06-20:** Restraint policy, episodic memory, wake word, proactive nudges, barge-in VAD, demonstration replay, trust-and-failures, recipe library, planner tier picker, cloud-bridge toggle, chat interface, conversational thread memory, first-run experience, morning triage, inclusivity surface, always-listening mode, unified memory, local RAG layer (substrate), local VLM runtime port, WhisperKit streaming scaffold, HUD intent disambiguator, dictation postproc, v8/v9/v10 planner iterations, click executor improvements, set-of-mark click recovery, executor surface, Her-arc roadmap meta — all landed.
-- **2026-07-04:** Quality overhaul — sprint payload reviewed + fixed (speculative fast-action double-execution, dead dual-agent prefetch removed, dictation trigger tightening); meeting-notes shipping bugs fixed (16 kHz sample-rate labeling, stop-time OOB crash, crash repair, O(1) memory, cross-track alignment, privacy-pinned synthesis); amber indicator extended to headless planner turns; release-from-main guard + hardware smoke checklist; premium chat panel phase 1 (flag-gated); landing meeting-notes wedge + /privacy + /terms; PRs #57–#63 landed.
+- **2026-07-04:** Quality overhaul — sprint payload reviewed + fixed (speculative fast-action double-execution, dead dual-agent prefetch removed, dictation trigger tightening); meeting-notes shipping bugs fixed (16 kHz sample-rate labeling, stop-time OOB crash, crash repair, O(1) memory, cross-track alignment, privacy-pinned synthesis); amber indicator extended to headless planner turns; release-from-main guard + hardware smoke checklist; premium chat panel phase 1 (flag-gated); landing meeting-notes wedge + /privacy + /terms; PRs #57–#63 landed. Teachable skills shipped — describe a `.skill.md` skill by voice or typed form, structured on-device by the privacy-pinned local planner (`docs/prds/teachable-skills.md`).
 - **Active plan:** `docs/plans/pace-tuned-model-v1.md` — export wired; LoRA pending data.
 - **Test suite:** 1283 test cases via `scripts/test-pace.sh`; CI runs the full suite on every push/PR via `.github/workflows/ci.yml` (macos-latest, `xcodebuild test` with `CODE_SIGNING_ALLOWED=NO`).
 
@@ -140,6 +140,14 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 - MCP stdio bridge with fixture server integration tests; example config for filesystem/fetch/github/applescript.
 - Bundled catalog (filesystem, fetch, github, applescript, slack, linear) — atomic install into `mcp-servers.json`.
 - Recipe library: 5 bundled flows (morning-standup, weekly-review, email-zero, focus-mode, end-of-day); voice install/uninstall.
+
+### Skills — flows vs recipes vs skills vs tools
+
+Four complementary "do more than talk" layers, from most literal to most flexible:
+- **Tools** (`PaceToolRegistry`) — atomic built-in capabilities (click, type, open app…).
+- **Recipes** — bundled `PaceRecordedFlow` JSON, voice-installable.
+- **Flows** (`record_flow`) — user-recorded AX steps, replayed **verbatim** (pixel tier).
+- **Skills** (`.skill.md`) — natural-language step lists the planner **re-grounds each run** (intent tier). **Teachable by telling** (PRD `docs/prds/teachable-skills.md`): say "teach a skill …" or use Settings → Skills → "Teach a skill"; a privacy-pinned LOCAL planner structures the description into a `.skill.md` (deterministic fallback if the planner is unavailable), saved to `~/Library/Application Support/Pace/skills/` and runnable via "run <name>". Fully on-device.
 
 ### Planner tier picker & optional cloud paths
 

@@ -140,11 +140,62 @@ enum PaceSkillCommand {
     case list
     case run(slug: String, name: String)
     case install(slug: String, name: String)
+    /// Teach Pace a new skill from a free-form spoken description. The raw
+    /// text (everything after the "teach/learn/create a skill" phrase) is
+    /// structured into a `PaceSkillFile` by the create handler.
+    case create(rawDescription: String)
 }
 
 nonisolated enum PaceSkillCommandParser {
     static func parse(_ transcript: String) -> PaceSkillCommand? {
-        let lower = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmedTranscript.lowercased()
+
+        // "teach/learn/create a skill ..." — teach a new skill from a spoken
+        // description. Checked FIRST: a create utterance ("teach a skill that
+        // lists my tasks") also contains "skill"/"list", so it must win before
+        // the list/install/run branches below. Everything after the trigger
+        // phrase (case preserved) becomes the raw description.
+        // "teach/learn/create" are unambiguous teach verbs. "make a skill" is
+        // deliberately excluded — "make a skill list" would be captured as a
+        // create of "list" instead of routing to the list branch.
+        let createSkillPrefixes = [
+            "teach you a skill",
+            "teach yourself a skill",
+            "teach a skill",
+            "learn a new skill",
+            "learn a skill",
+            "create a new skill",
+            "create a skill",
+        ]
+        for createSkillPrefix in createSkillPrefixes {
+            // Anchored + case-insensitive match on the ORIGINAL string so the
+            // returned range indexes `trimmedTranscript` directly (indices from
+            // a separate `.lowercased()` copy are not safe to reuse here).
+            guard let prefixRange = trimmedTranscript.range(
+                of: createSkillPrefix,
+                options: [.caseInsensitive, .anchored]
+            ) else {
+                continue
+            }
+            var rawDescription = String(trimmedTranscript[prefixRange.upperBound...])
+                .trimmingCharacters(in: CharacterSet(charactersIn: " :,.-\t"))
+            // Drop a leading connective the user naturally speaks after the
+            // trigger phrase ("teach a skill TO open notes").
+            for leadingConnective in ["to ", "that ", "called ", "named ", "for ", "which "] {
+                if let connectiveRange = rawDescription.range(
+                    of: leadingConnective,
+                    options: [.caseInsensitive, .anchored]
+                ) {
+                    rawDescription = String(rawDescription[connectiveRange.upperBound...])
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    break
+                }
+            }
+            if !rawDescription.isEmpty {
+                return .create(rawDescription: rawDescription)
+            }
+        }
 
         // "list skills" / "what skills do you have"
         if (lower.contains("list") || lower.contains("what")) && lower.contains("skill") {

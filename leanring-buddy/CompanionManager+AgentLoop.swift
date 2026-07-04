@@ -2291,6 +2291,67 @@ extension CompanionManager {
             } else {
                 Task { try? await ttsClient.speakText("No skill called \(name) was found."); voiceState = .idle }
             }
+        case .create(let rawDescription):
+            handleTeachSkillCommand(rawDescription: rawDescription)
+        }
+    }
+
+    /// Teach a new skill from a free-form spoken description. Structures the
+    /// description into a `PaceSkillFile` with a privacy-pinned LOCAL planner
+    /// (never the CLI bridge or Direct API tier — teaching stays on-device
+    /// even for cloud-tier users, same pin as meeting-notes synthesis), then
+    /// persists it to the user skills directory. Fails soft: if the planner is
+    /// unavailable or returns junk, a deterministic splitter takes over, so
+    /// teaching never hard-fails.
+    func handleTeachSkillCommand(rawDescription: String) {
+        Task { @MainActor in
+            try? await ttsClient.speakText("let me set that up.")
+
+            let privacyPinnedLocalPlanner = BuddyPlannerClientFactory
+                .makeLocalOnlyPlannerForPrivacyPinnedFeatures()
+
+            var taughtSkill: PaceSkillFile?
+            do {
+                let plannerResult = try await privacyPinnedLocalPlanner.generateResponseStreaming(
+                    images: [],
+                    systemPrompt: PaceSkillLoader.skillStructuringSystemPrompt,
+                    conversationHistory: [],
+                    userPrompt: rawDescription,
+                    onTextChunk: { _ in }
+                )
+                taughtSkill = PaceSkillLoader.skillFromStructuredJSON(
+                    plannerResult.text,
+                    fallbackName: "Custom Skill"
+                )
+            } catch {
+                taughtSkill = nil
+            }
+
+            // Deterministic fallback covers planner-offline and junk responses.
+            if taughtSkill == nil {
+                taughtSkill = PaceSkillLoader.structureSkillDeterministically(from: rawDescription)
+            }
+
+            guard let skillToSave = taughtSkill, !skillToSave.steps.isEmpty else {
+                try? await ttsClient.speakText(
+                    "i couldn't turn that into a skill. try describing the steps one by one."
+                )
+                voiceState = .idle
+                return
+            }
+
+            do {
+                try PaceSkillLoader.save(skillToSave)
+                let stepCount = skillToSave.steps.count
+                try? await ttsClient.speakText(
+                    "saved \(skillToSave.name) with \(stepCount) step\(stepCount == 1 ? "" : "s"). say run \(skillToSave.name) anytime."
+                )
+            } catch {
+                try? await ttsClient.speakText(
+                    "i built the \(skillToSave.name) skill but couldn't save it."
+                )
+            }
+            voiceState = .idle
         }
     }
 }
