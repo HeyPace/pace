@@ -1,0 +1,74 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+
+const description =
+  "Pace's privacy policy: your audio, screen, and text stay on your Mac. No accounts, no telemetry, no cloud processing.";
+---
+
+<BaseLayout
+  title="Privacy — Pace"
+  description={description}
+  pathname="/privacy"
+>
+  <Nav />
+  <main class="mx-auto max-w-2xl px-6 py-24">
+    <p class="text-sm uppercase tracking-widest text-[var(--color-text-muted)] font-mono mb-6">PRIVACY</p>
+    <h1 class="pace-display mt-3 text-4xl md:text-5xl text-white">
+      The shortest privacy policy you'll read this year.
+    </h1>
+
+    <div class="mt-10 space-y-6 leading-relaxed text-[var(--color-text-muted)]">
+      <p>
+        Pace runs on your Mac. Your voice, your screen, your meeting audio,
+        and everything Pace writes about them are processed and stored
+        locally. I don't operate servers that receive your data, because
+        there aren't any in the loop.
+      </p>
+
+      <h2 class="pace-display pt-4 text-2xl text-white">What Pace collects</h2>
+      <p>
+        Nothing. No account, no email, no analytics SDK, no telemetry, no
+        crash reporter phoning home. The in-app privacy dashboard reads a
+        local audit log and shows "0 bytes sent off this Mac" — that number
+        is computed, not asserted.
+      </p>
+
+      <h2 class="pace-display pt-4 text-2xl text-white">The exceptions, stated plainly</h2>
+      <ul class="list-disc space-y-3 pl-5">
+        <li>
+          <strong>Auto-update:</strong> the app checks a GitHub-hosted
+          appcast for new versions (standard Sparkle). That request carries
+          no personal data.
+        </li>
+        <li>
+          <strong>Optional cloud tiers:</strong> if you explicitly configure
+          a bring-your-own-key API tier or the CLI bridge, those turns go to
+          the provider you chose, under that provider's privacy policy. The
+          menu-bar capsule tints amber whenever this happens, and meeting
+          transcripts are pinned local and never use these tiers.
+        </li>
+        <li>
+          <strong>File downloads you ask for:</strong> the download tool
+          fetches a URL you named into ~/Downloads. It sends nothing.
+        </li>
+      </ul>
+
+      <h2 class="pace-display pt-4 text-2xl text-white">Meeting recordings</h2>
+      <p>
+        Stored as ordinary WAV files under
+        <code>~/Library/Application&nbsp;Support/Pace/meetings/</code>,
+        pruned automatically per your retention setting, deletable in
+        Finder. They never leave the machine.
+      </p>
+
+      <p class="pt-4">
+        Questions: <a class="underline" href="mailto:sarthakagrawal927@gmail.com">email me</a>.
+        I can't see your data, so I can't export or delete it for you —
+        it's already yours.
+      </p>
+    </div>
+  </main>
+  <Footer />
+</BaseLayout>
