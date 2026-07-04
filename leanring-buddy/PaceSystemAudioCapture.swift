@@ -188,6 +188,19 @@ final class PaceMeetingModeController: ObservableObject {
                 configuration: configuration,
                 delegate: delegate
             )
+            // REQUIRED: ScreenCaptureKit only delivers sample buffers to
+            // outputs registered via addStreamOutput — the `delegate:`
+            // init parameter carries lifecycle errors ONLY. Without this
+            // call the stream starts "successfully" and never delivers a
+            // single audio buffer, which is exactly how the system track
+            // shipped silently empty in v0.3.17 (caught by the release
+            // hardware smoke, invisible to unit tests that inject samples
+            // through appendSystemSamples).
+            try scStream.addStreamOutput(
+                delegate,
+                type: .audio,
+                sampleHandlerQueue: DispatchQueue(label: "com.pace.meeting.system-audio", qos: .userInitiated)
+            )
             self.stream = scStream
 
             try await scStream.startCapture()
@@ -447,7 +460,7 @@ final class PaceMeetingModeController: ObservableObject {
 /// SCStream delegate that receives audio sample buffers and computes
 /// normalized RMS levels. The levels are forwarded to the controller
 /// via a callback.
-private final class PaceSystemAudioStreamDelegate: NSObject, SCStreamDelegate {
+private final class PaceSystemAudioStreamDelegate: NSObject, SCStreamDelegate, SCStreamOutput {
     private let onAudioSample: (Float, [Float]) -> Void
     private let onStreamStopped: (String) -> Void
 
