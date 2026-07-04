@@ -1,6 +1,6 @@
 # pace — PROJECT STATUS
 
-Last updated: 2026-06-28
+Last updated: 2026-07-04
 
 ## Why/What
 
@@ -32,7 +32,7 @@ Last updated: 2026-06-28
 | Surface | Stack | Commands |
 | --- | --- | --- |
 | macOS app | Swift/SwiftUI, Xcode `leanring-buddy.xcodeproj` | Open in Xcode → Cmd+R (**do not** `xcodebuild` — invalidates TCC) |
-| Tests | XCTest via isolated DerivedData | `bash scripts/test-pace.sh` — **1079/1079 passing** |
+| Tests | XCTest via isolated DerivedData | `bash scripts/test-pace.sh` — **1307 tests, all passing** |
 | Local models | MLX, WhisperKit, TTSKit, Apple Speech | Settings → Models; Sparkle manifest in Info.plist |
 | Landing | Astro 5 + Tailwind v4 + Lightning CSS | `cd website && npm install && npm run dev` (:4321) |
 | Deploy landing | Cloudflare Pages project `pace` | `npm run build && npm run deploy` |
@@ -65,8 +65,9 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 
 - **v0.3.12–0.3.14 cycle:** Her-arc voice loop, trust surfaces, on-device model supply, macOS integrations, executor/planner v10, MCP/recipes, landing shipped.
 - **2026-06-20:** Restraint policy, episodic memory, wake word, proactive nudges, barge-in VAD, demonstration replay, trust-and-failures, recipe library, planner tier picker, cloud-bridge toggle, chat interface, conversational thread memory, first-run experience, morning triage, inclusivity surface, always-listening mode, unified memory, local RAG layer (substrate), local VLM runtime port, WhisperKit streaming scaffold, HUD intent disambiguator, dictation postproc, v8/v9/v10 planner iterations, click executor improvements, set-of-mark click recovery, executor surface, Her-arc roadmap meta — all landed.
+- **2026-07-04:** Quality overhaul — sprint payload reviewed + fixed (speculative fast-action double-execution, dead dual-agent prefetch removed, dictation trigger tightening); meeting-notes shipping bugs fixed (16 kHz sample-rate labeling, stop-time OOB crash, crash repair, O(1) memory, cross-track alignment, privacy-pinned synthesis); amber indicator extended to headless planner turns; release-from-main guard + hardware smoke checklist; premium chat panel phase 1 (flag-gated); landing meeting-notes wedge + /privacy + /terms; PRs #57–#63 landed.
 - **Active plan:** `docs/plans/pace-tuned-model-v1.md` — export wired; LoRA pending data.
-- **Test suite:** 1079/1079 XCTest cases via `scripts/test-pace.sh`; CI runs the full suite on every push/PR via `.github/workflows/ci.yml` (macos-latest, `xcodebuild test` with `CODE_SIGNING_ALLOWED=NO`).
+- **Test suite:** 1307 test cases via `scripts/test-pace.sh`; CI runs the full suite on every push/PR via `.github/workflows/ci.yml` (macos-latest, `xcodebuild test` with `CODE_SIGNING_ALLOWED=NO`).
 
 ## Products
 
