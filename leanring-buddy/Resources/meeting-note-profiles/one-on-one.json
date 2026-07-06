@@ -1,0 +1,30 @@
+{
+  "slug": "one-on-one",
+  "name": "One-on-One",
+  "description": "Manager/report 1:1: discussion topics, feedback, growth, follow-ups.",
+  "sections": [
+    {
+      "key": "topics",
+      "title": "Topics Discussed",
+      "instruction": "The main things talked about, as short bullets."
+    },
+    {
+      "key": "feedback",
+      "title": "Feedback",
+      "instruction": "Feedback given or received in either direction; write 'None' if there was none."
+    },
+    {
+      "key": "growth",
+      "title": "Growth & Development",
+      "instruction": "Career, skills, or growth topics raised; write 'None' if there were none."
+    },
+    {
+      "key": "follow_ups",
+      "title": "Follow-ups",
+      "instruction": "Things to revisit at the next 1:1, as short bullets."
+    }
+  ],
+  "emitsActionItems": true,
+  "emitsDecisions": false,
+  "groundsActionItems": true
+}

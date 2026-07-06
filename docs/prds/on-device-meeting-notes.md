@@ -6,6 +6,12 @@ priority: P0 — closes the biggest product gap (meeting mode is a stub today) a
 
 # PRD — On-device meeting notes
 
+> **Follow-up (shipped separately):** adaptive, meeting-type-aware note
+> profiles + transcript-grounded action items — meetily-informed but
+> Pace-native — are specced in `openspec/changes/adaptive-meeting-notes`.
+> The `general` profile reproduces this PRD's `{summary, actionItems,
+> decisions}` output byte-for-byte and remains the default.
+
 ## Goal
 
 Turn Pace's meeting mode from a stub that publishes RMS levels into a

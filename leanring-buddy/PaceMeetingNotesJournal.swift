@@ -157,6 +157,13 @@ nonisolated struct PaceMeetingNotesJournal {
                 if let due = item.due, !due.isEmpty {
                     line += " (due: \(due))"
                 }
+                // Transcript grounding: include the quote so "who agreed
+                // what" recall queries match lexically. Sanitize the
+                // closing token so the round-trip parser can recover it.
+                if let source = item.source {
+                    let safeQuote = source.quote.replacingOccurrences(of: "\"]", with: "\"")
+                    line += " [ref: \"\(safeQuote)\"]"
+                }
                 lines.append(line)
             }
         }
@@ -252,35 +259,48 @@ nonisolated struct PaceMeetingNotesJournal {
         case decisions
     }
 
-    /// Parses an action item line like "Review the PR (owner: them) (due: tomorrow)"
-    /// back into a `PaceMeetingActionItem`.
+    /// Parses an action item line like
+    /// `Review the PR (owner: them) (due: tomorrow) [ref: "review the PR"]`
+    /// back into a `PaceMeetingActionItem`. Strips the trailing tokens
+    /// in reverse emit order (ref → due → owner) so each recovers cleanly
+    /// without clobbering earlier ones.
     private static func parseActionItem(from content: String) -> PaceMeetingActionItem {
-        var text = content
+        var text = content.trimmingCharacters(in: .whitespacesAndNewlines)
         var owner: String?
         var due: String?
+        var quote: String?
 
-        // Extract (owner: ...) suffix.
-        if let ownerRange = text.range(of: " (owner: ", options: .backwards) {
-            let afterOwner = text[ownerRange.upperBound...]
-            if let closeParen = afterOwner.firstIndex(of: ")") {
-                owner = String(afterOwner[afterOwner.startIndex..<closeParen])
-                text = String(text[..<ownerRange.lowerBound])
-            }
+        // [ref: "..."] — the last token when present.
+        if text.hasSuffix("\"]"), let range = text.range(of: " [ref: \"", options: .backwards) {
+            quote = String(text[range.upperBound..<text.index(text.endIndex, offsetBy: -2)])
+            text = String(text[..<range.lowerBound])
+        }
+        // (due: ...)
+        if text.hasSuffix(")"), let range = text.range(of: " (due: ", options: .backwards) {
+            due = String(text[range.upperBound..<text.index(before: text.endIndex)])
+            text = String(text[..<range.lowerBound])
+        }
+        // (owner: ...)
+        if text.hasSuffix(")"), let range = text.range(of: " (owner: ", options: .backwards) {
+            owner = String(text[range.upperBound..<text.index(before: text.endIndex)])
+            text = String(text[..<range.lowerBound])
         }
 
-        // Extract (due: ...) suffix.
-        if let dueRange = text.range(of: " (due: ", options: .backwards) {
-            let afterDue = text[dueRange.upperBound...]
-            if let closeParen = afterDue.firstIndex(of: ")") {
-                due = String(afterDue[afterDue.startIndex..<closeParen])
-                text = String(text[..<dueRange.lowerBound])
-            }
+        let source: PaceMeetingActionItemSource?
+        if let quote = quote?.trimmingCharacters(in: .whitespacesAndNewlines), !quote.isEmpty {
+            // Timestamp is not preserved in the journal text; the live
+            // notes hold the full-fidelity source. nil timestamp is fine
+            // here — this recovery only serves lexical recall.
+            source = PaceMeetingActionItemSource(timestamp: nil, quote: quote)
+        } else {
+            source = nil
         }
 
         return PaceMeetingActionItem(
             text: text.trimmingCharacters(in: .whitespacesAndNewlines),
             owner: owner?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-            due: due?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            due: due?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+            source: source
         )
     }
 

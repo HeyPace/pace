@@ -1,0 +1,25 @@
+{
+  "slug": "standup",
+  "name": "Daily Standup",
+  "description": "Time-boxed daily update: what happened, what's next, what's blocked.",
+  "sections": [
+    {
+      "key": "yesterday",
+      "title": "Yesterday",
+      "instruction": "What each speaker reported completing since the last standup, as short bullets."
+    },
+    {
+      "key": "today",
+      "title": "Today",
+      "instruction": "What each speaker plans to work on today, as short bullets."
+    },
+    {
+      "key": "blockers",
+      "title": "Blockers",
+      "instruction": "Any impediments raised and who owns them; write 'None raised' if there were none."
+    }
+  ],
+  "emitsActionItems": true,
+  "emitsDecisions": false,
+  "groundsActionItems": true
+}

@@ -127,6 +127,14 @@ enum PaceUserPreferenceKey: String {
     /// Speech if WhisperKit isn't installed. See PRD
     /// docs/prds/on-device-meeting-notes.md.
     case meetingNotesTranscriptionBackend
+    /// Default meeting note profile slug. "general" (default)
+    /// reproduces the pre-profiles output. See
+    /// openspec/changes/adaptive-meeting-notes.
+    case meetingNotesDefaultProfileSlug
+    /// When ON, and no profile is explicitly chosen or pinned, a local
+    /// planner call classifies the transcript into a profile. Default
+    /// OFF so upgrades change nothing until opt-in.
+    case meetingNotesProfileInferenceEnabled
     /// Premium chat panel (docs/prds/premium-chat-panel.md, phase 1):
     /// when ON, the notch panel renders the new `PaceChatPanelView`
     /// conversation surface; when OFF (the phase-1 default) the panel
@@ -241,6 +249,28 @@ enum PaceUserPreferencesStore {
         let normalized = value.lowercased()
         let safe = (normalized == "whisperkit" || normalized == "apple") ? normalized : "whisperkit"
         setString(safe, for: .meetingNotesTranscriptionBackend)
+    }
+
+    /// Read the default meeting note profile slug. Defaults to
+    /// "general" so an upgrade-in-place reproduces the pre-profiles
+    /// output.
+    static func meetingNotesDefaultProfileSlug() -> String {
+        string(.meetingNotesDefaultProfileSlug, default: "general")
+    }
+
+    /// Write the default meeting note profile slug.
+    static func setMeetingNotesDefaultProfileSlug(_ slug: String) {
+        setString(slug, for: .meetingNotesDefaultProfileSlug)
+    }
+
+    /// Whether local profile inference is enabled. Default OFF.
+    static func isMeetingNotesProfileInferenceEnabled() -> Bool {
+        bool(.meetingNotesProfileInferenceEnabled, default: false)
+    }
+
+    /// Enable/disable local profile inference.
+    static func setMeetingNotesProfileInferenceEnabled(_ enabled: Bool) {
+        setBool(enabled, for: .meetingNotesProfileInferenceEnabled)
     }
 
     /// Read the user-tunable proactivity profile, falling back to

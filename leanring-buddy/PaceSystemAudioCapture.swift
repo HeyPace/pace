@@ -74,6 +74,12 @@ final class PaceMeetingModeController: ObservableObject {
     /// skipped but the transcript + recording are still saved.
     var plannerClient: (any BuddyPlannerClient)?
 
+    /// Explicit per-meeting note profile slug chosen by the user in the
+    /// panel picker. Highest precedence during profile resolution;
+    /// cleared on the next `start()`. When nil, resolution falls to the
+    /// default preference / inference / general.
+    @Published var selectedProfileSlug: String?
+
     private var stream: SCStream?
     private var streamDelegate: PaceSystemAudioStreamDelegate?
     private var captureStartedAt: Date?
@@ -111,6 +117,9 @@ final class PaceMeetingModeController: ObservableObject {
         state = .starting
         lastMeetingNotes = nil
         systemAudioDroppedMidMeeting = false
+        // Clear any stale per-meeting profile choice; the user picks for
+        // THIS meeting via the panel after start.
+        selectedProfileSlug = nil
 
         // Create the recorder + meeting ID up front so both tracks
         // share one identifier even if the SCStream fails to start.
@@ -328,6 +337,7 @@ final class PaceMeetingModeController: ObservableObject {
         let title = "Meeting \(PaceMeetingModeController.timeFormatter.string(from: recording.startedAt))"
         let notes: PaceMeetingNotes
         if let planner = plannerClient {
+            let profile = await resolveMeetingProfile(transcript: transcript, planner: planner)
             notes = await PaceMeetingNotesBuilder.build(
                 transcript: transcript,
                 turns: turnRecords,
@@ -335,6 +345,7 @@ final class PaceMeetingModeController: ObservableObject {
                 startedAt: recording.startedAt,
                 endedAt: recording.endedAt,
                 title: title,
+                profile: profile,
                 planner: planner
             )
         } else {
@@ -381,6 +392,94 @@ final class PaceMeetingModeController: ObservableObject {
         }
 
         state = .inactive
+    }
+
+    // MARK: - Profile resolution
+
+    /// Resolve which note profile synthesizes this meeting. Precedence
+    /// (via `PaceMeetingNoteProfileLibrary.resolveProfile`): explicit
+    /// panel choice → non-general default preference → local inference
+    /// → general. Inference is a silent local classify call gated by the
+    /// inference toggle; it never blocks and falls back to general on
+    /// any failure. Runs on the privacy-pinned local `planner` the
+    /// caller injected, so it stays on-device like the rest of the
+    /// meeting pipeline.
+    private func resolveMeetingProfile(
+        transcript: String,
+        planner: any BuddyPlannerClient
+    ) async -> PaceMeetingNoteProfile {
+        let available = PaceMeetingNoteProfileLibrary.loadProfiles()
+        let explicitSlug = selectedProfileSlug
+        let defaultSlug = PaceUserPreferencesStore.meetingNotesDefaultProfileSlug()
+        let inferenceEnabled = PaceUserPreferencesStore.isMeetingNotesProfileInferenceEnabled()
+
+        var inferredSlug: String?
+        if PaceMeetingNoteProfileLibrary.shouldInfer(
+            explicitSlug: explicitSlug,
+            defaultSlug: defaultSlug,
+            inferenceEnabled: inferenceEnabled
+        ) {
+            inferredSlug = await inferProfileSlug(
+                transcript: transcript,
+                planner: planner,
+                available: available
+            )
+        }
+
+        return PaceMeetingNoteProfileLibrary.resolveProfile(
+            explicitSlug: explicitSlug,
+            defaultSlug: defaultSlug,
+            inferredSlug: inferredSlug,
+            available: available
+        )
+    }
+
+    /// Classify the transcript into one of the available profile slugs
+    /// via a tiny local planner call. Returns a known slug or nil (nil →
+    /// caller falls back to general). Never throws out — any failure,
+    /// empty transcript, or unknown slug yields nil.
+    private func inferProfileSlug(
+        transcript: String,
+        planner: any BuddyPlannerClient,
+        available: [PaceMeetingNoteProfile]
+    ) async -> String? {
+        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, available.count > 1 else { return nil }
+
+        let slugList = available.map { "\($0.slug): \($0.name) — \($0.description)" }
+            .joined(separator: "\n")
+        let systemPrompt = """
+        You classify a meeting transcript into exactly one meeting-note profile. \
+        Choose the single best-fitting profile from this list:
+        \(slugList)
+        Reply with ONLY the slug (e.g. "standup"), no other text.
+        """
+
+        let response: String
+        do {
+            let result = try await planner.generateResponseStreaming(
+                images: [],
+                systemPrompt: systemPrompt,
+                conversationHistory: [],
+                userPrompt: trimmed,
+                onTextChunk: { _ in }
+            )
+            response = result.text
+        } catch {
+            return nil
+        }
+
+        // Extract the first known slug that appears in the response.
+        let normalized = response.lowercased()
+        let knownSlugs = Set(available.map { $0.slug })
+        // Prefer an exact trimmed match, then a contained-token match.
+        let trimmedResponse = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+        if knownSlugs.contains(trimmedResponse) {
+            return trimmedResponse
+        }
+        return available
+            .map { $0.slug }
+            .first { normalized.contains($0) }
     }
 
     /// Toggle meeting mode on/off. A toggle during `.starting` stops

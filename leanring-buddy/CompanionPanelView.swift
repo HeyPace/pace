@@ -408,6 +408,32 @@ struct CompanionPanelView: View {
                 .progressViewStyle(.linear)
                 .tint(DS.Colors.accent)
                 .frame(height: 3)
+
+            // Per-meeting note profile picker. Defaults to the pinned
+            // default; overriding here wins for this meeting only.
+            if controller.state == .active {
+                HStack(spacing: 6) {
+                    Text("Notes")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(DS.Colors.textTertiary)
+                    Picker(
+                        "",
+                        selection: Binding(
+                            get: { controller.selectedProfileSlug ?? PaceUserPreferencesStore.meetingNotesDefaultProfileSlug() },
+                            set: { controller.selectedProfileSlug = $0 }
+                        )
+                    ) {
+                        ForEach(PaceMeetingNoteProfileLibrary.loadProfiles(), id: \.slug) { profile in
+                            Text(profile.name).tag(profile.slug)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .font(.system(size: 10))
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, 2)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -462,10 +488,7 @@ struct CompanionPanelView: View {
                     .foregroundColor(DS.Colors.textSecondary)
                     .padding(.top, 4)
                 ForEach(Array(notes.actionItems.enumerated()), id: \.offset) { _, item in
-                    Text("• \(item.text)\(item.owner.map { " — \($0)" } ?? "")")
-                        .font(.system(size: 11))
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    MeetingActionItemRow(item: item)
                 }
             }
 
@@ -759,4 +782,59 @@ struct CompanionPanelView: View {
         }
     }
 
+}
+
+// MARK: - Meeting action item row
+
+/// One action item in the post-meeting notes card. When the item is
+/// grounded to a transcript turn, a small "jump to transcript" control
+/// reveals the referenced snippet (and its timestamp when known).
+private struct MeetingActionItemRow: View {
+    let item: PaceMeetingActionItem
+    @State private var showingSource = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("• \(item.text)\(item.owner.map { " — \($0)" } ?? "")")
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if item.source != nil {
+                    Button(action: { showingSource.toggle() }) {
+                        Image(systemName: "quote.bubble")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(DS.Colors.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                    .help("Jump to where this was agreed")
+                }
+            }
+
+            if showingSource, let source = item.source {
+                HStack(alignment: .top, spacing: 4) {
+                    if let timestamp = source.timestamp {
+                        Text(Self.timeFormatter.string(from: timestamp))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(DS.Colors.textTertiary)
+                            .monospacedDigit()
+                    }
+                    Text("“\(source.quote)”")
+                        .font(.system(size: 10))
+                        .italic()
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.leading, 10)
+            }
+        }
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
 }

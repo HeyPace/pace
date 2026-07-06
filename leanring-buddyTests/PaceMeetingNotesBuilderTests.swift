@@ -320,4 +320,87 @@ struct PaceMeetingNotesBuilderTests {
         #expect(PaceMeetingNotesBuilder.stripMarkdownFences(from: "```json\n{}\n```") == "{}")
         #expect(PaceMeetingNotesBuilder.stripMarkdownFences(from: "```\n{\"a\":1}\n```") == "{\"a\":1}")
     }
+
+    // MARK: - Profile-driven synthesis + grounding
+
+    @Test func generalProfileArgumentMatchesDefaultOutput() async throws {
+        let cannedJSON = """
+        {"summary": "S", "actionItems": [{"text": "T", "owner": "you", "due": "Friday"}], "decisions": ["D"]}
+        """
+        let a = MockMeetingNotesPlannerClient(cannedResponse: cannedJSON)
+        let b = MockMeetingNotesPlannerClient(cannedResponse: cannedJSON)
+        let defaultNotes = await PaceMeetingNotesBuilder.build(
+            transcript: sampleTranscript, turns: makeTurns(), meetingID: meetingID,
+            startedAt: startedAt, endedAt: endedAt, title: "M", planner: a
+        )
+        let generalNotes = await PaceMeetingNotesBuilder.build(
+            transcript: sampleTranscript, turns: makeTurns(), meetingID: meetingID,
+            startedAt: startedAt, endedAt: endedAt, title: "M", profile: .general, planner: b
+        )
+        #expect(defaultNotes.summary == generalNotes.summary)
+        #expect(defaultNotes.actionItems == generalNotes.actionItems)
+        #expect(defaultNotes.decisions == generalNotes.decisions)
+    }
+
+    @Test func groundedActionItemResolvesToCapturedTurn() async throws {
+        // The quote matches the "them" turn ("I'll review the PR tomorrow").
+        let cannedJSON = """
+        {"summary": "S", "actionItems": [{"text": "Review the PR", "owner": "them", "due": "tomorrow", "quote": "review the PR tomorrow"}], "decisions": []}
+        """
+        let planner = MockMeetingNotesPlannerClient(cannedResponse: cannedJSON)
+        let turns = makeTurns()
+        let notes = await PaceMeetingNotesBuilder.build(
+            transcript: sampleTranscript, turns: turns, meetingID: meetingID,
+            startedAt: startedAt, endedAt: endedAt, title: "M",
+            profile: PaceMeetingNoteProfileLibrary.profile(forSlug: "standup"), planner: planner
+        )
+        let source = try #require(notes.actionItems.first?.source)
+        #expect(source.quote == "review the PR tomorrow")
+        #expect(source.timestamp == turns[1].start)
+    }
+
+    @Test func ungroundedActionItemHasNilSource() async throws {
+        let cannedJSON = """
+        {"summary": "S", "actionItems": [{"text": "Something", "owner": null, "due": null}], "decisions": []}
+        """
+        let planner = MockMeetingNotesPlannerClient(cannedResponse: cannedJSON)
+        let notes = await PaceMeetingNotesBuilder.build(
+            transcript: sampleTranscript, turns: makeTurns(), meetingID: meetingID,
+            startedAt: startedAt, endedAt: endedAt, title: "M", planner: planner
+        )
+        #expect(notes.actionItems.first?.source == nil)
+    }
+
+    @Test func unresolvableQuoteKeepsQuoteButNoTimestamp() {
+        let source = PaceMeetingNotesBuilder.resolveSource(
+            quote: "a phrase that appears in no turn",
+            turns: makeTurns()
+        )
+        #expect(source?.quote == "a phrase that appears in no turn")
+        #expect(source?.timestamp == nil)
+    }
+
+    @Test func preChangeNotesDecodeWithNilSources() throws {
+        // A PaceMeetingNotes JSON persisted before grounding existed —
+        // note the action item has no `source` key.
+        let legacyJSON = """
+        {
+          "meetingID": "\(UUID().uuidString)",
+          "startedAt": 700000000,
+          "endedAt": 700000600,
+          "title": "Old meeting",
+          "transcript": "you: hello",
+          "turns": [],
+          "summary": "An old summary",
+          "actionItems": [{"text": "Old task", "owner": "you", "due": null}],
+          "decisions": ["Old decision"],
+          "synthesisFailed": false
+        }
+        """
+        let data = try #require(legacyJSON.data(using: .utf8))
+        let decoded = try JSONDecoder().decode(PaceMeetingNotes.self, from: data)
+        #expect(decoded.actionItems.count == 1)
+        #expect(decoded.actionItems[0].source == nil)
+        #expect(decoded.summary == "An old summary")
+    }
 }
