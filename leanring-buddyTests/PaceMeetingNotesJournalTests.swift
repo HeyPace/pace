@@ -67,6 +67,29 @@ struct PaceMeetingNotesJournalTests {
         #expect(text.contains("- Postpone the docs update"))
     }
 
+    @Test func groundedActionItemQuoteAppearsInDocumentTextAndRoundTrips() async throws {
+        var journal = PaceMeetingNotesJournal(rehydratingFrom: [], now: Date())
+        let notes = makeNotes(actionItems: [
+            PaceMeetingActionItem(
+                text: "Review the PR",
+                owner: "Alice",
+                due: "tomorrow",
+                source: PaceMeetingActionItemSource(timestamp: Date(), quote: "review the PR tomorrow")
+            )
+        ])
+        let recorded = journal.record(notes)
+        let document = try #require(recorded)
+        // Quote is present in the indexed text for lexical recall.
+        #expect(document.text.contains("review the PR tomorrow"))
+        #expect(document.text.contains("[ref: \"review the PR tomorrow\"]"))
+
+        // Round-trips across a restart without clobbering owner/due/text.
+        var rehydrated = PaceMeetingNotesJournal(rehydratingFrom: [document], now: Date())
+        let reEmittedDocs = rehydrated.allDocuments(now: Date())
+        let reEmitted = try #require(reEmittedDocs.first)
+        #expect(reEmitted.text.contains("- Review the PR (owner: Alice) (due: tomorrow) [ref: \"review the PR tomorrow\"]"))
+    }
+
     @Test func synthesisFailedNoteRendersFailureMessageInDocumentText() async throws {
         var journal = PaceMeetingNotesJournal(rehydratingFrom: [], now: Date())
         let document = journal.record(makeNotes(

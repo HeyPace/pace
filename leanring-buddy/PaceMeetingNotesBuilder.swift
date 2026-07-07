@@ -38,16 +38,42 @@ nonisolated struct PaceMeetingTurnRecord: Equatable, Codable, Sendable {
     }
 }
 
+/// Where in the transcript an action item was agreed. Grounding is
+/// optional — profiles that don't request it, planners that don't
+/// return a quote, and quotes that don't resolve to a captured turn all
+/// yield a nil `source` on the action item. `timestamp` is optional so
+/// notes rehydrated from the retrieval journal (which may not preserve
+/// the exact time) still decode cleanly.
+nonisolated struct PaceMeetingActionItemSource: Equatable, Codable, Sendable {
+    /// When in the meeting the action was agreed (best-effort). Non-nil
+    /// when resolved from a captured turn; may be nil after journal
+    /// rehydration.
+    let timestamp: Date?
+    /// Short verbatim snippet from the transcript identifying where the
+    /// action was agreed.
+    let quote: String
+
+    init(timestamp: Date?, quote: String) {
+        self.timestamp = timestamp
+        self.quote = quote
+    }
+}
+
 /// A single action item extracted from the meeting transcript.
 nonisolated struct PaceMeetingActionItem: Equatable, Codable, Sendable {
     let text: String
     let owner: String?
     let due: String?
+    /// Optional transcript grounding (timestamp + quote). See
+    /// `PaceMeetingActionItemSource`. Optional so decode stays
+    /// backward-compatible with notes persisted before grounding.
+    let source: PaceMeetingActionItemSource?
 
-    init(text: String, owner: String? = nil, due: String? = nil) {
+    init(text: String, owner: String? = nil, due: String? = nil, source: PaceMeetingActionItemSource? = nil) {
         self.text = text
         self.owner = owner
         self.due = due
+        self.source = source
     }
 }
 
@@ -105,6 +131,10 @@ private struct PaceMeetingNotesPlannerActionItem: Decodable {
     let text: String?
     let owner: String?
     let due: String?
+    /// Optional short verbatim transcript snippet the planner is asked
+    /// to include (grounding profiles only). Resolved against captured
+    /// turns to attach a `PaceMeetingActionItemSource`.
+    let quote: String?
 }
 
 // MARK: - Prompt
@@ -142,6 +172,9 @@ nonisolated enum PaceMeetingNotesBuilder {
     ///   - startedAt: When the meeting started.
     ///   - endedAt: When the meeting ended.
     ///   - title: User-supplied or generated meeting title.
+    ///   - profile: The note profile shaping synthesis. Defaults to
+    ///     `.general`, whose rendered prompt is byte-for-byte identical
+    ///     to the legacy prompt, so existing callers are unaffected.
     ///   - planner: A `BuddyPlannerClient` conformer (real or mock).
     /// - Returns: `PaceMeetingNotes`. On empty transcript → empty notes
     ///   with no planner call. On planner failure or malformed JSON →
@@ -155,6 +188,7 @@ nonisolated enum PaceMeetingNotesBuilder {
         startedAt: Date,
         endedAt: Date,
         title: String,
+        profile: PaceMeetingNoteProfile = .general,
         planner: BuddyPlannerClient
     ) async -> PaceMeetingNotes {
         let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -180,7 +214,7 @@ nonisolated enum PaceMeetingNotesBuilder {
         do {
             plannerResult = try await planner.generateResponseStreaming(
                 images: [],
-                systemPrompt: PaceMeetingNotesPrompt.systemPrompt,
+                systemPrompt: profile.renderSystemPrompt(),
                 conversationHistory: [],
                 userPrompt: trimmedTranscript,
                 onTextChunk: { _ in }
@@ -245,7 +279,8 @@ nonisolated enum PaceMeetingNotesBuilder {
             return PaceMeetingActionItem(
                 text: text,
                 owner: item.owner?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-                due: item.due?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                due: item.due?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                source: resolveSource(quote: item.quote, turns: turns)
             )
         }
 
@@ -267,6 +302,42 @@ nonisolated enum PaceMeetingNotesBuilder {
             decisions: decisions,
             synthesisFailed: false
         )
+    }
+
+    // MARK: - Grounding
+
+    /// Resolve an action item's planner-supplied `quote` against the
+    /// captured turns into a `PaceMeetingActionItemSource`. Matching is
+    /// case- and whitespace-insensitive substring containment; when
+    /// multiple turns contain the quote, the turn with the longest text
+    /// (most specific match) wins. Returns nil when there's no quote or
+    /// no matching turn — grounding is always optional.
+    static func resolveSource(quote: String?, turns: [PaceMeetingTurnRecord]) -> PaceMeetingActionItemSource? {
+        guard let rawQuote = quote?.trimmingCharacters(in: .whitespacesAndNewlines), !rawQuote.isEmpty else {
+            return nil
+        }
+        let needle = normalizedForMatch(rawQuote)
+        guard !needle.isEmpty else { return nil }
+
+        let match = turns
+            .filter { normalizedForMatch($0.text).contains(needle) }
+            .max { $0.text.count < $1.text.count }
+
+        guard let match else {
+            // No turn contains the quote — keep the quote text (still
+            // useful for lexical recall) but without a timestamp.
+            return PaceMeetingActionItemSource(timestamp: nil, quote: rawQuote)
+        }
+        return PaceMeetingActionItemSource(timestamp: match.start, quote: rawQuote)
+    }
+
+    /// Lowercase + collapse internal whitespace so quote matching is
+    /// robust to punctuation-free transcripts and spacing differences.
+    private static func normalizedForMatch(_ text: String) -> String {
+        text.lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     // MARK: - Helpers

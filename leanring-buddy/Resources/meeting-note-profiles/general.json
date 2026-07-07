@@ -1,0 +1,15 @@
+{
+  "slug": "general",
+  "name": "General",
+  "description": "Balanced notes for any meeting: summary, action items, decisions.",
+  "sections": [
+    {
+      "key": "summary",
+      "title": "Summary",
+      "instruction": "2-4 sentences capturing the key points of the meeting."
+    }
+  ],
+  "emitsActionItems": true,
+  "emitsDecisions": true,
+  "groundsActionItems": false
+}

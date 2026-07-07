@@ -331,6 +331,45 @@ struct PaceGeneralSettingsTab: View {
                     .background(DS.Colors.borderSubtle)
             }
 
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Default note profile")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DS.Colors.textPrimary)
+                    Text("Shapes how notes are organized. General reproduces the classic summary + actions + decisions.")
+                        .font(.system(size: 12))
+                        .foregroundColor(DS.Colors.textTertiary)
+                }
+                Spacer()
+                Picker(
+                    "Profile",
+                    selection: Binding(
+                        get: { PaceUserPreferencesStore.meetingNotesDefaultProfileSlug() },
+                        set: { PaceUserPreferencesStore.setMeetingNotesDefaultProfileSlug($0) }
+                    )
+                ) {
+                    ForEach(PaceMeetingNoteProfileLibrary.loadProfiles(), id: \.slug) { profile in
+                        Text(profile.name).tag(profile.slug)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 160)
+            }
+            .padding(.vertical, 12)
+            .overlay(alignment: .bottom) {
+                Divider()
+                    .background(DS.Colors.borderSubtle)
+            }
+
+            paceSettingsToggleRow(
+                title: "Auto-detect meeting type",
+                subtitle: "When on (and the default profile is General), a local, on-device pass picks the best profile per meeting.",
+                isOn: Binding(
+                    get: { PaceUserPreferencesStore.isMeetingNotesProfileInferenceEnabled() },
+                    set: { PaceUserPreferencesStore.setMeetingNotesProfileInferenceEnabled($0) }
+                )
+            )
+
             paceSettingsToggleRow(
                 title: "Index meeting notes for recall",
                 subtitle: "When on, synthesized notes are journaled so \"what did we decide in standup?\" answers from local history.",

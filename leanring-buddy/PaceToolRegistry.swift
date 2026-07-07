@@ -453,7 +453,13 @@ nonisolated enum PaceToolRegistry {
         let recipeValidationIssues = PaceRecipeLibrary
             .validateBundledRecipes(bundle: .main, allowSourceTreeFallback: false)
             .map { PaceToolRegistryValidationIssue(message: "bundled recipe: \($0.message)") }
-        let allValidationIssues = validationIssues + recipeValidationIssues
+        // Meeting note profiles validate alongside recipes — same
+        // fail-fast contract so malformed bundled profile JSON is caught
+        // at launch, not at first meeting synthesis.
+        let profileValidationIssues = PaceMeetingNoteProfileLibrary
+            .validateBundledProfiles(bundle: .main, allowSourceTreeFallback: false)
+            .map { PaceToolRegistryValidationIssue(message: "bundled meeting note profile: \($0.message)") }
+        let allValidationIssues = validationIssues + recipeValidationIssues + profileValidationIssues
         guard allValidationIssues.isEmpty else {
             let formattedIssues = allValidationIssues
                 .map { "- \($0.description)" }
