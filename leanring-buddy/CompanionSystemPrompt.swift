@@ -287,13 +287,6 @@ enum CompanionSystemPrompt {
         return renderedBlock
     }
 
-    /// Wave 4 test seam: drop the cached agent-mode block so unit tests
-    /// can verify the cache invalidates only on explicit reset. Never
-    /// called from production code paths.
-    nonisolated static func _testablyResetCachedAgentModeRulesBlock() {
-        cachedAgentModeRulesBlock = nil
-    }
-
     private static func renderAgentModeRulesBlock() -> String {
         """
     agent mode — when the user asks you to *do* something, prefer the typed v10 JSON envelope. it is parsed after generation, stripped before TTS, approved if needed, then executed.

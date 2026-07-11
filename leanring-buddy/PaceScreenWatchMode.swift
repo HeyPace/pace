@@ -178,11 +178,4 @@ final class PaceScreenWatchModeController {
         watchTask = nil
         changeDetector.reset()
     }
-
-    /// Test seam: publishes a synthetic watch event through the same
-    /// Combine publisher live subscribers use. Lets unit tests verify
-    /// generator wiring without running a real screen capture loop.
-    func publishEventForTesting(_ event: PaceScreenWatchEvent) {
-        eventPublisher.send(event)
-    }
 }

@@ -54,18 +54,6 @@ final class PaceSpotlightMemoryIndexer {
         }
     }
 
-    /// Delete the Spotlight mirror entirely. Called when the user
-    /// resets memory — `PaceMemoryStore.clear()` is paired with this
-    /// in CompanionManager so the on-disk JSON and the Spotlight
-    /// mirror are wiped atomically from the user's perspective.
-    func deleteAllMirroredItems() {
-        spotlightIndex.deleteSearchableItems(withDomainIdentifiers: [spotlightDomainIdentifier]) { error in
-            if let error {
-                print("⚠️  Spotlight memory mirror clear failed: \(error.localizedDescription)")
-            }
-        }
-    }
-
     // MARK: - Pure mapping helpers
 
     /// Build the searchable-item list from a flat entry list. Pure

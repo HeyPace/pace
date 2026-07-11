@@ -271,14 +271,6 @@ final class PaceProactivityPipeline {
         return watchModeObservationNudgeGenerator.identifier
     }
 
-    /// Stamps the proactive cooldown clock from CompanionManager's
-    /// own emit path (the `speakProactiveNudge` callback). Keeps the
-    /// timestamp owned by the pipeline so the gate-context builder
-    /// stays self-contained.
-    func markProactiveUtteranceSpoken(at now: Date = Date()) {
-        lastProactiveUtteranceAt = now
-    }
-
     // MARK: - Internal helpers
 
     /// Built by every nudge generator on every gate decision. Reads

@@ -632,15 +632,6 @@ final class PaceScreenContextService {
         )
     }
 
-    /// Drops every cached entry. Intended for analyzer-identity or
-    /// display-set changes that should invalidate everything in one
-    /// shot. Logs the reason so audit trails make the why visible.
-    func invalidateAllCachedAnalysis(reason: String) {
-        guard !perScreenAnalysisCache.isEmpty else { return }
-        print("👁️  Invalidating \(perScreenAnalysisCache.count) cached screen analyses — \(reason)")
-        perScreenAnalysisCache.removeAll()
-    }
-
     // MARK: - Internal helpers (moved verbatim from CompanionManager)
 
     /// Build the planner prompt from already-enriched analyses (the
