@@ -398,7 +398,7 @@ struct PaceBundledModelsSettingsTab: View {
                     Text("Contribute anonymized planner turns")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(DS.Colors.textPrimary)
-                    Text("On by default. Local planner turns (not cloud bridge or research) append to ~/Library/Application Support/Pace/pace-tuned-turns.jsonl after emails, phone numbers, and home paths are redacted — the file never leaves your Mac. Copy into the repo with bash scripts/export-pace-tuned-turns.sh before LoRA training. Turn off to stop collecting.")
+                    Text("On by default. Planner turns — including cloud ones like Codex — append to ~/Library/Application Support/Pace/pace-tuned-turns.jsonl after emails, phone numbers, and home paths are redacted; each turn is tagged with which brain produced it. The file never leaves your Mac. Copy into the repo with bash scripts/export-pace-tuned-turns.sh before training. Turn off to stop collecting.")
                         .font(.system(size: 12))
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
