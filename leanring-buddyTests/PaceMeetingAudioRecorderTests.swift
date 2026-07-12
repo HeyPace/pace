@@ -122,6 +122,14 @@ struct PaceMeetingAudioRecorderTests {
 
         let recorder = makeRecorder(in: tempDir)
 
+        // Create the recording dir explicitly. The recorder's own writer
+        // would create it lazily, but this test deliberately does NOT use
+        // the writer — so we make the dir ourselves, otherwise the manual
+        // `.part` write below throws "no such file or directory"
+        // (`Data.write` does not create intermediate directories, and
+        // macOS 27 enforces that where earlier versions were lenient).
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
         // Simulate a crash: a `.part` file left on disk with its placeholder
         // (zero) header and PCM data, but never finalized. We write it
         // manually — the writer is intentionally NOT used here, so there is
