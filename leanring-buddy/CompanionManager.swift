@@ -878,6 +878,13 @@ final class CompanionManager: ObservableObject {
         PacePlannerTierStore.loadConfiguration().tier
     }()
 
+    /// Which CLI the `.cliDirect` tier direct-spawns (Claude Code / Codex).
+    /// Default `.codex`. Persisted via `PacePlannerTierStore`; the setter
+    /// lives in CompanionManager+PlannerTierPicker.swift.
+    @Published var activePlannerTierCLIDirectUpstream: PaceLocalCLIUpstream = {
+        PacePlannerTierStore.loadConfiguration().cliDirectUpstream
+    }()
+
     /// The provider Direct-API turns will target when tier == .directAPI.
     @Published var directAPIProvider: PaceDirectAPIProvider = {
         PacePlannerTierStore.loadConfiguration().directAPIProvider

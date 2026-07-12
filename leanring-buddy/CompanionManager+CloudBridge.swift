@@ -72,4 +72,54 @@ You can turn this off at any time in Settings → Cloud bridge.
         }
         return userAccepted
     }
+
+    /// Shows the one-time DIRECT-SPAWN consent NSAlert for the
+    /// `.cliDirect` tier. This is a DIFFERENT data path from the Node
+    /// bridge — Pace spawns your local `codex`/`claude` CLI itself, which
+    /// sends the turn off your Mac via that provider — so the bridge
+    /// consent does NOT auto-grant it (and vice versa). On acceptance we
+    /// persist the direct-spawn consent flag AND start the 24-hour soak
+    /// clock so the first real turn is gated exactly like the bridge.
+    /// Returns true if the user accepted, false if they cancelled.
+    /// The alert defaults to Cancel (the second button is the return key
+    /// default is avoided by ordering accept first but the modal's cancel
+    /// wiring keeps escape → keep-local).
+    func requestDirectSpawnConsentIfNeeded(
+        upstream: PaceLocalCLIUpstream
+    ) -> Bool {
+        guard !PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent() else {
+            // Already accepted — no dialog needed.
+            return true
+        }
+
+        let consentAlert = NSAlert()
+        consentAlert.alertStyle = .warning
+        consentAlert.messageText = "Send data outside Pace?"
+        consentAlert.informativeText = """
+This tier spawns your local \(upstream.displayLabel) CLI directly \
+(no bridge server), which sends this turn's transcript and screen \
+context off your Mac via that provider — Anthropic for Claude Code, \
+OpenAI for Codex. Their data-handling policies apply.
+
+Pace tints the menu-bar capsule amber whenever a direct-spawn turn \
+is in flight, and logs each call to the local privacy dashboard.
+
+You can switch back to a local tier at any time in Settings → Planner.
+"""
+        consentAlert.addButton(withTitle: "Use \(upstream.displayLabel)")
+        consentAlert.addButton(withTitle: "Keep local only")
+
+        NSApp.activate(ignoringOtherApps: true)
+        let userResponse = consentAlert.runModal()
+        let userAccepted = userResponse == .alertFirstButtonReturn
+
+        if userAccepted {
+            PaceCloudBridgeConsent.acceptDirectSpawnConsent()
+            // Start the 24-hour soak clock now, at consent time — the
+            // first real turn is allowed only once it elapses. Mirrors the
+            // bridge's "restart the soak gate" behavior on first select.
+            PaceCloudBridgeConsent.markDirectSpawnFirstUsedIfUnset(now: Date())
+        }
+        return userAccepted
+    }
 }

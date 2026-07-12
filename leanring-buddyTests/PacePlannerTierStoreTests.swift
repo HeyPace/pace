@@ -27,7 +27,8 @@ struct PacePlannerTierStoreTests {
         "pace.planner.tier.directAPI.provider",
         "pace.planner.tier.directAPI.model",
         "pace.planner.tier.directAPI.customEndpointURL",
-        "pace.planner.tier.directAPI.fallsBackToLocalOnFailure"
+        "pace.planner.tier.directAPI.fallsBackToLocalOnFailure",
+        "pace.planner.tier.cliDirect.upstream"
     ]
 
     /// Saves and restores the full set of tier-picker keys around the test
@@ -217,7 +218,8 @@ struct PacePlannerTierStoreTests {
                 directAPIProvider: providerUnderTest,
                 directAPIModelIdentifier: providerUnderTest.defaultModelIdentifier,
                 directAPICustomEndpointURLString: "https://ignored-because-not-custom.example.com",
-                fallsBackToLocalOnCloudFailure: false
+                fallsBackToLocalOnCloudFailure: false,
+                cliDirectUpstream: .codex
             )
             let resolved = PacePlannerTierStore.resolvedDirectAPIEndpointURLString(for: configuration)
             #expect(resolved == providerUnderTest.defaultEndpointURLString)
@@ -232,7 +234,8 @@ struct PacePlannerTierStoreTests {
             directAPIProvider: .custom,
             directAPIModelIdentifier: "custom-model",
             directAPICustomEndpointURLString: pastedCustomEndpointURLString,
-            fallsBackToLocalOnCloudFailure: false
+            fallsBackToLocalOnCloudFailure: false,
+            cliDirectUpstream: .codex
         )
         #expect(PacePlannerTierStore.resolvedDirectAPIEndpointURLString(for: configuration) == pastedCustomEndpointURLString)
     }
@@ -271,14 +274,16 @@ struct PacePlannerTierStoreTests {
             directAPIProvider: .anthropic,
             directAPIModelIdentifier: "claude-sonnet-4-5",
             directAPICustomEndpointURLString: "",
-            fallsBackToLocalOnCloudFailure: false
+            fallsBackToLocalOnCloudFailure: false,
+            cliDirectUpstream: .codex
         )
         let configurationB = PacePlannerTierConfiguration(
             tier: .directAPI,
             directAPIProvider: .anthropic,
             directAPIModelIdentifier: "claude-sonnet-4-5",
             directAPICustomEndpointURLString: "",
-            fallsBackToLocalOnCloudFailure: false
+            fallsBackToLocalOnCloudFailure: false,
+            cliDirectUpstream: .codex
         )
         #expect(configurationA == configurationB)
 
@@ -287,8 +292,61 @@ struct PacePlannerTierStoreTests {
             directAPIProvider: .anthropic,
             directAPIModelIdentifier: "claude-sonnet-4-5",
             directAPICustomEndpointURLString: "",
-            fallsBackToLocalOnCloudFailure: false
+            fallsBackToLocalOnCloudFailure: false,
+            cliDirectUpstream: .codex
         )
         #expect(configurationA != configurationDifferentTier)
+    }
+
+    // MARK: - .cliDirect tier (OpenSpec codex-general-brain)
+
+    @Test
+    func cliDirectTierRawValueRoundTripsAndDecodesFromPersistence() {
+        // Additive-decode guarantee: `.cliDirect` must round-trip through
+        // its raw value AND persist/load like every other tier so an
+        // existing user's persisted tier is never disturbed.
+        #expect(PacePlannerTier(rawValue: "cliDirect") == .cliDirect)
+        withClearedAndRestoredPlannerTierState {
+            PacePlannerTierStore.saveTier(.cliDirect)
+            #expect(PacePlannerTierStore.loadConfiguration().tier == .cliDirect)
+        }
+    }
+
+    @Test
+    func everyLegacyTierRawValueStillDecodesAfterAddingCLIDirect() {
+        // The four pre-existing tiers must decode byte-for-byte — this is
+        // the "existing persisted tiers still decode" regression guard.
+        #expect(PacePlannerTier(rawValue: "local") == .local)
+        #expect(PacePlannerTier(rawValue: "cliBridge") == .cliBridge)
+        #expect(PacePlannerTier(rawValue: "directAPI") == .directAPI)
+        #expect(PacePlannerTier(rawValue: "appleFoundationModels") == .appleFoundationModels)
+    }
+
+    @Test
+    func cliDirectUpstreamDefaultsToCodexOnFreshInstall() {
+        withClearedAndRestoredPlannerTierState {
+            let configuration = PacePlannerTierStore.loadConfiguration()
+            #expect(configuration.cliDirectUpstream == .codex)
+        }
+    }
+
+    @Test
+    func cliDirectUpstreamPersistsAcrossLoads() {
+        withClearedAndRestoredPlannerTierState {
+            for upstreamUnderTest: PaceLocalCLIUpstream in [.claude, .codex] {
+                PacePlannerTierStore.saveCLIDirectUpstream(upstreamUnderTest)
+                #expect(PacePlannerTierStore.loadConfiguration().cliDirectUpstream == upstreamUnderTest)
+            }
+        }
+    }
+
+    @Test
+    func unknownLegacyCLIDirectUpstreamValueResolvesToCodex() {
+        withClearedAndRestoredPlannerTierState {
+            // Simulate a corrupted / future value on disk — it must not
+            // strand the tier; it resolves to the `.codex` default.
+            UserDefaults.standard.set("gemini", forKey: "pace.planner.tier.cliDirect.upstream")
+            #expect(PacePlannerTierStore.loadConfiguration().cliDirectUpstream == .codex)
+        }
     }
 }

@@ -213,6 +213,9 @@ enum BuddyPlannerClientFactory {
         case .cliBridge:
             return makeCLIBridgePlannerOrLocalFallback()
 
+        case .cliDirect:
+            return makeCLIDirectPlannerOrLocalFallback(configuration: plannerTierConfiguration)
+
         case .local:
             // The historical cloud-bridge UserDefaults still apply when
             // tier=.local — pre-tier-picker upgraders who enabled the
@@ -287,6 +290,82 @@ enum BuddyPlannerClientFactory {
         case .off:
             print("⚠️ Planner: tier=cliBridge but mode=off — falling back to local")
             return makeLocalOrFoundationModelsPlanner()
+        }
+    }
+
+    /// Default model identifier the `.cliDirect` tier forwards to each
+    /// upstream via `--model`. nil lets the CLI pick its own default,
+    /// which is the safest choice for a general brain (the CLI's default
+    /// is the model the user already authenticated). Kept as a function
+    /// so the per-upstream policy has one home if it ever needs to differ.
+    static func defaultModelIdentifierForCLIDirect(
+        upstream: PaceLocalCLIUpstream
+    ) -> String? {
+        switch upstream {
+        case .claude: return nil
+        case .codex:  return nil
+        }
+    }
+
+    /// Pure decision for whether the `.cliDirect` tier may spawn the CLI
+    /// this launch, given consent + soak state. Extracted so the
+    /// privacy-critical gate can be unit-tested without device/Keychain
+    /// state. `.spawnCLI` means the factory builds `PaceLocalCLIPlannerClient`;
+    /// `.fallBackToLocal` carries a human-readable reason for the log.
+    enum CLIDirectDispatchDecision: Equatable {
+        case spawnCLI
+        case fallBackToLocal(reason: String)
+    }
+
+    static func cliDirectDispatchDecision(
+        hasAcceptedDirectSpawnConsent: Bool,
+        canRunDirectSpawnTurn: Bool
+    ) -> CLIDirectDispatchDecision {
+        guard hasAcceptedDirectSpawnConsent else {
+            return .fallBackToLocal(reason: "direct-spawn consent not accepted")
+        }
+        guard canRunDirectSpawnTurn else {
+            return .fallBackToLocal(reason: "direct-spawn 24-hour soak has not elapsed")
+        }
+        return .spawnCLI
+    }
+
+    /// Constructs the direct-spawn planner (`PaceLocalCLIPlannerClient`)
+    /// when the user has accepted the DIRECT-SPAWN consent AND the 24-hour
+    /// soak has elapsed. Falls back to local (with a logged reason)
+    /// otherwise so the tier picker never strands the user without a
+    /// working planner. The SAME `CompanionSystemPrompt` flows through the
+    /// returned client via the normal `generateResponseStreaming` call in
+    /// the agent loop — no tier-specific prompt handling here.
+    ///
+    /// Off-device safety contract for `.cliDirect` (mirrors `.cliBridge`
+    /// / `.directAPI`) is satisfied at the turn level, not here:
+    ///   - amber capsule: the agent loop flips `isOffDeviceTurnInFlight`
+    ///     when `plannerClientForThisTurn is PaceLocalCLIPlannerClient`;
+    ///   - audit entry: `PaceLocalCLIPlannerClient` records a
+    ///     `planner.cliDirect` line per turn (bytes + upstream target);
+    ///   - fail-loud: the agent loop's catch narrates via
+    ///     `PaceFailureNarrator` with no silent local retry.
+    @MainActor
+    private static func makeCLIDirectPlannerOrLocalFallback(
+        configuration: PacePlannerTierConfiguration
+    ) -> any BuddyPlannerClient {
+        let decision = cliDirectDispatchDecision(
+            hasAcceptedDirectSpawnConsent: PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
+            canRunDirectSpawnTurn: PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+        )
+        switch decision {
+        case .fallBackToLocal(let reason):
+            print("⚠️ Planner: tier=cliDirect selected but \(reason) — falling back to local")
+            return makeLocalOrFoundationModelsPlanner()
+        case .spawnCLI:
+            let upstream = configuration.cliDirectUpstream
+            let directSpawnPlanner = PaceLocalCLIPlannerClient(
+                upstream: upstream,
+                modelIdentifier: defaultModelIdentifierForCLIDirect(upstream: upstream)
+            )
+            print("🧠 Planner: using \(directSpawnPlanner.displayName) [tier=cliDirect upstream=\(upstream.rawValue)]")
+            return directSpawnPlanner
         }
     }
 

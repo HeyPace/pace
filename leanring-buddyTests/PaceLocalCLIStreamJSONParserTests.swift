@@ -100,6 +100,45 @@ struct PaceLocalCLIStreamJSONParserTests {
         #expect(PaceLocalCLIStreamJSONParser.extractCodexChunk(fromLine: "") == "")
     }
 
+    // MARK: codex fixture stream (drift guard for `.cliDirect` tier)
+    //
+    // These pin the exact `codex exec --json` line shapes the direct-spawn
+    // `.cliDirect` tier depends on, so a codex version that changes its
+    // event envelope is caught by CI instead of surfacing as a silent
+    // "Pace said nothing" turn.
+
+    @Test func codexFixtureStreamAssemblesOnlyAgentMessageText() async throws {
+        // A representative `codex exec --json` sequence: session/thread
+        // bookkeeping, a reasoning item, then the agent message we speak.
+        // Only the agent_message text must survive assembly.
+        let fixtureLines = [
+            #"{"type":"thread.started","thread_id":"th_abc123"}"#,
+            #"{"type":"item.started","item":{"type":"agent_message"}}"#,
+            #"{"type":"item.completed","item":{"type":"reasoning","text":"let me think"}}"#,
+            #"{"type":"item.completed","item":{"type":"agent_message","text":"Opening Safari now."}}"#,
+            #"{"type":"turn.completed","usage":{"input_tokens":42,"output_tokens":7}}"#
+        ]
+        var assembled = ""
+        for line in fixtureLines {
+            assembled += PaceLocalCLIStreamJSONParser.extractCodexChunk(fromLine: line)
+        }
+        #expect(assembled == "Opening Safari now.")
+    }
+
+    @Test func codexFixtureStreamExposesNoResumableSessionId() async throws {
+        // Codex `exec --json` does not surface a claude-style session_id we
+        // resume on, so the claude session-id extractor must return nil for
+        // every codex line — this is why the client passes `{ _ in nil }`
+        // for codex. Pinning it keeps the resume contract honest.
+        let fixtureLines = [
+            #"{"type":"thread.started","thread_id":"th_abc123"}"#,
+            #"{"type":"item.completed","item":{"type":"agent_message","text":"done"}}"#
+        ]
+        for line in fixtureLines {
+            #expect(PaceLocalCLIStreamJSONParser.extractClaudeSessionId(fromLine: line) == nil)
+        }
+    }
+
     // MARK: prompt composition
 
     @Test func composeInitialUserPromptIncludesHistoryWhenPresent() async throws {
