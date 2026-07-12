@@ -5,6 +5,7 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_dispatch: {}   # manual trigger — used for the opt-in coverage build
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -24,6 +25,11 @@ jobs:
     name: Build & Test (macOS)
     runs-on: macos-latest
     timeout-minutes: 60
+    # Code-coverage instrumentation slows both the build and the test run
+    # and nothing gates on it, so it is OFF for push / PR runs and only
+    # turned on for a manual (workflow_dispatch) coverage run.
+    env:
+      ENABLE_COVERAGE: ${{ github.event_name == 'workflow_dispatch' && 'YES' || 'NO' }}
 
     steps:
       - name: Checkout
@@ -38,6 +44,10 @@ jobs:
           xcodebuild -version
           xcodebuild -showsdks
 
+      - name: Xcode version (for cache key)
+        id: xcode
+        run: echo "id=$(xcodebuild -version | tr '\n .' '---')" >> "$GITHUB_OUTPUT"
+
       - name: Install Metal Toolchain
         run: |
           # The MLX dependency requires the Metal toolchain, which is
@@ -45,15 +55,20 @@ jobs:
           # Download it explicitly before building.
           xcodebuild -downloadComponent MetalToolchain || true
 
-      - name: Cache SPM packages
+      # Cache the whole DerivedData — SwiftPM sources AND compiled build
+      # products (including mlx-swift's Metal shaders, the slowest thing to
+      # compile from scratch). Keyed on Xcode version + Package.resolved so
+      # a toolchain or dependency change busts it; github.sha makes each run
+      # save a fresh cache, and the restore-keys fall back to the most
+      # recent cache so Xcode only incrementally recompiles what changed.
+      - name: Cache Xcode DerivedData (SPM + build products)
         uses: actions/cache@v4
         with:
-          path: |
-            ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
-            .build
-          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-dd-${{ steps.xcode.outputs.id }}-${{ hashFiles('**/Package.resolved') }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-spm-
+            ${{ runner.os }}-dd-${{ steps.xcode.outputs.id }}-${{ hashFiles('**/Package.resolved') }}-
+            ${{ runner.os }}-dd-${{ steps.xcode.outputs.id }}-
 
       - name: Build for testing
         run: |
@@ -64,7 +79,7 @@ jobs:
               -scheme leanring-buddy \
               -destination "platform=macOS" \
               -configuration Debug \
-              CLANG_ENABLE_CODE_COVERAGE=YES \
+              CLANG_ENABLE_CODE_COVERAGE=${{ env.ENABLE_COVERAGE }} \
               CODE_SIGNING_ALLOWED=NO \
               CODE_SIGNING_REQUIRED=NO \
               CODE_SIGN_IDENTITY="" \
@@ -76,7 +91,7 @@ jobs:
               -scheme leanring-buddy \
               -destination "platform=macOS" \
               -configuration Debug \
-              CLANG_ENABLE_CODE_COVERAGE=YES \
+              CLANG_ENABLE_CODE_COVERAGE=${{ env.ENABLE_COVERAGE }} \
               CODE_SIGNING_ALLOWED=NO \
               CODE_SIGNING_REQUIRED=NO \
               CODE_SIGN_IDENTITY=""
@@ -92,7 +107,7 @@ jobs:
               -scheme leanring-buddy \
               -destination "platform=macOS" \
               -configuration Debug \
-              CLANG_ENABLE_CODE_COVERAGE=YES \
+              CLANG_ENABLE_CODE_COVERAGE=${{ env.ENABLE_COVERAGE }} \
               CODE_SIGNING_ALLOWED=NO \
               CODE_SIGNING_REQUIRED=NO \
               CODE_SIGN_IDENTITY="" \
@@ -104,13 +119,14 @@ jobs:
               -scheme leanring-buddy \
               -destination "platform=macOS" \
               -configuration Debug \
-              CLANG_ENABLE_CODE_COVERAGE=YES \
+              CLANG_ENABLE_CODE_COVERAGE=${{ env.ENABLE_COVERAGE }} \
               CODE_SIGNING_ALLOWED=NO \
               CODE_SIGNING_REQUIRED=NO \
               CODE_SIGN_IDENTITY=""
           fi
 
       - name: Extract coverage
+        if: env.ENABLE_COVERAGE == 'YES'
         run: |
           # Find the xcresult bundle
           XCRESULT=$(find ~/Library/Developer/Xcode/DerivedData -name '*.xcresult' -type d | head -1)
@@ -130,7 +146,7 @@ jobs:
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
-        if: always()
+        if: env.ENABLE_COVERAGE == 'YES'
         with:
           name: coverage-report
           path: coverage-report.json
