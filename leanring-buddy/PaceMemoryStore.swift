@@ -64,10 +64,4 @@ final class PaceMemoryStore {
         try? data.write(to: fileURL, options: .atomic)
     }
 
-    /// Remove the persisted memory index. Called on an explicit reset so
-    /// "reset all memory" actually clears the on-disk copy too.
-    func clear() {
-        guard let fileURL else { return }
-        try? FileManager.default.removeItem(at: fileURL)
-    }
 }

@@ -98,12 +98,6 @@ nonisolated final class PaceAPIAuditLog: @unchecked Sendable {
         return newTurnId
     }
 
-    func endCurrentTurn() {
-        currentTurnIdLock.lock()
-        _currentTurnId = nil
-        currentTurnIdLock.unlock()
-    }
-
     init(logFileURL: URL? = nil) {
         self.logFileURL = logFileURL ?? Self.defaultLogFileURL()
         let configuredEncoder = JSONEncoder()

@@ -60,8 +60,6 @@ nonisolated struct PaceMeetingTurn: Equatable, Sendable {
 
 /// Pure turn segmenter. No state, no I/O.
 nonisolated enum PaceMeetingTurnSegmenter {
-    /// Silence threshold: RMS below this is always silence.
-    static let silenceThreshold: Float = 0.01
     /// Speech threshold: RMS above this is always speech. Between the
     /// two thresholds the hysteresis state holds (keeps a turn alive).
     static let speechThreshold: Float = 0.04

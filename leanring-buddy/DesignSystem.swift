@@ -38,9 +38,6 @@ enum DS {
         /// base background. Pure-black main surface means cards need
         /// their OWN tint (rather than the previous "opacity over
         /// off-black gray" trick) so they read as elevated. Very dark
-        /// neutral with a near-imperceptible warmth so the UI doesn't
-        /// feel like a flat OLED test pattern.
-        static let surfaceElevated = Color(hex: "#0B0B0D")
 
         // ── Borders ──────────────────────────────────────────────────
 

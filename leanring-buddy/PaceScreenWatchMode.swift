@@ -133,9 +133,6 @@ final class PaceScreenWatchModeController {
         self.changeDetector = PaceScreenWatchChangeDetector(configuration: configuration)
     }
 
-    var isWatching: Bool {
-        watchTask != nil
-    }
 
     func startWatching(
         for durationInSeconds: TimeInterval? = nil,
@@ -177,12 +174,5 @@ final class PaceScreenWatchModeController {
         watchTask?.cancel()
         watchTask = nil
         changeDetector.reset()
-    }
-
-    /// Test seam: publishes a synthetic watch event through the same
-    /// Combine publisher live subscribers use. Lets unit tests verify
-    /// generator wiring without running a real screen capture loop.
-    func publishEventForTesting(_ event: PaceScreenWatchEvent) {
-        eventPublisher.send(event)
     }
 }

@@ -26,8 +26,18 @@ cd "$PROJECT_DIR"
 # DEVELOPER_DIR is required by periphery's xcrun calls. Pin to the
 # main Xcode app explicitly so this works even if xcode-select
 # happens to point elsewhere.
-if [ -d /Applications/Xcode.app/Contents/Developer ]; then
-    export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+if [ -z "${DEVELOPER_DIR:-}" ]; then
+    if [ -d /Applications/Xcode.app/Contents/Developer ]; then
+        export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+    else
+        # Fall back to a versioned Xcode (e.g. Xcode-27.0.0-Beta.3.app),
+        # mirroring scripts/test-pace.sh. Exclude Xcodes.app (the version
+        # manager — it has no Contents/Developer).
+        beta_xcode="$(/usr/bin/find /Applications -maxdepth 1 -name 'Xcode*.app' ! -name 'Xcodes.app' -type d 2>/dev/null | /usr/bin/sort | /usr/bin/tail -1)"
+        if [ -n "$beta_xcode" ] && [ -d "$beta_xcode/Contents/Developer" ]; then
+            export DEVELOPER_DIR="$beta_xcode/Contents/Developer"
+        fi
+    fi
 fi
 
 if [ ! -d /tmp/pace-test-derived-data/Index.noindex/DataStore ]; then

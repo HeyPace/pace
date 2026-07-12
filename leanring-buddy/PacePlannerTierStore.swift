@@ -82,13 +82,6 @@ nonisolated enum PaceDirectAPIProvider: String, Equatable, Codable, CaseIterable
     var usesAnthropicAuthHeader: Bool {
         return self == .anthropic
     }
-
-    /// Whether the provider requires `https://` (rejecting `http://` to
-    /// non-loopback hosts). `.custom` opts into the loopback exception so
-    /// developers can point at a local OpenAI-compatible proxy.
-    var requiresHTTPS: Bool {
-        return self != .custom
-    }
 }
 
 // MARK: - PacePlannerTierConfiguration

@@ -72,9 +72,6 @@ final class PaceNamedDestinationStore {
         return true
     }
 
-    var all: [PaceNamedDestination] {
-        destinationsByKey.values.sorted { $0.createdAt > $1.createdAt }
-    }
 
     // MARK: - Normalization / matching
 

@@ -136,13 +136,6 @@ extension CompanionManager {
         }
     }
 
-    /// Clear the per-session approval cache. Wired into the existing
-    /// session-reset path so a thread-memory wipe also resets the
-    /// "this flow is approved" memory.
-    func resetFlowReplayApprovalCacheForSession() {
-        flowNamesApprovedForReplayThisSession.removeAll()
-    }
-
     /// Helper exposed for the `run_flow` tool callback the executor
     /// invokes. Returns true if the replay actually kicked off; false
     /// when the flow needs explicit user approval that hasn't been

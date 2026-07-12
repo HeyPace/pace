@@ -36,11 +36,4 @@ final class PaceAutoUpdateController: NSObject {
         super.init()
         print("🔄 PaceAutoUpdateController: started (feed=\(self.updaterController.updater.feedURL?.absoluteString ?? "unset"))")
     }
-
-    /// Hook for a Settings-window "Check for updates…" button. Sparkle
-    /// shows its own UI (no update / found update / installing) so this
-    /// is a single call.
-    func checkForUpdatesManually() {
-        updaterController.checkForUpdates(nil)
-    }
 }

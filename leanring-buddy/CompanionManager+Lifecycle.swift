@@ -720,17 +720,6 @@ extension CompanionManager {
         }
     }
 
-    static func isEventKitPermissionGranted(_ authorizationStatus: EKAuthorizationStatus) -> Bool {
-        switch authorizationStatus {
-        case .authorized, .fullAccess:
-            return true
-        case .notDetermined, .restricted, .denied, .writeOnly:
-            return false
-        @unknown default:
-            return false
-        }
-    }
-
     /// Triggers the macOS screen content picker by performing a dummy
     /// screenshot capture. Once the user approves, we persist the grant
     /// so they're never asked again during onboarding.

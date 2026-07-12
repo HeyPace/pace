@@ -88,15 +88,6 @@ final class MenuBarPanelManager: NSObject {
         }
     }
 
-    /// Opens the panel automatically on app launch so the user sees
-    /// permissions and the start button right away.
-    func showPanelOnLaunch() {
-        // Small delay so the notch overlay has time to appear in the menu bar.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            self.showPanel()
-        }
-    }
-
     func togglePanel() {
         if let panel, panel.isVisible {
             hidePanel()

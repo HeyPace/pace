@@ -489,15 +489,6 @@ final class PaceMeetingModeController: ObservableObject {
             .first { normalized.contains($0) }
     }
 
-    /// Toggle meeting mode on/off. A toggle during `.starting` stops
-    /// the spinning-up capture rather than being ignored.
-    func toggle() async {
-        if state == .active || state == .starting {
-            await stop()
-        } else {
-            await start()
-        }
-    }
 
     // MARK: - Audio handling
 

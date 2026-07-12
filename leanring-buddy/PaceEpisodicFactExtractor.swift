@@ -378,23 +378,6 @@ final class PaceEpisodicLMStudioFactExtractor: PaceEpisodicFactExtractor, @unche
     }
 }
 
-// MARK: - No-op extractor
-
-/// Returned by the factory when neither Apple FM nor LM Studio are
-/// reachable at construction time. Lets the wiring in
-/// `CompanionManager` stay non-optional — calling `extract` on the
-/// no-op extractor is cheap and safe.
-final class PaceEpisodicNoOpFactExtractor: PaceEpisodicFactExtractor, @unchecked Sendable {
-    func extract(
-        userTranscript: String,
-        assistantSpokenText: String,
-        frontmostAppName: String?,
-        turnId: String
-    ) async -> [PaceEpisodicFact] {
-        []
-    }
-}
-
 // MARK: - Factory
 
 /// Choose the extractor implementation. Apple FM wins whenever
