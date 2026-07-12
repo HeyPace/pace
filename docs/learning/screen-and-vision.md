@@ -32,6 +32,12 @@ click-recovery loop for when a guess misses. Foundational frameworks
 - Where: `PaceSetOfMarkRenderer.swift` — `PaceSetOfMarkRenderer.drawMarks(onJPEG:boxes:)`.
 - Source: internal — no external spec.
 
+## Set-of-Mark mark-reading measurement
+- What: Set-of-Mark itself — numbering candidate regions on a screenshot so a VLM answers "which numbered mark" instead of emitting raw coordinates — is the technique behind both the click-recovery entries above; this entry is specifically about *measuring* how accurately a given VLM reads the marks.
+- Why here: Pace shipped Set-of-Mark click recovery without ever measuring the one number that determines whether it helps — how often the VLM picks the right mark index. `scripts/eval-vlm-mark-reading.py` closes that gap: it generates 119 synthetic Set-of-Mark cases (12 layouts × 5–15 elements) using `PaceSetOfMarkRenderer`'s exact drawing convention, so the eval measures the real rendering path, not an approximation of it.
+- Where: `scripts/eval-vlm-mark-reading.py` (mark-reading accuracy on synthetic layouts) and `scripts/eval-vlm-grounding.py` (real-VLM fixture eval against an AX-blind baseline, `capture-grounding-corpus.sh` builds the fixture corpus). As of 2026-07-12 both scripts exist and run against LM Studio, but per `PROJECT_STATUS.md`, first numbers are still pending an actual LM Studio run — treat any specific accuracy figure as not yet measured until that entry is updated.
+- Source: https://arxiv.org/abs/2310.11441 (same paper as Set-of-Mark click recovery above).
+
 ## Vision OCR client
 - What: A wrapper around Apple's Vision text-recognition request, run at the accurate recognition level, returning text plus bounding boxes.
 - Why here: Grounds "what does that text say" / "click the button labeled X" turns in real on-screen text rather than relying on the VLM's element-map guesses alone — fully on-device, ~50-200 ms per screenshot.
