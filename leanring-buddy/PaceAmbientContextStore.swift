@@ -149,7 +149,7 @@ final class PaceAmbientContextStore: ObservableObject {
 
         // Take an immediate snapshot so the planner has context from
         // the first turn.
-        refreshSnapshot()
+        refreshSnapshot(forcePublish: true)
 
         let timer = Timer(
             timeInterval: pollIntervalSeconds,
@@ -179,7 +179,7 @@ final class PaceAmbientContextStore: ObservableObject {
     /// task — AX attribute reads are synchronous IPC into the frontmost
     /// app, and a hung app would otherwise stall the MainActor every
     /// 3-second poll.
-    private func refreshSnapshot() {
+    private func refreshSnapshot(forcePublish: Bool = false) {
         let frontmostApp = NSWorkspace.shared.frontmostApplication
         let appName = frontmostApp?.localizedName
         let bundleID = frontmostApp?.bundleIdentifier
@@ -217,7 +217,7 @@ final class PaceAmbientContextStore: ObservableObject {
 
         // Only publish if something meaningful changed (avoids
         // unnecessary @Published churn).
-        if snapshot != currentSnapshot {
+        if forcePublish || snapshot != currentSnapshot {
             currentSnapshot = snapshot
         }
 
