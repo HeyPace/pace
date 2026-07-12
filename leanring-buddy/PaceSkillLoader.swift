@@ -136,12 +136,58 @@ enum PaceSkillLoader {
     static func toPlannerPrompt(_ skill: PaceSkillFile) -> String {
         var prompt = "Execute the \"\(skill.name)\" skill. Follow these steps:\n\n"
         for (index, step) in skill.steps.enumerated() {
-            prompt += "\(index + 1). \(step.instruction)\n"
+            // A step with a non-nil `toolCall` was authored to run a
+            // specific tool, so we append an explicit directive using the
+            // SAME tool-call JSON dialect the planner sees everywhere else
+            // (`PaceLocalToolDefinition.schemaExample`, e.g.
+            // `{"tool":"create_note",...}`). A step WITHOUT a toolCall
+            // renders exactly as before — byte-identical — so natural-
+            // language skills are unaffected.
+            if let toolCallJSON = step.toolCall, !toolCallJSON.isEmpty {
+                prompt += "\(index + 1). \(step.instruction) (use tool: \(toolCallJSON))\n"
+            } else {
+                prompt += "\(index + 1). \(step.instruction)\n"
+            }
         }
         if let notes = skill.notes, !notes.isEmpty {
             prompt += "\nContext: \(notes)\n"
         }
         return prompt
+    }
+
+    // MARK: - Run-time preference enforcement
+
+    /// The outcome of checking a skill's `requiredPreferences` before a
+    /// run. `.ready` means every required preference is set and the run
+    /// may proceed. `.missingPreference` names the FIRST unset preference
+    /// so the caller can speak a precise, plain-language message.
+    enum PaceSkillRunPreflight: Equatable {
+        case ready
+        case missingPreference(preferenceKey: String)
+    }
+
+    /// Deterministic, no-LLM check run BEFORE a taught skill executes.
+    /// Mirrors `PaceRecipeLibrary.install`'s `requiredPreferences` gate —
+    /// it reads through the SAME `PaceLocalMemoryStoreReadable` abstraction
+    /// the recipe installer uses (`PaceLocalMemoryStore` in production), so
+    /// there is exactly one source of truth for where a required preference
+    /// lives. A preference is "set" only when the store returns a non-nil
+    /// value for it. Unknown keys (not a valid `PaceLocalMemoryKey`) are
+    /// treated as missing, because a skill can't run against a preference
+    /// Pace doesn't know how to read.
+    static func preflightRequiredPreferences(
+        for skill: PaceSkillFile,
+        memoryStore: PaceLocalMemoryStoreReadable.Type = PaceLocalMemoryStore.self
+    ) -> PaceSkillRunPreflight {
+        for requiredPreferenceKey in skill.requiredPreferences {
+            guard let resolvedKey = PaceLocalMemoryKey(rawValue: requiredPreferenceKey) else {
+                return .missingPreference(preferenceKey: requiredPreferenceKey)
+            }
+            if memoryStore.string(for: resolvedKey) == nil {
+                return .missingPreference(preferenceKey: requiredPreferenceKey)
+            }
+        }
+        return .ready
     }
 
     // MARK: - Private helpers

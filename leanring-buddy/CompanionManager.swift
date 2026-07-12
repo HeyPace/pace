@@ -702,6 +702,18 @@ final class CompanionManager: ObservableObject {
     enum DictationTrigger { case keyboard, avatar }
     var currentDictationTrigger: DictationTrigger = .keyboard
 
+    /// Set when a taught-skill run has been dispatched into the agent loop
+    /// and cleared when the turn ends. Carries the fields the skill-run
+    /// journal needs to write the terminal (completed/failed) telemetry
+    /// line without re-loading the skill. Nil for ordinary (non-skill)
+    /// voice turns — telemetry is recorded ONLY when this is set.
+    struct ActiveSkillRun {
+        let runId: String
+        let skillSlug: String
+        let stepsPlanned: Int
+    }
+    var activeSkillRun: ActiveSkillRun?
+
     /// Weak reference set by the app delegate after the avatar overlay
     /// manager attaches. Lets the response overlay's `.nearPoint` anchor
     /// callback ask for the avatar's current frame.
