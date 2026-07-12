@@ -41,6 +41,12 @@ when the Mac is running hot.
 - Where: `PaceThermalStateAdvisor.swift` — `PaceThermalStateAdvisor`, `PaceThermalRecommendation`, `shouldRunSpeculativeRace(underRecommendation:)`
 - Source: https://developer.apple.com/documentation/foundation/processinfo/3000875-thermalstate
 
+## RAM budgeting for co-resident models
+- What: A pure budget model — a per-model resident-RAM registry, a fits/headroom verdict against usable RAM, and a "largest model that fits" search — driving an advisory picker in Settings, not an enforced limit.
+- Why here: Pace can run a planner, a VLM, TTS, and an embedder all resident in RAM at once; picking a bigger local VLM is only safe if something else's footprint shrinks first — offloading the planner to a cloud/Apple-FM brain frees exactly the RAM budget a bigger local VLM needs, and this is the model that makes that trade-off visible instead of a Mac just swapping/thrashing.
+- Where: `PaceModelMemoryBudget.swift` — `PaceModelRole` (5 cases: planner/visionModel/speechToText/textToSpeech/embedder), `PacePlannerMemoryVariant` (per-tier GB estimates, e.g. `localLMStudioQwen3_30B = 18.6`, `appleFoundationModels`/`cloudOffDevice = 0`), `PaceVisionModelSizeTier` (`off`/`uiVenus2B`/`qwen3VL4B`/`qwen3VL8B`/`qwen3VL30BClass`); `usableBudgetGB(totalPhysicalRAMGB:)` reserves 6.0 GB headroom off `ProcessInfo.physicalMemory`; `evaluate(configuration:usableBudgetGB:)` returns the per-model breakdown + fits/headroom verdict; `largestVLMThatFits(givenNonVLMFootprintGB:usableBudgetGB:)` walks tiers biggest-first for a recommendation. Surfaced in Settings → Models via `PaceBundledModelsSettingsTab.memoryBudgetSection`.
+- Source: internal — no external spec; the RAM numbers are empirical (Q4 quantized sizes), not derived from a formula.
+
 ## Research tier
 - What: A fifth intent class (`.research`, e.g. "research X" / "look into Y" / "compare A vs B") and a dedicated tier store — `.cliBridge` (default), `.directAPI`, or `.off` — that swaps in a per-turn planner client with a larger step budget (16 vs. 8) and a hard output-token cap (200k, clamped 50k–500k) for multi-step fetch-read-synthesize turns.
 - Why here: Research turns need more agentic headroom than a normal action turn without silently escalating cost — `.off` (opt-in required) falls back to the existing `.phoneLargeModel` route, and the classifier checks research keywords *before* the phone-a-large-model keywords so "deep research this" lands on the more specific lane.

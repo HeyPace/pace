@@ -54,6 +54,12 @@ Novel frameworks and algorithms powering an entirely on-device voice+action Mac 
 - Gotcha (from code): `PaceLocalEndpointGuard.resolvedLocalOpenAICompatibleBaseURL` (`PaceLocalEndpointGuard.swift:23`) validates every planner and VLM URL at construction time — a plist value pointing at a LAN or remote host silently falls back to `localhost:1234` with a printed warning. Two models can be loaded simultaneously via LM Studio Settings → max-loaded-models=2 (planner + VLM) to avoid thrashing.
 - Source: https://lmstudio.ai/docs/api/openai-api
 
+## LM Studio JIT loading + idle-unload keepalive
+- What: LM Studio loads a configured model on first request (JIT) rather than at server start, and separately auto-unloads a model after an idle period to free RAM — both save memory but cost latency (a cold-load tax) or correctness (mid-session eviction) if the app doesn't account for them.
+- Why here: Pace pays the cold-load tax once, deliberately, at app launch instead of on the user's first real turn — and then fights the idle-unload timer for the rest of the session so a long-idle-then-resume conversation doesn't silently hit a partially-unloaded model.
+- Where: `PaceLMStudioModelLoader.swift` — launch does a throwaway chat-completion per configured model to trigger JIT load and warm it (comment: "the user's first PTT turn doesn't pay the cold-load tax, typically 5-15s on a 14B class model"); `startKeepaliveLoopIfNotRunning()` (line ~242) pings each model every `keepaliveIntervalSeconds = 60` with a `max_tokens: 1` completion, because "eval runs showed the model state degrading turn-over-turn... LM Studio was partial-unloading between calls"; quit unloads explicitly via the `lms unload <model>` CLI so 5-20 GB of weights don't stay resident after Pace exits.
+- Source: https://lmstudio.ai/docs/api/ttl-and-auto-evict
+
 ## BM25 (lexical retrieval ranking)
 - What: Probabilistic term-frequency/inverse-document-frequency ranking algorithm (Okapi BM25) — fast, no embeddings needed, interpretable scores; standard baseline for sparse retrieval in RAG systems.
 - Why here: The production ranking path for all local recall ("what did I do today?", notes, calendar, screen-watch/app-usage journals) — instant and embedding-free, with an optional embedding rerank layered on the top-K.
@@ -65,6 +71,12 @@ Novel frameworks and algorithms powering an entirely on-device voice+action Mac 
 - Why here: Eliminates coordinate hallucination on the Apple FM planner tier — the model picks integer element IDs from the on-screen element list instead of writing raw `[CLICK:x,y]` coordinates.
 - Gotcha (from code): `PaceFMTurnResponse` (`PaceFMTurnResponse.swift:40`) replaces freeform `[CLICK:x,y]` string tags with integer element IDs (`pointAtElementId`, `clickElementId`). The model picks from the on-screen element list or returns -1; it never writes raw coordinates, eliminating the coordinate hallucination failure mode of the string-tag protocol. Trade-off: `respond(to:generating:)` is non-streaming — the full `spokenText` arrives as one chunk, slightly increasing TTFSW vs the streaming string path.
 - Source: https://developer.apple.com/documentation/foundationmodels
+
+## Constrained decoding / structured outputs (`response_format: json_schema`)
+- What: A grammar-level constraint passed to an OpenAI-compatible `/v1/chat/completions` call — `response_format: {"type": "json_schema", "json_schema": {...}}` — that forces the decoder to only emit tokens forming valid JSON matching the given schema, instead of hoping the model's prose happens to contain parseable JSON.
+- Why here: The planner's v10 envelope (`spokenText` + `intent` enum + free-form `payload`) is pinned this way so LM Studio's decoder literally cannot emit an unparseable reply — the schema's enum values and field names are prompt surface the model reads, so a schema that can't express something becomes a model behavior problem, not just a parsing problem.
+- Gotcha (from code): `LocalPlannerClient.v10ResponseFormat` (`LocalPlannerClient.swift:96-115`) is the constrained schema used for planner turns. LM Studio's MLX engine does NOT accept every `response_format` value, though — `LocalVLMClient.swift:366-368` documents that the VLM call deliberately sends no `response_format` at all because MLX returns HTTP 400 on `"type": "json_object"` (it only accepts `"json_schema"` with a real schema, or `"text"`); the VLM path instead relies on a regex-extract fallback to pull JSON out of unstructured prose. Same runtime, two different constraint strategies depending on what the engine will actually accept.
+- Source: https://platform.openai.com/docs/guides/structured-outputs and https://lmstudio.ai/docs/api/structured-output
 
 ## Speculative planner race
 - What: Running a fast "lite" planner (Apple FM, no VLM) in parallel with the full VLM-fed planner, letting whichever produces its first token first win the TTS stream.

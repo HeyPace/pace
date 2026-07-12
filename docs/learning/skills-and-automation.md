@@ -53,6 +53,12 @@ and the cron scheduler.
 - Where: `PaceRecipeCommandParser.swift` — `PaceRecipeCommandParser`/`PaceRecipeCommand`; `PaceWatchModeCommandParser.swift` — `PaceWatchModeCommandParser`/`PaceWatchModeCommand`; `PaceAutomationCommandParser.swift` — `PaceMeetingModeCommandParser`/`PaceMeetingModeCommand` and `PaceSkillCommandParser`/`PaceSkillCommand` (both live in this one file alongside `PaceCronCommandParser` and `PaceBackgroundAgentCommandParser`).
 - Source: internal — no external spec.
 
+## Voice-command parser precedence (a chain, not independent parsers)
+- What: The pre-planner parsers are tried in a fixed sequence (`CompanionManager+AgentLoop.swift`: recipe → flow → remember-site → cron → background-agent → meeting-mode → skill), and a parser earlier in the chain can match and short-circuit a phrase that was meant for a parser later in the chain.
+- Why here: `PaceFlowCommandParser`'s bare `"run "` / `"play back "` / `"do "` prefix match (`PaceFlowReplay.swift:128`) runs before `PaceSkillCommandParser`, and its `.run` case returns immediately — even on a miss ("i couldn't find a flow named X", `CompanionManager+DemonstrationFlow.swift:26-34`) — without falling through to try the skill parser next. A greedy bare prefix earlier in the chain can starve a more specific parser later in it; the fix is chain-level ordering/deferral discipline, not a fix to either parser in isolation. Regression-test the chain's dispatch order, not each parser alone.
+- Where: dispatch order in `CompanionManager+AgentLoop.swift` (parser calls around lines 853-923); the starvable prefix match in `PaceFlowReplay.swift` (`PaceFlowCommandParser.parse`, line 128); the no-fallthrough `.run` handler in `CompanionManager+DemonstrationFlow.swift`.
+- Source: internal — no external spec; general lesson (prefix-matching command chains need explicit ordering + deferral guards, not per-parser correctness alone).
+
 ## Meeting note profiles
 - What: A selectable `PaceMeetingNoteProfile` (bundled `general`/`standup`/`one-on-one` in `Resources/meeting-note-profiles/`, plus user overrides) shapes how `PaceMeetingNotesBuilder` synthesizes a meeting's summary/action-items/decisions.
 - Why here: Meetily-informed but Pace-native adaptive notes — the `general` profile reproduces the pre-profiles prompt byte-for-byte (the compat anchor), so adding profiles changed zero behavior for existing users by default.
@@ -63,6 +69,12 @@ and the cron scheduler.
 - What: A general-purpose recurring-task scheduler — "every 30 minutes check my calendar" — where each task is a stored interval + prompt that fires through the normal restraint-gated speaking pipeline.
 - Why here: Extends automation from "user-triggered" (recipes/flows/skills) to "time-triggered": a fired task sends its `taskPrompt` through the same planner pipeline a live voice turn would use, so scheduled automation gets the same tool/approval guarantees as a spoken command.
 - Where: `PaceCronScheduler.swift` — `PaceCronScheduler` (`@MainActor` `ObservableObject`, `.shared`), `PaceCronTask`; voice grammar in `PaceAutomationCommandParser.swift` — `PaceCronCommandParser`/`PaceCronCommand`.
+- Source: internal — no external spec.
+
+## Consent-gated background automation (cron brain decision)
+- What: A pure decision function that decides whether a scheduled/cron task fires through an off-device Codex brain or falls back to the user's normal local planner — gated on the SAME direct-spawn consent + 24-hour soak the interactive `.cliDirect` tier requires, never a lower bar just because no one is watching.
+- Why here: A cron fire is unattended — the user isn't present to notice or object in the moment — so it must never silently escalate to a privilege (off-device CLI spawn) the user only granted for foreground use. If consent+soak aren't both satisfied, the task quietly runs on the local planner instead of failing or auto-escalating.
+- Where: `BuddyPlannerClient.swift` — `BuddyPlannerClientFactory.cronTaskBrainDecision(hasAcceptedDirectSpawnConsent:canRunDirectSpawnTurn:)` returns `.useCodexDirectSpawn` or `.useDefaultPlanner(reason:)`, sharing the same `cliDirectDispatchDecision` gate the interactive `.cliDirect` tier uses (see [`planning-and-latency.md`](planning-and-latency.md) → `.cliDirect` general brain). Called from `CompanionManager+Lifecycle.swift`'s `PaceCronScheduler.shared.executeTaskCallback`, which passes `PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent()` and `.canRunDirectSpawnTurn(now:)`; on `.useCodexDirectSpawn` the amber off-device indicator is forced on and a fresh `PaceLocalCLIPlannerClient(upstream: .codex)` runs the task, otherwise the existing `self.plannerClient` (the user's pinned tier) runs it.
 - Source: internal — no external spec.
 
 ## See also
