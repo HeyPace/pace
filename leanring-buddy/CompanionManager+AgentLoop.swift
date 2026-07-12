@@ -911,8 +911,16 @@ extension CompanionManager {
             return
         }
 
-        // Skills: "install the standup skill" / "run the standup skill"
-        if let skillCommand = PaceSkillCommandParser.parse(transcript) {
+        // Skills: "install the standup skill" / "run the standup skill".
+        // Skip re-parsing when we are ALREADY executing a taught skill:
+        // `toPlannerPrompt` produces text like `Execute the "X" skill.
+        // Follow these steps:…`, which itself matches the run branch below
+        // ("execute …" + "skill") and would re-route into a bogus skill
+        // lookup instead of running. `activeSkillRun` is set by the run
+        // dispatch before this call, so the skill-execution prompt flows
+        // straight into the normal planner pipeline.
+        if activeSkillRun == nil,
+           let skillCommand = PaceSkillCommandParser.parse(transcript) {
             print("📋 Skill voice command: \(skillCommand)")
             handleSkillCommand(skillCommand, transcript: transcript)
             return
@@ -1876,11 +1884,26 @@ extension CompanionManager {
                 isOffDeviceTurnInFlight = false
                 responseOverlayManager.hideOverlay()
                 PaceLatencyBudget.shared.cancelTurn()
+                // A cancelled skill run was interrupted, not failed — clear
+                // the active run without a terminal line. The start-only line
+                // on disk honestly reflects "dispatched but not finished".
+                activeSkillRun = nil
             } catch {
                 PaceAnalytics.trackResponseError(error: error.localizedDescription)
                 print("⚠️ Companion response error: \(error)")
                 isCloudBridgeCallActive = false
                 isOffDeviceTurnInFlight = false
+                // Skill-run failure telemetry: pair a "failed" line with the
+                // "started" line for a skill turn that errored out.
+                if let failedSkillRun = activeSkillRun {
+                    PaceSkillRunJournal.shared.recordFailed(
+                        runId: failedSkillRun.runId,
+                        skillSlug: failedSkillRun.skillSlug,
+                        stepsPlanned: failedSkillRun.stepsPlanned,
+                        failureReason: error.localizedDescription
+                    )
+                    activeSkillRun = nil
+                }
                 responseOverlayManager.updateStreamingText("error: \(error.localizedDescription)")
                 responseOverlayManager.finishStreaming()
                 currentTurnHUDState = .failed(error.localizedDescription)
@@ -1929,6 +1952,19 @@ extension CompanionManager {
                         answer: latestSpokenTextForResearchJournal
                     )
                     refreshLocalRetrievalPublishedState()
+                }
+                // Skill-run success-rate telemetry (local-only, fire-and-
+                // forget). `activeSkillRun` is set ONLY when this turn was
+                // dispatched by a taught-skill run; the terminal "completed"
+                // line pairs with the "started" line written at dispatch.
+                // Cleared here so the next (non-skill) turn records nothing.
+                if let finishedSkillRun = activeSkillRun {
+                    PaceSkillRunJournal.shared.recordCompleted(
+                        runId: finishedSkillRun.runId,
+                        skillSlug: finishedSkillRun.skillSlug,
+                        stepsPlanned: finishedSkillRun.stepsPlanned
+                    )
+                    activeSkillRun = nil
                 }
                 // Record end-to-end turn latency: from the moment the
                 // agent loop Task started to the moment we flip to idle.
@@ -2341,10 +2377,46 @@ extension CompanionManager {
         case .run(let slug, let name):
             let skills = PaceSkillLoader.loadAllSkills()
             if let skill = skills.first(where: { $0.slug == slug || $0.name.lowercased() == name.lowercased() }) {
-                let prompt = PaceSkillLoader.toPlannerPrompt(skill)
-                Task { try? await ttsClient.speakText("Running the \(skill.name) skill."); }
-                // Route through the normal planner pipeline.
-                sendTranscriptToPlannerWithScreenshot(transcript: prompt)
+                // Enforce `requiredPreferences` at RUN time (deterministic,
+                // no LLM). Mirrors the recipe installer's gate + wording —
+                // both read through `PaceLocalMemoryStore`, one source of
+                // truth. A skill that needs a preference the user hasn't set
+                // must not run against empty state.
+                switch PaceSkillLoader.preflightRequiredPreferences(for: skill) {
+                case .missingPreference(let requiredPreferenceKey):
+                    // Same phrasing as PaceRecipeLibrary's missing-preference
+                    // refusal in handleRecipeCommand.
+                    PaceSkillRunJournal.shared.recordFailed(
+                        runId: PaceSkillRunJournal.shared.recordStarted(
+                            skillSlug: skill.slug,
+                            stepsPlanned: skill.steps.count
+                        ),
+                        skillSlug: skill.slug,
+                        stepsPlanned: skill.steps.count,
+                        failureReason: "missing preference: \(requiredPreferenceKey)"
+                    )
+                    Task {
+                        try? await ttsClient.speakText("i need \(requiredPreferenceKey) set first.")
+                        voiceState = .idle
+                    }
+                case .ready:
+                    // Record the run start; the terminal record is written by
+                    // the agent loop when this skill turn finishes (see
+                    // `activeSkillRun`). Fire-and-forget, off the hot path.
+                    let runId = PaceSkillRunJournal.shared.recordStarted(
+                        skillSlug: skill.slug,
+                        stepsPlanned: skill.steps.count
+                    )
+                    activeSkillRun = ActiveSkillRun(
+                        runId: runId,
+                        skillSlug: skill.slug,
+                        stepsPlanned: skill.steps.count
+                    )
+                    let prompt = PaceSkillLoader.toPlannerPrompt(skill)
+                    Task { try? await ttsClient.speakText("Running the \(skill.name) skill."); }
+                    // Route through the normal planner pipeline.
+                    sendTranscriptToPlannerWithScreenshot(transcript: prompt)
+                }
             } else {
                 Task { try? await ttsClient.speakText("I couldn't find a skill called \(name)."); voiceState = .idle }
             }

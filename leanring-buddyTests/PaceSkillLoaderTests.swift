@@ -286,6 +286,156 @@ struct PaceSkillLoaderTests {
         #expect(!prompt.contains("Context:"))
     }
 
+    // MARK: - toPlannerPrompt: toolCall directive
+
+    /// A step with a non-nil `toolCall` renders the instruction PLUS an
+    /// explicit "use tool: <json>" directive in the SAME tool-call JSON
+    /// dialect the planner sees elsewhere.
+    @Test
+    func toPlannerPromptRendersToolCallDirectiveForStepWithToolCall() {
+        let skill = PaceSkillFile(
+            name: "Note Skill",
+            slug: "note-skill",
+            description: "Note skill",
+            category: "custom",
+            requiredPreferences: [],
+            trigger: nil,
+            steps: [
+                PaceSkillStep(instruction: "Open Notes", toolCall: nil),
+                PaceSkillStep(
+                    instruction: "Create the note",
+                    toolCall: #"{"tool":"notes","action":"create","title":"Idea","body":"note text"}"#
+                ),
+            ],
+            notes: nil
+        )
+
+        let prompt = PaceSkillLoader.toPlannerPrompt(skill)
+
+        // The no-toolCall step renders bare.
+        #expect(prompt.contains("1. Open Notes\n"))
+        // The toolCall step renders instruction + directive with the exact
+        // tool JSON.
+        #expect(prompt.contains(
+            #"2. Create the note (use tool: {"tool":"notes","action":"create","title":"Idea","body":"note text"})"#
+        ))
+    }
+
+    /// A skill with NO toolCall on any step produces byte-identical output
+    /// to the pre-toolCall renderer: name header, numbered bare steps, and
+    /// the optional Context line — nothing else.
+    @Test
+    func toPlannerPromptForSkillWithoutToolCallsIsByteIdentical() {
+        let skill = PaceSkillFile(
+            name: "Plain Skill",
+            slug: "plain-skill",
+            description: "Plain",
+            category: "custom",
+            requiredPreferences: [],
+            trigger: nil,
+            steps: [
+                PaceSkillStep(instruction: "First step", toolCall: nil),
+                PaceSkillStep(instruction: "Second step", toolCall: nil),
+            ],
+            notes: "Important context"
+        )
+
+        let prompt = PaceSkillLoader.toPlannerPrompt(skill)
+
+        // The exact string the pre-toolCall renderer produced. If the
+        // no-toolCall path ever drifts, this fails.
+        let expectedPrompt = """
+        Execute the "Plain Skill" skill. Follow these steps:
+
+        1. First step
+        2. Second step
+
+        Context: Important context
+
+        """
+        #expect(prompt == expectedPrompt)
+    }
+
+    /// An empty-string toolCall is treated as "no tool call" — the step
+    /// renders bare, never as a directive with an empty JSON body.
+    @Test
+    func toPlannerPromptTreatsEmptyToolCallAsBareStep() {
+        let skill = PaceSkillFile(
+            name: "Edge",
+            slug: "edge",
+            description: "Edge",
+            category: "custom",
+            requiredPreferences: [],
+            trigger: nil,
+            steps: [PaceSkillStep(instruction: "Do it", toolCall: "")],
+            notes: nil
+        )
+
+        let prompt = PaceSkillLoader.toPlannerPrompt(skill)
+
+        #expect(prompt.contains("1. Do it\n"))
+        #expect(!prompt.contains("use tool:"))
+    }
+
+    // MARK: - Run-time requiredPreferences preflight
+
+    /// A skill with no required preferences is always ready to run.
+    @Test
+    func preflightReadyWhenNoRequiredPreferences() {
+        let skill = makeSkill(name: "No Prefs", steps: ["Open Notes"], requiredPreferences: [])
+        let preflight = PaceSkillLoader.preflightRequiredPreferences(
+            for: skill,
+            memoryStore: EmptyMemoryStoreStub.self
+        )
+        #expect(preflight == .ready)
+    }
+
+    /// A skill whose required preference IS set in the store is ready.
+    @Test
+    func preflightReadyWhenRequiredPreferenceIsSet() {
+        let skill = makeSkill(
+            name: "Needs Playlist",
+            steps: ["Play focus music"],
+            requiredPreferences: ["preferredFocusPlaylist"]
+        )
+        let preflight = PaceSkillLoader.preflightRequiredPreferences(
+            for: skill,
+            memoryStore: PopulatedMemoryStoreStub.self
+        )
+        #expect(preflight == .ready)
+    }
+
+    /// A skill whose required preference is UNSET blocks with that exact key.
+    @Test
+    func preflightBlocksWhenRequiredPreferenceMissing() {
+        let skill = makeSkill(
+            name: "Needs Playlist",
+            steps: ["Play focus music"],
+            requiredPreferences: ["preferredFocusPlaylist"]
+        )
+        let preflight = PaceSkillLoader.preflightRequiredPreferences(
+            for: skill,
+            memoryStore: EmptyMemoryStoreStub.self
+        )
+        #expect(preflight == .missingPreference(preferenceKey: "preferredFocusPlaylist"))
+    }
+
+    /// A required preference that isn't a known `PaceLocalMemoryKey` blocks
+    /// — a skill can't run against a preference Pace can't read.
+    @Test
+    func preflightBlocksWhenRequiredPreferenceKeyIsUnknown() {
+        let skill = makeSkill(
+            name: "Bad Key",
+            steps: ["Do a thing"],
+            requiredPreferences: ["notARealPreferenceKey"]
+        )
+        let preflight = PaceSkillLoader.preflightRequiredPreferences(
+            for: skill,
+            memoryStore: PopulatedMemoryStoreStub.self
+        )
+        #expect(preflight == .missingPreference(preferenceKey: "notARealPreferenceKey"))
+    }
+
     // MARK: - Sample bundled skill
 
     /// The bundled sample skill file parses correctly.
@@ -627,4 +777,19 @@ struct PaceSkillLoaderTests {
         case .create: return "create"
         }
     }
+}
+
+// MARK: - Memory-store stubs for the requiredPreferences preflight
+
+/// Every preference is unset — the "user hasn't set this yet" case.
+/// Reuses the SAME `PaceLocalMemoryStoreReadable` seam the recipe
+/// installer and the skill preflight both read through.
+private enum EmptyMemoryStoreStub: PaceLocalMemoryStoreReadable {
+    static func string(for key: PaceLocalMemoryKey) -> String? { nil }
+}
+
+/// Every known preference resolves to a value — the "fully configured"
+/// case, so a preflight only blocks on unknown keys.
+private enum PopulatedMemoryStoreStub: PaceLocalMemoryStoreReadable {
+    static func string(for key: PaceLocalMemoryKey) -> String? { "some-value" }
 }
