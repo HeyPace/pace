@@ -21,6 +21,56 @@ extension CompanionManager {
         plannerClient = BuddyPlannerClientFactory.makeDefault()
     }
 
+    /// Selects a planner tier from any picker surface, running the SAME
+    /// consent flow the Planner tab uses. This is the single home for the
+    /// "pick a brain, run its consent, revert on cancel" policy so the
+    /// Planner tab and the RAM-aware budget picker never drift apart.
+    ///
+    /// - `.local` / `.appleFoundationModels` / `.directAPI`: no NSAlert —
+    ///   the explicit pick is the consent (Direct API still needs a saved
+    ///   key before turns actually route off-device).
+    /// - `.cliBridge`: shows the Node-bridge consent NSAlert; on accept,
+    ///   promotes a still-`.off` bridge mode to `.hybrid` so the user
+    ///   benefits immediately. On cancel, reverts to `.local`.
+    /// - `.cliDirect`: shows the DIRECT-SPAWN consent NSAlert (a different
+    ///   off-device data path from the bridge). On cancel, reverts to
+    ///   `.local`.
+    ///
+    /// Returns true when the tier was applied, false when a consent dialog
+    /// was cancelled (and the tier was reverted to `.local`).
+    @discardableResult
+    func selectPlannerTierWithConsent(_ newPlannerTier: PacePlannerTier) -> Bool {
+        switch newPlannerTier {
+        case .local, .appleFoundationModels:
+            setActivePlannerTier(newPlannerTier)
+            return true
+        case .cliBridge:
+            let consentAccepted = requestCloudBridgeConsentIfNeeded()
+            guard consentAccepted else {
+                setActivePlannerTier(.local)
+                return false
+            }
+            if cloudBridgeMode == .off {
+                setCloudBridgeMode(.hybrid)
+            }
+            setActivePlannerTier(newPlannerTier)
+            return true
+        case .cliDirect:
+            let consentAccepted = requestDirectSpawnConsentIfNeeded(
+                upstream: activePlannerTierCLIDirectUpstream
+            )
+            guard consentAccepted else {
+                setActivePlannerTier(.local)
+                return false
+            }
+            setActivePlannerTier(newPlannerTier)
+            return true
+        case .directAPI:
+            setActivePlannerTier(newPlannerTier)
+            return true
+        }
+    }
+
     /// Persists the `.cliDirect` upstream selection and rebuilds the
     /// planner so the next turn spawns the freshly-picked CLI without an
     /// app restart.

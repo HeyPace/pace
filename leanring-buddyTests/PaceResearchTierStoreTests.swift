@@ -43,10 +43,29 @@ struct PaceResearchTierStoreTests {
         #expect(configuration.tier == .cliBridge)
         #expect(configuration.directAPIProvider == .anthropic)
         #expect(configuration.directAPIModelIdentifier == "claude-opus-4-7")
-        #expect(configuration.cliBridgeUpstream == .claude)
-        #expect(configuration.cliBridgeModel == "claude-opus-4-7")
+        // Codex is now the default research upstream, and the model is
+        // empty by design so the direct-spawned CLI uses its own
+        // authenticated model instead of a hard-coded (Claude) id.
+        #expect(configuration.cliBridgeUpstream == .codex)
+        #expect(configuration.cliBridgeModel == "")
+        #expect(PaceResearchTierStore.defaultCLIBridgeUpstream == .codex)
+        #expect(PaceResearchTierStore.defaultCLIBridgeModel == "")
         #expect(configuration.maximumAgentSteps == PaceResearchTierStore.defaultMaximumAgentSteps)
         #expect(configuration.perTurnTokenBudgetCap == PaceResearchTierStore.defaultPerTurnTokenBudgetCap)
+    }
+
+    @Test func existingUserPersistedClaudeUpstreamIsHonored() async throws {
+        Self.cleanUserDefaults()
+        defer { Self.cleanUserDefaults() }
+
+        // An existing user who explicitly picked Claude Code + a model
+        // before the Codex-default flip must keep their pick — the new
+        // default only applies to brand-new installs.
+        PaceResearchTierStore.saveCLIBridgeUpstream(.claude)
+        PaceResearchTierStore.saveCLIBridgeModel("claude-opus-4-7")
+        let configuration = PaceResearchTierStore.loadConfiguration()
+        #expect(configuration.cliBridgeUpstream == .claude)
+        #expect(configuration.cliBridgeModel == "claude-opus-4-7")
     }
 
     @Test func existingUserExplicitOffStaysOff() async throws {

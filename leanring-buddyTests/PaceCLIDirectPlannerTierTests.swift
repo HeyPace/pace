@@ -66,6 +66,51 @@ struct PaceCLIDirectPlannerTierTests {
         #expect(BuddyPlannerClientFactory.defaultModelIdentifierForCLIDirect(upstream: .claude) == nil)
     }
 
+    // MARK: - Cron task brain routing (background → must be consent-gated)
+
+    @Test
+    func cronTaskUsesCodexDirectSpawnOnlyWhenConsentedAndSoaked() {
+        // A background scheduled task escalates to the Codex direct-spawn
+        // brain ONLY when direct-spawn consent is accepted AND the 24-hour
+        // soak has elapsed — mirrors the `.cliDirect` factory gate exactly.
+        let decision = BuddyPlannerClientFactory.cronTaskBrainDecision(
+            hasAcceptedDirectSpawnConsent: true,
+            canRunDirectSpawnTurn: true
+        )
+        #expect(decision == .useCodexDirectSpawn)
+    }
+
+    @Test
+    func cronTaskFallsBackToDefaultPlannerWhenNotConsented() {
+        // No consent → the cron fire must NOT send scheduled-task data
+        // off-device; it stays on the user's currently-configured planner.
+        let decision = BuddyPlannerClientFactory.cronTaskBrainDecision(
+            hasAcceptedDirectSpawnConsent: false,
+            canRunDirectSpawnTurn: false
+        )
+        if case .useDefaultPlanner(let reason) = decision {
+            #expect(reason.contains("consent"))
+        } else {
+            Issue.record("expected useDefaultPlanner when consent not accepted, got \(decision)")
+        }
+    }
+
+    @Test
+    func cronTaskFallsBackToDefaultPlannerWhenConsentedButSoakNotElapsed() {
+        // Consent accepted but the soak hasn't elapsed (first selection) —
+        // a background task must still stay on the default planner rather
+        // than escalate off-device early.
+        let decision = BuddyPlannerClientFactory.cronTaskBrainDecision(
+            hasAcceptedDirectSpawnConsent: true,
+            canRunDirectSpawnTurn: false
+        )
+        if case .useDefaultPlanner(let reason) = decision {
+            #expect(reason.contains("soak"))
+        } else {
+            Issue.record("expected useDefaultPlanner when soak not elapsed, got \(decision)")
+        }
+    }
+
     // MARK: - Consent separation (bridge consent ≠ direct-spawn consent)
 
     /// Direct-spawn consent + soak keys the tests toggle. Saved/restored

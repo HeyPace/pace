@@ -180,9 +180,19 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         modelIdentifier: String?
     ) {
         self.upstream = upstream
-        self.modelIdentifier = modelIdentifier
+        // Treat an empty / whitespace-only identifier as "no override" so
+        // `--model` is only ever forwarded when the user (or a caller like
+        // the research lane, whose default is now empty for Codex) actually
+        // named a model. Otherwise the CLI uses its own authenticated
+        // default — the correct behavior for a general brain.
+        let trimmedModelIdentifier = modelIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedModelIdentifier = (trimmedModelIdentifier?.isEmpty ?? true)
+            ? nil
+            : trimmedModelIdentifier
+        self.modelIdentifier = normalizedModelIdentifier
         self.useBareModeForClaude = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] != nil
-        let suffix = modelIdentifier.map { " · \($0)" } ?? ""
+        let suffix = normalizedModelIdentifier.map { " · \($0)" } ?? ""
         self.displayName = "Local CLI (\(upstream.displayLabel))\(suffix)"
     }
 

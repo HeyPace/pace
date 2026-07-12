@@ -95,6 +95,29 @@ struct PaceBundledModelsSettingsTab: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            // Brain picker — the quick "who do I talk to?" surface. Reuses
+            // the exact same tier-selection + consent machinery as the
+            // Planner tab via `selectPlannerTierWithConsent`, so there is no
+            // duplicated tier/consent logic here. Because the budget below
+            // keys off `companionManager.activePlannerTier` (read through
+            // `currentMemoryConfiguration`), picking a different brain
+            // re-renders the whole section — the per-model breakdown, the
+            // fits/over-budget verdict, and the "largest VLM that fits"
+            // recommendation all update live.
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Planner brain")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(DS.Colors.textSecondary)
+                VStack(spacing: 0) {
+                    ForEach(PacePlannerTier.allCases, id: \.rawValue) { plannerTier in
+                        brainPickerRow(
+                            plannerTier,
+                            activePlannerTier: companionManager.activePlannerTier
+                        )
+                    }
+                }
+            }
+
             memoryTotalRAMRow(usableBudgetGB: usableBudgetGB)
             memoryPerModelBreakdown(budgetResult: budgetResult)
             memoryTotalVersusBudgetRow(budgetResult: budgetResult)
@@ -113,6 +136,71 @@ struct PaceBundledModelsSettingsTab: View {
                 configuration: configuration,
                 usableBudgetGB: usableBudgetGB
             )
+
+            // One-line pointer to the full per-tier configuration (upstream
+            // sub-picker, API keys, test round-trip) which lives on the
+            // Planner tab. Kept as a pointer instead of duplicating those
+            // controls here — this surface is the quick brain + RAM view.
+            Text("Advanced planner settings → Settings → Planner")
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.textTertiary)
+        }
+    }
+
+    private func brainPickerRow(
+        _ plannerTier: PacePlannerTier,
+        activePlannerTier: PacePlannerTier
+    ) -> some View {
+        let (title, subtitle) = brainPickerLabels(for: plannerTier)
+        let isSelected = activePlannerTier == plannerTier
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(DS.Colors.textPrimary)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(DS.Colors.accent)
+            }
+        }
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard activePlannerTier != plannerTier else { return }
+            // Reuse the shared consent + revert-on-cancel policy; the
+            // budget re-renders automatically because it keys off
+            // `activePlannerTier`.
+            companionManager.selectPlannerTierWithConsent(plannerTier)
+        }
+        .pointerCursor()
+        .overlay(alignment: .bottom) {
+            Divider().background(DS.Colors.borderSubtle)
+        }
+    }
+
+    /// Short brain labels for the RAM-aware quick picker. The Planner tab
+    /// owns the long-form descriptions + per-tier config; these are the
+    /// compact "who + RAM implication" version.
+    private func brainPickerLabels(
+        for plannerTier: PacePlannerTier
+    ) -> (title: String, subtitle: String) {
+        switch plannerTier {
+        case .local:
+            return ("Local — LM Studio", "On-device reasoner. Free. Uses the most RAM.")
+        case .appleFoundationModels:
+            return ("Apple Foundation Models", "On-device 3B model. Free. Frees planner RAM.")
+        case .cliDirect:
+            return ("Codex / Claude CLI (direct)", "Direct-spawns your CLI. Off-device, consent-gated. Frees planner RAM.")
+        case .cliBridge:
+            return ("CLI bridge", "Routes via your CLI through localhost:3456. Off-device, consent-gated. Frees planner RAM.")
+        case .directAPI:
+            return ("Direct API (BYO key)", "Calls a cloud provider with your key. Off-device. Frees planner RAM.")
         }
     }
 

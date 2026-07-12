@@ -115,42 +115,10 @@ struct PacePlannerSettingsTab: View {
     }
 
     private func handlePlannerTierTap(_ newPlannerTier: PacePlannerTier) {
-        switch newPlannerTier {
-        case .local, .appleFoundationModels:
-            companionManager.setActivePlannerTier(newPlannerTier)
-        case .cliBridge:
-            // First-time enablement still goes through the existing
-            // NSAlert consent dialog. Rejection reverts to local.
-            let consentAccepted = companionManager.requestCloudBridgeConsentIfNeeded()
-            guard consentAccepted else {
-                companionManager.setActivePlannerTier(.local)
-                return
-            }
-            // If the saved bridge mode is .off (default after first
-            // consent), promote it to hybrid so the user immediately
-            // benefits from the tier they just picked.
-            if companionManager.cloudBridgeMode == .off {
-                companionManager.setCloudBridgeMode(.hybrid)
-            }
-            companionManager.setActivePlannerTier(newPlannerTier)
-        case .cliDirect:
-            // Direct-spawn is a DIFFERENT off-device data path from the
-            // Node bridge, so it has its own consent + soak — bridge
-            // consent does NOT auto-grant it. Rejection reverts to local.
-            let consentAccepted = companionManager.requestDirectSpawnConsentIfNeeded(
-                upstream: companionManager.activePlannerTierCLIDirectUpstream
-            )
-            guard consentAccepted else {
-                companionManager.setActivePlannerTier(.local)
-                return
-            }
-            companionManager.setActivePlannerTier(newPlannerTier)
-        case .directAPI:
-            // No NSAlert here — the explicit pick is the consent. The
-            // sub-panel below requires Save Key + (optionally) Test
-            // before turns actually route to the provider.
-            companionManager.setActivePlannerTier(newPlannerTier)
-        }
+        // Consent + revert-on-cancel policy lives in one place
+        // (`selectPlannerTierWithConsent`) so this tab and the RAM-aware
+        // budget picker in the Models tab stay in lockstep.
+        companionManager.selectPlannerTierWithConsent(newPlannerTier)
     }
 
     @ViewBuilder
