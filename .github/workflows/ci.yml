@@ -80,6 +80,8 @@ jobs:
         run: |
           set -o pipefail
           if command -v xcpretty &>/dev/null; then
+            BUILD_LOG="$RUNNER_TEMP/pace-build-for-testing.log"
+            set +e
             xcodebuild build-for-testing \
               -project leanring-buddy.xcodeproj \
               -scheme leanring-buddy \
@@ -89,7 +91,17 @@ jobs:
               CODE_SIGNING_ALLOWED=NO \
               CODE_SIGNING_REQUIRED=NO \
               CODE_SIGN_IDENTITY="" \
-              2>&1 | xcpretty --color
+              2>&1 | tee "$BUILD_LOG" | xcpretty --color
+            XCODE_STATUS=${PIPESTATUS[0]}
+            set -e
+
+            if [[ "$XCODE_STATUS" -ne 0 ]]; then
+              echo "::group::Raw xcodebuild failure diagnostics"
+              grep -nEi 'error:|fatal error|command .* failed|build failed|signal|killed|terminated' "$BUILD_LOG" || true
+              tail -n 400 "$BUILD_LOG"
+              echo "::endgroup::"
+              exit "$XCODE_STATUS"
+            fi
           else
             echo "xcpretty not found — using raw xcodebuild output"
             xcodebuild build-for-testing \
