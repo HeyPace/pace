@@ -11,11 +11,11 @@
 //
 //  When the user says "research X" / "look into Y" / "compare A vs B",
 //  `PaceIntentClassifier` flags the turn `.research`. CompanionManager
-//  reads THIS store, swaps in a per-turn planner client (Cloud Bridge
-//  to Claude Code, or Direct API to Anthropic Opus), and runs the agent
-//  loop with `maximumAgentSteps` and `perTurnTokenBudgetCap` from the
-//  configuration here. When `.off`, the turn falls back to the existing
-//  `.phoneLargeModel` route — no surprise model switch.
+//  reads THIS store, swaps in a per-turn planner client (direct-spawn to
+//  the local Codex CLI by default, or Direct API to Anthropic Opus), and
+//  runs the agent loop with `maximumAgentSteps` and `perTurnTokenBudgetCap`
+//  from the configuration here. When `.off`, the turn falls back to the
+//  existing `.phoneLargeModel` route — no surprise model switch.
 //
 //  Keychain: API keys live in `PaceKeychainStore` (same Direct-API
 //  storage the main planner uses). Reusing the same Keychain entry
@@ -29,16 +29,18 @@ import Foundation
 // MARK: - PaceResearchTier
 
 /// The three user-selectable backend tiers for research-escalation
-/// turns. **Default is `.cliBridge`** — research is supposed to "just
-/// call the local CLI" (Claude Code or Codex) so the user gets a real
-/// answer without manual configuration. Users without a working bridge
-/// can flip to `.off` (falls back to `.phoneLargeModel`) or `.directAPI`
-/// in Settings → Research.
+/// turns. **Default is `.cliBridge`, direct-spawning the Codex CLI** —
+/// research is supposed to "just call the local CLI" (Codex by default,
+/// Claude Code selectable) so the user gets a real answer without manual
+/// configuration. Users without a working CLI can flip to `.off` (falls
+/// back to `.phoneLargeModel`) or `.directAPI` in Settings → Research.
 nonisolated enum PaceResearchTier: String, Equatable, Codable, CaseIterable {
-    /// Spawn a one-turn CloudBridgePlannerClient bound to the configured
-    /// upstream + model. **Default.** Free when the user already has
-    /// Claude Code / Codex / Gemini CLI installed and authenticated;
-    /// requires the local-ai Node bridge running on localhost:3456.
+    /// Direct-spawn the user's authenticated CLI for a one-turn research
+    /// escalation, bound to the configured upstream + model. **Default,
+    /// with Codex as the default upstream.** Free when the user already
+    /// has Codex / Claude Code installed and authenticated; the deprecated
+    /// `.gemini` upstream still routes through the local-ai Node bridge on
+    /// localhost:3456.
     case cliBridge
     /// Spawn a one-turn DirectAPIPlannerClient against the user's
     /// stored Direct-API key. Real money per turn, capped by
@@ -101,8 +103,13 @@ enum PaceResearchTierStore {
     /// tokens.
     static let defaultDirectAPIProvider: PaceDirectAPIProvider = .anthropic
     static let defaultDirectAPIModelIdentifier = "claude-opus-4-7"
-    static let defaultCLIBridgeUpstream: PaceCloudBridgeUpstream = .claude
-    static let defaultCLIBridgeModel = "claude-opus-4-7"
+    static let defaultCLIBridgeUpstream: PaceCloudBridgeUpstream = .codex
+    /// Empty by design. The research lane direct-spawns
+    /// `PaceLocalCLIPlannerClient(upstream:modelIdentifier:)`, which only
+    /// forwards `--model` when the identifier is non-empty; an empty
+    /// identifier lets Codex use its own already-authenticated model
+    /// (correct — a hard-coded Claude model id would be wrong for Codex).
+    static let defaultCLIBridgeModel = ""
     static let defaultMaximumAgentSteps = 16
     static let defaultPerTurnTokenBudgetCap = 200_000
 

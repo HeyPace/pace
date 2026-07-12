@@ -412,6 +412,15 @@ extension CompanionManager {
 
         // 2. Cron scheduler: each fire runs a planner turn and speaks
         //    the result. Enabled by the isCronSchedulerEnabled pref.
+        //
+        //    Scheduled tasks prefer the Codex direct-spawn brain — but a
+        //    cron fire is a BACKGROUND, unattended turn, so it must never
+        //    silently send scheduled-task data off-device. The Codex CLI
+        //    brain is used ONLY when the user has already accepted the
+        //    direct-spawn consent AND the 24-hour soak has elapsed (the
+        //    same gate the `.cliDirect` factory enforces). Otherwise the
+        //    task falls back to the user's currently-configured planner
+        //    (`self.plannerClient`) — the pre-existing behavior.
         PaceCronScheduler.shared.executeTaskCallback = { [weak self] task in
             guard let self else { return }
             let systemPrompt = CompanionSystemPrompt.build(
@@ -419,20 +428,60 @@ extension CompanionManager {
                 threadSummaryInjection: nil,
                 ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment
             )
-            await self.beginHeadlessOffDeviceIndicatorIfNeeded()
+
+            let cronBrainDecision = BuddyPlannerClientFactory.cronTaskBrainDecision(
+                hasAcceptedDirectSpawnConsent: PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
+                canRunDirectSpawnTurn: PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+            )
+
+            // Pick the brain for this fire. When consent + soak allow it we
+            // spawn a fresh Codex CLI client (off-device, so we force the
+            // amber indicator regardless of the active tier — the headless
+            // helper only tints when the ACTIVE tier is off-device, which a
+            // Local-tier user is not). Otherwise we keep the existing
+            // default planner and use the tier-conditional amber helper.
+            let plannerClientForThisTask: any BuddyPlannerClient
+            let mustForceOffDeviceIndicator: Bool
+            switch cronBrainDecision {
+            case .useCodexDirectSpawn:
+                plannerClientForThisTask = PaceLocalCLIPlannerClient(
+                    upstream: .codex,
+                    modelIdentifier: ""
+                )
+                mustForceOffDeviceIndicator = true
+                print("⏰ Cron task routing to Codex direct-spawn brain (consent + soak satisfied)")
+            case .useDefaultPlanner(let reason):
+                plannerClientForThisTask = self.plannerClient
+                mustForceOffDeviceIndicator = false
+                print("⏰ Cron task staying on default planner — \(reason)")
+            }
+
+            if mustForceOffDeviceIndicator {
+                self.isOffDeviceTurnInFlight = true
+            } else {
+                await self.beginHeadlessOffDeviceIndicatorIfNeeded()
+            }
             do {
-                let (text, _) = try await self.plannerClient.generateResponseStreaming(
+                let (text, _) = try await plannerClientForThisTask.generateResponseStreaming(
                     images: [],
                     systemPrompt: systemPrompt,
                     conversationHistory: [],
                     userPrompt: task.taskPrompt,
                     onTextChunk: { _ in }
                 )
-                await self.endHeadlessOffDeviceIndicatorIfNeeded()
+                if mustForceOffDeviceIndicator {
+                    self.isOffDeviceTurnInFlight = false
+                } else {
+                    await self.endHeadlessOffDeviceIndicatorIfNeeded()
+                }
                 let summary = String(text.prefix(200))
                 try? await self.ttsClient.speakText(summary)
             } catch {
-                await self.endHeadlessOffDeviceIndicatorIfNeeded()
+                if mustForceOffDeviceIndicator {
+                    self.isOffDeviceTurnInFlight = false
+                } else {
+                    await self.endHeadlessOffDeviceIndicatorIfNeeded()
+                }
                 try? await self.ttsClient.speakText("Scheduled task failed: \(error.localizedDescription)")
             }
         }

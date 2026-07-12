@@ -43,6 +43,8 @@ struct PaceBundledModelsSettingsTab: View {
         VStack(alignment: .leading, spacing: 18) {
             runtimeStatusSection
             Divider().background(DS.Colors.borderSubtle)
+            memoryBudgetSection
+            Divider().background(DS.Colors.borderSubtle)
             plannerSection
             Divider().background(DS.Colors.borderSubtle)
             embedderSection
@@ -154,6 +156,186 @@ struct PaceBundledModelsSettingsTab: View {
             }
             Spacer()
         }
+    }
+
+    // MARK: - Memory budget + brain picker
+
+    /// RAM-aware "pick your brain + see the memory tradeoff" surface.
+    /// Combines a planner-brain picker (who you talk to) with a live
+    /// estimate of how much RAM the on-device model stack would occupy,
+    /// which shrinks the moment you pick a cloud / Apple-FM brain (the
+    /// planner weights no longer need to be resident). Everything keys off
+    /// `companionManager.activePlannerTier`, so selecting a different brain
+    /// re-renders the budget and the bigger-VLM recommendation
+    /// automatically.
+    private var memoryBudgetSection: some View {
+        // ObservedObject dependency: reading `activePlannerTier` here means
+        // this whole section re-renders when the brain picker changes it.
+        let activePlannerTier = companionManager.activePlannerTier
+        let plannerRunsOnDevice = plannerTierRunsOnDevice(activePlannerTier)
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("Memory budget")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(DS.Colors.textSecondary)
+
+            memoryBudgetSummaryRow(plannerRunsOnDevice: plannerRunsOnDevice)
+
+            // Brain picker — the quick "who do I talk to?" surface. Reuses
+            // the exact same tier-selection + consent machinery as the
+            // Planner tab via `selectPlannerTierWithConsent`, so there is
+            // no duplicated tier/consent logic here.
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Planner brain")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(DS.Colors.textSecondary)
+                VStack(spacing: 0) {
+                    ForEach(PacePlannerTier.allCases, id: \.rawValue) { plannerTier in
+                        brainPickerRow(plannerTier, activePlannerTier: activePlannerTier)
+                    }
+                }
+            }
+
+            if !plannerRunsOnDevice {
+                Text("Your planner runs off this Mac, so the on-device planner weights don't need to stay resident — that RAM can go to a larger VLM for sharper screen reading. Switch the vision model above to a bigger checkpoint if you want.")
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // One-line pointer to the full per-tier configuration (upstream
+            // sub-picker, API keys, test round-trip) which lives on the
+            // Planner tab. Kept as a pointer instead of duplicating those
+            // controls here — this surface is the quick brain + RAM view.
+            Text("Advanced planner settings → Settings → Planner")
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.textTertiary)
+        }
+    }
+
+    /// The installed-RAM + estimated-resident-footprint row. The estimate
+    /// drops when the planner runs off-device because the planner weights
+    /// no longer need to be held in memory.
+    private func memoryBudgetSummaryRow(plannerRunsOnDevice: Bool) -> some View {
+        let installedRAMGigabytes = Double(ProcessInfo.processInfo.physicalMemory)
+            / (1024 * 1024 * 1024)
+        let estimatedResidentGigabytes = estimatedOnDeviceModelResidentGigabytes(
+            plannerRunsOnDevice: plannerRunsOnDevice
+        )
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "memorychip")
+                .foregroundColor(DS.Colors.textSecondary)
+                .font(.system(size: 14))
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(String(
+                    format: "%.0f GB installed · ~%.1f GB for Pace's on-device models",
+                    installedRAMGigabytes,
+                    estimatedResidentGigabytes
+                ))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(DS.Colors.textPrimary)
+                Text(plannerRunsOnDevice
+                     ? "Planner + vision model held in memory while active."
+                     : "Planner runs off-device — only the vision model stays resident, freeing RAM.")
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+        }
+    }
+
+    private func brainPickerRow(
+        _ plannerTier: PacePlannerTier,
+        activePlannerTier: PacePlannerTier
+    ) -> some View {
+        let (title, subtitle) = brainPickerLabels(for: plannerTier)
+        let isSelected = activePlannerTier == plannerTier
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(DS.Colors.textPrimary)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(DS.Colors.accent)
+            }
+        }
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard activePlannerTier != plannerTier else { return }
+            // Reuse the shared consent + revert-on-cancel policy; the
+            // budget re-renders automatically because it keys off
+            // `activePlannerTier`.
+            companionManager.selectPlannerTierWithConsent(plannerTier)
+        }
+        .pointerCursor()
+        .overlay(alignment: .bottom) {
+            Divider().background(DS.Colors.borderSubtle)
+        }
+    }
+
+    /// Short brain labels for the RAM-aware quick picker. The Planner tab
+    /// owns the long-form descriptions + per-tier config; these are the
+    /// compact "who + RAM implication" version.
+    private func brainPickerLabels(
+        for plannerTier: PacePlannerTier
+    ) -> (title: String, subtitle: String) {
+        switch plannerTier {
+        case .local:
+            return ("Local — LM Studio", "On-device reasoner. Free. Uses the most RAM.")
+        case .appleFoundationModels:
+            return ("Apple Foundation Models", "On-device 3B model. Free. Frees planner RAM.")
+        case .cliDirect:
+            return ("Codex / Claude CLI (direct)", "Direct-spawns your CLI. Off-device, consent-gated. Frees planner RAM.")
+        case .cliBridge:
+            return ("CLI bridge", "Routes via your CLI through localhost:3456. Off-device, consent-gated. Frees planner RAM.")
+        case .directAPI:
+            return ("Direct API (BYO key)", "Calls a cloud provider with your key. Off-device. Frees planner RAM.")
+        }
+    }
+
+    /// Whether the given tier keeps the planner on this Mac. Off-device
+    /// tiers (`.cliBridge`, `.cliDirect`, `.directAPI`) let Pace release
+    /// the local planner weights. Note this mirrors the on/off-device
+    /// axis, not the live consent state — the estimate is a "what if"
+    /// guide, so it treats every off-device tier the same regardless of
+    /// whether consent has landed yet.
+    private func plannerTierRunsOnDevice(_ plannerTier: PacePlannerTier) -> Bool {
+        switch plannerTier {
+        case .local, .appleFoundationModels:
+            return true
+        case .cliBridge, .cliDirect, .directAPI:
+            return false
+        }
+    }
+
+    /// Coarse resident-memory estimate for Pace's on-device model stack.
+    /// The local planner is the heavy tenant (~9 GB for the bundled 4B
+    /// bf16 checkpoint); the VLM adds ~3 GB when in-process vision is on.
+    /// When the planner runs off-device its weights are dropped, so only
+    /// the VLM cost remains. Intentionally approximate — this is a "see
+    /// the tradeoff" guide, not an allocator.
+    private func estimatedOnDeviceModelResidentGigabytes(
+        plannerRunsOnDevice: Bool
+    ) -> Double {
+        let approximateLocalPlannerResidentGigabytes = 9.0
+        let approximateVLMResidentGigabytes = 3.0
+        var estimate = 0.0
+        if plannerRunsOnDevice {
+            estimate += approximateLocalPlannerResidentGigabytes
+        }
+        if PaceBundledModelsSettings.isUsingMLXInProcessVLM() {
+            estimate += approximateVLMResidentGigabytes
+        }
+        return estimate
     }
 
     // MARK: - Planner section

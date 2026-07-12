@@ -83,13 +83,15 @@ struct PaceResearchRoutingDecisionTests {
         }
     }
 
-    @Test func freshInstallRoutesResearchToCLIBridgeClaudeOpus() async throws {
+    @Test func freshInstallRoutesResearchToCLIBridgeCodex() async throws {
         Self.cleanUserDefaults()
         defer { Self.cleanUserDefaults() }
 
+        // Fresh installs now route research to the Codex CLI with an empty
+        // model identifier (let Codex use its own authenticated model).
         let configuration = PaceResearchTierStore.loadConfiguration()
         let decision = PaceResearchRoutingDecision.resolve(researchConfiguration: configuration)
-        #expect(decision == .cliBridge(upstream: .claude, modelIdentifier: "claude-opus-4-7"))
+        #expect(decision == .cliBridge(upstream: .codex, modelIdentifier: ""))
     }
 
     @Test func explicitOffTierFallsBackToPhoneLargeModel() async throws {

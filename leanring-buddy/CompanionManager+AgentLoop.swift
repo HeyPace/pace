@@ -994,7 +994,15 @@ extension CompanionManager {
                 researchTurnMaxAgentSteps = loadedResearchConfiguration.maximumAgentSteps
                 isOffDeviceTurnInFlight = true
                 let upstreamLabel = loadedResearchConfiguration.cliBridgeUpstream.displayLabel.lowercased()
-                currentTurnHUDState = .understanding("researching with \(upstreamLabel) \(loadedResearchConfiguration.cliBridgeModel.lowercased())…")
+                // The model is often empty now (Codex's default lets the
+                // CLI pick its own authenticated model), so only append a
+                // model suffix to the HUD when one was actually configured.
+                let trimmedResearchModel = loadedResearchConfiguration.cliBridgeModel
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let researchModelSuffix = trimmedResearchModel.isEmpty
+                    ? ""
+                    : " \(trimmedResearchModel.lowercased())"
+                currentTurnHUDState = .understanding("researching with \(upstreamLabel)\(researchModelSuffix)…")
                 Task { [weak self] in
                     try? await self?.ttsClient.speakText(
                         "Researching that — give me a minute."

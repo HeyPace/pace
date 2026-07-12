@@ -330,6 +330,38 @@ enum BuddyPlannerClientFactory {
         return .spawnCLI
     }
 
+    /// Pure decision for how a BACKGROUND scheduled/cron task should run.
+    /// Unlike a user-spoken turn, a cron fire is unattended, so it must
+    /// NOT silently send scheduled-task data off-device: the Codex
+    /// direct-spawn brain is used only when direct-spawn consent has been
+    /// accepted AND the 24-hour soak has elapsed (the same gate the
+    /// `.cliDirect` factory enforces). Otherwise the task stays on the
+    /// user's currently-configured planner (`.useDefaultPlanner`). Extracted
+    /// so the privacy-critical routing can be unit-tested without device /
+    /// Keychain / timer state.
+    enum CronTaskBrainDecision: Equatable {
+        /// Run the task on a fresh Codex `PaceLocalCLIPlannerClient`.
+        case useCodexDirectSpawn
+        /// Run the task on `CompanionManager`'s existing default planner —
+        /// no off-device escalation without consent.
+        case useDefaultPlanner(reason: String)
+    }
+
+    static func cronTaskBrainDecision(
+        hasAcceptedDirectSpawnConsent: Bool,
+        canRunDirectSpawnTurn: Bool
+    ) -> CronTaskBrainDecision {
+        switch cliDirectDispatchDecision(
+            hasAcceptedDirectSpawnConsent: hasAcceptedDirectSpawnConsent,
+            canRunDirectSpawnTurn: canRunDirectSpawnTurn
+        ) {
+        case .spawnCLI:
+            return .useCodexDirectSpawn
+        case .fallBackToLocal(let reason):
+            return .useDefaultPlanner(reason: reason)
+        }
+    }
+
     /// Constructs the direct-spawn planner (`PaceLocalCLIPlannerClient`)
     /// when the user has accepted the DIRECT-SPAWN consent AND the 24-hour
     /// soak has elapsed. Falls back to local (with a logged reason)
