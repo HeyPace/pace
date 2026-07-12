@@ -1,0 +1,17 @@
+{
+  "createdAt" : "2026-06-12T00:00:00Z",
+  "description" : "Activates Do Not Disturb and plays your preferred focus playlist in Music.",
+  "displayCategory" : "work",
+  "name" : "focus mode on",
+  "requiredPreferences" : [
+    "preferredFocusPlaylist"
+  ],
+  "secureFieldDefaults" : {},
+  "slug" : "focus-mode-on",
+  "steps" : [
+    {
+      "bundleIdentifier" : "com.apple.Music",
+      "kind" : "activateApp"
+    }
+  ]
+}

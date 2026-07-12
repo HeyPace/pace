@@ -1,0 +1,368 @@
+//
+//  PaceUserPreferencesStore.swift
+//  leanring-buddy
+//
+//  Typed key namespace + load/save helpers for user-toggleable
+//  preferences. Replaces three hand-rolled `UserDefaults
+//  .object(forKey:) == nil ? default : bool(forKey:)` patterns scattered
+//  across `CompanionManager` — each with its own stringly-typed key.
+//
+//  The `@Published` properties stay on `CompanionManager` so the
+//  existing SwiftUI bindings keep working. This store owns only the
+//  storage-layer concern: key strings, defaults, and (for one
+//  preference) the Info.plist seed on first launch.
+//
+//  Adding a new boolean preference is two lines: add a case to
+//  `PaceUserPreferenceKey`, and decide its default by calling either
+//  `bool(_:default:)` or `boolWithInfoPlistSeed(_:infoPlistKey:)`.
+//
+
+import Foundation
+
+enum PaceUserPreferenceKey: String {
+    case useLocalVLMForScreenContext
+    case isWalkingAvatarEnabled
+    case isPaceCursorEnabled
+    case areCursorAnnotationsEnabled
+    case requiresActionApproval
+    case isPostureWatchEnabled
+    case isAlwaysListeningEnabled
+    case areFocusFatigueNudgesEnabled
+    case areCalendarNudgesEnabled
+    case areWatchObservationNudgesEnabled
+    /// Master switch for the rolling-summary + verbatim-window in-
+    /// context memory. Default ON — see PRD
+    /// docs/prds/conversational-thread-memory.md.
+    case isThreadMemoryEnabled
+    /// How many turn pairs the planner sees verbatim before older
+    /// turns get folded into the rolling summary. Clamped 1...8.
+    case threadMemoryVerbatimWindowSize
+    /// How long the thread can stay quiet before its summary +
+    /// verbatim window are dropped. Clamped 5...60 minutes.
+    case threadMemoryIdleMinutes
+    /// Reveals the live summary text in Settings for transparency /
+    /// debugging. Default OFF — the summary is never user-facing.
+    case isThreadMemoryDebugViewEnabled
+    /// Opt-in handoff: when a thread session ends, feed the final
+    /// rolling summary to the episodic-fact extractor. Default OFF
+    /// because the summarizer is loose; the episodic extractor is
+    /// precise. Coupling them risks low-confidence facts.
+    case isThreadEndingEpisodicHandoffEnabled
+    /// Master switch for the daily morning brief proactive feature.
+    /// Default OFF — see PRD docs/prds/morning-triage.md.
+    case isMorningTriageEnabled
+    /// Hour-of-day component (0...23) at which the morning brief
+    /// fires on weekdays. Clamped on read.
+    case morningTriageHourOfDay
+    /// Minute-of-hour component (0...59) at which the morning brief
+    /// fires on weekdays. Clamped on read.
+    case morningTriageMinuteOfHour
+    /// User-tunable assertiveness profile for proactive speech. The
+    /// raw string maps to a `PaceProactivityProfile` case via the
+    /// store's typed accessor; unrecognized values fall back to
+    /// `.balanced`. Default `.balanced` matches the original PRD
+    /// cooldown values. See PRD docs/prds/restraint-and-proactivity.md.
+    case proactivityProfile
+    /// Opt-in: include sensitive-topic episodic facts (#health,
+    /// #finance, #relationship) in the LOCAL CONTEXT block injected
+    /// into the planner prompt. Default OFF — sensitive facts are
+    /// still stored, just not surfaced into prompts until the user
+    /// flips this in Settings → Memory. See PRD episodic-memory.md.
+    case injectSensitiveEpisodicTopics
+    /// Wave 4 speed lever: when ON, screen-action / screen-description
+    /// turns race Apple FM (text-only, no screen context) against the
+    /// full VLM-fed local planner — whichever streams first wins the
+    /// TTS pipeline. Default ON because it is RAM-neutral (FM is
+    /// already in-process) and the perceived latency win is large.
+    /// Users disable it from Settings → Planner if they prefer the
+    /// VLM-fed answer regardless of latency. See Wave 4 plan.
+    case enableSpeculativePlannerRace
+    /// Unified-memory recall (docs/prds/unified-memory.md, Phase 3): when
+    /// ON, the LOCAL CONTEXT block is AUGMENTED with semantically-ranked
+    /// entries from the unified memory index (durable facts + relevant past
+    /// turns) alongside the lexical connector/history block. Default ON;
+    /// safe because it degrades to lexical-only when embeddings are
+    /// unavailable. Users can turn it off in Settings → Memory.
+    case useUnifiedMemoryRecall
+    /// When ON, a click that misses (all candidates fail) triggers Set-of-Mark
+    /// recovery: numbered marks are drawn on the screenshot and the VLM picks
+    /// the right mark for a re-click. Default ON — it only fires on a miss, so
+    /// the happy path is unaffected. See PRD docs/prds/set-of-mark-click-recovery.md.
+    case enableSetOfMarkClickRecovery
+    /// Tuition mode: when ON, agent-mode turns get an extra system-prompt
+    /// block biasing the planner toward `draw_annotation` + narration over
+    /// `click`/`type`. The `draw_annotation` and `clear_annotations` tools
+    /// are ALWAYS available regardless of this flag. Default OFF.
+    case isTuitionModeEnabled
+    /// Append anonymized planner turns to
+    /// `~/Library/Application Support/Pace/pace-tuned-turns.jsonl` for the
+    /// pace-tuned dataset (incl. cloud/Codex turns, each tagged with its
+    /// provenance so commercial-model turns can be filtered before training).
+    /// Default ON (local + redacted, never leaves the Mac); opt out in
+    /// Settings → Models. See docs/plans/pace-tuned-model-v1.md.
+    case isPaceTunedTurnExportEnabled
+    /// Screen-edge glow border that shifts color with the agent's
+    /// voice state (listening → green, processing → blue, responding →
+    /// purple). Inspired by ORB's glow border phase indicator. Default
+    /// ON — it's subtle and helps users know what Pace is doing at a
+    /// glance without looking at the menu bar.
+    case isGlowBorderEnabled
+    /// Meeting mode: captures system audio via ScreenCaptureKit for
+    /// live transcription and action item extraction. Inspired by
+    /// Shiro's meeting mode. Default OFF — requires Screen Recording
+    /// permission and is privacy-sensitive.
+    case isMeetingModeEnabled
+    /// General cron scheduling: allows Pace to run tasks on a
+    /// recurring schedule (e.g. "every hour check my email"). Inspired
+    /// by OpenFelix's cron jobs. Default OFF.
+    case isCronSchedulerEnabled
+    /// Dynamic tool plugins: load user-installed shell-command plugins
+    /// from ~/Library/Application Support/Pace/plugins/. Default OFF.
+    case areDynamicPluginsEnabled
+    /// Meeting notes retention window in days. Default 30 — longer
+    /// than the 7-day watch journal because meeting decisions are
+    /// referenced weeks later. See PRD
+    /// docs/prds/on-device-meeting-notes.md.
+    case meetingNotesRetentionDays
+    /// Which local STT backend to use for meeting transcription.
+    /// "whisperkit" (default) or "apple" — lets users force Apple
+    /// Speech if WhisperKit isn't installed. See PRD
+    /// docs/prds/on-device-meeting-notes.md.
+    case meetingNotesTranscriptionBackend
+    /// Default meeting note profile slug. "general" (default)
+    /// reproduces the pre-profiles output. See
+    /// openspec/changes/adaptive-meeting-notes.
+    case meetingNotesDefaultProfileSlug
+    /// When ON, and no profile is explicitly chosen or pinned, a local
+    /// planner call classifies the transcript into a profile. Default
+    /// OFF so upgrades change nothing until opt-in.
+    case meetingNotesProfileInferenceEnabled
+    /// Premium chat panel (docs/prds/premium-chat-panel.md, phase 1):
+    /// when ON, the notch panel renders the new `PaceChatPanelView`
+    /// conversation surface; when OFF (the phase-1 default) the panel
+    /// keeps the existing surface byte-identical. Read once per panel
+    /// creation in `MenuBarPanelManager.createPanel()`. Flips ON by
+    /// default in phase 2 after real-world use.
+    case useChatPanelAsPrimarySurface
+}
+
+enum PaceUserPreferencesStore {
+    /// Read a boolean preference. Returns `defaultValue` if the key has
+    /// never been written.
+    static func bool(_ key: PaceUserPreferenceKey, default defaultValue: Bool) -> Bool {
+        guard let stored = UserDefaults.standard.object(forKey: key.rawValue) as? Bool else {
+            return defaultValue
+        }
+        return stored
+    }
+
+    /// Read a boolean preference, defaulting to `false` when unset.
+    static func bool(for key: PaceUserPreferenceKey) -> Bool {
+        bool(key, default: false)
+    }
+
+    /// Read a boolean preference, falling back to an Info.plist string
+    /// value if the user has never touched the toggle. Used for one-off
+    /// "seed from build config on first launch" cases.
+    static func boolWithInfoPlistSeed(
+        _ key: PaceUserPreferenceKey,
+        infoPlistKey: String
+    ) -> Bool {
+        if let stored = UserDefaults.standard.object(forKey: key.rawValue) as? Bool {
+            return stored
+        }
+        let infoPlistRawValue = AppBundleConfiguration
+            .stringValue(forKey: infoPlistKey)?
+            .lowercased()
+        return infoPlistRawValue == "true"
+            || infoPlistRawValue == "1"
+            || infoPlistRawValue == "yes"
+    }
+
+    static func setBool(_ value: Bool, for key: PaceUserPreferenceKey) {
+        UserDefaults.standard.set(value, forKey: key.rawValue)
+    }
+
+    /// Read an integer preference clamped to an inclusive range.
+    /// Returns `defaultValue` (also clamped) if the key was never
+    /// written. Used by the thread-memory picker controls so a bad
+    /// UserDefaults value can never push the verbatim window above
+    /// 8 or below 1.
+    static func clampedInt(
+        _ key: PaceUserPreferenceKey,
+        default defaultValue: Int,
+        in clampingRange: ClosedRange<Int>
+    ) -> Int {
+        let clampedDefault = min(max(defaultValue, clampingRange.lowerBound), clampingRange.upperBound)
+        guard let storedRawValue = UserDefaults.standard.object(forKey: key.rawValue) as? Int else {
+            return clampedDefault
+        }
+        return min(max(storedRawValue, clampingRange.lowerBound), clampingRange.upperBound)
+    }
+
+    static func setInt(_ value: Int, for key: PaceUserPreferenceKey) {
+        UserDefaults.standard.set(value, forKey: key.rawValue)
+    }
+
+    /// Read a string preference. Returns `defaultValue` if the key has
+    /// never been written.
+    static func string(_ key: PaceUserPreferenceKey, default defaultValue: String) -> String {
+        guard let stored = UserDefaults.standard.string(forKey: key.rawValue) else {
+            return defaultValue
+        }
+        return stored
+    }
+
+    static func setString(_ value: String, for key: PaceUserPreferenceKey) {
+        UserDefaults.standard.set(value, forKey: key.rawValue)
+    }
+
+    /// Read the meeting-notes retention window in days. Default 30,
+    /// clamped to 1...365 so a bad UserDefaults value can't disable
+    /// retention or set an unreasonable window.
+    static func meetingNotesRetentionDays() -> Int {
+        clampedInt(
+            .meetingNotesRetentionDays,
+            default: 30,
+            in: 1...365
+        )
+    }
+
+    /// Read the meeting-notes transcription backend. Default "whisperkit";
+    /// unrecognized values fall back to "whisperkit".
+    static func meetingNotesTranscriptionBackend() -> String {
+        let stored = string(.meetingNotesTranscriptionBackend, default: "whisperkit")
+        let normalized = stored.lowercased()
+        if normalized == "whisperkit" || normalized == "apple" {
+            return normalized
+        }
+        return "whisperkit"
+    }
+
+    /// Write the meeting-notes retention window in days. Clamped to
+    /// 1...365 so the UI stepper can't write an out-of-range value.
+    static func setMeetingNotesRetentionDays(_ value: Int) {
+        setInt(min(365, max(1, value)), for: .meetingNotesRetentionDays)
+    }
+
+    /// Write the meeting-notes transcription backend. Normalized to
+    /// lowercase; unrecognized values are stored as "whisperkit".
+    static func setMeetingNotesTranscriptionBackend(_ value: String) {
+        let normalized = value.lowercased()
+        let safe = (normalized == "whisperkit" || normalized == "apple") ? normalized : "whisperkit"
+        setString(safe, for: .meetingNotesTranscriptionBackend)
+    }
+
+    /// Read the default meeting note profile slug. Defaults to
+    /// "general" so an upgrade-in-place reproduces the pre-profiles
+    /// output.
+    static func meetingNotesDefaultProfileSlug() -> String {
+        string(.meetingNotesDefaultProfileSlug, default: "general")
+    }
+
+    /// Write the default meeting note profile slug.
+    static func setMeetingNotesDefaultProfileSlug(_ slug: String) {
+        setString(slug, for: .meetingNotesDefaultProfileSlug)
+    }
+
+    /// Whether local profile inference is enabled. Default OFF.
+    static func isMeetingNotesProfileInferenceEnabled() -> Bool {
+        bool(.meetingNotesProfileInferenceEnabled, default: false)
+    }
+
+    /// Enable/disable local profile inference.
+    static func setMeetingNotesProfileInferenceEnabled(_ enabled: Bool) {
+        setBool(enabled, for: .meetingNotesProfileInferenceEnabled)
+    }
+
+    /// Read the user-tunable proactivity profile, falling back to
+    /// `.balanced` on a missing or unrecognized value. The default is
+    /// the PRD baseline (10-min focus cooldown, 30-sec episodic
+    /// cooldown) so an upgrade-in-place changes nothing until the
+    /// user opens Settings → Proactive.
+    static func proactivityProfile() -> PaceProactivityProfile {
+        let storedRawValue = UserDefaults.standard.string(forKey: PaceUserPreferenceKey.proactivityProfile.rawValue)
+        guard let storedRawValue,
+              let resolvedProfile = PaceProactivityProfile(rawValue: storedRawValue) else {
+            return .balanced
+        }
+        return resolvedProfile
+    }
+
+    /// Persist the user-tunable proactivity profile.
+    static func setProactivityProfile(_ profile: PaceProactivityProfile) {
+        UserDefaults.standard.set(profile.rawValue, forKey: PaceUserPreferenceKey.proactivityProfile.rawValue)
+    }
+}
+
+/// Storage-layer namespace for the smoke-test output channels written by
+/// `PaceRuntimeSmokeTestHooks` and read out-of-process by
+/// `scripts/smoke-runtime-hooks.sh` via the `defaults` CLI. These are NOT
+/// user-toggleable preferences (no @Published binding, no Settings UI) —
+/// they're a runtime breadcrumb trail for the smoke runner. They live in
+/// `PaceUserPreferencesStore` because this file owns the codebase's only
+/// UserDefaults key strings, so consolidating them here removes the
+/// scattered stringly-typed keys the previous hand-rolled `DefaultsKey`
+/// enum in `PaceRuntimeSmokeTestHooks` was hiding.
+///
+/// The raw key strings are intentionally byte-identical to what the smoke
+/// script reads — changing them would break the external test harness.
+enum PaceSmokeTestStateStore {
+
+    // MARK: Key strings (must match scripts/smoke-runtime-hooks.sh)
+
+    private enum SmokeKey: String {
+        case ready = "PaceSmoke.ready"
+        case lastPanelCommand = "PaceSmoke.lastPanelCommand"
+        case lastSettingsCommand = "PaceSmoke.lastSettingsCommand"
+        case lastCursorAnnotationsEnabled = "PaceSmoke.lastCursorAnnotationsEnabled"
+        case lastApprovalAllowed = "PaceSmoke.lastApprovalAllowed"
+        case lastClarificationState = "PaceSmoke.lastClarificationState"
+        case lastClarifiedTranscript = "PaceSmoke.lastClarifiedTranscript"
+        case lastClickTargetClarificationState = "PaceSmoke.lastClickTargetClarificationState"
+        case lastClickTargetResolution = "PaceSmoke.lastClickTargetResolution"
+        case lastClickAllFailSummary = "PaceSmoke.lastClickAllFailSummary"
+    }
+
+    // MARK: Writers (the smoke hook installer calls these)
+
+    static func markSmokeHooksReady() {
+        UserDefaults.standard.set(true, forKey: SmokeKey.ready.rawValue)
+    }
+
+    static func recordLastPanelCommand(_ commandName: String) {
+        UserDefaults.standard.set(commandName, forKey: SmokeKey.lastPanelCommand.rawValue)
+    }
+
+    static func recordLastSettingsCommand(_ commandName: String) {
+        UserDefaults.standard.set(commandName, forKey: SmokeKey.lastSettingsCommand.rawValue)
+    }
+
+    static func recordLastCursorAnnotationsEnabled(_ isEnabled: Bool) {
+        UserDefaults.standard.set(isEnabled, forKey: SmokeKey.lastCursorAnnotationsEnabled.rawValue)
+    }
+
+    static func recordLastApprovalAllowed(_ didAllow: Bool) {
+        UserDefaults.standard.set(didAllow, forKey: SmokeKey.lastApprovalAllowed.rawValue)
+    }
+
+    static func recordLastClarificationState(_ stateName: String) {
+        UserDefaults.standard.set(stateName, forKey: SmokeKey.lastClarificationState.rawValue)
+    }
+
+    static func recordLastClarifiedTranscript(_ transcript: String) {
+        UserDefaults.standard.set(transcript, forKey: SmokeKey.lastClarifiedTranscript.rawValue)
+    }
+
+    static func recordLastClickTargetClarificationState(_ stateName: String) {
+        UserDefaults.standard.set(stateName, forKey: SmokeKey.lastClickTargetClarificationState.rawValue)
+    }
+
+    static func recordLastClickTargetResolution(_ label: String) {
+        UserDefaults.standard.set(label, forKey: SmokeKey.lastClickTargetResolution.rawValue)
+    }
+
+    static func recordLastClickAllFailSummary(_ summary: String) {
+        UserDefaults.standard.set(summary, forKey: SmokeKey.lastClickAllFailSummary.rawValue)
+    }
+}

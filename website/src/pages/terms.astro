@@ -1,0 +1,55 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+
+const description =
+  "Pace's terms: MIT-licensed software, provided as-is, one-time purchase handled by the payment processor.";
+---
+
+<BaseLayout
+  title="Terms — Pace"
+  description={description}
+  pathname="/terms"
+>
+  <Nav />
+  <main class="mx-auto max-w-2xl px-6 py-24">
+    <p class="text-sm uppercase tracking-widest text-[var(--color-text-muted)] font-mono mb-6">TERMS</p>
+    <h1 class="pace-display mt-3 text-4xl md:text-5xl text-white">Plain-language terms.</h1>
+
+    <div class="mt-10 space-y-6 leading-relaxed text-[var(--color-text-muted)]">
+      <p>
+        Pace is open-source software released under the
+        <a class="underline" href="https://github.com/sarthakagrawal927/pace/blob/main/LICENSE">MIT License</a>.
+        That license governs your use of the software: it's provided
+        "as is", without warranty of any kind. It automates your Mac —
+        keep action mode's approval prompts on until you trust it.
+      </p>
+
+      <h2 class="pace-display pt-4 text-2xl text-white">Purchases</h2>
+      <p>
+        The paid tier is a one-time purchase that supports development.
+        Payment is handled entirely by the payment processor — Pace never
+        sees or stores payment details. If something's wrong with your
+        purchase, <a class="underline" href="mailto:sarthakagrawal927@gmail.com">email me</a>
+        and I'll make it right.
+      </p>
+
+      <h2 class="pace-display pt-4 text-2xl text-white">Your data</h2>
+      <p>
+        There is no service, no account, and no data of yours in my hands —
+        see the <a class="underline" href="/privacy">privacy policy</a>.
+        Uninstalling Pace and deleting
+        <code>~/Library/Application&nbsp;Support/Pace/</code> removes
+        everything.
+      </p>
+
+      <p class="pt-4 text-sm opacity-70">
+        These terms are deliberately short because the architecture makes
+        most standard clauses unnecessary. If you need something formal for
+        procurement, email me.
+      </p>
+    </div>
+  </main>
+  <Footer />
+</BaseLayout>

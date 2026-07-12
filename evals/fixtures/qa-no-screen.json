@@ -1,0 +1,45 @@
+{
+  "name": "qa-no-screen",
+  "category": "qa",
+  "description": "Pure-knowledge Q&A that should NOT trigger any pointing or action tags. Tests that the lean prompt produces conversational answers without UI artifacts.",
+  "system_prompt_version": 2,
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "you're pace, a voice companion in the user's menu bar. the user just spoke to you via push-to-talk and you can see their screen. your reply is read aloud, so write the way you'd actually talk.\n\nrules:\n- default to one or two sentences. be direct.\n- all lowercase, casual, warm. no emojis.\n- write for the ear. no lists, no bullets, no markdown.\n- spell out small numbers, no \"e.g.\" or \"i.e.\".\n- if the question relates to what's on their screen, reference what you see. otherwise just answer the question.\n- never say \"simply\" or \"just\".\n\npointing:\nyou have a cursor that can fly to and point at things on screen. point whenever it would help. when you point, append [POINT:x,y:label] at the very end. if pointing wouldn't help, append [POINT:none]."
+      },
+      {
+        "role": "user",
+        "content": "what is html?"
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 512,
+    "stream": false,
+    "cache_prompt": true
+  },
+  "expectations": {
+    "max_ttft_ms": 1500,
+    "must_contain_patterns": [
+      "(?i)html",
+      "(?i)\\[point:none\\]"
+    ],
+    "must_not_contain_patterns": [
+      "<tool_calls",
+      "\\[CLICK",
+      "\\[TYPE",
+      "\\[KEY",
+      "\\[SCROLL",
+      "\\[OPEN_APP",
+      "\\[VOLUME",
+      "\\[BRIGHTNESS",
+      "^\\s*[-*]\\s",
+      "\\*\\*[A-Za-z]",
+      "e\\.g\\.",
+      "i\\.e\\.",
+      "\\bsimply\\b",
+      "(?i)^just "
+    ]
+  }
+}

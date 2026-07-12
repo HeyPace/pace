@@ -1,0 +1,37 @@
+{
+  "createdAt" : "2026-06-12T00:00:00Z",
+  "description" : "Creates a weekly review note in Notes with a wins/blockers/next-week template.",
+  "displayCategory" : "work",
+  "name" : "weekly review note",
+  "requiredPreferences" : [],
+  "secureFieldDefaults" : {},
+  "slug" : "weekly-review-draft",
+  "steps" : [
+    {
+      "bundleIdentifier" : "com.apple.Notes",
+      "kind" : "activateApp"
+    },
+    {
+      "key" : "cmd+n",
+      "kind" : "keyShortcut"
+    },
+    {
+      "kind" : "typeText",
+      "secure" : false,
+      "text" : "weekly review — "
+    },
+    {
+      "key" : "cmd+shift+t",
+      "kind" : "keyShortcut"
+    },
+    {
+      "key" : "return",
+      "kind" : "keyShortcut"
+    },
+    {
+      "kind" : "typeText",
+      "secure" : false,
+      "text" : "Wins\n- \n\nBlockers\n- \n\nNext week\n- "
+    }
+  ]
+}

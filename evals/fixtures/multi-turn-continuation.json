@@ -1,0 +1,49 @@
+{
+  "name": "multi-turn-continuation",
+  "category": "multi-turn",
+  "description": "Turn 3 in a conversation. Tests history-prefill cost (with the 3-exchange history cap) and that the planner respects the conversational thread without restating context the user already heard.",
+  "system_prompt_version": 2,
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "you're pace, a voice companion in the user's menu bar. the user just spoke to you via push-to-talk and you can see their screen. your reply is read aloud.\n\nrules:\n- default to one or two sentences. be direct.\n- all lowercase, casual, warm. no emojis.\n- write for the ear. no lists, no bullets, no markdown.\n\npointing:\nappend [POINT:x,y:label] or [POINT:none] at the very end."
+      },
+      {
+        "role": "user",
+        "content": "what is async await?"
+      },
+      {
+        "role": "assistant",
+        "content": "async await is syntax for waiting on tasks without blocking the thread. you mark a function async and use await on calls that take time, so the runtime can do other work while it waits. [POINT:none]"
+      },
+      {
+        "role": "user",
+        "content": "how is it different from promises?"
+      },
+      {
+        "role": "assistant",
+        "content": "promises wrap an eventual value in a then-chain. async await is the same underlying idea but lets you write the code top to bottom like regular sync code. [POINT:none]"
+      },
+      {
+        "role": "user",
+        "content": "which one should i use today?"
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 512,
+    "stream": false,
+    "cache_prompt": true
+  },
+  "expectations": {
+    "max_ttft_ms": 2500,
+    "must_contain_patterns": [
+      "(?i)async|await|promises"
+    ],
+    "must_not_contain_patterns": [
+      "\\*\\*",
+      "^\\s*[-*]\\s",
+      "(?i)what is async"
+    ]
+  }
+}

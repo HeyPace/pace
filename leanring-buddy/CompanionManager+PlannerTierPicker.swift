@@ -1,0 +1,212 @@
+//
+//  CompanionManager+PlannerTierPicker.swift
+//  leanring-buddy
+//
+//  Extracted from CompanionManager.swift (god-class decomposition Phase A5):
+//  planner tier picker setters, Direct-API key management, and off-device tier checks.
+//
+
+import Foundation
+
+@MainActor
+extension CompanionManager {
+
+    // MARK: - Planner tier picker state
+
+    func setActivePlannerTier(_ newTier: PacePlannerTier) {
+        activePlannerTier = newTier
+        PacePlannerTierStore.saveTier(newTier)
+        // Rebuild planner so the next turn uses the freshly-picked tier
+        // without requiring an app restart.
+        plannerClient = BuddyPlannerClientFactory.makeDefault()
+    }
+
+    /// Selects a planner tier from any picker surface, running the SAME
+    /// consent flow the Planner tab uses. This is the single home for the
+    /// "pick a brain, run its consent, revert on cancel" policy so the
+    /// Planner tab and the RAM-aware budget picker never drift apart.
+    ///
+    /// - `.local` / `.appleFoundationModels` / `.directAPI`: no NSAlert —
+    ///   the explicit pick is the consent (Direct API still needs a saved
+    ///   key before turns actually route off-device).
+    /// - `.cliBridge`: shows the Node-bridge consent NSAlert; on accept,
+    ///   promotes a still-`.off` bridge mode to `.hybrid` so the user
+    ///   benefits immediately. On cancel, reverts to `.local`.
+    /// - `.cliDirect`: shows the DIRECT-SPAWN consent NSAlert (a different
+    ///   off-device data path from the bridge). On cancel, reverts to
+    ///   `.local`.
+    ///
+    /// Returns true when the tier was applied, false when a consent dialog
+    /// was cancelled (and the tier was reverted to `.local`).
+    @discardableResult
+    func selectPlannerTierWithConsent(_ newPlannerTier: PacePlannerTier) -> Bool {
+        switch newPlannerTier {
+        case .local, .appleFoundationModels:
+            setActivePlannerTier(newPlannerTier)
+            return true
+        case .cliBridge:
+            let consentAccepted = requestCloudBridgeConsentIfNeeded()
+            guard consentAccepted else {
+                setActivePlannerTier(.local)
+                return false
+            }
+            if cloudBridgeMode == .off {
+                setCloudBridgeMode(.hybrid)
+            }
+            setActivePlannerTier(newPlannerTier)
+            return true
+        case .cliDirect:
+            let consentAccepted = requestDirectSpawnConsentIfNeeded(
+                upstream: activePlannerTierCLIDirectUpstream
+            )
+            guard consentAccepted else {
+                setActivePlannerTier(.local)
+                return false
+            }
+            setActivePlannerTier(newPlannerTier)
+            return true
+        case .directAPI:
+            setActivePlannerTier(newPlannerTier)
+            return true
+        }
+    }
+
+    /// Persists the `.cliDirect` upstream selection and rebuilds the
+    /// planner so the next turn spawns the freshly-picked CLI without an
+    /// app restart.
+    func setCLIDirectUpstream(_ newUpstream: PaceLocalCLIUpstream) {
+        activePlannerTierCLIDirectUpstream = newUpstream
+        PacePlannerTierStore.saveCLIDirectUpstream(newUpstream)
+        plannerClient = BuddyPlannerClientFactory.makeDefault()
+    }
+
+    func setDirectAPIProvider(_ newProvider: PaceDirectAPIProvider) {
+        directAPIProvider = newProvider
+        PacePlannerTierStore.saveDirectAPIProvider(newProvider)
+        // When the provider changes, also seed the model field with that
+        // provider's default — the user can immediately overwrite it but
+        // most users want a sensible starting model identifier.
+        let savedModelForProvider = PacePlannerTierStore.loadConfiguration().directAPIModelIdentifier
+        let modelIdentifierLooksEmptyOrStale = savedModelForProvider
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+        if modelIdentifierLooksEmptyOrStale {
+            setDirectAPIModelIdentifier(newProvider.defaultModelIdentifier)
+        }
+        plannerClient = BuddyPlannerClientFactory.makeDefault()
+    }
+
+    func setDirectAPIModelIdentifier(_ newModelIdentifier: String) {
+        directAPIModelIdentifier = newModelIdentifier
+        PacePlannerTierStore.saveDirectAPIModelIdentifier(newModelIdentifier)
+        plannerClient = BuddyPlannerClientFactory.makeDefault()
+    }
+
+    func setDirectAPICustomEndpointURLString(_ newCustomEndpointURLString: String) {
+        directAPICustomEndpointURLString = newCustomEndpointURLString
+        PacePlannerTierStore.saveDirectAPICustomEndpointURL(newCustomEndpointURLString)
+        plannerClient = BuddyPlannerClientFactory.makeDefault()
+    }
+
+    func setDirectAPIFallsBackToLocalOnCloudFailure(_ enabled: Bool) {
+        directAPIFallsBackToLocalOnCloudFailure = enabled
+        PacePlannerTierStore.saveFallsBackToLocalOnCloudFailure(enabled)
+    }
+
+    /// Whether the active planner tier is one that leaves the Mac.
+    /// Cliff-edge gates: cliBridge requires consent AND a non-off mode;
+    /// directAPI requires a stored key. Both checks mirror the factory
+    /// so the UI flag stays honest.
+    var activePlannerTierIsOffDevice: Bool {
+        switch activePlannerTier {
+        case .local, .appleFoundationModels:
+            return false
+        case .cliBridge:
+            let bridgeConfiguration = PaceCloudBridgeConsent.loadConfiguration()
+            return bridgeConfiguration.hasUserAcceptedConsent
+                && bridgeConfiguration.mode != .off
+        case .cliDirect:
+            // Off-device only once the direct-spawn consent is accepted
+            // AND the soak has elapsed — matches the factory gate so the
+            // UI flag stays honest (before that, the tier falls back to
+            // local and nothing leaves the Mac).
+            return PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+        case .directAPI:
+            return PaceKeychainStore.loadAPIKey(for: directAPIProvider) != nil
+        }
+    }
+
+    /// Verifies that the configured Direct-API provider, model, and key
+    /// can complete a single round trip. Builds a one-off
+    /// `DirectAPIPlannerClient` rather than reusing the active
+    /// `plannerClient` so the test does not disturb live state and is
+    /// not blocked by the tier choice. Surfaces the upstream error
+    /// verbatim on failure — users debugging API issues need to see the
+    /// provider's actual error string to find it in provider docs.
+    func runDirectAPITestRoundTrip() async -> Result<String, Error> {
+        let configurationAtTestTime = PacePlannerTierStore.loadConfiguration()
+        let resolvedEndpointURLString = PacePlannerTierStore
+            .resolvedDirectAPIEndpointURLString(for: configurationAtTestTime)
+
+        let validatedEndpointURL: URL
+        do {
+            validatedEndpointURL = try PaceLocalEndpointGuard.validatedDirectAPIURL(
+                from: resolvedEndpointURLString
+            )
+        } catch {
+            return .failure(error)
+        }
+
+        let testOnlyPlannerClient = DirectAPIPlannerClient(
+            provider: configurationAtTestTime.directAPIProvider,
+            endpointURL: validatedEndpointURL,
+            modelIdentifier: configurationAtTestTime.directAPIModelIdentifier
+        )
+
+        do {
+            let (responseText, _) = try await testOnlyPlannerClient.generateResponseStreaming(
+                images: [],
+                systemPrompt: "You are a connectivity-test echo. Respond with the model identifier you are, in exactly one word.",
+                conversationHistory: [],
+                userPrompt: "hi",
+                onTextChunk: { _ in }
+            )
+            let trimmedResponseText = responseText.trimmingCharacters(in: .whitespacesAndNewlines)
+            return .success(String(trimmedResponseText.prefix(60)))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    /// Stores the user-pasted API key for the active Direct-API provider
+    /// and rebuilds the planner so the new key is picked up on the next
+    /// turn. The key value is passed straight to `PaceKeychainStore` and
+    /// is never persisted anywhere else.
+    @discardableResult
+    func saveDirectAPIKey(_ apiKey: String, for provider: PaceDirectAPIProvider) -> Bool {
+        let didStore = PaceKeychainStore.storeAPIKey(apiKey, for: provider)
+        if didStore {
+            plannerClient = BuddyPlannerClientFactory.makeDefault()
+        }
+        return didStore
+    }
+
+    /// Removes the stored API key for the given provider and rebuilds the
+    /// planner so the next turn either falls back to local (when no other
+    /// key is present) or picks up a different stored provider.
+    @discardableResult
+    func deleteDirectAPIKey(for provider: PaceDirectAPIProvider) -> Bool {
+        let didDelete = PaceKeychainStore.deleteAPIKey(for: provider)
+        if didDelete {
+            plannerClient = BuddyPlannerClientFactory.makeDefault()
+        }
+        return didDelete
+    }
+
+    /// Snapshot of which providers currently have an API key in Keychain.
+    /// Settings UI calls this to show a green checkmark next to a saved
+    /// provider.
+    func providersWithStoredDirectAPIKeys() -> Set<PaceDirectAPIProvider> {
+        return PaceKeychainStore.providersWithStoredKeys()
+    }
+}

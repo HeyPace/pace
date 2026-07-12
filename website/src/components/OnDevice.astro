@@ -1,0 +1,87 @@
+---
+// One declarative claim, three short paragraphs underneath, and a
+// terminal snippet that's the proof. No card grid. The "0 bytes"
+// punchline gets its own visual moment.
+---
+
+<section id="on-device" class="px-6 py-24 md:py-36 border-t border-[var(--color-border-subtle)]">
+  <div class="max-w-4xl mx-auto">
+    <p class="text-sm uppercase tracking-widest text-[var(--color-text-muted)] font-mono mb-6">
+      The on-device part
+    </p>
+
+    <h2 class="pace-display text-4xl md:text-6xl text-white mb-12 max-w-3xl">
+      Other voice assistants ship your microphone to the cloud.
+      <em>Pace ships nothing.</em>
+    </h2>
+
+    <div class="grid md:grid-cols-2 gap-12 md:gap-16 items-start">
+      <div class="pace-prose">
+        <p>
+          Your voice goes through Apple's on-device <code class="font-mono text-sm bg-[var(--color-surface)] px-1.5 py-0.5 rounded">SFSpeechRecognizer</code>
+          or WhisperKit-Large running on your Apple Silicon. The microphone
+          never opens a socket. The transcript never reaches a server because
+          there isn't one.
+        </p>
+        <p>
+          Your screen goes through a 4-billion-parameter vision model
+          (Qwen3-VL) that lives on the same chip. Screenshots are
+          processed in-memory and freed. Nothing is uploaded, nothing
+          is cached, nothing is analyzed off your machine.
+        </p>
+        <p>
+          Your memory — conversation history, durable facts, journals —
+          is one JSON file at
+          <code class="font-mono text-sm bg-[var(--color-surface)] px-1.5 py-0.5 rounded">~/Library/Application Support/Pace/</code>.
+          You can <code class="font-mono">cat</code> it. It's not encrypted
+          because it doesn't need to be — nobody but you has a copy.
+        </p>
+      </div>
+
+      <div>
+        <p class="text-xs font-mono text-[var(--color-text-muted)] mb-3 uppercase tracking-wider">
+          What `nettop` says
+        </p>
+        <div
+          class="font-mono text-sm bg-black border border-[var(--color-border-subtle)] rounded-lg p-5 leading-relaxed"
+        >
+          <div class="text-[var(--color-text-muted)]">$ nettop -p Pace -P</div>
+          <div class="mt-2">
+            <span class="text-white/70">bytes_in </span>
+            <span class="text-[var(--color-positive)] font-semibold">0</span>
+          </div>
+          <div>
+            <span class="text-white/70">bytes_out</span>
+            <span class="text-[var(--color-positive)] font-semibold">0</span>
+          </div>
+          <div class="mt-2 text-[var(--color-text-muted)]">$ <span class="text-white"><span class="pace-cursor-caret"></span></span></div>
+        </div>
+        <p class="pace-margin-note mt-5">
+          Same output tomorrow.<br />
+          And the week after that.
+        </p>
+      </div>
+    </div>
+
+    <!-- Counter-positioning pull-quote. Other voice assistants are
+         getting fast by routing the microphone through OpenAI's
+         realtime API; Pace gets fast by owning the silicon path.
+         Same outcome, very different bargain — said out loud. -->
+    <div class="mt-24 md:mt-32 pt-16 border-t border-[var(--color-border-subtle)]">
+      <p
+        class="pace-display text-3xl md:text-5xl text-white max-w-4xl leading-[1.05]"
+      >
+        Other voice agents got fast by renting <em>OpenAI's realtime API.</em>
+        Pace got fast by <em>owning the silicon path.</em>
+      </p>
+      <p
+        class="mt-8 text-base md:text-lg text-[var(--color-text-secondary)] max-w-2xl leading-relaxed"
+      >
+        Same answer time on a second turn. <strong class="text-white">Very different bargain.</strong>
+        Theirs streams your microphone to a server that bills per minute and
+        can change its terms tomorrow. Ours never leaves the chip you already
+        paid for.
+      </p>
+    </div>
+  </div>
+</section>

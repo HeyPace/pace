@@ -1,0 +1,226 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+import ScrollProgress from "../components/ScrollProgress.astro";
+import MouseSpotlight from "../components/MouseSpotlight.astro";
+import CursorFollower from "../components/CursorFollower.astro";
+import PageEnhancements from "../components/PageEnhancements.astro";
+import CompetitorAnalysis from "../components/CompetitorAnalysis.astro";
+import { competitors, comparisonRechecked, type Competitor } from "../config/competitors";
+
+const description =
+  "How Pace compares to the other macOS voice agents — 16 products across cloud, hybrid, and on-device clusters. Open-source status, standout features, and where Pace differs. Honest, including where Pace is behind.";
+
+// Group by posture so the page reads as three clusters, not a flat list.
+const groups: { label: string; blurb: string; items: Competitor[] }[] = [
+  {
+    label: "Cloud",
+    blurb:
+      "Every turn hits someone else's data center. Fast to ship, costs per turn, needs an account.",
+    items: competitors.filter((c) => c.posture === "cloud"),
+  },
+  {
+    label: "Hybrid",
+    blurb:
+      "Local by default, cloud when you ask for it. The middle path — flexible, but the privacy posture depends on which tier you picked.",
+    items: competitors.filter((c) => c.posture === "hybrid"),
+  },
+  {
+    label: "On-device",
+    blurb:
+      "Fully local. The cluster Pace lives in. Zero bytes off the machine, zero per-turn cost, works on a plane.",
+    items: competitors.filter((c) => c.posture === "on-device"),
+  },
+];
+
+// The three-cluster header still color-codes each posture label; the
+// per-competitor license/posture card colors now live in
+// CompetitorAnalysis.astro (single rendering of a competitor block).
+const postureColor: Record<string, string> = {
+  "on-device": "var(--color-positive)",
+  cloud: "var(--color-warning)",
+  hybrid: "var(--color-text-secondary)",
+};
+---
+
+<BaseLayout
+  title="Pace compared — macOS voice agents, honest side-by-side"
+  description={description}
+  pathname="/compared"
+>
+  <ScrollProgress />
+  <MouseSpotlight />
+  <CursorFollower />
+  <PageEnhancements />
+
+  <Nav />
+
+  <main class="px-6 pt-32 md:pt-40 pb-24">
+    <div class="max-w-5xl mx-auto">
+      <!-- ── Hero ─────────────────────────────────────────────── -->
+      <p
+        class="text-sm uppercase tracking-widest text-[var(--color-text-muted)] font-mono mb-6"
+      >
+        The field
+      </p>
+
+      <h1 class="pace-display text-4xl md:text-6xl text-white mb-10 max-w-3xl">
+        Pace isn't the only one doing this. <em>Here's who else is</em>, and
+        what each one is actually good at.
+      </h1>
+
+      <div class="pace-prose mb-20">
+        <p>
+          A lot of macOS voice agents shipped in 2026. Most of them are
+          interesting. None of them are Pace. This page is the honest version
+          of that sentence — what each product does well, whether it's open
+          source, and where Pace diverges (including the places where Pace is
+          behind).
+        </p>
+        <p>
+          No checkmark grids. If you want a feature matrix, the repos are
+          linked. What follows is the shape of each product in your head, the
+          way you'd describe it to a friend.
+        </p>
+      </div>
+
+      <!-- ── Cluster legend ──────────────────────────────────── -->
+      <div class="pace-prose mb-24">
+        <p>
+          The field splits three ways. <strong>Cloud</strong> agents round-trip
+          every turn through someone else's servers. <strong>Hybrid</strong>
+          ones default local but let you opt into cloud. <strong>On-device</strong>
+          ones — the cluster Pace lives in — never leave your machine.
+        </p>
+      </div>
+
+      <!-- ── Per-cluster sections ────────────────────────────── -->
+      {
+        groups.map((group) => (
+          <section class="mb-28">
+            <div class="flex items-baseline gap-4 mb-3">
+              <h2 class="pace-display text-3xl md:text-4xl text-white">
+                <em>{group.label}</em>
+              </h2>
+              <span
+                class="text-xs font-mono uppercase tracking-widest"
+                style={`color: ${postureColor[group.label]}`}
+              >
+                {group.items.length} {group.items.length === 1 ? "product" : "products"}
+              </span>
+            </div>
+            <p class="pace-prose mb-14">{group.blurb}</p>
+
+            <div class="space-y-16">
+              {group.items.map((competitor, indexInCluster) => (
+                <div>
+                  <CompetitorAnalysis
+                    competitor={competitor}
+                    showFullComparisonLink={true}
+                  />
+
+                  {/* Divider between items in a cluster */}
+                  {indexInCluster < group.items.length - 1 && (
+                    <hr class="mt-16 border-[var(--color-border-subtle)]" />
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        ))
+      }
+
+      <!-- ── Closing: where Pace is behind ──────────────────── -->
+      <section class="border-t border-[var(--color-border-subtle)] pt-20 mt-10">
+        <p
+          class="text-sm uppercase tracking-widest text-[var(--color-text-muted)] font-mono mb-6"
+        >
+          The honest part
+        </p>
+
+        <h2 class="pace-display text-3xl md:text-5xl text-white mb-10 max-w-2xl">
+          Where Pace is <em>behind</em>, not ahead.
+        </h2>
+
+        <div class="pace-prose space-y-7">
+          <p>
+            <strong>No hotword.</strong> OpenFelix, Ora, Agent!, Cursor Voice,
+            Dottie, and Vox all have wake-word or hotkey hands-free
+            activation. Pace is push-to-talk only. That's a real gap —
+            hands-free is a feature people actually want, and Pace doesn't
+            have it yet.
+          </p>
+          <p>
+            <strong>No background agents.</strong> Shiro spawns parallel
+            sub-agents with depth and budget guards. Pace's agent mode is
+            synchronous: it does the thing, then hands back control. Background
+            execution is on the roadmap, not in the shipping product.
+          </p>
+          <p>
+            <strong>Smaller VLM.</strong> Pace uses a 2B screen-referential
+            model. Ora runs Qwen 3.5 VL, ORB runs Gemma 4 E4B — both heavier
+            and likely more accurate on dense screens. A "phone-a-friend" OCR
+            tier for the heavy cases is the planned answer, not a shipping one.
+          </p>
+          <p>
+            <strong>Accessibility API for screen understanding.</strong> Fazm
+            reads the structured AXUIElement tree instead of screenshotting —
+            more reliable and more token-efficient than Pace's VLM-screenshot
+            approach. Pace's VLM is more flexible (it can describe what it
+            sees), but Fazm's approach is worth studying as a complement.
+          </p>
+          <p>
+            <strong>Latency.</strong> RCLI's proprietary MetalRT engine hits
+            sub-200ms end-to-end voice latency and 550 tok/s. Pace hasn't
+            published comparable benchmarks. This is the most-trafficked
+            on-device competitor (1,523 stars) and sets the bar Pace should
+            measure against.
+          </p>
+          <p>
+            <strong>Distribution.</strong> Ora and OpenFelix ship signed DMGs
+            with Sparkle auto-updates. Pace now has a signed-DMG release path in
+            the script (set <code>PACE_DEVELOPER_ID</code> + <code
+              >PACE_NOTARY_PROFILE</code
+            >), but no signed DMG has shipped yet — current releases are ad-hoc
+            zips.
+          </p>
+          <p>
+            <strong>Scheduled + proactive surfaces.</strong> OpenFelix ships
+            cron jobs and Telegram/Discord/Slack proactive alerts. Pace has
+            the restraint-gated morning brief and watch mode, but the
+            outbound-notification surface is narrower.
+          </p>
+          <p>
+            <strong>Self-modifying plugins.</strong> Samuel writes and
+            hot-loads its own plugins at runtime, then auto-repairs them on
+            failure. Pace's tool registry is static at launch. The
+            self-repair loop is the most interesting idea here — Pace's
+            recipe library is a fixed-catalog version of what Samuel does
+            dynamically.
+          </p>
+        </div>
+
+        <p class="pace-margin-note mt-12 max-w-md">
+          Rechecked {comparisonRechecked}.<br />
+          If anyone shipped something I missed or got cheaper since, email me
+          and I'll update this page.
+        </p>
+      </section>
+
+      <!-- ── CTA back to the landing ─────────────────────────── -->
+      <section class="text-center mt-32">
+        <p class="pace-display text-2xl md:text-3xl text-white mb-8 max-w-xl mx-auto">
+          The rest of the pitch — <em>what Pace actually does</em> — is on the
+          landing page.
+        </p>
+        <a href="/" class="pace-cta-primary">
+          See Pace
+          <span aria-hidden="true">→</span>
+        </a>
+      </section>
+    </div>
+  </main>
+
+  <Footer />
+</BaseLayout>

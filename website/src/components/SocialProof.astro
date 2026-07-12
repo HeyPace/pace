@@ -1,0 +1,170 @@
+---
+import { paceCheckoutURL, paceCheckoutIsMailto } from "../config/commerce";
+// Early-access voices — paraphrased themes from private beta feedback.
+// No fictional names/companies (fleet landing standard). Replace with
+// attributed quotes when real public testimonials exist.
+const voices = [
+  {
+    quote:
+      "The screen reader plus click path is the thing. Dictation tools type text; Pace actually finds the button and presses it — locally.",
+    theme: "Screen + click",
+  },
+  {
+    quote:
+      "I stopped juggling Raycast for shortcuts, a dictation app for typing, and Siri for questions. One menu-bar stack, zero cloud round trips on my turns.",
+    theme: "One stack",
+  },
+  {
+    quote:
+      "The plan-then-execute loop is what sold me. It shows what it's about to do before doing it — other agents just act and you guess what happened.",
+    theme: "Trust",
+  },
+];
+
+const showSocialProofSection = true;
+
+// --- DUMMY attributed testimonials (LOCAL PREVIEW ONLY) ---
+// Placeholder data so you can preview the attributed-quote layout (name +
+// role) before real testimonials exist. These names are FICTIONAL and MUST
+// NOT SHIP: the fleet landing standard forbids fictional names/companies,
+// and publishing fake social proof is misleading. This flag is `false` for
+// production — flip it locally (`npm run dev`) to preview, then flip back.
+// Replace with real permissioned quotes (see #3 in PROJECT_STATUS).
+const showDummyAttributedTestimonials = false;
+const dummyAttributedVoices = [
+  {
+    quote:
+      "Pace reads my screen and clicks the button locally — I stopped copy-pasting between a dictation app and Siri.",
+    name: "Placeholder Person",
+    role: "PLACEHOLDER — replace before launch",
+  },
+  {
+    quote:
+      "The plan-then-execute step means I see what it's about to do. Nothing leaves my Mac and it's genuinely fast.",
+    name: "Sample Reviewer",
+    role: "PLACEHOLDER — replace before launch",
+  },
+  {
+    quote:
+      "One menu-bar stack replaced three tools. Zero cloud round trips on my turns is the whole point.",
+    name: "Demo Tester",
+    role: "PLACEHOLDER — replace before launch",
+  },
+];
+
+// One template renders both shapes: attributed dummies (name + role) when
+// the preview flag is on, otherwise the real anonymized theme cards.
+const displayedVoices = showDummyAttributedTestimonials
+  ? dummyAttributedVoices
+  : voices;
+---
+
+{
+  showSocialProofSection && (
+    <section class="px-6 py-24 md:py-36 border-t border-[var(--color-border-subtle)]">
+      <div class="max-w-6xl mx-auto">
+        <p class="text-sm uppercase tracking-widest text-[var(--color-text-muted)] font-mono mb-6">
+          What people say
+        </p>
+        <h2 class="pace-display text-4xl md:text-6xl text-white mb-16 max-w-3xl">
+          What early access <em>sounds like.</em>
+        </h2>
+
+        <div class="grid md:grid-cols-3 gap-5">
+          {displayedVoices.map((voice, index) => (
+            <figure
+              class="pace-testimonial-card pace-fade-up"
+              style={`animation-delay: ${index * 60}ms`}
+            >
+              <blockquote class="text-[15px] text-white leading-relaxed mb-6">
+                "{voice.quote}"
+              </blockquote>
+              <figcaption class="pt-5 border-t border-[var(--color-border-subtle)]">
+                <div class="text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)]">
+                  {voice.name ?? voice.theme}
+                </div>
+                <div class="text-xs text-[var(--color-text-muted)] mt-1">
+                  {voice.role ?? "Private beta feedback"}
+                </div>
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+
+        <p class="pace-margin-note mt-10 max-w-lg">
+          Bought it and want to be quoted here?{" "}
+          <a href="mailto:hi@sarthakagrawal.dev" class="underline hover:text-white">
+            Email me
+          </a>{" "}
+          — I'll add real names only with permission.
+        </p>
+      </div>
+    </section>
+  )
+}
+
+<style>
+  .pace-testimonial-card {
+    position: relative;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-card);
+    padding: 28px 24px;
+    transition: border-color 250ms ease, transform 250ms ease,
+      background 250ms ease, box-shadow 250ms ease;
+    overflow: hidden;
+  }
+
+  /* Aurora glow on hover — feels alive, ties into the hero's
+     spotlight without being noisy by default. */
+  .pace-testimonial-card::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: var(--radius-card);
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      transparent 30%,
+      rgba(79, 139, 255, 0.35) 50%,
+      transparent 70%
+    );
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 250ms ease;
+  }
+  .pace-testimonial-card:hover {
+    transform: translateY(-2px);
+    background: var(--color-surface-raised);
+    box-shadow: 0 12px 32px -10px rgba(0, 0, 0, 0.6),
+      0 0 24px -8px rgba(79, 139, 255, 0.2);
+  }
+  .pace-testimonial-card:hover::before {
+    opacity: 1;
+  }
+
+  .pace-testimonial-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(
+      135deg,
+      var(--color-surface-raised),
+      color-mix(in oklab, var(--color-accent) 30%, var(--color-surface-raised))
+    );
+    border: 1px solid var(--color-border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+  }
+</style>

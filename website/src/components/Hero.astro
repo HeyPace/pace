@@ -1,0 +1,269 @@
+---
+// Hero v3 — patent-blueprint of Pace's on-device pipeline as the
+// focal element, NOT a faux-Mac screenshot.
+//
+// References pulled from:
+//   - Linear.app: editorial type hierarchy + single thin-line
+//     illustration; nothing else competes with the headline.
+//   - Vercel.com: code-and-schematic-as-imagery; precise, technical.
+//   - Raycast.com: glowing orb / accent ring centered as the focal.
+//   - Anthropic.com: huge restrained type + asymmetric layout.
+//   - Lovable.dev: aurora glow under a single accent.
+//
+// What we keep that's Pace-specific:
+//   - The actual pipeline (mic → ASR → planner → action) as a real
+//     schematic, not a stock circuit-board illustration.
+//   - The plan-then-execute thought bubble as a floating callout
+//     over the schematic — the part of Pace nobody else has.
+//   - "YOUR MAC ──────" boundary box around the whole diagram,
+//     making the on-device claim visual.
+//
+import HeroArchitectureDiagram from "./HeroArchitectureDiagram.astro";
+---
+
+<section class="pace-no-reveal relative px-6 pt-16 md:pt-24 pb-10 overflow-hidden">
+  <!-- Ambient aurora glow under the centerpiece — Lovable / Linear
+       trick. Single colour (the accent), low opacity, radial. -->
+  <div class="pace-hero-aurora" aria-hidden="true"></div>
+  <div class="pace-hero-grid-overlay" aria-hidden="true"></div>
+
+  <div class="relative max-w-7xl mx-auto">
+    <!-- ───── Top status row ───── -->
+    <div class="flex items-center justify-between mb-12 md:mb-16">
+      <p class="text-xs font-mono uppercase tracking-[0.25em] text-[var(--color-text-muted)]">
+        Pace · v1 · for macOS
+      </p>
+      <div class="flex items-center gap-2.5 text-xs font-mono uppercase tracking-wider text-[var(--color-text-secondary)]">
+        <span class="relative inline-flex">
+          <span class="absolute inset-0 rounded-full bg-[var(--color-positive)] animate-ping opacity-60"></span>
+          <span class="relative w-2 h-2 rounded-full bg-[var(--color-positive)]"></span>
+        </span>
+        <span>0 bytes sent today</span>
+      </div>
+    </div>
+
+    <!-- ───── Editorial headline ───── -->
+    <div class="max-w-5xl">
+      <h1 class="pace-headline-display text-white">
+        I got tired of <span class="accent">Siri.</span>
+        <br />
+        So I made one that <span class="accent">stays on my Mac.</span>
+      </h1>
+
+      <div class="mt-10 md:mt-12 grid md:grid-cols-3 gap-6 md:gap-10 items-end">
+        <p class="pace-prose md:col-span-2 text-base md:text-lg">
+          Pace is a voice assistant for macOS. Hold ctrl+option, say something,
+          let go. It listens with your Mac's mic, reads your screen with a
+          vision model on the same Apple Silicon chip, and clicks things
+          for you. First answer in <strong>420 ms</strong>. No accounts.
+          No cloud. <strong>$29 once.</strong>
+        </p>
+        <p class="pace-margin-note text-right md:text-left md:pl-2 md:border-l md:border-[var(--color-border-subtle)]">
+          The whole point is that <em>nothing leaves your Mac.</em><br />
+          Including the bit where I tell you it doesn't.
+        </p>
+      </div>
+    </div>
+
+    <!-- ───── THE schematic centerpiece (below LCP headline) ───── -->
+    <div class="pace-hero-deferred mt-20 md:mt-28">
+      <!-- Frame labels — patent figure caption -->
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-3">
+          <span class="inline-block w-8 h-px bg-[var(--color-border-subtle)]"></span>
+          <p class="text-xs font-mono uppercase tracking-[0.3em] text-[var(--color-text-muted)]">
+            Fig. 1 — the on-device pipeline
+          </p>
+        </div>
+        <p class="text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)] hidden md:block">
+          live · per turn
+        </p>
+      </div>
+
+      <!-- The diagram itself, inside a "device frame" treatment. -->
+      <div class="pace-schematic-frame">
+        <!-- Aurora ring behind the diagram for depth -->
+        <div class="pace-schematic-glow" aria-hidden="true"></div>
+
+        <!-- Corner brackets — patent-illustration / camera-viewfinder feel -->
+        <div class="pace-corner pace-corner-tl"></div>
+        <div class="pace-corner pace-corner-tr"></div>
+        <div class="pace-corner pace-corner-bl"></div>
+        <div class="pace-corner pace-corner-br"></div>
+
+        <HeroArchitectureDiagram />
+
+        <!-- Floating callout pinned to the planner block — an
+             ILLUSTRATION of what a Pace turn looks like, clearly
+             labelled so visitors don't think it's a live capture. -->
+        <div class="pace-callout">
+          <div class="text-[10px] font-mono uppercase tracking-widest text-[var(--color-text-muted)] mb-2">
+            Example turn
+          </div>
+          <p class="text-sm text-white leading-relaxed mb-2">
+            "open my inbox and snap it left"
+          </p>
+          <div class="font-mono text-[10.5px] text-white/70 bg-black/50 border border-[var(--color-border-subtle)] rounded-md px-2.5 py-2 leading-relaxed">
+            <div>
+              <span class="text-[var(--color-text-muted)]">{'{'}tool:</span>
+              <span class="text-[var(--color-accent)]">open_url</span>
+              <span class="text-[var(--color-text-muted)]">, url:</span>
+              <span class="text-[var(--color-positive)]">"mail.app"</span>
+              <span class="text-[var(--color-text-muted)]">{'}'}</span>
+            </div>
+            <div>
+              <span class="text-[var(--color-text-muted)]">{'{'}tool:</span>
+              <span class="text-[var(--color-accent)]">window</span>
+              <span class="text-[var(--color-text-muted)]">, action:</span>
+              <span class="text-[var(--color-positive)]">"snap_left"</span>
+              <span class="text-[var(--color-text-muted)]">{'}'}</span>
+            </div>
+          </div>
+          <div class="mt-2 flex items-center gap-1.5 text-[11px] text-[var(--color-text-muted)]">
+            <span class="text-[var(--color-positive)]">✓</span>
+            <span>this is what every turn looks like — locally</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ───── CTAs ───── -->
+    <div class="mt-16 md:mt-20 flex flex-col items-start gap-3 pace-fade-up" style="animation-delay: 280ms">
+      <div class="flex flex-col sm:flex-row gap-3">
+        <a href="/download" class="pace-cta-primary pace-magnetic text-base">
+          Download Pace — free
+          <span aria-hidden="true">↓</span>
+        </a>
+        <a href="#pricing" class="pace-cta-secondary pace-magnetic text-base">
+          Buy Pace — $29
+        </a>
+      </div>
+      <p class="text-sm text-[var(--color-text-muted)]">
+        Free with Apple Intelligence · One-time payment · No subscription
+      </p>
+    </div>
+  </div>
+</section>
+
+<style>
+  /* ── Aurora glow under the schematic. Single radial gradient, low
+        opacity. Linear / Lovable trick — not a particle field. */
+  .pace-hero-aurora {
+    position: absolute;
+    top: 30%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 1400px;
+    height: 800px;
+    background: radial-gradient(
+      60% 50% at 50% 40%,
+      rgba(79, 139, 255, 0.18) 0%,
+      rgba(79, 139, 255, 0.06) 35%,
+      transparent 70%
+    );
+    pointer-events: none;
+    filter: blur(40px);
+    z-index: 0;
+  }
+
+  /* Subtle grid overlay for "blueprint" feel without dominating */
+  .pace-hero-grid-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+    background-size: 80px 80px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black 30%, transparent 80%);
+    z-index: 0;
+  }
+
+  /* ── The schematic "device frame" ── */
+  .pace-schematic-frame {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    background:
+      radial-gradient(120% 80% at 50% 0%, rgba(79, 139, 255, 0.06) 0%, transparent 60%),
+      linear-gradient(180deg, rgba(11, 11, 13, 0.9) 0%, rgba(0, 0, 0, 0.95) 100%);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.02) inset,
+      0 1px 0 rgba(255, 255, 255, 0.05) inset,
+      0 40px 80px -20px rgba(0, 0, 0, 0.8),
+      0 0 80px -10px rgba(79, 139, 255, 0.15);
+  }
+
+  .pace-schematic-glow {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 60%;
+    height: 60%;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(
+      circle at center,
+      rgba(79, 139, 255, 0.12) 0%,
+      transparent 60%
+    );
+    filter: blur(60px);
+    pointer-events: none;
+  }
+
+  /* Patent-figure corner brackets */
+  .pace-corner {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    border-color: rgba(255, 255, 255, 0.25);
+    z-index: 2;
+  }
+  .pace-corner-tl { top: 12px; left: 12px; border-top: 1px solid; border-left: 1px solid; }
+  .pace-corner-tr { top: 12px; right: 12px; border-top: 1px solid; border-right: 1px solid; }
+  .pace-corner-bl { bottom: 12px; left: 12px; border-bottom: 1px solid; border-left: 1px solid; }
+  .pace-corner-br { bottom: 12px; right: 12px; border-bottom: 1px solid; border-right: 1px solid; }
+
+  /* The plan-then-execute callout floating over the diagram */
+  .pace-callout {
+    position: absolute;
+    top: 12%;
+    right: 6%;
+    width: min(28%, 320px);
+    background: rgba(11, 11, 13, 0.92);
+    backdrop-filter: blur(22px);
+    border: 1px solid rgba(79, 139, 255, 0.25);
+    border-radius: 10px;
+    padding: 14px 16px;
+    z-index: 3;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.05) inset,
+      0 20px 50px -10px rgba(0, 0, 0, 0.9),
+      0 0 30px -5px rgba(79, 139, 255, 0.25);
+  }
+
+  /* Mobile: schematic gets shorter, callout drops below the diagram */
+  @media (max-width: 720px) {
+    .pace-schematic-frame { aspect-ratio: 4 / 5; }
+    .pace-callout {
+      position: relative;
+      top: auto;
+      right: auto;
+      width: auto;
+      margin: 16px;
+    }
+    .pace-hero-aurora {
+      width: 100%;
+      height: 600px;
+    }
+  }
+
+  /* Reduced-motion: kill the pulsing dot */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-ping,
+    .animate-pulse {
+      animation: none;
+    }
+  }
+</style>

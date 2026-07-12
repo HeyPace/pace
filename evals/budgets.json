@@ -1,0 +1,21 @@
+{
+  "_comment": "Per-category TTFT budgets in milliseconds. Aspirational, not gating. Update as the stack gets faster (or honest, if a model swap regresses).",
+  "categories": {
+    "qa": {
+      "description": "Pure-knowledge Q&A — no screen context expected.",
+      "max_ttft_ms": 1500
+    },
+    "screen-referential": {
+      "description": "User refers to something on screen. VLM context is in the prompt.",
+      "max_ttft_ms": 2500
+    },
+    "action": {
+      "description": "Agent-mode turn — planner expected to emit action tags.",
+      "max_ttft_ms": 2000
+    },
+    "multi-turn": {
+      "description": "Turn 3+ in a conversation. Tests history-prefill cost.",
+      "max_ttft_ms": 2500
+    }
+  }
+}

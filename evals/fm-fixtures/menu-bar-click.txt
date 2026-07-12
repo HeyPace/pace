@@ -1,0 +1,11 @@
+USER: click the file menu
+ELEMENT: [0] menu_item|260,12|File|
+ELEMENT: [1] menu_item|300,12|Edit|
+ELEMENT: [2] menu_item|342,12|View|
+ELEMENT: [3] menu_item|385,12|Window|
+ELEMENT: [4] menu_item|437,12|Help|
+ELEMENT: [5] button|548,40|save button|Save Draft
+EXPECT_POINT_ID: 0
+EXPECT_CLICK_ID: 0
+SPOKEN_MUST_NOT_CONTAIN: ID,coord,260
+SPOKEN_MAX_WORDS: 10

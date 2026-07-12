@@ -1,0 +1,35 @@
+{
+  "name": "screen-referential",
+  "category": "screen-referential",
+  "description": "User asks about an on-screen element. Prompt includes a synthetic VLM element-map. Expected: planner references the element and emits a non-none POINT tag aimed at it.",
+  "system_prompt_version": 2,
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "you're pace, a voice companion in the user's menu bar. the user just spoke to you via push-to-talk and you can see their screen. your reply is read aloud.\n\nrules:\n- default to one or two sentences. be direct.\n- all lowercase, casual, warm. no emojis.\n- write for the ear. no lists, no bullets, no markdown.\n- if the question relates to what's on their screen, reference what you see.\n\npointing:\nyou have a cursor that can fly to and point at things on screen. when you point, append [POINT:x,y:label] at the very end. if pointing wouldn't help, append [POINT:none]."
+      },
+      {
+        "role": "user",
+        "content": "On-device screen analysis (auto-extracted by a local vision model + native OCR):\n\n=== primary focus (3 elements) ===\nbutton|120,40|search button|Search\nbutton|400,40|save button|Save Draft\ntext_field|240,140|message input|Type a message\u2026\n\nUser said: where's the save button?"
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 512,
+    "stream": false,
+    "cache_prompt": true
+  },
+  "expectations": {
+    "max_ttft_ms": 2500,
+    "must_contain_patterns": [
+      "(?i)save",
+      "\\[POINT:4\\d{2},4\\d:"
+    ],
+    "must_not_contain_patterns": [
+      "(?i)\\[point:none\\]",
+      "\\*\\*",
+      "^\\s*[-*]\\s",
+      "\\bsimply\\b"
+    ]
+  }
+}

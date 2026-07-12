@@ -1,0 +1,85 @@
+# New things to learn — pace (foundational frameworks)
+
+Novel frameworks and algorithms powering an entirely on-device voice+action Mac assistant.
+
+> This is the **foundational-frameworks** page — the external SDKs and algorithms Pace is built on. The rest of the roadmap lives in [`README.md`](README.md), which indexes the themed pages covering Pace's own architecture (memory, vision, actions, audio, planning, skills, proactive, infra). Concepts explained here are **not** re-explained elsewhere — themed pages link back with a one-line pointer.
+
+---
+
+## Apple FoundationModels (Apple Intelligence SDK)
+- What: In-process, on-device LLM API introduced in iOS/macOS 26 — `SystemLanguageModel`, `@Generable` typed outputs, no HTTP, no cloud.
+- Why here: The zero-install first-launch default planner tier and the fast path for pure-knowledge answers, the rolling thread summarizer, and privacy-pinned meeting-note/skill structuring — it is Pace's on-device brain whenever no LM Studio sidecar is running.
+- Gotcha (from code): `SystemLanguageModel.default.availability` must be checked at every call site — FM is absent on non-Apple-Intelligence Macs. Three check points: `AppleFoundationModelsPlannerClient.swift:84` (warmUp guard), `PacePlannerTierStore.swift:174` (first-launch tier resolution), `BuddyPlannerClient.swift:354` (factory `makeFoundationModelsPlannerOrFallback`). Each has a `LocalPlannerClient` fallback; missing the check surfaces as a crash or silent no-op on non-eligible hardware.
+- Source: https://developer.apple.com/documentation/foundationmodels
+
+## MCP (Model Context Protocol)
+- What: Spec for LLM-to-tool communication over stdio JSON-RPC, so AI apps share a common tool-call dialect instead of hand-rolling integrations.
+- Why here: How Pace gets broad third-party integrations (Slack, GitHub, filesystem, fetch…) without rebuilding each one in-app — the planner calls OSS MCP servers through the same approval/observation loop as built-in tools.
+- Gotcha (from code): Config is loaded from `~/.config/pace/mcp-servers.json` at call time — missing server names are caught by `PaceToolPreflight` (`PaceToolPreflight.swift`) before approval, not at launch. Catalog installs use atomic temp-file + rename in `PaceMCPCatalogInstaller` to preserve every user-added entry on each install.
+- Source: https://modelcontextprotocol.io/specification
+
+## WhisperKit (on-device streaming ASR)
+- What: Swift package (Argmax) wrapping OpenAI Whisper large-v3-turbo as CoreML for real-time, privacy-safe transcription on Apple Silicon; ~9x realtime on ANE.
+- Why here: The on-device ASR upgrade path for long-form / meeting transcription — Apple Speech caps at ~1 minute, so meeting turns route through WhisperKit when `TranscriptionProvider=whisperKit`, with nothing leaving the Mac.
+- Gotcha (from code): WhisperKit is **fully wired** as of the current codebase (`WhisperKitTranscriptionProvider.isRuntimeAvailable = true`, line 37; full streaming session in `WhisperKitTranscriptionProvider.swift:56-246`). The factory (`BuddyTranscriptionProvider.swift`) selects it when `TranscriptionProvider=whisperKit` and `isRuntimeAvailable` is true; the Apple Speech fallback only fires when the flag is false. Model must be pre-placed at `~/Documents/huggingface/models/argmaxinc/whisperkit-coreml/<model>/` — `download: false` means a missing model throws immediately rather than fetching silently.
+- Source: https://github.com/argmaxinc/WhisperKit
+
+## Kokoro TTS + mlx-audio sidecar
+- What: Kokoro-82M is an 82M-parameter Apache-licensed TTS model (StyleTTS2 architecture); mlx-audio serves it as an OpenAI-compatible `/v1/audio/speech` loopback sidecar (port 8880, ~150 ms warm latency, 24 kHz output).
+- Why here: The default TTS voice — natural enough to make the sub-500 ms spoken-reply target feel human — with `AVSpeechSynthesizer` as the always-present per-utterance fallback so a missing sidecar costs nothing.
+- Gotcha (from code): Sidecar endpoint is guarded by `PaceLocalEndpointGuard.resolvedLocalOpenAICompatibleBaseURL` at `LocalServerTTSClient.swift:51` — non-loopback URLs fall back to `localhost:8880`. First synth after boot is 20-30 s while Kokoro's MLX weights load (`LocalServerTTSClient.swift:29-30`); the 60 s timeout accounts for this. Any synthesis failure falls through to `AVSpeechSynthesizer` per-utterance with a 30 s outage memo.
+- Source: https://huggingface.co/hexgrad/Kokoro-82M
+
+## Loopback-guard (TTS self-capture prevention)
+- What: Design constraint that ensures audio output from Pace's own TTS sidecar is never re-captured as microphone input.
+- Why here: The enforcement mechanism behind the "0 bytes off this Mac" privacy moat — every model sidecar URL is pinned to loopback so a misconfigured LAN/remote host can't leak screen or audio data.
+- Gotcha (from code): The URL-level guard (`PaceLocalEndpointGuard`, `LocalServerTTSClient.swift:51`) ensures audio synthesis only ever calls a loopback address. The audio pipeline exclusion zone (preventing `AVAudioEngine` from capturing `AVSpeechSynthesizer` or sidecar output) is architecturally noted but not yet implemented — it is the remaining open trust surface for self-capture prevention.
+- Source: internal architecture — no single external spec; closest is Apple's AVAudioSession documentation.
+
+## ScreenCaptureKit
+- What: Apple's modern (macOS 13.0+, with enhanced per-display filters on macOS 14.2+) screen-capture framework — replaces `CGWindowListCreateImage`, runs in-process, permission-gated.
+- Why here: Provides both the multi-monitor screenshots the VLM reads for screen-aware actions AND the system-audio track (SCStream audio output) that on-device meeting notes record.
+- Gotcha (from code): Pace requires macOS 14.2+ (`CompanionScreenCaptureUtility.swift`) for reliable multi-monitor display enumeration. Screen Recording permission must be granted; the app links `WindowPositionManager.swift` to surface the System Settings deep link when the permission is missing.
+- Source: https://developer.apple.com/documentation/screencapturekit
+
+## Accessibility API (AX / NSAccessibility)
+- What: macOS accessibility tree API — lets apps read UI element roles/labels and synthesize actions (press, set-value) without CGEvent coordinate clicks.
+- Why here: The primary, most-reliable click path (press by role, not by pixel) and the only *reversible* one — set-value edits are journaled for undo, which raw CGEvent clicks can't offer.
+- Gotcha (from code): `PaceAXTargeter.swift` climbs from `AXUIElementCopyElementAtPosition` up to a pressable role before firing `kAXPressAction`; if no pressable ancestor is found it returns false and `PaceActionExecutor` falls back to CGEvent. AX `set-value` edits are journaled in a session-local mutation log and reversible via `Undo.last` — the mutation log is the trust surface because the AX API itself has no undo primitive.
+- Source: https://developer.apple.com/documentation/appkit/nsaccessibility
+
+## LM Studio (OpenAI-compatible local server)
+- What: Desktop app that serves local LLMs/VLMs behind an OpenAI-compatible HTTP API on `localhost:1234`; exposes `/v1/chat/completions`, `/v1/embeddings`, `/v1/completions`.
+- Why here: The default local planner/VLM host for users without Apple Intelligence — serves the qwen3-30b-a3b planner and the UI-Venus VLM over a loopback OpenAI-compatible API, and the `/v1/embeddings` route used for memory reranking.
+- Gotcha (from code): `PaceLocalEndpointGuard.resolvedLocalOpenAICompatibleBaseURL` (`PaceLocalEndpointGuard.swift:23`) validates every planner and VLM URL at construction time — a plist value pointing at a LAN or remote host silently falls back to `localhost:1234` with a printed warning. Two models can be loaded simultaneously via LM Studio Settings → max-loaded-models=2 (planner + VLM) to avoid thrashing.
+- Source: https://lmstudio.ai/docs/api/openai-api
+
+## LM Studio JIT loading + idle-unload keepalive
+- What: LM Studio loads a configured model on first request (JIT) rather than at server start, and separately auto-unloads a model after an idle period to free RAM — both save memory but cost latency (a cold-load tax) or correctness (mid-session eviction) if the app doesn't account for them.
+- Why here: Pace pays the cold-load tax once, deliberately, at app launch instead of on the user's first real turn — and then fights the idle-unload timer for the rest of the session so a long-idle-then-resume conversation doesn't silently hit a partially-unloaded model.
+- Where: `PaceLMStudioModelLoader.swift` — launch does a throwaway chat-completion per configured model to trigger JIT load and warm it (comment: "the user's first PTT turn doesn't pay the cold-load tax, typically 5-15s on a 14B class model"); `startKeepaliveLoopIfNotRunning()` (line ~242) pings each model every `keepaliveIntervalSeconds = 60` with a `max_tokens: 1` completion, because "eval runs showed the model state degrading turn-over-turn... LM Studio was partial-unloading between calls"; quit unloads explicitly via the `lms unload <model>` CLI so 5-20 GB of weights don't stay resident after Pace exits.
+- Source: https://lmstudio.ai/docs/api/ttl-and-auto-evict
+
+## BM25 (lexical retrieval ranking)
+- What: Probabilistic term-frequency/inverse-document-frequency ranking algorithm (Okapi BM25) — fast, no embeddings needed, interpretable scores; standard baseline for sparse retrieval in RAG systems.
+- Why here: The production ranking path for all local recall ("what did I do today?", notes, calendar, screen-watch/app-usage journals) — instant and embedding-free, with an optional embedding rerank layered on the top-K.
+- Gotcha (from code): `PaceLocalRetrieval.swift` uses a BM25-style in-memory scorer across all retrieval sources (history, notes, calendar, files, screen-watch, app-usage) before optional embedding re-ranking via `PaceEmbeddingReranker` (LM Studio `/v1/embeddings`). Vector/SQLite-vec retrieval is queued but not yet live — BM25 is the only ranking path in production.
+- Source: https://en.wikipedia.org/wiki/Okapi_BM25
+
+## @Generable typed outputs (constrained decoding via FoundationModels)
+- What: Swift macro from the FoundationModels framework that generates a grammar-constrained decoder for a `struct` — the model can only produce tokens that form valid JSON matching the schema, so hallucinated field values become structurally impossible.
+- Why here: Eliminates coordinate hallucination on the Apple FM planner tier — the model picks integer element IDs from the on-screen element list instead of writing raw `[CLICK:x,y]` coordinates.
+- Gotcha (from code): `PaceFMTurnResponse` (`PaceFMTurnResponse.swift:40`) replaces freeform `[CLICK:x,y]` string tags with integer element IDs (`pointAtElementId`, `clickElementId`). The model picks from the on-screen element list or returns -1; it never writes raw coordinates, eliminating the coordinate hallucination failure mode of the string-tag protocol. Trade-off: `respond(to:generating:)` is non-streaming — the full `spokenText` arrives as one chunk, slightly increasing TTFSW vs the streaming string path.
+- Source: https://developer.apple.com/documentation/foundationmodels
+
+## Constrained decoding / structured outputs (`response_format: json_schema`)
+- What: A grammar-level constraint passed to an OpenAI-compatible `/v1/chat/completions` call — `response_format: {"type": "json_schema", "json_schema": {...}}` — that forces the decoder to only emit tokens forming valid JSON matching the given schema, instead of hoping the model's prose happens to contain parseable JSON.
+- Why here: The planner's v10 envelope (`spokenText` + `intent` enum + free-form `payload`) is pinned this way so LM Studio's decoder literally cannot emit an unparseable reply — the schema's enum values and field names are prompt surface the model reads, so a schema that can't express something becomes a model behavior problem, not just a parsing problem.
+- Gotcha (from code): `LocalPlannerClient.v10ResponseFormat` (`LocalPlannerClient.swift:96-115`) is the constrained schema used for planner turns. LM Studio's MLX engine does NOT accept every `response_format` value, though — `LocalVLMClient.swift:366-368` documents that the VLM call deliberately sends no `response_format` at all because MLX returns HTTP 400 on `"type": "json_object"` (it only accepts `"json_schema"` with a real schema, or `"text"`); the VLM path instead relies on a regex-extract fallback to pull JSON out of unstructured prose. Same runtime, two different constraint strategies depending on what the engine will actually accept.
+- Source: https://platform.openai.com/docs/guides/structured-outputs and https://lmstudio.ai/docs/api/structured-output
+
+## Speculative planner race
+- What: Running a fast "lite" planner (Apple FM, no VLM) in parallel with the full VLM-fed planner, letting whichever produces its first token first win the TTS stream.
+- Why here: The trick that hits sub-500 ms spoken latency on screen turns — the VLM-free Apple FM "lite" planner speaks in ~150 ms while a cold VLM (2-3 s) is still resolving, then the full path supersedes if its first token lands fast enough.
+- Gotcha (from code): `PaceSpeculativePlannerRace.raceSpeculative` (`PaceSpeculativePlannerRace.swift:130`) always returns BOTH planners' complete text (`PaceSpeculativeRaceResult.fullPlannerResponseText`); action parsing in `CompanionManager` exclusively uses the full planner's text regardless of which path won audio (lines 187-194). Supersede window: 500 ms from lite's first token AND fewer than 60 spoken chars — past either threshold the lite winner stands to avoid mid-speech jarring cuts. Gate (`speculativeRaceShouldFire`, `CompanionManager.swift:441`) requires toggle ON + local VLM configured + Apple FM available + intent is `.screenAction` or `.screenDescription`.
+- Source: `PaceSpeculativePlannerRace.swift`, `CompanionManager.swift`

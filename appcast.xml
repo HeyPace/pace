@@ -1,0 +1,154 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Pace</title>
+        <description>Auto-update feed for Pace, the local-only macOS voice companion. Run scripts/release-pace.sh to publish a new version.</description>
+        <language>en</language>
+        <item>
+            <title>Pace 0.3.19</title>
+            <pubDate>Tue, 07 Jul 2026 06:28:31 +0000</pubDate>
+            <sparkle:version>19</sparkle:version>
+            <sparkle:shortVersionString>0.3.19</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthak-fleet/pace/releases/download/v0.3.19/Pace-0.3.19.zip" length="30584188" type="application/octet-stream" sparkle:edSignature="rX3NTx9lCuKzEJCtUCYamEdUs8iaS/sV+jhLCwtWGnKXsEva3igBVnDCbUiV9X+qBcfGYxTJzn7KVe3TG+UNCw=="/>
+        </item>
+        <item>
+            <title>Pace 0.3.18</title>
+            <pubDate>Sat, 04 Jul 2026 09:09:09 +0000</pubDate>
+            <sparkle:version>18</sparkle:version>
+            <sparkle:shortVersionString>0.3.18</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.18/Pace-0.3.18.zip" length="30465970" type="application/octet-stream" sparkle:edSignature="haSVxTwT40GYvIUCNCvw3y1zA5FqYA8dy/vrrXYAzvDSsIKcwPILcQiW6VuRIQuDFLwsEiSrx9I/H8Nj6DUvDA=="/>
+        </item>
+
+        <item>
+            <title>Pace 0.3.17</title>
+            <pubDate>Fri, 03 Jul 2026 17:19:18 +0000</pubDate>
+            <sparkle:version>17</sparkle:version>
+            <sparkle:shortVersionString>0.3.17</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.17/Pace-0.3.17.zip" length="30107956" type="application/octet-stream" sparkle:edSignature="8Ud6fzR9zPRMwnWrXXWRDyPU+vDjoAjjO2nsmyY416xpC5aBcdfuYke08utU1gNfRweSOr3nngAcT712RD54DA=="/>
+        </item>
+
+        <item>
+            <title>Pace 0.3.16</title>
+            <pubDate>Tue, 16 Jun 2026 08:50:56 +0000</pubDate>
+            <sparkle:version>16</sparkle:version>
+            <sparkle:shortVersionString>0.3.16</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.16/Pace-0.3.16.zip" length="15530017" type="application/octet-stream" sparkle:edSignature="QFvb0tLfPtV00X7NqiScuB1dR1J3px7q3E1dG0BsHYPSiwKlvsOThTQ6X3R/PDPFs+zKPFcU7jNuQpzS3hHuCw=="/>
+        </item>
+        <item>
+            <title>Pace 0.3.15</title>
+            <pubDate>Mon, 15 Jun 2026 20:31:16 +0000</pubDate>
+            <sparkle:version>15</sparkle:version>
+            <sparkle:shortVersionString>0.3.15</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.15/Pace-0.3.15.zip" length="15453995" type="application/octet-stream" sparkle:edSignature="IhzpMJT0LvajT5QWHOVxINTXX+kDjZlgj0J7E3qLy4y47m9GsBPs5GwCBFxKHbWKA2eTyCIufgk42HqTus5GBQ=="/>
+        </item>
+        <item>
+            <title>Pace 0.3.14</title>
+            <pubDate>Sat, 13 Jun 2026 23:34:49 +0000</pubDate>
+            <sparkle:version>14</sparkle:version>
+            <sparkle:shortVersionString>0.3.14</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.14/Pace-0.3.14.zip" length="15896865" type="application/octet-stream" sparkle:edSignature="2W/ko9BigyCDLdDaqvhKPeUuFprZtaBOgvl7o+M6Hy1hz+DwjfkirekraMLEbaQwrmNCODAo29BIqh1JHPKuCQ=="/>
+        </item>
+        <item>
+            <title>Pace 0.3.13</title>
+            <pubDate>Sat, 13 Jun 2026 16:36:25 +0000</pubDate>
+            <sparkle:version>13</sparkle:version>
+            <sparkle:shortVersionString>0.3.13</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.13/Pace-0.3.13.zip" length="15915867" type="application/octet-stream" sparkle:edSignature="g0y6hAowhCuqE15ki9HYCrxverZfU9MzwvPQODgIu8OwU8XeC72YWJqvloDvaFOEhVEeOHjE3Grg8HMjOyaeDQ=="/>
+        </item>
+        <item>
+            <title>Pace 0.3.12</title>
+            <pubDate>Sat, 13 Jun 2026 10:14:00 +0000</pubDate>
+            <sparkle:version>12</sparkle:version>
+            <sparkle:shortVersionString>0.3.12</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.12/Pace-0.3.12.zip" length="15945391" type="application/octet-stream" sparkle:edSignature="BO3kr+Nl5KbmFrkFlRs6M+vWWbYmfGdZjHi3fENzvzvO3RK0vbIregOiChOf8QhchiIcT0cFOhB4i+nXYrscDA=="/>
+        </item>
+        <item>
+            <title>Pace 0.3.11</title>
+            <pubDate>Fri, 12 Jun 2026 14:07:37 +0000</pubDate>
+            <sparkle:version>11</sparkle:version>
+            <sparkle:shortVersionString>0.3.11</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.11/Pace-0.3.11.zip" length="15520055" type="application/octet-stream" sparkle:edSignature="Hagn6gWtTR7cUZd2zN3tI2a5YN35esBfjOVJiq1A6NmtH+Grhwv8LuyvIiphTVUgE9NKYmg9vRDy3Er3C+r9CA=="/>
+        </item>
+        <item>
+            <title>Pace 0.3.10</title>
+            <pubDate>Thu, 11 Jun 2026 18:22:31 +0000</pubDate>
+            <sparkle:version>10</sparkle:version>
+            <sparkle:shortVersionString>0.3.10</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.10/Pace-0.3.10.zip" length="14417922" type="application/octet-stream" sparkle:edSignature="8QpVQdBa77eNAZ+JylBVBVR8JqV5bCFWi/EonXK6ryfv7Y/+LygaliHcag1dj2XmLgvyVilkE/bRb2FB1EW7Cg=="/>
+        </item>
+        <item>
+            <title>Pace 0.3.9</title>
+            <pubDate>Thu, 11 Jun 2026 16:37:24 +0000</pubDate>
+            <sparkle:version>9</sparkle:version>
+            <sparkle:shortVersionString>0.3.9</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.9/Pace-0.3.9.zip" length="14305974" type="application/octet-stream" sparkle:edSignature="e3GverauBKv44h0kvNjshFPMDSHrXH04d2EbRQh73ZLAM3HQ0090cmhhwLRC3D91jUBalgIGD3wjIEpp4UKEDw=="/>
+        </item>
+        <item>
+            <title>Pace 0.3.8</title>
+            <pubDate>Thu, 11 Jun 2026 14:03:59 +0000</pubDate>
+            <sparkle:version>8</sparkle:version>
+            <sparkle:shortVersionString>0.3.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.8/Pace-0.3.8.zip" length="14315109" type="application/octet-stream" sparkle:edSignature="TZhZ6pyGCFgSmFMCKGh1vcZnWe0we+4HeFfXCj1iiZQcsaYt+fh84uwGW7YZM1d8LVWi58W86yynEQcJK0FWDw=="/>
+        </item>
+        <item>
+            <title>Pace 0.3.5</title>
+            <pubDate>Thu, 11 Jun 2026 10:28:00 +0000</pubDate>
+            <sparkle:version>7</sparkle:version>
+            <sparkle:shortVersionString>0.3.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.5/Pace-0.3.5.zip" length="14093236" type="application/octet-stream" sparkle:edSignature="2E0jmre8MRhHwJ96YnmoXD9J/3K+72jpzNu+wxRsU4BU/kC3JKAdtfkPXPwZCrmi1UgWRquk3ZYF8L6/rsyaCA=="/>
+        </item>
+        <item>
+            <title>Pace 0.3.4</title>
+            <pubDate>Thu, 11 Jun 2026 10:25:39 +0000</pubDate>
+            <sparkle:version>6</sparkle:version>
+            <sparkle:shortVersionString>0.3.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.4/Pace-0.3.4.zip" length="14078656" type="application/octet-stream" sparkle:edSignature="LfmfWV5wwyWcpAhMP7vROrJ5UhMJsnKHm7suWFr0kjIG/V1TTNZqFv9y7KJMi4OJSmkPKVF2bR/pcE0hbZkcDQ=="/>
+        </item>
+        <item>
+            <title>Pace 0.3.3</title>
+            <pubDate>Thu, 11 Jun 2026 10:15:31 +0000</pubDate>
+            <sparkle:version>5</sparkle:version>
+            <sparkle:shortVersionString>0.3.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.3/Pace-0.3.3.zip" length="14072891" type="application/octet-stream" sparkle:edSignature="DvhUXL5SjER9ktgVF7kBKRPoaaCrrT3z8DfW6Yq8YFgcr69LoJrQpB1AdoQR+b3aU2tjIeqMEN3+BbgzIclzDQ=="/>
+        </item>
+        <item>
+            <title>Pace 0.3.2</title>
+            <pubDate>Thu, 11 Jun 2026 09:59:19 +0000</pubDate>
+            <sparkle:version>4</sparkle:version>
+            <sparkle:shortVersionString>0.3.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.2/Pace-0.3.2.zip" length="14069754" type="application/octet-stream" sparkle:edSignature="4tfBuRQnjwRzQ5VAo0HR9YTy6jMF6+fAhVRTEOZ8lL/48+c5riIJo7kgIsnqJBodmjx8zwk6A9n35v7ie3wIAQ=="/>
+        </item>
+        <item>
+            <title>Pace 0.3.1</title>
+            <pubDate>Thu, 11 Jun 2026 09:41:06 +0000</pubDate>
+            <sparkle:version>3</sparkle:version>
+            <sparkle:shortVersionString>0.3.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.1/Pace-0.3.1.zip" length="14059585" type="application/octet-stream" sparkle:edSignature="LJCIWC5YrddLKXRWJu2MgqKABaUZp0d42e3icwvE2JIJ4PIOneO8bc7aR9uKMuexpUMeuZ0HdVexRHWA4O9oCg=="/>
+        </item>
+        <item>
+            <title>Pace 0.3.0</title>
+            <pubDate>Thu, 11 Jun 2026 09:25:32 +0000</pubDate>
+            <sparkle:version>2</sparkle:version>
+            <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/sarthakagrawal927/pace/releases/download/v0.3.0/Pace-0.3.0.zip" length="14062079" type="application/octet-stream" sparkle:edSignature="1nNuUHK0F0CksrBH3jcjc2b+W/6MwaPnMbeOeBBRQOlKcHq394PneX6NDVbNgvTMsen19Tn7IIZ9OquM1W2aCg=="/>
+        </item>
+    </channel>
+</rss>

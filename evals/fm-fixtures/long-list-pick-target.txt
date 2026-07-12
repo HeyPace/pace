@@ -1,0 +1,35 @@
+USER: click the save draft button
+ELEMENT: [0] button|24,40|back button|Back
+ELEMENT: [1] button|72,40|forward button|Forward
+ELEMENT: [2] button|120,40|refresh button|Refresh
+ELEMENT: [3] text_field|200,40|address bar|https://example.com/compose
+ELEMENT: [4] button|640,40|share button|Share
+ELEMENT: [5] button|680,40|bookmark button|Bookmark
+ELEMENT: [6] button|720,40|downloads button|Downloads
+ELEMENT: [7] button|760,40|account button|Account
+ELEMENT: [8] link|48,120|nav link|Home
+ELEMENT: [9] link|108,120|nav link|Inbox
+ELEMENT: [10] link|168,120|nav link|Sent
+ELEMENT: [11] link|228,120|nav link|Drafts
+ELEMENT: [12] link|288,120|nav link|Archive
+ELEMENT: [13] button|24,180|new email button|Compose
+ELEMENT: [14] text_field|320,200|to field|To:
+ELEMENT: [15] text_field|320,240|cc field|Cc:
+ELEMENT: [16] text_field|320,280|subject field|Subject:
+ELEMENT: [17] text_area|320,320|body|Email body…
+ELEMENT: [18] button|24,600|attach file button|Attach file
+ELEMENT: [19] button|120,600|insert image button|Insert image
+ELEMENT: [20] button|220,600|insert link button|Insert link
+ELEMENT: [21] button|320,600|formatting button|Formatting
+ELEMENT: [22] button|420,600|spell check button|Spell check
+ELEMENT: [23] button|520,600|priority button|Priority
+ELEMENT: [24] button|620,600|encrypt button|Encrypt
+ELEMENT: [25] button|820,600|send now button|Send
+ELEMENT: [26] button|720,600|save draft button|Save Draft
+ELEMENT: [27] button|920,600|discard button|Discard
+ELEMENT: [28] static_text|320,80|page title|Compose new message
+ELEMENT: [29] static_text|24,80|app name|Mail
+EXPECT_POINT_ID: 26
+EXPECT_CLICK_ID: 26
+SPOKEN_MUST_NOT_CONTAIN: ID,coord,number
+SPOKEN_MAX_WORDS: 10

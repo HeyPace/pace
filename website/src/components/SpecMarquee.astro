@@ -1,0 +1,120 @@
+---
+// Top-of-page spec marquee. Real Pace internals scrolling sideways
+// at low contrast — adds the "technical product" texture above the
+// hero without any extra ink in the headline area.
+//
+// Marquee items get duplicated in markup so the loop wraps without
+// a visible jump. Pure CSS animation; no JS, no clones-at-runtime.
+
+const specs = [
+  "Qwen3-4B-Instruct-2507 · bf16",
+  "Qwen3-VL-4B for screen reading",
+  "WhisperKit Large-v3 on ANE",
+  "TTSKit Qwen3 TTS · streamed",
+  "MLX in-process · no LM Studio required",
+  "Plan-then-execute scaffold",
+  "Learning mode · draws on your screen",
+  "Click-follow-along · auto-advance",
+  "Watch mode · local journals",
+  "Skills re-plan · flows replay",
+  "Local planner default · amber when off-device",
+  "Always-on · ctrl ctrl ctrl",
+  "0 bytes off this Mac",
+  "Apple Silicon · macOS 14+",
+  "App Intents · Siri · Shortcuts · pace://",
+  "TTFSW ~420 ms",
+];
+---
+
+<div class="pace-marquee" aria-hidden="true">
+  <div class="pace-marquee-track">
+    {
+      [...Array(2)].map(() => (
+        <>
+          {specs.map((spec) => (
+            <span class="pace-marquee-item">
+              <span class="pace-marquee-bullet">◆</span>
+              <span>{spec}</span>
+            </span>
+          ))}
+        </>
+      ))
+    }
+  </div>
+</div>
+
+<style>
+  .pace-marquee {
+    width: 100%;
+    overflow: hidden;
+    border-top: 1px solid var(--color-border-subtle);
+    border-bottom: 1px solid var(--color-border-subtle);
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(79, 139, 255, 0.04) 50%,
+      transparent 100%
+    );
+    padding: 12px 0;
+    position: relative;
+  }
+
+  /* Fade-mask the edges so items dissolve rather than getting hard-
+     clipped. */
+  .pace-marquee::before,
+  .pace-marquee::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 120px;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .pace-marquee::before {
+    left: 0;
+    background: linear-gradient(90deg, var(--color-bg), transparent);
+  }
+  .pace-marquee::after {
+    right: 0;
+    background: linear-gradient(-90deg, var(--color-bg), transparent);
+  }
+
+  .pace-marquee-track {
+    display: inline-flex;
+    gap: 48px;
+    white-space: nowrap;
+    animation: pace-marquee-scroll 55s linear infinite;
+    will-change: transform;
+  }
+
+  .pace-marquee-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+  }
+
+  .pace-marquee-bullet {
+    color: var(--color-accent);
+    font-size: 8px;
+    opacity: 0.7;
+  }
+
+  @keyframes pace-marquee-scroll {
+    from { transform: translateX(0); }
+    /* -50% because we duplicate the items list, so the second copy
+       arrives exactly where the first started — no jump. */
+    to { transform: translateX(-50%); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pace-marquee-track {
+      animation: none;
+    }
+  }
+</style>

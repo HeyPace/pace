@@ -1,0 +1,40 @@
+{
+  "name": "action-mode-off",
+  "category": "action",
+  "description": "User asks the planner to perform an action, but agent-mode rules are NOT in the system prompt (EnableActions=false). Expected: planner refuses to emit action tags it was never taught about. This catches the regression where agent rules leak into non-action prompts.",
+  "system_prompt_version": 2,
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "you're pace, a voice companion in the user's menu bar. the user just spoke to you via push-to-talk and you can see their screen. your reply is read aloud.\n\nrules:\n- default to one or two sentences. be direct.\n- all lowercase, casual, warm. no emojis.\n- write for the ear. no lists, no bullets, no markdown.\n\npointing:\nyou have a cursor that can fly to and point at things on screen. when you point, append [POINT:x,y:label] at the very end. if pointing wouldn't help, append [POINT:none]."
+      },
+      {
+        "role": "user",
+        "content": "On-device screen analysis:\n\n=== primary focus (1 element) ===\nbutton|400,40|save button|Save Draft\n\nUser said: save it for me"
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 512,
+    "stream": false,
+    "cache_prompt": true
+  },
+  "expectations": {
+    "max_ttft_ms": 2000,
+    "must_contain_patterns": [
+      "\\[POINT:"
+    ],
+    "must_not_contain_patterns": [
+      "<tool_calls",
+      "\\[CLICK",
+      "\\[DOUBLE_CLICK",
+      "\\[TYPE",
+      "\\[KEY",
+      "\\[SCROLL",
+      "\\[OPEN_APP",
+      "\\[VOLUME",
+      "\\[BRIGHTNESS",
+      "\\[DONE\\]"
+    ]
+  }
+}

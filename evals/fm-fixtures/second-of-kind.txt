@@ -1,0 +1,11 @@
+USER: click the second tab
+ELEMENT: [0] tab|40,60|first tab|Overview
+ELEMENT: [1] tab|140,60|second tab|Details
+ELEMENT: [2] tab|240,60|third tab|Settings
+ELEMENT: [3] tab|340,60|fourth tab|History
+ELEMENT: [4] tab|440,60|fifth tab|Help
+ELEMENT: [5] button|600,40|close button|Close
+EXPECT_POINT_ID: 1
+EXPECT_CLICK_ID: 1
+SPOKEN_MUST_NOT_CONTAIN: ID,coord
+SPOKEN_MAX_WORDS: 10

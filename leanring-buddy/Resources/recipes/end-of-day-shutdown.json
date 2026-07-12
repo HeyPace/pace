@@ -1,0 +1,32 @@
+{
+  "createdAt" : "2026-06-12T00:00:00Z",
+  "description" : "Opens Calendar to review tomorrow, then creates a follow-up reminder in Reminders.",
+  "displayCategory" : "shutdown",
+  "name" : "end of day shutdown",
+  "requiredPreferences" : [],
+  "secureFieldDefaults" : {},
+  "slug" : "end-of-day-shutdown",
+  "steps" : [
+    {
+      "bundleIdentifier" : "com.apple.iCal",
+      "kind" : "activateApp"
+    },
+    {
+      "bundleIdentifier" : "com.apple.reminders",
+      "kind" : "activateApp"
+    },
+    {
+      "key" : "cmd+n",
+      "kind" : "keyShortcut"
+    },
+    {
+      "kind" : "typeText",
+      "secure" : false,
+      "text" : "review tomorrow's calendar"
+    },
+    {
+      "key" : "return",
+      "kind" : "keyShortcut"
+    }
+  ]
+}

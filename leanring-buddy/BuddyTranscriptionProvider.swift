@@ -1,0 +1,109 @@
+//
+//  BuddyTranscriptionProvider.swift
+//  leanring-buddy
+//
+//  Shared protocol surface for voice transcription backends.
+//
+
+import AVFoundation
+import Foundation
+
+protocol BuddyStreamingTranscriptionSession: AnyObject {
+    var finalTranscriptFallbackDelaySeconds: TimeInterval { get }
+    func appendAudioBuffer(_ audioBuffer: AVAudioPCMBuffer)
+    func requestFinalTranscript()
+    func cancel()
+}
+
+protocol BuddyTranscriptionProvider {
+    var displayName: String { get }
+    var requiresSpeechRecognitionPermission: Bool { get }
+
+    func startStreamingSession(
+        contextualPhrases: [String],
+        onTranscriptUpdate: @escaping (String) -> Void,
+        onFinalTranscriptReady: @escaping (String) -> Void,
+        onError: @escaping (Error) -> Void
+    ) async throws -> any BuddyStreamingTranscriptionSession
+
+    /// Optional: pre-load any heavy models so the first push-to-talk
+    /// doesn't pay the cold-load cost. `onReady` is invoked on the
+    /// MainActor exactly once when the model is fully loaded and the
+    /// next session start won't block. Default no-op for backends with
+    /// nothing to warm (e.g. Apple Speech).
+    func warmUpModelInBackground(onReady: @escaping @Sendable @MainActor () -> Void)
+}
+
+extension BuddyTranscriptionProvider {
+    func warmUpModelInBackground(onReady: @escaping @Sendable @MainActor () -> Void) {
+        // Default: nothing to warm. Fire ready immediately so callers
+        // gating PTT on this flag don't get stuck.
+        Task { @MainActor in onReady() }
+    }
+}
+
+enum BuddyTranscriptionProviderFactory {
+    static func makeDefaultProvider() -> any BuddyTranscriptionProvider {
+        makeProvider(
+            configuredProviderName: AppBundleConfiguration.stringValue(forKey: "TranscriptionProvider"),
+            isWhisperKitRuntimeAvailable: WhisperKitTranscriptionProvider.isRuntimeAvailable,
+            isWhisperKitModelInstalledOnDisk: isWhisperKitModelInstalledOnDisk()
+        )
+    }
+
+    /// Cheap filesystem probe — the WhisperKit pipeline itself takes
+    /// ~1s to construct, which we don't want to pay at factory time
+    /// just to decide the default. Reading the file existence is
+    /// O(stat) and gives us the same signal: if the model isn't on
+    /// disk, WhisperKit's `download: false` initializer would throw
+    /// at first use, so we may as well not select it.
+    static func isWhisperKitModelInstalledOnDisk() -> Bool {
+        FileManager.default.fileExists(atPath: WhisperKitTranscriptionProvider.modelFolderURL.path)
+    }
+
+    static func makeProvider(
+        configuredProviderName: String?,
+        isWhisperKitRuntimeAvailable: Bool,
+        isWhisperKitModelInstalledOnDisk: Bool
+    ) -> any BuddyTranscriptionProvider {
+        let normalizedProviderName = configuredProviderName?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "")
+
+        let provider: any BuddyTranscriptionProvider
+        switch normalizedProviderName {
+        case "whisperkit", "whisper":
+            // Explicit user opt-in to WhisperKit.
+            if isWhisperKitRuntimeAvailable && isWhisperKitModelInstalledOnDisk {
+                provider = WhisperKitTranscriptionProvider()
+            } else {
+                print("⚠️ Transcription: WhisperKit requested but runtime/model is unavailable; falling back to Apple Speech")
+                provider = AppleSpeechTranscriptionProvider(displayName: "Apple Speech (WhisperKit fallback)")
+            }
+        case "applespeech", "apple":
+            // Explicit user opt-in to Apple Speech.
+            provider = AppleSpeechTranscriptionProvider()
+        case .none:
+            // No explicit preference. Auto-prefer WhisperKit when the
+            // model is already on disk — that's the install-time
+            // signal that the user provisioned the better backend and
+            // expects it to be used. Falls through to Apple Speech
+            // when WhisperKit is absent (zero-setup default).
+            if isWhisperKitRuntimeAvailable && isWhisperKitModelInstalledOnDisk {
+                print("🎙️ Transcription: auto-selecting WhisperKit (model detected on disk)")
+                provider = WhisperKitTranscriptionProvider()
+            } else {
+                provider = AppleSpeechTranscriptionProvider()
+            }
+        default:
+            print("⚠️ Transcription: unknown provider '\(configuredProviderName ?? "nil")'; falling back to Apple Speech")
+            provider = AppleSpeechTranscriptionProvider()
+        }
+
+        print("🎙️ Transcription: using \(provider.displayName)")
+        return provider
+    }
+}

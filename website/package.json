@@ -1,0 +1,23 @@
+{
+  "name": "pace-website",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "prebuild": "bash ../scripts/generate-og-image.sh || true && bash ../scripts/generate-release-info.sh || true",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name pace"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.1.16",
+    "astro": "^5.16.0",
+    "tailwindcss": "^4.1.16"
+  },
+  "devDependencies": {
+    "lightningcss": "^1.30.5",
+    "wrangler": "^4.103.0"
+  }
+}

@@ -1,0 +1,70 @@
+---
+import { paceCheckoutURL, paceCheckoutIsMailto } from "../config/commerce";
+---
+
+<section id="pricing" class="px-6 py-24 md:py-36 border-t border-[var(--color-border-subtle)]">
+  <div class="max-w-3xl mx-auto">
+    <p class="text-sm uppercase tracking-widest text-[var(--color-text-muted)] font-mono mb-6">
+      What it costs
+    </p>
+
+    <div class="pace-display text-white">
+      <span class="text-7xl md:text-9xl">$29.</span>
+      <span class="text-3xl md:text-5xl text-[var(--color-text-secondary)]">Once.</span>
+    </div>
+
+    <div class="mt-10 grid md:grid-cols-2 gap-10 md:gap-16">
+      <div class="pace-prose">
+        <p>
+          You pay <strong>twenty-nine dollars one time</strong> and Pace is
+          yours. The model runs on your Mac. The inference costs me nothing
+          on an ongoing basis, so there's nothing to charge you for monthly.
+        </p>
+        <p>
+          When the first Pace-tuned model ships (sometime in the next two
+          quarters, no exact date) the price for new buyers goes to $49.
+          If you bought at $29 you keep getting the new models free, by way
+          of the same Sparkle updater every other Mac app uses.
+        </p>
+      </div>
+
+      <div class="pace-prose text-sm md:text-base">
+        <p>
+          <strong>Try it free first.</strong> If your Mac has Apple
+          Intelligence on, Pace runs against Apple's Foundation Models tier
+          at no cost. It's the same app — you'll know within a week if the
+          bundled stack is worth the $29.
+        </p>
+        <p>
+          <strong>Studio, $5/month, optional.</strong> Only useful if you
+          want me to host the Composio routing instead of running it
+          yourself. Most people skip it. Add it later or never.
+        </p>
+        <p>
+          <strong>30-day refund.</strong> No questions. The license
+          deactivates, your card gets the money back.
+        </p>
+      </div>
+    </div>
+
+    <div
+      class="mt-14 flex flex-col items-start gap-4 pt-10 border-t border-[var(--color-border-subtle)]"
+    >
+      <a href={paceCheckoutURL} class="pace-cta-primary text-base">
+        {paceCheckoutIsMailto ? "Email to buy Pace — $29" : "Buy Pace — $29"}
+        <span aria-hidden="true">→</span>
+      </a>
+      {paceCheckoutIsMailto && (
+        <p class="text-sm text-[var(--color-text-muted)] max-w-lg">
+          Stripe checkout lands soon — today purchases go through email and
+          I'll send a license key manually within a day.
+        </p>
+      )}
+      <p class="pace-margin-note max-w-lg">
+        macOS 14+, Apple Silicon, 16 GB RAM minimum.<br />
+        32 GB if you want the bigger bf16 model loaded all the time —
+        otherwise the 4-bit variant is one Settings toggle away.
+      </p>
+    </div>
+  </div>
+</section>
