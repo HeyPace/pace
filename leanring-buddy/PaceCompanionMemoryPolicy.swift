@@ -374,10 +374,19 @@ nonisolated enum PaceCompanionMemoryDocumentRenderer {
 
     private static func documentText(for record: PaceCompanionMemoryRecord) -> String {
         let locationText = record.location.map { " at \($0.zone)" } ?? ""
-        return "\(record.subject.identifier) \(record.predicate.rawValue)\(locationText). "
+        return "\(record.subject.identifier) \(record.predicate.rawValue) \(valueText(record.value))\(locationText). "
             + "Confidence \(String(format: "%.2f", record.confidence)); "
             + "observed \(timestamp(record.firstObservedAt)) through \(timestamp(record.lastObservedAt)); "
             + "evidence \(record.supportingObservationIDs.map(\.uuidString).joined(separator: ", "))."
+    }
+
+    private static func valueText(_ value: PaceWorldValue) -> String {
+        switch value {
+        case .text(let text): return text
+        case .boolean(let value): return String(value)
+        case .number(let value): return String(value)
+        case .presence: return "present"
+        }
     }
 
     private static func timestamp(_ date: Date) -> String {

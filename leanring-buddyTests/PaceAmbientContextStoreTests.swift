@@ -19,6 +19,7 @@ struct PaceAmbientContextStoreTests {
     @Test
     func snapshot_capturesFrontmostApp() {
         let store = PaceAmbientContextStore.shared
+        let startedAt = Date()
         store.start()
         defer { store.stop() }
 
@@ -31,7 +32,8 @@ struct PaceAmbientContextStoreTests {
         #expect(snapshot?.frontmostAppName != nil || snapshot?.frontmostAppName == nil)
         // The timestamp should be recent.
         if let ts = snapshot?.timestamp {
-            #expect(Date().timeIntervalSince(ts) < 5.0)
+            #expect(ts >= startedAt)
+            #expect(ts <= Date())
         }
     }
 
