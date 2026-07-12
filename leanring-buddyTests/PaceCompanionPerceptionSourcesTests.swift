@@ -3,6 +3,7 @@ import Testing
 
 @testable import Pace
 
+@MainActor
 struct PaceCompanionPerceptionSourcesTests {
     private let now = Date(timeIntervalSince1970: 2_000_000_000)
 

@@ -15,7 +15,7 @@ final class PaceAmbientContextPerceptionAdapter: PacePerceptionSourceAdapter {
     private let ambientContextStore: PaceAmbientContextStore
     private var isStopped = false
 
-    init(ambientContextStore: PaceAmbientContextStore = .shared) {
+    init(ambientContextStore: PaceAmbientContextStore) {
         self.ambientContextStore = ambientContextStore
     }
 

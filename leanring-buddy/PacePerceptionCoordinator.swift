@@ -36,8 +36,9 @@ nonisolated struct PaceObservationCandidate: Identifiable, Equatable, Sendable {
     }
 }
 
-nonisolated protocol PacePerceptionSourceAdapter: Sendable {
-    var sourceKind: PacePerceptionSourceKind { get }
+@MainActor
+protocol PacePerceptionSourceAdapter: AnyObject, Sendable {
+    nonisolated var sourceKind: PacePerceptionSourceKind { get }
     func start(emit: @escaping @Sendable (PaceObservationCandidate) -> Void) async throws
     func stop() async
 }

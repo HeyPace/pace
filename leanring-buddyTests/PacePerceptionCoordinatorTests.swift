@@ -3,6 +3,7 @@ import Testing
 
 @testable import Pace
 
+@MainActor
 struct PacePerceptionCoordinatorTests {
     private let now = Date(timeIntervalSince1970: 2_000_000_000)
 
@@ -152,7 +153,8 @@ private actor PerceptionAnalysisGate {
     }
 }
 
-private actor TestPerceptionSource: PacePerceptionSourceAdapter {
+@MainActor
+private final class TestPerceptionSource: PacePerceptionSourceAdapter {
     nonisolated let sourceKind: PacePerceptionSourceKind
     private var stopCalls = 0
 

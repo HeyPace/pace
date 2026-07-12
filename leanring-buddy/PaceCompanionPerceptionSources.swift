@@ -66,7 +66,8 @@ nonisolated protocol PaceCameraCaptureClient: Sendable {
     func stop() async
 }
 
-actor PaceCameraPerceptionSource: PacePerceptionSourceAdapter {
+@MainActor
+final class PaceCameraPerceptionSource: PacePerceptionSourceAdapter {
     nonisolated let sourceKind: PacePerceptionSourceKind = .camera
     private let captureClient: any PaceCameraCaptureClient
     private let zones: [PaceCameraZone]
@@ -234,7 +235,8 @@ nonisolated protocol PaceAmbientOnDeviceTranscriber: Sendable {
     func transcribeOnDevice(_ chunk: PaceAmbientAudioChunk) async throws -> String?
 }
 
-actor PaceAmbientVoiceSource: PacePerceptionSourceAdapter {
+@MainActor
+final class PaceAmbientVoiceSource: PacePerceptionSourceAdapter {
     nonisolated let sourceKind: PacePerceptionSourceKind = .ambientVoice
     private let captureClient: any PaceAmbientAudioCaptureClient
     private let transcriber: any PaceAmbientOnDeviceTranscriber
