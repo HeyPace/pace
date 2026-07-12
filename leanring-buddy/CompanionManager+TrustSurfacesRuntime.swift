@@ -53,16 +53,6 @@ extension CompanionManager {
         mostRecentReversibleActionAt = Date()
     }
 
-    /// Test-friendly entry point that lets unit tests assert the
-    /// undo-banner flags after a synthetic plan. Has the same effect
-    /// as `noteReversibleActionExecuted` when called with a plan that
-    /// contains a reversible mutation.
-    func notePostActionExecutionForTrustSurface(
-        actionExecutionPlan: PaceActionExecutionPlan
-    ) {
-        noteReversibleActionExecuted(in: actionExecutionPlan)
-    }
-
     /// Clears the undo-banner state. Called by the cursor overlay
     /// after the 5-second window expires, or after the user taps
     /// "undo" so the banner doesn't linger.

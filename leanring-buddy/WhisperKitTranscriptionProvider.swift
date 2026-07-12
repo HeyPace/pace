@@ -33,7 +33,6 @@ struct WhisperKitTranscriptionProviderError: LocalizedError {
 }
 
 final class WhisperKitTranscriptionProvider: BuddyTranscriptionProvider {
-    static let configuredProviderName = "whisperKit"
     static let isRuntimeAvailable = true
 
     /// Model placed by the WhisperKit qualification spike. `download: false`

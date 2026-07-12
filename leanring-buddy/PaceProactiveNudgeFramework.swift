@@ -95,12 +95,6 @@ final class PaceProactiveNudgeOrchestrator {
         }
     }
 
-    /// Live snapshot used in tests + diagnostics. Pure helper —
-    /// reads the captured provider once and returns its result.
-    func currentRestraintContext() -> PaceRestraintContext {
-        return restraintContextProvider()
-    }
-
     /// Test seam: drives the routing path used by live generators
     /// without spinning up subscriptions. Verifies the
     /// emit / queueForLater wiring against an injected gate-aware

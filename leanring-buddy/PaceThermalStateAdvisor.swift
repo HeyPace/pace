@@ -78,12 +78,6 @@ final class PaceThermalStateAdvisor: ObservableObject {
         thermalStateObserver = observer
     }
 
-    func stop() {
-        if let thermalStateObserver {
-            NotificationCenter.default.removeObserver(thermalStateObserver)
-            self.thermalStateObserver = nil
-        }
-    }
 
     /// Test seam — drive the advisor from a synthetic thermal state
     /// without depending on the real ProcessInfo singleton.

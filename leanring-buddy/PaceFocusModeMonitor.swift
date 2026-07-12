@@ -89,12 +89,6 @@ final class PaceFocusModeMonitor: ObservableObject {
         focusStatusObserver = observer
     }
 
-    func stop() {
-        if let focusStatusObserver {
-            NotificationCenter.default.removeObserver(focusStatusObserver)
-            self.focusStatusObserver = nil
-        }
-    }
 
     // MARK: - Pure helpers (unit-testable)
 

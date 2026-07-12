@@ -51,7 +51,6 @@ final class PacePermissionService: ObservableObject {
     @Published private(set) var grants: [PacePermissionKind: Bool] = [:]
 
     private let pollIntervalInSeconds: TimeInterval = 1.5
-    private let liveProbeStalenessInSeconds: TimeInterval = 5
     private var pollTimer: Timer?
     private var lifecycleObservers: [NSObjectProtocol] = []
 

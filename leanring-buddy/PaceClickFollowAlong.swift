@@ -71,9 +71,6 @@ nonisolated struct PaceClickFollowAlongSequence: Equatable {
 
     /// Hard ceiling — keep tuition sequences bounded. 12 steps is
     /// already a long teaching loop; anything past that suggests
-    /// the planner is trying to script a whole tutorial in one
-    /// turn rather than teaching incrementally.
-    static let maximumStepCount = 12
 }
 
 // MARK: - State

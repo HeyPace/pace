@@ -133,9 +133,6 @@ final class PaceScreenWatchModeController {
         self.changeDetector = PaceScreenWatchChangeDetector(configuration: configuration)
     }
 
-    var isWatching: Bool {
-        watchTask != nil
-    }
 
     func startWatching(
         for durationInSeconds: TimeInterval? = nil,
