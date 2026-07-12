@@ -27,6 +27,13 @@ nonisolated enum PacePlannerTier: String, Equatable, Codable, CaseIterable {
     /// CloudBridgePlannerClient via the sibling local-ai Node bridge.
     /// Free if the user already has Claude Code / Codex / Gemini CLI auth.
     case cliBridge
+    /// PaceLocalCLIPlannerClient direct-spawns the user's already-
+    /// authenticated `codex` / `claude` CLI as a general planner for ALL
+    /// turns — no Node bridge, only the chosen CLI on PATH. Off-device
+    /// like `.cliBridge`: consent + soak, amber capsule, audit entry,
+    /// fail-loud. See docs / OpenSpec change `codex-general-brain`.
+    /// ADDITIVE: previously persisted tiers still decode unchanged.
+    case cliDirect
     /// BYO key against an OpenAI-compatible cloud endpoint.
     /// User pastes their own API key; key lives in Keychain only.
     case directAPI
@@ -97,6 +104,11 @@ nonisolated struct PacePlannerTierConfiguration: Equatable {
     /// retries the same turn against LM Studio. Default is OFF —
     /// failures surface verbatim so users know quota/auth issues happened.
     let fallsBackToLocalOnCloudFailure: Bool
+    /// Which CLI the `.cliDirect` tier direct-spawns. Defaults to
+    /// `.codex` — the requested general brain. Reuses
+    /// `PaceLocalCLIUpstream` verbatim (only `.claude` / `.codex` are
+    /// direct-spawnable; gemini stays on the Node bridge).
+    let cliDirectUpstream: PaceLocalCLIUpstream
 }
 
 // MARK: - UserDefaults keys
@@ -107,6 +119,7 @@ private enum PlannerTierUserDefaultsKey: String {
     case directAPIModelIdentifier           = "pace.planner.tier.directAPI.model"
     case directAPICustomEndpointURLString   = "pace.planner.tier.directAPI.customEndpointURL"
     case fallsBackToLocalOnCloudFailure     = "pace.planner.tier.directAPI.fallsBackToLocalOnFailure"
+    case cliDirectUpstream                  = "pace.planner.tier.cliDirect.upstream"
 }
 
 // MARK: - PacePlannerTierStore
@@ -128,7 +141,8 @@ enum PacePlannerTierStore {
             .directAPIProvider,
             .directAPIModelIdentifier,
             .directAPICustomEndpointURLString,
-            .fallsBackToLocalOnCloudFailure
+            .fallsBackToLocalOnCloudFailure,
+            .cliDirectUpstream
         ]
         for plannerTierUserDefaultsKey in plannerTierUserDefaultsKeys {
             if UserDefaults.standard.object(forKey: plannerTierUserDefaultsKey.rawValue) != nil {
@@ -223,12 +237,21 @@ enum PacePlannerTierStore {
             forKey: PlannerTierUserDefaultsKey.fallsBackToLocalOnCloudFailure.rawValue
         )
 
+        // Default upstream for the direct-spawn tier is `.codex` — the
+        // requested general brain. An unknown legacy value falls back to
+        // `.codex` too so a corrupted key never strands the tier.
+        let rawCLIDirectUpstream = UserDefaults.standard.string(
+            forKey: PlannerTierUserDefaultsKey.cliDirectUpstream.rawValue
+        ) ?? PaceLocalCLIUpstream.codex.rawValue
+        let resolvedCLIDirectUpstream = PaceLocalCLIUpstream(rawValue: rawCLIDirectUpstream) ?? .codex
+
         return PacePlannerTierConfiguration(
             tier: resolvedTier,
             directAPIProvider: resolvedDirectAPIProvider,
             directAPIModelIdentifier: resolvedModelIdentifier,
             directAPICustomEndpointURLString: resolvedCustomEndpointURLString,
-            fallsBackToLocalOnCloudFailure: resolvedFallsBackToLocalOnCloudFailure
+            fallsBackToLocalOnCloudFailure: resolvedFallsBackToLocalOnCloudFailure,
+            cliDirectUpstream: resolvedCLIDirectUpstream
         )
     }
 
@@ -266,6 +289,13 @@ enum PacePlannerTierStore {
         UserDefaults.standard.set(
             enabled,
             forKey: PlannerTierUserDefaultsKey.fallsBackToLocalOnCloudFailure.rawValue
+        )
+    }
+
+    static func saveCLIDirectUpstream(_ upstream: PaceLocalCLIUpstream) {
+        UserDefaults.standard.set(
+            upstream.rawValue,
+            forKey: PlannerTierUserDefaultsKey.cliDirectUpstream.rawValue
         )
     }
 

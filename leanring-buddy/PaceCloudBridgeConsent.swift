@@ -68,6 +68,14 @@ private enum CloudBridgeUserDefaultsKey: String {
     case model           = "pace.cloudBridge.model"
     case hasAcceptedConsent = "pace.cloudBridge.hasAcceptedConsent"
     case firstUsedAt     = "pace.cloudBridge.firstUsedAt"
+    // The direct-spawn (`.cliDirect`) path is a DIFFERENT data path from
+    // the Node bridge — it spawns the CLI itself rather than talking to a
+    // localhost:3456 Node server. Per the privacy design (OpenSpec
+    // `codex-general-brain` decision (b)), it gets its own consent flag
+    // and soak clock so accepting the bridge does NOT auto-grant the
+    // direct-spawn path, and vice versa. Shared store, separate records.
+    case hasAcceptedDirectSpawnConsent = "pace.cloudBridge.hasAcceptedDirectSpawnConsent"
+    case directSpawnFirstUsedAt        = "pace.cloudBridge.directSpawnFirstUsedAt"
 }
 
 // MARK: - PaceCloudBridgeConsent
@@ -194,6 +202,62 @@ enum PaceCloudBridgeConsent {
         return now.timeIntervalSince(firstUsedAt) >= minimumSoakDurationInSeconds
     }
 
+    // MARK: Direct-spawn (.cliDirect) consent — separate data path
+
+    /// True iff the user has explicitly accepted the DIRECT-SPAWN consent
+    /// dialog. Deliberately NOT the same flag as the Node-bridge
+    /// `hasAcceptedConsent`: spawning `codex`/`claude` directly sends the
+    /// turn off-device through a different mechanism than the bridge, so
+    /// accepting one must not silently grant the other.
+    static func hasAcceptedDirectSpawnConsent() -> Bool {
+        UserDefaults.standard.bool(
+            forKey: CloudBridgeUserDefaultsKey.hasAcceptedDirectSpawnConsent.rawValue
+        )
+    }
+
+    /// Persist explicit acceptance of the direct-spawn consent dialog.
+    /// Must only be called after the user tapped the accept button in the
+    /// NSAlert — never speculatively.
+    static func acceptDirectSpawnConsent() {
+        UserDefaults.standard.set(
+            true,
+            forKey: CloudBridgeUserDefaultsKey.hasAcceptedDirectSpawnConsent.rawValue
+        )
+    }
+
+    /// Record the first time a turn was routed through the direct-spawn
+    /// path. Idempotent — a later call after the timestamp is set is a
+    /// no-op. Its own clock, separate from the bridge's `firstUsedAt`, so
+    /// the direct-spawn soak restarts independently.
+    static func markDirectSpawnFirstUsedIfUnset(now: Date) {
+        let alreadySet = UserDefaults.standard.object(
+            forKey: CloudBridgeUserDefaultsKey.directSpawnFirstUsedAt.rawValue
+        ) != nil
+        guard !alreadySet else { return }
+        UserDefaults.standard.set(
+            now.timeIntervalSinceReferenceDate,
+            forKey: CloudBridgeUserDefaultsKey.directSpawnFirstUsedAt.rawValue
+        )
+    }
+
+    /// The direct-spawn path is usable only once consent is accepted AND
+    /// the same 24-hour soak the bridge uses has elapsed since first use.
+    /// On the very FIRST selection there is no `directSpawnFirstUsedAt`
+    /// yet — this returns false so the first turn falls back to local with
+    /// a logged reason and the soak clock starts ticking (the factory
+    /// calls `markDirectSpawnFirstUsedIfUnset` at consent time).
+    static func canRunDirectSpawnTurn(now: Date) -> Bool {
+        guard hasAcceptedDirectSpawnConsent() else { return false }
+        guard let storedTimeInterval = UserDefaults.standard.object(
+            forKey: CloudBridgeUserDefaultsKey.directSpawnFirstUsedAt.rawValue
+        ) as? Double else {
+            return false
+        }
+        let firstUsedAt = Date(timeIntervalSinceReferenceDate: storedTimeInterval)
+        let minimumSoakDurationInSeconds: TimeInterval = 24 * 60 * 60
+        return now.timeIntervalSince(firstUsedAt) >= minimumSoakDurationInSeconds
+    }
+
     // MARK: Plist helpers
 
     private static func defaultUpstreamFromPlist() -> PaceCloudBridgeUpstream {
@@ -224,6 +288,9 @@ enum PaceCloudBridgeConsent {
 
 extension CloudBridgeUserDefaultsKey: CaseIterable {
     static var allCases: [CloudBridgeUserDefaultsKey] {
-        [.mode, .upstream, .model, .hasAcceptedConsent, .firstUsedAt]
+        [
+            .mode, .upstream, .model, .hasAcceptedConsent, .firstUsedAt,
+            .hasAcceptedDirectSpawnConsent, .directSpawnFirstUsedAt
+        ]
     }
 }

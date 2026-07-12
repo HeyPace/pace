@@ -26,6 +26,10 @@ import SwiftUI
 enum PaceOffDeviceTier: String, CaseIterable, Identifiable {
     case directAPI = "Direct API"
     case cloudBridge = "Cloud bridge"
+    /// `.cliDirect` tier / `.research` lane: Pace direct-spawns the
+    /// `codex`/`claude` CLI, which sends the turn off the Mac via its
+    /// provider. Distinct from `.cloudBridge` (Node bridge transport).
+    case cliDirect = "CLI (direct)"
     /// MCP servers that route through a hosted gateway (e.g., Composio).
     /// Distinguished from local-stdio MCP servers (filesystem, fetch,
     /// applescript) which run on-device.
@@ -64,6 +68,9 @@ struct PacePrivacyDashboardAggregator {
     static func tier(forSubsystem subsystem: String, target: String?) -> PaceOffDeviceTier? {
         if subsystem.hasPrefix("planner.directAPI") {
             return .directAPI
+        }
+        if subsystem.hasPrefix("planner.cliDirect") {
+            return .cliDirect
         }
         if subsystem == "planner.cloudBridge" || subsystem.hasPrefix("cloudBridge") {
             return .cloudBridge

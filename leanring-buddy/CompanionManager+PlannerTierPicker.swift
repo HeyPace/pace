@@ -21,6 +21,15 @@ extension CompanionManager {
         plannerClient = BuddyPlannerClientFactory.makeDefault()
     }
 
+    /// Persists the `.cliDirect` upstream selection and rebuilds the
+    /// planner so the next turn spawns the freshly-picked CLI without an
+    /// app restart.
+    func setCLIDirectUpstream(_ newUpstream: PaceLocalCLIUpstream) {
+        activePlannerTierCLIDirectUpstream = newUpstream
+        PacePlannerTierStore.saveCLIDirectUpstream(newUpstream)
+        plannerClient = BuddyPlannerClientFactory.makeDefault()
+    }
+
     func setDirectAPIProvider(_ newProvider: PaceDirectAPIProvider) {
         directAPIProvider = newProvider
         PacePlannerTierStore.saveDirectAPIProvider(newProvider)
@@ -66,6 +75,12 @@ extension CompanionManager {
             let bridgeConfiguration = PaceCloudBridgeConsent.loadConfiguration()
             return bridgeConfiguration.hasUserAcceptedConsent
                 && bridgeConfiguration.mode != .off
+        case .cliDirect:
+            // Off-device only once the direct-spawn consent is accepted
+            // AND the soak has elapsed — matches the factory gate so the
+            // UI flag stays honest (before that, the tier falls back to
+            // local and nothing leaves the Mac).
+            return PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
         case .directAPI:
             return PaceKeychainStore.loadAPIKey(for: directAPIProvider) != nil
         }

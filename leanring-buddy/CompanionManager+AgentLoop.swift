@@ -1263,8 +1263,14 @@ extension CompanionManager {
                     // configured planner and the per-turn research
                     // override that may have swapped in Cloud Bridge or
                     // Direct API just for this turn.
+                    // PaceLocalCLIPlannerClient is off-device too: it
+                    // direct-spawns `codex`/`claude`, which send this turn
+                    // off the Mac via that provider. Covers both the
+                    // `.cliDirect` general tier and the `.research` lane
+                    // override — both must light the amber capsule.
                     if plannerClientForThisTurn is DirectAPIPlannerClient
-                        || plannerClientForThisTurn is CloudBridgePlannerClient {
+                        || plannerClientForThisTurn is CloudBridgePlannerClient
+                        || plannerClientForThisTurn is PaceLocalCLIPlannerClient {
                         isOffDeviceTurnInFlight = true
                     }
 
@@ -1871,6 +1877,17 @@ extension CompanionManager {
                             provider: cloudBridgeUpstream.displayLabel
                         ),
                         context: "planner-catch"
+                    )
+                } else if plannerClient is PaceLocalCLIPlannerClient {
+                    // `.cliDirect` tier: the direct-spawned CLI errored /
+                    // is unauthenticated / exited non-zero. Fail loud with
+                    // the upstream named so the user knows which CLI to
+                    // sign in — NO silent local fallback (the moat).
+                    speakPlainLanguageFailure(
+                        .cloudBridgeUpstreamError(
+                            provider: activePlannerTierCLIDirectUpstream.displayLabel
+                        ),
+                        context: "planner-catch-cliDirect"
                     )
                 } else {
                     speakPlainLanguageFailure(.plannerOffline, context: "planner-catch")

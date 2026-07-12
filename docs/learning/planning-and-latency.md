@@ -11,10 +11,16 @@ when the Mac is running hot.
 - Source: internal — no external spec
 
 ## Planner tier picker + first-launch default
-- What: User-facing store for the four planner backends (`.local`, `.cliBridge`, `.directAPI`, `.appleFoundationModels`) plus the logic that resolves which tier a brand-new install should start on.
+- What: User-facing store for the five planner backends (`.local`, `.cliBridge`, `.cliDirect`, `.directAPI`, `.appleFoundationModels`) plus the logic that resolves which tier a brand-new install should start on.
 - Why here: `loadConfiguration()` checks `hasAnyPlannerTierUserDefaultsState()` first — on a fresh install with zero prior state it resolves to `.appleFoundationModels` when Apple Intelligence is available (zero external install to start talking to Pace) or `.local` otherwise; any user who has ever opened Settings → Planner keeps their pinned tier byte-identical.
 - Where: `PacePlannerTierStore.swift` — `PacePlannerTier`, `defaultTierForFirstLaunch(appleIntelligenceAvailable:)`, `loadConfiguration()`
 - Source: internal — no external spec
+
+## `.cliDirect` general brain (direct-spawn Codex/Claude)
+- What: A `.cliDirect` planner tier that direct-spawns the user's `codex`/`claude` CLI as the brain for ALL turns — the same `PaceLocalCLIPlannerClient` the `.research` lane uses, no Node bridge, just the CLI on PATH.
+- Why here: it is off-device, so it reuses the whole cloud-bridge safety contract but via a SEPARATE transport-aware consent + 24-hour soak (bridge consent ≠ direct-spawn consent), lights the amber capsule, writes a `planner.cliDirect` audit entry (Privacy dashboard "0 bytes → X KB to codex"), and fails loud via `PaceFailureNarrator`.
+- Where: `BuddyPlannerClient.swift` (`makeCLIDirectPlannerOrLocalFallback`, pure `cliDirectDispatchDecision`), `PaceCloudBridgeConsent.swift` (`hasAcceptedDirectSpawnConsent` / `canRunDirectSpawnTurn`), `PaceLocalCLIPlannerClient.swift` (audit + preflight)
+- Source: OpenSpec change `codex-general-brain`
 
 ## Latency budget / TTFSW
 - What: A per-turn stage-timing tracker — one `TurnBudget` created at push-to-talk press, marked at each pipeline boundary (STT, intent, VLM, planner first token, tool exec, TTS), emitting a single structured `BUDGET=...` log line plus a rolling p50/p90 window.

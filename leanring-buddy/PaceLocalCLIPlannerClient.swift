@@ -198,24 +198,80 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         onTextChunk: @MainActor @Sendable (String) -> Void
     ) async throws -> (text: String, duration: TimeInterval) {
         let startedAt = Date()
-        let assembledText: String
-        switch upstream {
-        case .claude:
-            assembledText = try await spawnClaude(
-                systemPrompt: systemPrompt,
-                conversationHistory: conversationHistory,
-                userPrompt: userPrompt,
-                onTextChunk: onTextChunk
+        // Off-device egress size: the CLI ships the system prompt (first
+        // step), the accumulated history, and the new user prompt off the
+        // Mac via its provider. This is the byte count the privacy
+        // dashboard aggregates for the "0 bytes → X KB to <upstream>"
+        // headline, so it MUST be recorded on every turn — direct-spawn
+        // is off-device and cannot be silent about egress.
+        let estimatedInputCharacterCount = systemPrompt.count
+            + conversationHistory.reduce(0) { $0 + $1.userPlaceholder.count + $1.assistantResponse.count }
+            + userPrompt.count
+        do {
+            let assembledText: String
+            switch upstream {
+            case .claude:
+                assembledText = try await spawnClaude(
+                    systemPrompt: systemPrompt,
+                    conversationHistory: conversationHistory,
+                    userPrompt: userPrompt,
+                    onTextChunk: onTextChunk
+                )
+            case .codex:
+                assembledText = try await spawnCodex(
+                    systemPrompt: systemPrompt,
+                    conversationHistory: conversationHistory,
+                    userPrompt: userPrompt,
+                    onTextChunk: onTextChunk
+                )
+            }
+            let duration = Date().timeIntervalSince(startedAt)
+            recordAuditEntry(
+                durationMilliseconds: Int(duration * 1000),
+                outcome: "ok",
+                inputCharacterCount: estimatedInputCharacterCount,
+                outputCharacterCount: assembledText.count
             )
-        case .codex:
-            assembledText = try await spawnCodex(
-                systemPrompt: systemPrompt,
-                conversationHistory: conversationHistory,
-                userPrompt: userPrompt,
-                onTextChunk: onTextChunk
+            return (text: assembledText, duration: duration)
+        } catch {
+            // Fail-loud path still logs the off-device attempt: bytes left
+            // the Mac (or tried to) even on error, and the dashboard must
+            // reflect that. Outcome carries the error so the audit trail
+            // shows why the turn failed.
+            recordAuditEntry(
+                durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1000),
+                outcome: "error",
+                inputCharacterCount: estimatedInputCharacterCount,
+                outputCharacterCount: nil,
+                detail: error.localizedDescription
             )
+            throw error
         }
-        return (text: assembledText, duration: Date().timeIntervalSince(startedAt))
+    }
+
+    /// Records one direct-spawn planner turn to the local audit log under
+    /// the `planner.cliDirect` subsystem so
+    /// `PacePrivacyDashboardAggregator` classifies it as off-device egress
+    /// (target = the upstream label the dashboard renders in "X KB to
+    /// <target>"). Privacy: sizes only, never content — same posture as
+    /// every other audit call site.
+    private func recordAuditEntry(
+        durationMilliseconds: Int,
+        outcome: String,
+        inputCharacterCount: Int,
+        outputCharacterCount: Int?,
+        detail: String? = nil
+    ) {
+        PaceAPIAuditLog.shared.record(
+            subsystem: "planner.cliDirect",
+            operation: "cli.spawn.stream",
+            target: upstream.executableName,
+            durationMilliseconds: durationMilliseconds,
+            outcome: outcome,
+            inputCharacterCount: inputCharacterCount,
+            outputCharacterCount: outputCharacterCount,
+            detail: detail ?? "tier=cliDirect upstream=\(upstream.rawValue)"
+        )
     }
 
     // MARK: claude
@@ -511,5 +567,38 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         // "spawnFailed" so the caller can surface the "is `claude` on
         // PATH?" message.
         return URL(fileURLWithPath: "/opt/homebrew/bin/\(executableName)")
+    }
+
+    // MARK: - Preflight
+
+    /// True iff the given upstream's binary is resolvable on PATH. Used by
+    /// Settings → Planner to surface a plain-language "needs `codex` on
+    /// PATH" hint before the tier is used, so a missing binary never turns
+    /// into a silent hang mid-turn. Same PATH walk as `resolveExecutable`,
+    /// but returns a boolean instead of a last-resort fallback URL.
+    nonisolated static func isUpstreamBinaryOnPath(
+        _ upstream: PaceLocalCLIUpstream
+    ) -> Bool {
+        let pathSearch = ProcessInfo.processInfo.environment["PATH"]
+            ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        for directoryPath in pathSearch.split(separator: ":") {
+            let candidatePath = "\(directoryPath)/\(upstream.executableName)"
+            if FileManager.default.isExecutableFile(atPath: candidatePath) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The plain-language message shown when the chosen upstream binary is
+    /// not on PATH. Reuses the `spawnFailed` error copy so the preflight
+    /// hint and the runtime error read consistently.
+    nonisolated static func missingBinaryPreflightMessage(
+        for upstream: PaceLocalCLIUpstream
+    ) -> String {
+        return PaceLocalCLIPlannerError.spawnFailed(
+            executable: upstream.executableName,
+            underlying: "not found on PATH"
+        ).errorDescription ?? "Couldn't launch `\(upstream.executableName)`. Is it on PATH?"
     }
 }

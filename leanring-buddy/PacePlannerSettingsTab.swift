@@ -96,6 +96,11 @@ struct PacePlannerSettingsTab: View {
                 "CLI bridge",
                 "Routes turns through your already-authenticated Claude Code / Codex / Gemini CLI via localhost:3456. Free if you already pay for the CLI."
             )
+        case .cliDirect:
+            return (
+                "CLI direct (Codex / Claude)",
+                "Direct-spawns your already-authenticated codex / claude CLI as the brain for every turn — no bridge server, just the CLI on PATH. Off-device: consent-gated, capsule tints amber, each call is logged."
+            )
         case .directAPI:
             return (
                 "Direct API (BYO key)",
@@ -128,6 +133,18 @@ struct PacePlannerSettingsTab: View {
                 companionManager.setCloudBridgeMode(.hybrid)
             }
             companionManager.setActivePlannerTier(newPlannerTier)
+        case .cliDirect:
+            // Direct-spawn is a DIFFERENT off-device data path from the
+            // Node bridge, so it has its own consent + soak — bridge
+            // consent does NOT auto-grant it. Rejection reverts to local.
+            let consentAccepted = companionManager.requestDirectSpawnConsentIfNeeded(
+                upstream: companionManager.activePlannerTierCLIDirectUpstream
+            )
+            guard consentAccepted else {
+                companionManager.setActivePlannerTier(.local)
+                return
+            }
+            companionManager.setActivePlannerTier(newPlannerTier)
         case .directAPI:
             // No NSAlert here — the explicit pick is the consent. The
             // sub-panel below requires Save Key + (optionally) Test
@@ -143,6 +160,8 @@ struct PacePlannerSettingsTab: View {
             plannerLocalDetailPanel
         case .cliBridge:
             plannerCLIBridgeDetailPanel
+        case .cliDirect:
+            plannerCLIDirectDetailPanel
         case .directAPI:
             plannerDirectAPIDetailPanel
         case .appleFoundationModels:
@@ -181,6 +200,57 @@ struct PacePlannerSettingsTab: View {
             Text("Active mode: \(companionManager.cloudBridgeMode.rawValue)  •  Upstream: \(companionManager.cloudBridgeUpstream.displayLabel)  •  Model: \(companionManager.cloudBridgeModel)")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(DS.Colors.textTertiary)
+        }
+    }
+
+    private var plannerCLIDirectDetailPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Direct-spawn CLI")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(DS.Colors.textSecondary)
+
+            // Upstream sub-picker (Claude Code / Codex). Reuses the same
+            // segmented-picker pattern as the Cloud bridge tab; only the
+            // two direct-spawnable upstreams are offered (gemini stays on
+            // the Node bridge).
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Upstream CLI")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(DS.Colors.textSecondary)
+                Picker("", selection: Binding(
+                    get: { companionManager.activePlannerTierCLIDirectUpstream },
+                    set: { companionManager.setCLIDirectUpstream($0) }
+                )) {
+                    ForEach([PaceLocalCLIUpstream.codex, PaceLocalCLIUpstream.claude], id: \.rawValue) { upstream in
+                        Text(upstream.displayLabel).tag(upstream)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+            }
+
+            // Prerequisite hint — turns red when the chosen binary isn't
+            // resolvable on PATH so the user fixes it before the first
+            // turn instead of hitting a runtime failure.
+            let chosenUpstream = companionManager.activePlannerTierCLIDirectUpstream
+            let binaryIsOnPath = PaceLocalCLIPlannerClient.isUpstreamBinaryOnPath(chosenUpstream)
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(binaryIsOnPath ? DS.Colors.success : DS.Colors.warning)
+                    .frame(width: 8, height: 8)
+                Text(binaryIsOnPath
+                     ? "`\(chosenUpstream.executableName)` found on PATH."
+                     : "needs `\(chosenUpstream.executableName)` on PATH — \(PaceLocalCLIPlannerClient.missingBinaryPreflightMessage(for: chosenUpstream))")
+                    .font(.system(size: 11))
+                    .foregroundColor(binaryIsOnPath ? DS.Colors.textTertiary : DS.Colors.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+            }
+
+            Text("Off-device: each turn's transcript and screen context is sent off your Mac via \(chosenUpstream.displayLabel). Consent-gated with a 24-hour soak; the capsule tints amber and every call is logged to the Privacy dashboard. Failures surface verbatim — no silent fallback to local.")
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
