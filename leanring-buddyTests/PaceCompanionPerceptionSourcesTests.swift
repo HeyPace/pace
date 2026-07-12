@@ -99,7 +99,8 @@ struct PaceCompanionPerceptionSourcesTests {
             normalizedCenterY: 0.5,
             confidence: 0.8
         ))
-        let person = try #require(PaceCameraObservationInterpreter.observation(from: personCandidate))
+        let personObservation = try PaceCameraObservationInterpreter.observation(from: personCandidate)
+        let person = try #require(personObservation)
         #expect(person.subject.kind == .personPresence)
         #expect(person.subject.identifier.hasPrefix("ephemeral-track-"))
         #expect(person.expiresAt == now.addingTimeInterval(60))
@@ -126,7 +127,8 @@ struct PaceCompanionPerceptionSourcesTests {
             normalizedCenterY: 0.5,
             confidence: 0.65
         ))
-        let object = try #require(PaceCameraObservationInterpreter.observation(from: taughtObject))
+        let objectObservation = try PaceCameraObservationInterpreter.observation(from: taughtObject)
+        let object = try #require(objectObservation)
         #expect(object.subject.identifier == "keys")
         #expect(object.location?.zone == "desk")
         #expect(object.confidence == 0.65)
