@@ -59,5 +59,5 @@
 
 - [x] 8.1 Update `AGENTS.md`, `PROJECT_STATUS.md`, `docs/capabilities.md`, `docs/key-files.md`, `docs/roadmap.md`, and `docs/info-plist-switches.md` as implementation milestones land.
 - [x] 8.2 Add a privacy threat model and user-facing explanation covering capture indicators, non-identification, local-only inference, retention, correction, and clear controls.
-- [ ] 8.3 Run the smallest focused pure tests after each task and `bash scripts/test-pace.sh` at milestone boundaries; do not run terminal `xcodebuild`.
+- [x] 8.3 Run the smallest focused pure tests after each task and `bash scripts/test-pace.sh` at milestone boundaries; do not run terminal `xcodebuild`.
 - [ ] 8.4 Perform manual Xcode `Cmd+R` checks for camera/microphone permission prompts, capture indicators, pre-wake non-transcription, pause latency, sleep/wake, and Settings controls before enabling proactive output.
