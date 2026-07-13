@@ -210,7 +210,7 @@ private nonisolated final class PaceCameraCaptureState: @unchecked Sendable {
     func teachObject(label: String) async throws {
         let normalizedLabel = PaceTaughtObjectTemplate.normalizedLabel(label)
         guard normalizedLabel.isEmpty == false else { throw PaceTaughtObjectError.emptyLabel }
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             lock.lock()
             guard isActive, pendingTeaching == nil else {
                 lock.unlock()
