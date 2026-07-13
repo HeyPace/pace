@@ -12,13 +12,19 @@ struct PaceCompanionControlCenterTests {
         var pauseCount = 0
         var clearedSource: PacePerceptionSourceKind?
         var clearAllCount = 0
+        var taughtObjectLabel: String?
+        var forgottenObjectLabel: String?
+        var conversationRequestCount = 0
         let controlCenter = PaceCompanionControlCenter(
             userDefaults: defaults,
             observationFileURL: temporaryFileURL(),
             onModePreferenceChanged: { latestPreferences = $0 },
             onPauseRequested: { pauseCount += 1 },
             onSourceClearRequested: { clearedSource = $0 },
-            onClearAllRequested: { clearAllCount += 1 }
+            onClearAllRequested: { clearAllCount += 1 },
+            onTeachObjectRequested: { taughtObjectLabel = $0 },
+            onForgetTaughtObjectRequested: { forgottenObjectLabel = $0 },
+            onConversationRequested: { conversationRequestCount += 1 }
         )
 
         #expect(controlCenter.preferences == .disabled)
@@ -41,6 +47,15 @@ struct PaceCompanionControlCenterTests {
         controlCenter.clearAll()
         #expect(clearedSource == .camera)
         #expect(clearAllCount == 1)
+
+        controlCenter.teachObject(label: "  keys  ")
+        #expect(taughtObjectLabel == "keys")
+        controlCenter.recordObjectTeachingResult(.success(["keys"]))
+        #expect(controlCenter.taughtObjectLabels == ["keys"])
+        controlCenter.forgetTaughtObject(label: "keys")
+        #expect(forgottenObjectLabel == "keys")
+        controlCenter.startUserInvokedConversation()
+        #expect(conversationRequestCount == 1)
     }
 
     @Test func runtimePresentationExposesAllStatesSourcesReadinessAndStorage() throws {

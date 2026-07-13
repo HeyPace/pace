@@ -14,16 +14,19 @@ Xcode `Cmd+R` build on Apple Silicon here first.
   are not persisted.
 - Screen and Mac context: existing Watch Mode and ambient-context loops feed
   the world model without duplicate polling.
-- Wake conversation: the existing user-invoked push-to-talk and wake-word
-  conversation path remains available. Companion ambient voice stays visibly
+- Wake conversation: Settings → Companion → Talk to Pace now explicitly invokes
+  the existing push-to-talk conversation path. Companion ambient voice stays visibly
   degraded: the current Apple Speech spotter recognizes speech to find the
   phrase, so it cannot satisfy the stricter companion invariant that pre-wake
   speech never reaches STT. Do not wire it into companion capture or describe
   it as satisfying that invariant. Graduation needs an approved, genuinely
   pre-STT local keyword gate.
-- Objects: the typed store accepts only user-taught object detections, but no
-  production teaching/camera classifier surface exists yet. Object-last-seen
-  hardware acceptance therefore remains open.
+- Objects: Settings → Companion lets the user hold an object centered in view
+  and capture a local Vision feature print. No photo is persisted. The low-rate
+  camera compares overlapping coarse left/center/right regions, accepts only
+  matches inside a conservative distance threshold, and emits expiring
+  user-taught object evidence into the existing last-seen pipeline. Accuracy
+  and continuity still require the hardware runs below.
 - Output: unsolicited cards, speech, and routine promotion remain locked in
   production regardless of stored preferences.
 
@@ -67,11 +70,14 @@ Run from Xcode, never terminal `xcodebuild`:
    the threshold and no later camera observation appears.
 5. Sleep and wake the Mac. Confirm one capture session resumes and status does
    not remain stuck at `starting`.
-6. Exercise push-to-talk as the user-invoked conversation. Do not enable the
+6. Click **Talk to Pace now** and complete a turn through push-to-talk. Do not enable the
    companion Ambient voice source until a true pre-STT keyword gate exists.
-7. Confirm Silent cards and Spoken interventions remain disabled. No
+7. Teach a centered object, move it through the three coarse camera zones, and
+   inspect the structured evidence. Confirm the store contains a feature-print
+   archive and label but no source pixels; verify stale/unknown wording after expiry.
+8. Confirm Silent cards and Spoken interventions remain disabled. No
    observation may create a card, clarification, speech, or action.
-8. Complete every row in the threshold table with dated measurements before
+9. Complete every row in the threshold table with dated measurements before
    changing an acceptance constant.
 
 ## Downstream unlock order

@@ -63,8 +63,11 @@ episodic, semantic, spatial, and routine records and render a dedicated local
 retrieval source. Settings/menu-bar transparency and default-off lifecycle are
 wired for existing ambient/watch sources and a production low-rate
 AVFoundation/Vision camera source that emits non-identifying ephemeral person
-presence. Ambient voice remains visibly degraded until a true pre-STT keyword
-gate exists; user-taught object tracking and hardware acceptance remain open.
+presence and conservatively matches explicitly taught local Vision feature
+prints across coarse camera zones. Settings provides the centered-object teach
+action and an explicit button into the existing push-to-talk conversation path.
+Ambient voice remains visibly degraded until a true pre-STT keyword gate exists;
+hardware object/resource acceptance remains open.
 Silent cards, speech, and routine learning remain locked off. See
 [companion-mode-privacy.md](companion-mode-privacy.md) for capture, retention,
 local-only, correction, and threat-model details and

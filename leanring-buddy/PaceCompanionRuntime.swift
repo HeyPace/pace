@@ -86,13 +86,7 @@ final class PaceCompanionRuntime {
         if preferences.enabledSources.contains(.camera) {
             adapters.append(PaceCameraPerceptionSource(
                 captureClient: cameraCaptureClient,
-                zones: [PaceCameraZone(
-                    name: "room",
-                    minimumX: 0,
-                    maximumX: 1,
-                    minimumY: 0,
-                    maximumY: 1
-                )],
+                zones: Self.defaultCameraZones,
                 isEnabled: true
             ))
         }
@@ -176,6 +170,23 @@ final class PaceCompanionRuntime {
     func clearAll() {
         try? memoryCoordinator.clearAll()
         publishStatus()
+    }
+
+    func teachObject(label: String) async throws -> [String] {
+        guard activeSources.contains(.camera) else {
+            throw PaceTaughtObjectError.cameraNotActive
+        }
+        try await cameraCaptureClient.teachObject(label: label)
+        return await cameraCaptureClient.taughtObjectLabels()
+    }
+
+    func removeTaughtObject(label: String) async throws -> [String] {
+        try await cameraCaptureClient.removeTaughtObject(label: label)
+        return await cameraCaptureClient.taughtObjectLabels()
+    }
+
+    func taughtObjectLabels() async -> [String] {
+        await cameraCaptureClient.taughtObjectLabels()
     }
 
     private func acceptObservation(_ observation: PaceWorldObservation) {
@@ -320,6 +331,30 @@ final class PaceCompanionRuntime {
             return nil
         }
     }
+
+    private nonisolated static let defaultCameraZones = [
+        PaceCameraZone(
+            name: "left side",
+            minimumX: 0,
+            maximumX: 0.34,
+            minimumY: 0,
+            maximumY: 1
+        ),
+        PaceCameraZone(
+            name: "center",
+            minimumX: 0.34,
+            maximumX: 0.66,
+            minimumY: 0,
+            maximumY: 1
+        ),
+        PaceCameraZone(
+            name: "right side",
+            minimumX: 0.66,
+            maximumX: 1,
+            minimumY: 0,
+            maximumY: 1
+        ),
+    ]
 }
 
 @MainActor
@@ -334,6 +369,11 @@ extension CompanionManager {
     func startCompanionRuntimeIfEnabled() {
         let preferences = companionControlCenter.preferences
         companionControlCenter.updateLocalModelReadiness(isLMStudioReachable)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let labels = await companionRuntime.taughtObjectLabels()
+            companionControlCenter.updateTaughtObjectLabels(labels)
+        }
         guard preferences.isCompanionModeEnabled else { return }
         companionPreferencesChanged(preferences)
     }

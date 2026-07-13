@@ -230,9 +230,10 @@ classifier). All default OFF except barge-in echo rejection (always on).
   deterministic companion-memory promotion/retrieval/clear integration,
   default-off source/output preferences, and silence-first intervention policy.
 - Production camera + injected audio seams: separately permissioned low-rate
-  AVFoundation capture now performs a cheap luma-motion gate and Vision
-  person detection; the bounded ambient-voice session contract, ephemeral
-  diarization, and user-taught object records remain dependency-injected.
+  AVFoundation capture now performs a cheap luma-motion gate, Vision person
+  detection, and conservative matching of explicitly taught, locally persisted
+  Vision feature prints. The bounded ambient-voice session contract and
+  ephemeral diarization remain dependency-injected.
 - App wiring now starts/stops the default-off observe-only runtime and exposes
   Settings plus menu-bar state/active-source indicators. Existing ambient/watch
   adapters and the non-identifying camera client can run; camera capture
@@ -241,8 +242,8 @@ classifier). All default OFF except barge-in echo rejection (always on).
 - Privacy/resource threat model and deterministic denial, redaction, buffer,
   device-loss, false-wake/continuity, source-clear, and degradation fixtures are
   in place. See `docs/companion-mode-privacy.md`.
-- Remaining: production user-taught object tracking, a privacy-compliant
-  pre-STT ambient wake client, and the documented observe-only dogfood;
+- Remaining: a privacy-compliant pre-STT ambient wake client and documented
+  hardware accuracy/resource dogfood for the production taught-object path;
   measured accuracy/resource/sleep-wake/permission acceptance; then separately
   gated cards, speech, and routine learning; full Xcode tests and manual smokes.
 - Source of truth: OpenSpec change `always-on-companion-mode`.

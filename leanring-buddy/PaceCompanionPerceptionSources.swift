@@ -64,6 +64,15 @@ nonisolated protocol PaceCameraCaptureClient: Sendable {
     func permissionState() async -> PacePerceptionPermissionState
     func frames(maximumFramesPerSecond: Double) async throws -> AsyncStream<PaceCameraFrame>
     func stop() async
+    func teachObject(label: String) async throws
+    func removeTaughtObject(label: String) async throws
+    func taughtObjectLabels() async -> [String]
+}
+
+nonisolated extension PaceCameraCaptureClient {
+    func teachObject(label: String) async throws { throw PaceTaughtObjectError.cameraNotActive }
+    func removeTaughtObject(label: String) async throws { }
+    func taughtObjectLabels() async -> [String] { [] }
 }
 
 @MainActor

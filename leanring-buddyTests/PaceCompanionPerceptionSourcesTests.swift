@@ -36,6 +36,54 @@ struct PaceCompanionPerceptionSourcesTests {
         #expect(tracker.identifiers(for: [(x: 0.5, y: 0.9)]) == ["person-1"])
     }
 
+    @Test func taughtObjectTemplatesPersistReplaceAndForgetWithoutPixels() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pace-taught-object-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("objects.json")
+        let store = PaceTaughtObjectStore(fileURL: fileURL)
+        let first = try PaceTaughtObjectTemplate(
+            label: "  keys  ",
+            featurePrintArchive: Data([1, 2, 3]),
+            taughtAt: now
+        )
+        try store.upsert(first)
+        #expect(store.templates().map(\.label) == ["keys"])
+        #expect(store.templates().first?.trackIdentifier == "taught-object-keys")
+
+        let replacement = try PaceTaughtObjectTemplate(
+            label: "KEYS",
+            featurePrintArchive: Data([4, 5, 6]),
+            taughtAt: now.addingTimeInterval(1)
+        )
+        try store.upsert(replacement)
+        #expect(store.templates().count == 1)
+        #expect(PaceTaughtObjectStore(fileURL: fileURL).templates() == [replacement])
+
+        try store.remove(label: "keys")
+        #expect(PaceTaughtObjectStore(fileURL: fileURL).templates().isEmpty)
+    }
+
+    @Test func taughtObjectMatchingFailsClosedOutsideConservativeThreshold() {
+        let accepted = PaceTaughtObjectRegionMatch(
+            normalizedCenterX: 0.5,
+            normalizedCenterY: 0.5,
+            distance: 0.1
+        )
+        let rejected = PaceTaughtObjectRegionMatch(
+            normalizedCenterX: 0.8,
+            normalizedCenterY: 0.5,
+            distance: 0.5
+        )
+        #expect(PaceTaughtObjectMatchPolicy.bestAcceptedMatch([rejected, accepted]) == accepted)
+        #expect(PaceTaughtObjectMatchPolicy.bestAcceptedMatch([rejected]) == nil)
+        #expect(PaceTaughtObjectMatchPolicy.bestAcceptedMatch([
+            .init(normalizedCenterX: 0.5, normalizedCenterY: 0.5, distance: .nan)
+        ]) == nil)
+        #expect(PaceTaughtObjectMatchPolicy.confidence(forDistance: 0) == 1)
+        #expect(PaceTaughtObjectMatchPolicy.confidence(forDistance: 0.5) == 0.5)
+    }
+
     @Test func cameraRequiresIndependentPermissionAndStopsCaptureImmediately() async throws {
         let deniedCapture = TestCameraCaptureClient(permission: .denied)
         let deniedSource = PaceCameraPerceptionSource(

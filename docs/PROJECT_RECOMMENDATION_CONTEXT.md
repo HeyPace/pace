@@ -44,9 +44,10 @@ world-model, perception-coordinator contract, default-off preferences,
 silence-first intervention policy, Settings/menu-bar controls, and default-off
 app lifecycle exist. Existing ambient/watch adapters and a production low-rate
 AVFoundation/Vision camera source can run; the camera emits non-identifying
-ephemeral person-presence only. Ambient voice remains degraded until a true
-pre-STT keyword gate exists, and production object teaching/tracking plus
-hardware thresholds remain open. Do not recommend or describe room-companion
+ephemeral person-presence and conservative matches for objects explicitly
+taught into a local Vision feature-print store. Ambient voice remains degraded
+until a true pre-STT keyword gate exists, and hardware accuracy/resource
+thresholds remain open. Do not recommend or describe room-companion
 capture as shipped until the OpenSpec acceptance work is complete.
 
 ## Default-on dependencies (no install required for fresh setup)

@@ -404,6 +404,31 @@ final class CompanionManager: ObservableObject {
             },
             onClearAllRequested: { [weak self] in
                 self?.companionRuntime.clearAll()
+            },
+            onTeachObjectRequested: { [weak self] label in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    do {
+                        let labels = try await companionRuntime.teachObject(label: label)
+                        companionControlCenter.recordObjectTeachingResult(.success(labels))
+                    } catch {
+                        companionControlCenter.recordObjectTeachingResult(.failure(error))
+                    }
+                }
+            },
+            onForgetTaughtObjectRequested: { [weak self] label in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    do {
+                        let labels = try await companionRuntime.removeTaughtObject(label: label)
+                        companionControlCenter.updateTaughtObjectLabels(labels)
+                    } catch {
+                        companionControlCenter.recordObjectTeachingResult(.failure(error))
+                    }
+                }
+            },
+            onConversationRequested: { [weak self] in
+                self?.handleAvatarTapped()
             }
         )
     }()
