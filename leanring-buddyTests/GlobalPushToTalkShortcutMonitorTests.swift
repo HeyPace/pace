@@ -1,6 +1,6 @@
 import Combine
 import Testing
-@testable import leanring_buddy
+@testable import Pace
 
 @MainActor
 struct GlobalPushToTalkShortcutMonitorTests {
