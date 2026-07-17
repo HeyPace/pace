@@ -1,6 +1,6 @@
 # Pace landing site
 
-Static marketing surface for [pace.app](https://pace.app). Fleet web-stack standard: Astro 5 + Tailwind v4 + Lightning CSS, deployed to Cloudflare Pages.
+Static marketing surface for [heypace.app](https://heypace.app). Fleet web-stack standard: Astro 5 + Tailwind v4 + Lightning CSS, deployed to Cloudflare Pages.
 
 ## Setup
 

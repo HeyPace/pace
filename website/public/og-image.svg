@@ -119,5 +119,5 @@
 
   <!-- Layer 5: bottom-right URL -->
   <text x="1152" y="572" text-anchor="end" font-family="ui-monospace, monospace"
-        font-size="13" fill="rgba(255,255,255,0.4)" letter-spacing="2">pace.app</text>
+        font-size="13" fill="rgba(255,255,255,0.4)" letter-spacing="2">heypace.app</text>
 </svg>

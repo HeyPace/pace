@@ -51,19 +51,19 @@ const breadcrumbSchema = {
       "@type": "ListItem",
       position: 1,
       name: "Pace",
-      item: new URL("/", Astro.site ?? "https://pace-6xg.pages.dev").toString(),
+      item: new URL("/", Astro.site ?? "https://heypace.app").toString(),
     },
     {
       "@type": "ListItem",
       position: 2,
       name: "Compared",
-      item: new URL("/compared", Astro.site ?? "https://pace-6xg.pages.dev").toString(),
+      item: new URL("/compared", Astro.site ?? "https://heypace.app").toString(),
     },
     {
       "@type": "ListItem",
       position: 3,
       name: `Pace vs ${competitor.name}`,
-      item: new URL(canonicalPath, Astro.site ?? "https://pace-6xg.pages.dev").toString(),
+      item: new URL(canonicalPath, Astro.site ?? "https://heypace.app").toString(),
     },
   ],
 };
