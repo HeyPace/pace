@@ -49,4 +49,4 @@ Allow: /
 User-agent: cohere-ai
 Allow: /
 
-Sitemap: https://pace-6xg.pages.dev/sitemap.xml
+Sitemap: https://heypace.app/sitemap.xml
