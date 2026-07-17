@@ -70,7 +70,6 @@ final class PaceFMIntentClassifier {
         guard !trimmedTranscript.isEmpty else {
             return PaceIntentPrediction(intent: .unknown, confidence: 0)
         }
-
         let resolvedSession = resolveSession()
         let generationOptions = GenerationOptions(
             sampling: .greedy,
@@ -87,7 +86,8 @@ final class PaceFMIntentClassifier {
             )
             return PaceIntentPrediction(
                 intent: typedResponse.content.route.asPaceIntent,
-                confidence: 0.95
+                confidence: 0.95,
+                complexity: PaceQueryComplexityEstimator.estimate(transcript: trimmedTranscript)
             )
         } catch {
             // Falling back to .unknown means CompanionManager runs the
@@ -95,6 +95,25 @@ final class PaceFMIntentClassifier {
             print("⚠️ FM intent classifier failed: \(error.localizedDescription) — falling through to full pipeline")
             return PaceIntentPrediction(intent: .unknown, confidence: 0)
         }
+    }
+
+    /// Conversation-aware classification — upgrades complexity based
+    /// on conversation depth and topic continuity.
+    func classify(
+        _ transcript: String,
+        conversationHistory: [(userTranscript: String, assistantResponse: String)]
+    ) async -> PaceIntentPrediction {
+        var prediction = await classify(transcript)
+        if prediction.complexity != .complex {
+            let shouldEscalate = PaceConversationComplexityTracker.shouldEscalateBasedOnContext(
+                transcript: transcript,
+                conversationHistory: conversationHistory
+            )
+            if shouldEscalate {
+                prediction.complexity = .complex
+            }
+        }
+        return prediction
     }
 
     private func resolveSession() -> LanguageModelSession {
@@ -128,6 +147,12 @@ enum PaceIntentClassifierFactory {
 @MainActor
 protocol PaceIntentClassifying: AnyObject {
     func classify(_ transcript: String) async -> PaceIntentPrediction
+    /// Conversation-aware classification — upgrades complexity based
+    /// on conversation depth and topic continuity.
+    func classify(
+        _ transcript: String,
+        conversationHistory: [(userTranscript: String, assistantResponse: String)]
+    ) async -> PaceIntentPrediction
 }
 
 /// Rule-based classifier wrapped in the async protocol shape so both
@@ -143,6 +168,13 @@ final class PaceRuleBasedIntentClassifierAdapter: PaceIntentClassifying {
     func classify(_ transcript: String) async -> PaceIntentPrediction {
         classifier.classify(transcript)
     }
+
+    func classify(
+        _ transcript: String,
+        conversationHistory: [(userTranscript: String, assistantResponse: String)]
+    ) async -> PaceIntentPrediction {
+        classifier.classify(transcript, conversationHistory: conversationHistory)
+    }
 }
 
 @available(macOS 26.0, *)
@@ -156,5 +188,12 @@ final class PaceFMIntentClassifierAdapter: PaceIntentClassifying {
 
     func classify(_ transcript: String) async -> PaceIntentPrediction {
         await classifier.classify(transcript)
+    }
+
+    func classify(
+        _ transcript: String,
+        conversationHistory: [(userTranscript: String, assistantResponse: String)]
+    ) async -> PaceIntentPrediction {
+        await classifier.classify(transcript, conversationHistory: conversationHistory)
     }
 }
