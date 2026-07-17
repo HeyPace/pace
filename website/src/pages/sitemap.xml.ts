@@ -9,7 +9,7 @@ import { comparisonPagePaths } from "../config/competitors";
 // The production origin is the same one BaseLayout's canonical tags use:
 // `Astro.site` from astro.config.mjs. We fall back to the known Pages
 // origin so the sitemap is never emitted with relative URLs.
-const PRODUCTION_ORIGIN = "https://pace-6xg.pages.dev";
+const PRODUCTION_ORIGIN = "https://heypace.app";
 
 // Static, hand-maintained routes. `changefreq`/`priority` are advisory
 // hints only; kept modest and honest rather than all "1.0 / daily".
