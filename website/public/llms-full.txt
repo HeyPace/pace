@@ -1,0 +1,38 @@
+# Pace — full agent brief
+
+On-device Mac voice agent that reads your screen and acts with local context.
+
+## Index
+
+# Pace
+
+On-device Mac voice agent that reads your screen.
+
+## What it is
+
+- Local/on-device voice agent for macOS
+- Screen-aware assistance
+
+## Agent entrypoints
+
+- https://heypace.app/llms.txt
+- https://heypace.app/api/ai
+- https://heypace.app/index.md
+
+## Product links
+
+- Home: https://heypace.app/ — Product landing
+
+## Machine surfaces
+
+- https://heypace.app/llms.txt
+- https://heypace.app/llms-full.txt
+- https://heypace.app/api/ai
+- https://heypace.app/index.md
+- https://heypace.app/sitemap.xml
+- https://heypace.app/robots.txt
+
+## Contact / fleet
+
+- Fleet: https://sassmaker.com
+- Agent email for directory verification: sarthakagrawal@agentmail.to

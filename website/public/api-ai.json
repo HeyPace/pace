@@ -1,0 +1,26 @@
+{
+  "name": "Pace",
+  "version": "1",
+  "url": "https://heypace.app",
+  "llms": "https://heypace.app/llms.txt",
+  "llmsFull": "https://heypace.app/llms-full.txt",
+  "sitemap": "https://heypace.app/sitemap.xml",
+  "robots": "https://heypace.app/robots.txt",
+  "markdown": {
+    "suffix": ".md",
+    "negotiation": true
+  },
+  "surfaces": [
+    {
+      "id": "home",
+      "url": "https://heypace.app/",
+      "md": "https://heypace.app/index.md",
+      "kind": "static",
+      "description": "Product home"
+    }
+  ],
+  "auth": {
+    "public": true,
+    "notes": "Auth-walled app routes are not agent-indexed unless listed here."
+  }
+}
