@@ -1,6 +1,6 @@
 # Teachable Skills (teach-by-telling)
 
-Status: **shipped** (2026-07-04). Canonical status: [`PROJECT_STATUS.md`](../../PROJECT_STATUS.md).
+Status: **shipped** (2026-07-04). Canonical status: [`PROJECT_STATUS.md`](../../../PROJECT_STATUS.md).
 
 ## Problem
 

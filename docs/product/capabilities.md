@@ -4,7 +4,7 @@ Pace's abilities split into two layers: **tools** (discrete actions it executes)
 and **capability classes** (whole behaviors that aren't single tools). The tools
 are the canonical, drift-checked list; the classes are the surrounding system.
 
-`docs/architecture.md` is the system map. This page is the user-facing "what can
+`docs/architecture/overview.md` is the system map. This page is the user-facing "what can
 I ask it" reference.
 
 ## Tools (the action catalog)
@@ -115,7 +115,7 @@ are recorded per turn via `PaceTelemetryLog` and visible in the benchmark script
 Everything above is local. The only off-device action is `download_file`, which
 fetches a user-named http(s) URL into ~/Downloads on explicit command — and the
 opt-in cloud-bridge / Direct-API planner tiers, which are consent-gated and
-default-off. See `docs/architecture.md` for the privacy posture.
+default-off. See `docs/architecture/overview.md` for the privacy posture.
 
 ## How a command is routed (fastest → slowest)
 

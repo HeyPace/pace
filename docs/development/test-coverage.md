@@ -83,7 +83,7 @@ xcrun xccov view --report --json \
 ## CI coverage enforcement
 
 Coverage is collected on every push and pull request by the `macos` job
-in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
+in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml):
 
 1. **Build for testing** with `CLANG_ENABLE_CODE_COVERAGE=YES` so the
    compiler emits coverage instrumentation into the test binary.

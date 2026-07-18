@@ -5,7 +5,7 @@ Status: Accepted
 
 ## Context
 
-The on-device meeting-notes feature ([PRD](../prds/on-device-meeting-notes.md))
+The on-device meeting-notes feature ([PRD](../../product/prds/on-device-meeting-notes.md))
 needs to capture two audio tracks: mic (the user) and system (the other
 participants). The system track is the harder one — macOS does not expose
 a simple "capture system audio" API. Two viable approaches:
@@ -68,7 +68,7 @@ adopt the out-of-process CoreAudio tap.
 
 ## References
 
-- PRD: [`docs/prds/on-device-meeting-notes.md`](../prds/on-device-meeting-notes.md)
+- PRD: [`docs/product/prds/on-device-meeting-notes.md`](../../product/prds/on-device-meeting-notes.md)
 - os-june ADR-0004 (out-of-process CoreAudio tap) — referenced in the
   competitive analysis; not in this repo.
 - `PaceSystemAudioCapture.swift` — the in-process SCStream implementation.

@@ -361,7 +361,7 @@ capture; do NOT adopt os-june's out-of-process CoreAudio-tap helper
   (audio keeps recording) but adds a helper app + XPC + a second
   entitlement. For one menu-bar app, not worth it in v1.
 
-**Verdict:** document in `docs/adr/0001-meeting-audio-capture.md`
+**Verdict:** document in `docs/architecture/decisions/0001-meeting-audio-capture.md`
 (created as part of this PRD's implementation) and revisit if Pace
 adds a separate recording helper for other reasons.
 
@@ -388,8 +388,8 @@ feedback.
 10. `PaceRestraintGate` source enum extension.
 11. Panel meeting card UI.
 12. Settings meeting-notes subsection.
-13. `docs/adr/0001-meeting-audio-capture.md`.
-14. AGENTS.md update: add the new files to `docs/key-files.md`, note
+13. `docs/architecture/decisions/0001-meeting-audio-capture.md`.
+14. AGENTS.md update: add the new files to `docs/development/key-files.md`, note
     meeting notes in the architecture section's capabilities list,
     update the "meeting mode is a stub" wording (it won't be anymore).
 15. Run `bash scripts/test-pace.sh` — must end green.

@@ -2,7 +2,7 @@
 
 Index of Pace product briefs and their current disposition.
 
-Canonical status: [`PROJECT_STATUS.md`](../../PROJECT_STATUS.md).
+Canonical status: [`PROJECT_STATUS.md`](../../../PROJECT_STATUS.md).
 
 ## PRDs
 

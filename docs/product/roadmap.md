@@ -164,7 +164,7 @@ released. Awaiting a real-world click-miss test before shipping.
   state change), render numbered marks on the same screenshot, round-trip the
   MARKED image through the local VLM ("which mark is `<target>`?"), and re-click
   the chosen element's bbox center. Full design in PRD
-  `docs/prds/set-of-mark-click-recovery.md`.
+  `docs/product/prds/set-of-mark-click-recovery.md`.
 - Why: gives the previously-dead `PaceSetOfMarkRenderer` a real consumer; turns
   wasted clicks into self-correction; generates the click-failure data the
   UI-TARS direction below would need.
@@ -197,7 +197,7 @@ Seven modules that were previously standalone stubs are now fully integrated:
   for VAD — no recording, transcription, or notes. The full on-device
   meeting-notes assembly (two-track capture → turn segmentation → transcription
   → structured notes → retrieval) is scoped in
-  [`docs/prds/on-device-meeting-notes.md`](prds/on-device-meeting-notes.md).
+  [`docs/product/prds/on-device-meeting-notes.md`](prds/on-device-meeting-notes.md).
 - **Apple FM tool-calling** — `PaceFMTurnResponse.toolCalls` array is serialized
   via `serializedToolCallsJSON()` in `AppleFoundationModelsPlannerClient` into
   `<tool_calls>` JSON blocks. Previously the field was silently dropped.
@@ -244,7 +244,7 @@ classifier). All default OFF except barge-in echo rejection (always on).
   Routine promotion requires three unique supporting observations.
 - Privacy/resource threat model and deterministic denial, redaction, buffer,
   device-loss, false-wake/continuity, source-clear, and degradation fixtures are
-  in place. See `docs/companion-mode-privacy.md`.
+  in place. See `docs/product/companion-mode-privacy.md`.
 - Remaining release evidence: run the documented hardware
   accuracy/resource/sleep-wake/permission thresholds and
   manual Xcode smokes. On 2026-07-13 the owner directed "push through" and

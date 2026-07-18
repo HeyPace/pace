@@ -1,7 +1,7 @@
 # Local Voice Assistant Category Snapshot
 
 Fetched: 2026-06-10
-Sources: dottie.ai, OpenFelix README, Pace `docs/landing/v1-draft.md`, user
+Sources: dottie.ai, OpenFelix README, Pace `docs/product/landing/v1-draft.md`, user
 `assistant` repo ideas (2026-04)
 
 ## Category Definition

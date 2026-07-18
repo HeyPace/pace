@@ -173,7 +173,7 @@ No network egress. Loopback-only HTTP is allowed for local development runtimes 
 Built in this sequence because each baby unblocks the next. As of v0.3.12
 items 9-14 (the entire Her-arc) have shipped; items 1-8 are partial (the
 queued slices are either model-blocked or actionable code work — see
-`docs/prds/README.md` for the split).
+`docs/product/prds/README.md` for the split).
 
 1. v9 (LoRA path parked; runtime planner is LM Studio qwen3-30b-a3b) — body streaming demo [PARTIAL — Pace-side wiring shipped; latency demo queued]
 2. Executor surface (Pace-side Swift, AX-first dispatcher with first-party fallbacks) [PARTIAL — dispatcher shipped; real-app smoke flow queued]
@@ -195,39 +195,39 @@ Plus the v0.3.11 quality-of-life batch, which is not in the original
 ordering but landed before the Her-arc: chat interface, conversational thread
 memory, planner tier picker, first-run experience, morning triage, recipe
 library, trust surfaces, inclusivity surface, cloud-bridge toggle. See
-`docs/prds/README.md` for the full PRD index.
+`docs/product/prds/README.md` for the full PRD index.
 
 There are no months. There are next-correct-things. Do the next one.
 
 ## Source PRDs
 
-- PRD index: `pace/docs/prds/README.md`
-- Her arc roadmap: `pace/docs/prds/her-arc-roadmap.md`
-- tinygpt-side body streaming: `tinygpt/docs/prds/pace-v9-body-streaming.md`
-- Pace-side body streaming wiring: `pace/docs/prds/pace-v9-body-streaming-wiring.md`
-- Planner v10 parameterized actions: `pace/docs/prds/pace-planner-v10-parameterized-actions.md`
-- Executor surface: `pace/docs/prds/pace-executor-surface.md`
-- Click executor: `pace/docs/prds/click-executor-improvements.md`
-- Planner v8 deployment: `pace/docs/prds/pace-planner-v8-deployment.md`
-- WhisperKit streaming ASR: `pace/docs/prds/whisperkit-streaming-asr.md`
-- Local RAG layer: `pace/docs/prds/local-rag-layer.md`
-- Local VLM runtime port: `pace/docs/prds/local-vlm-runtime-port.md`
-- Dictation post-processing and voice edit: `pace/docs/prds/dictation-postproc-and-voice-edit.md`
-- HUD and intent disambiguator: `pace/docs/prds/hud-intent-disambiguator.md`
-- Restraint policy: `pace/docs/prds/restraint-policy.md`
-- Episodic memory: `pace/docs/prds/episodic-memory.md`
-- Always-listening mode: `pace/docs/prds/always-listening-mode.md`
-- Proactive nudges: `pace/docs/prds/proactive-nudges.md`
-- Barge-in TTS interrupt: `pace/docs/prds/barge-in-tts-interrupt.md`
-- Demonstration replay: `pace/docs/prds/demonstration-replay.md`
-- Chat interface (text alongside voice): `pace/docs/prds/chat-interface.md`
-- Cloud bridge toggle (Claude Code / Codex / Gemini CLI): `pace/docs/prds/cloud-bridge-toggle.md`
-- Conversational thread memory: `pace/docs/prds/conversational-thread-memory.md`
-- First-run experience (Apple-FM-first default + skills tab + starter prompts): `pace/docs/prds/first-run-experience.md`
-- Inclusivity surface (notch chat + MCP catalog + privacy dashboard): `pace/docs/prds/inclusivity-surface.md`
-- Morning triage: `pace/docs/prds/morning-triage.md`
-- Planner tier picker (Local / CLI bridge / Direct API BYO / Apple FM): `pace/docs/prds/planner-tier-picker.md`
-- Recipe library (bundled installable flows): `pace/docs/prds/recipe-library.md`
-- Trust & failures (undo banner + reply replay + failure narrator): `pace/docs/prds/trust-and-failures.md`
+- PRD index: `pace/docs/product/prds/README.md`
+- Her arc roadmap: `pace/docs/product/prds/her-arc-roadmap.md`
+- tinygpt-side body streaming: `tinygpt/docs/product/prds/pace-v9-body-streaming.md`
+- Pace-side body streaming wiring: `pace/docs/product/prds/pace-v9-body-streaming-wiring.md`
+- Planner v10 parameterized actions: `pace/docs/product/prds/pace-planner-v10-parameterized-actions.md`
+- Executor surface: `pace/docs/product/prds/pace-executor-surface.md`
+- Click executor: `pace/docs/product/prds/click-executor-improvements.md`
+- Planner v8 deployment: `pace/docs/product/prds/pace-planner-v8-deployment.md`
+- WhisperKit streaming ASR: `pace/docs/product/prds/whisperkit-streaming-asr.md`
+- Local RAG layer: `pace/docs/product/prds/local-rag-layer.md`
+- Local VLM runtime port: `pace/docs/product/prds/local-vlm-runtime-port.md`
+- Dictation post-processing and voice edit: `pace/docs/product/prds/dictation-postproc-and-voice-edit.md`
+- HUD and intent disambiguator: `pace/docs/product/prds/hud-intent-disambiguator.md`
+- Restraint policy: `pace/docs/product/prds/restraint-policy.md`
+- Episodic memory: `pace/docs/product/prds/episodic-memory.md`
+- Always-listening mode: `pace/docs/product/prds/always-listening-mode.md`
+- Proactive nudges: `pace/docs/product/prds/proactive-nudges.md`
+- Barge-in TTS interrupt: `pace/docs/product/prds/barge-in-tts-interrupt.md`
+- Demonstration replay: `pace/docs/product/prds/demonstration-replay.md`
+- Chat interface (text alongside voice): `pace/docs/product/prds/chat-interface.md`
+- Cloud bridge toggle (Claude Code / Codex / Gemini CLI): `pace/docs/product/prds/cloud-bridge-toggle.md`
+- Conversational thread memory: `pace/docs/product/prds/conversational-thread-memory.md`
+- First-run experience (Apple-FM-first default + skills tab + starter prompts): `pace/docs/product/prds/first-run-experience.md`
+- Inclusivity surface (notch chat + MCP catalog + privacy dashboard): `pace/docs/product/prds/inclusivity-surface.md`
+- Morning triage: `pace/docs/product/prds/morning-triage.md`
+- Planner tier picker (Local / CLI bridge / Direct API BYO / Apple FM): `pace/docs/product/prds/planner-tier-picker.md`
+- Recipe library (bundled installable flows): `pace/docs/product/prds/recipe-library.md`
+- Trust & failures (undo banner + reply replay + failure narrator): `pace/docs/product/prds/trust-and-failures.md`
 
 This file is the canonical map. PRDs are the per-pillar specifications. When in doubt, this doc wins.

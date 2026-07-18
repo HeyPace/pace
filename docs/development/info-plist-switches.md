@@ -2,14 +2,14 @@
 
 <!-- Canonical home for the local-mode Info.plist switch table. Linked from AGENTS.md → Architecture → Local-mode setup, and from SETUP_LOCAL.md. -->
 
-See [`SETUP_LOCAL.md`](../SETUP_LOCAL.md) for the full local-mode recipe. This is the canonical summary of the Info.plist switches that control local VLM / planner / TTS / transcription behavior; it was relocated here from [`AGENTS.md`](../AGENTS.md) to keep the agent-instructions file lean.
+See [`SETUP_LOCAL.md`](../../SETUP_LOCAL.md) for the full local-mode recipe. This is the canonical summary of the Info.plist switches that control local VLM / planner / TTS / transcription behavior; it was relocated here from [`AGENTS.md`](../../AGENTS.md) to keep the agent-instructions file lean.
 
 Always-On Companion Mode adds no Info.plist enable switch. Mode, camera,
 ambient-voice, screen, Mac-context, silent-card, and spoken-intervention choices
 are explicit default-off UserDefaults managed in Settings → Companion. Companion
 visual inference still honors `LocalVLMBaseURL` but validates it fail-closed as
 loopback-only; it never uses the selected cloud conversational tier. See
-[`companion-mode-privacy.md`](companion-mode-privacy.md).
+[`companion-mode-privacy.md`](../product/companion-mode-privacy.md).
 
 Ambient voice has no plist override for its classifier contract. The local
 Core ML runtime expects the app-bundled resource
