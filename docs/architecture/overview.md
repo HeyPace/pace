@@ -202,8 +202,8 @@ There are no months. There are next-correct-things. Do the next one.
 ## Source PRDs
 
 Most of Pace's per-pillar PRDs have been consolidated after shipping — their
-durable record now lives in [`PROJECT_STATUS.md`](../../PROJECT_STATUS.md) (full
-history) and [`STATUS.md`](../../STATUS.md) (at-a-glance). The still-open PRDs
+durable record now lives in [`PROJECT_STATUS.md`](https://github.com/HeyPace/pace/blob/main/PROJECT_STATUS.md) (full
+history) and [`STATUS.md`](https://github.com/HeyPace/pace/blob/main/STATUS.md) (at-a-glance). The still-open PRDs
 are indexed in [`docs/product/prds/README.md`](../product/prds/README.md):
 
 - [`on-device-meeting-notes.md`](../product/prds/on-device-meeting-notes.md) — meeting mode.
