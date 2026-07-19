@@ -40,9 +40,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
       - name: Install Blume (pinned)
-        run: npm install
+        run: npm install --no-package-lock
       - name: Build docs site
         run: npx blume build
       - name: Validate links (Blume)
