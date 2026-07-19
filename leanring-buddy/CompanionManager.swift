@@ -277,13 +277,11 @@ final class CompanionManager: ObservableObject {
         return BuddyPlannerClientFactory.makeFastTextOnlyPlannerOrFallback()
     }()
 
-    /// Post-hoc response quality checker. After the local model
-    /// generates a response, this checks whether it's adequate before
-    /// speaking it. If poor, the turn is re-routed to a stronger model.
-    /// Only applied to text-only answer paths where the response is
-    /// fully generated before TTS begins.
+    /// Post-hoc response quality checker. After the local model generates a
+    /// response, this checks whether it is adequate before speaking it. If
+    /// poor, the turn is re-routed to a stronger model.
     lazy var responseQualityChecker: PaceResponseQualityChecker = {
-        return PaceResponseQualityChecker()
+        PaceResponseQualityChecker()
     }()
 
     lazy var localRetriever: PaceLocalRetriever = {
@@ -419,40 +417,15 @@ final class CompanionManager: ObservableObject {
                 self?.companionPreferencesChanged(preferences)
             },
             onPauseRequested: { [weak self] in
-                self?.pauseCompanionRuntime()
+                Task { @MainActor [weak self] in
+                    await self?.companionRuntime.pause()
+                }
             },
             onSourceClearRequested: { [weak self] source in
-                self?.suspendCompanionPresentations()
                 self?.companionRuntime.clear(source: source)
             },
             onClearAllRequested: { [weak self] in
-                self?.suspendCompanionPresentations()
                 self?.companionRuntime.clearAll()
-            },
-            onTeachObjectRequested: { [weak self] label in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    do {
-                        let labels = try await companionRuntime.teachObject(label: label)
-                        companionControlCenter.recordObjectTeachingResult(.success(labels))
-                    } catch {
-                        companionControlCenter.recordObjectTeachingResult(.failure(error))
-                    }
-                }
-            },
-            onForgetTaughtObjectRequested: { [weak self] label in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    do {
-                        let labels = try await companionRuntime.removeTaughtObject(label: label)
-                        companionControlCenter.updateTaughtObjectLabels(labels)
-                    } catch {
-                        companionControlCenter.recordObjectTeachingResult(.failure(error))
-                    }
-                }
-            },
-            onConversationRequested: { [weak self] in
-                self?.handleAvatarTapped()
             }
         )
     }()
@@ -462,46 +435,8 @@ final class CompanionManager: ObservableObject {
             ambientContextStore: .shared,
             watchModeController: screenWatchModeController,
             localRetriever: localRetriever,
-            ambientWakeHandler: { [weak self] detection in
-                guard let self else { return false }
-                return await self.handleCompanionWakeGateAccepted(detection)
-            },
-            ambientWakeCancellationHandler: { [weak self] in
-                self?.cancelCompanionWakeConversation()
-            },
-            presentationLiveContextProvider: { [weak self] in
-                guard let self else {
-                    return PaceCompanionPresentationLiveContext(
-                        now: Date(),
-                        profile: .reserved,
-                        isOnActiveCall: true,
-                        isInFocusMode: true,
-                        hasRecentUserInput: true
-                    )
-                }
-                let now = Date()
-                let hasRecentUserInput = self.userInputActivityMonitor.lastUserInputAt.map {
-                    now.timeIntervalSince($0) < PaceRestraintGate.activeInputWindowSeconds
-                } ?? false
-                return PaceCompanionPresentationLiveContext(
-                    now: now,
-                    profile: self.proactivityProfile,
-                    isOnActiveCall: self.activeCallDetector.isOnActiveCall,
-                    isInFocusMode: self.focusModeMonitor.isCurrentlyInUserFocus,
-                    hasRecentUserInput: hasRecentUserInput
-                )
-            },
-            presentationConsumer: { [weak self] presentation in
-                self?.handleCompanionObservationPresentation(presentation)
-            },
             statusConsumer: { [weak self] state, activeSources, lastObservationAt in
-                guard let self else { return }
-                if activeSources.contains(.ambientVoice) {
-                    self.wakeWordSpotter.pauseForExternalAudioConsumer()
-                } else if self.globalPushToTalkShortcutMonitor.isShortcutCurrentlyPressed == false {
-                    self.wakeWordSpotter.resumeIfPausedForExternalAudioConsumer()
-                }
-                self.companionControlCenter.updateRuntime(
+                self?.companionControlCenter.updateRuntime(
                     state: state,
                     activeSources: activeSources,
                     lastObservationAt: lastObservationAt
@@ -600,10 +535,12 @@ final class CompanionManager: ObservableObject {
         switch intent {
         case .screenAction, .screenDescription:
             return true
-        case .pureKnowledge, .chitchat, .phoneLargeModel, .research, .unknown, .lowConfidenceEscalation:
+        case .pureKnowledge, .chitchat, .phoneLargeModel, .research, .unknown:
             // Research turns drive a heavyweight planner with a
             // larger step budget; the speculative race over a local
             // Apple FM lite path isn't relevant to them.
+            return false
+        case .lowConfidenceEscalation:
             return false
         }
     }
@@ -816,10 +753,10 @@ final class CompanionManager: ObservableObject {
     @Published var isTranscriptionModelReady: Bool = false
 
     /// How the current voice turn was triggered. Drives where the response
-    /// bubble pins itself: `.keyboard` and `.wakeWord` anchor it next to
-    /// the system cursor (so it visually rides with the Codex arrow);
-    /// `.avatar` anchors it next to the walking character. Cleared back
-    /// to `.keyboard` when the turn ends.
+    /// bubble pins itself: `.keyboard` anchors it next to the system
+    /// cursor (so it visually rides with the Codex arrow); `.avatar`
+    /// anchors it next to the walking character. Cleared back to
+    /// `.keyboard` when the turn ends.
     enum DictationTrigger { case keyboard, avatar, wakeWord }
     var currentDictationTrigger: DictationTrigger = .keyboard
 
@@ -1129,9 +1066,6 @@ final class CompanionManager: ObservableObject {
             },
             currentVoiceStateProvider: { [weak self] in
                 return self?.voiceState ?? .idle
-            },
-            isInUserFocusModeProvider: { [weak self] in
-                self?.focusModeMonitor.isCurrentlyInUserFocus ?? true
             },
             speakUtterance: { [weak self] utterance in
                 // Mirrors the pre-extraction `speakProactiveNudge`

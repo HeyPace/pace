@@ -72,100 +72,6 @@ nonisolated struct PaceEphemeralPersonTracker: Sendable {
     }
 }
 
-private nonisolated enum PaceVisionTaughtObjectMatcher {
-    struct RegionFeaturePrint {
-        let observation: VNFeaturePrintObservation
-        let normalizedCenterX: Double
-        let normalizedCenterY: Double
-    }
-
-    private static let teachingRegion = CGRect(x: 0.25, y: 0.15, width: 0.5, height: 0.7)
-    private static let searchRegions = [
-        CGRect(x: 0, y: 0.15, width: 0.45, height: 0.7),
-        CGRect(x: 0.275, y: 0.15, width: 0.45, height: 0.7),
-        CGRect(x: 0.55, y: 0.15, width: 0.45, height: 0.7),
-    ]
-
-    static func archiveTeachingFeaturePrint(from pixelBuffer: CVPixelBuffer) throws -> Data {
-        guard let featurePrint = try featurePrints(
-            from: pixelBuffer,
-            regions: [teachingRegion]
-        ).first?.observation else {
-            throw PaceTaughtObjectError.featurePrintUnavailable
-        }
-        return try NSKeyedArchiver.archivedData(
-            withRootObject: featurePrint,
-            requiringSecureCoding: true
-        )
-    }
-
-    static func detections(
-        in pixelBuffer: CVPixelBuffer,
-        templates: [PaceTaughtObjectTemplate]
-    ) -> [PaceCameraDetection] {
-        guard templates.isEmpty == false,
-              let regionFeaturePrints = try? featurePrints(
-                from: pixelBuffer,
-                regions: searchRegions
-              ) else { return [] }
-
-        return templates.compactMap { template in
-            guard let taughtFeaturePrint = try? NSKeyedUnarchiver.unarchivedObject(
-                ofClass: VNFeaturePrintObservation.self,
-                from: template.featurePrintArchive
-            ) else { return nil }
-
-            let matches = regionFeaturePrints.compactMap { region -> PaceTaughtObjectRegionMatch? in
-                var distance: Float = .greatestFiniteMagnitude
-                do {
-                    try region.observation.computeDistance(
-                        &distance,
-                        to: taughtFeaturePrint
-                    )
-                } catch {
-                    return nil
-                }
-                return PaceTaughtObjectRegionMatch(
-                    normalizedCenterX: region.normalizedCenterX,
-                    normalizedCenterY: region.normalizedCenterY,
-                    distance: distance
-                )
-            }
-            guard let match = PaceTaughtObjectMatchPolicy.bestAcceptedMatch(matches) else {
-                return nil
-            }
-            return PaceCameraDetection(
-                kind: .object(label: template.label, isUserTaught: true),
-                ephemeralTrackIdentifier: template.trackIdentifier,
-                normalizedCenterX: match.normalizedCenterX,
-                normalizedCenterY: match.normalizedCenterY,
-                confidence: PaceTaughtObjectMatchPolicy.confidence(forDistance: match.distance)
-            )
-        }
-    }
-
-    private static func featurePrints(
-        from pixelBuffer: CVPixelBuffer,
-        regions: [CGRect]
-    ) throws -> [RegionFeaturePrint] {
-        let requests = regions.map { region -> VNGenerateImageFeaturePrintRequest in
-            let request = VNGenerateImageFeaturePrintRequest()
-            request.regionOfInterest = region
-            return request
-        }
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
-        try handler.perform(requests)
-        return zip(regions, requests).compactMap { region, request in
-            guard let observation = request.results?.first else { return nil }
-            return RegionFeaturePrint(
-                observation: observation,
-                normalizedCenterX: Double(region.midX),
-                normalizedCenterY: Double(region.midY)
-            )
-        }
-    }
-}
-
 private nonisolated final class PaceCameraCaptureState: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: AsyncStream<PaceCameraFrame>.Continuation?
@@ -174,10 +80,6 @@ private nonisolated final class PaceCameraCaptureState: @unchecked Sendable {
     private var lastAcceptedFrameAt = Date.distantPast
     private var minimumFrameInterval: TimeInterval = 1
     private var isActive = false
-    private var pendingTeaching: (
-        label: String,
-        continuation: CheckedContinuation<Void, Error>
-    )?
 
     func begin(
         continuation: AsyncStream<PaceCameraFrame>.Continuation,
@@ -196,68 +98,26 @@ private nonisolated final class PaceCameraCaptureState: @unchecked Sendable {
     func end() {
         lock.lock()
         let continuation = continuation
-        let teachingContinuation = pendingTeaching?.continuation
         self.continuation = nil
-        pendingTeaching = nil
         previousSampledLuma = nil
         personTracker.reset()
         isActive = false
         lock.unlock()
         continuation?.finish()
-        teachingContinuation?.resume(throwing: PaceTaughtObjectError.cameraNotActive)
-    }
-
-    func teachObject(label: String) async throws {
-        let normalizedLabel = PaceTaughtObjectTemplate.normalizedLabel(label)
-        guard normalizedLabel.isEmpty == false else { throw PaceTaughtObjectError.emptyLabel }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            lock.lock()
-            guard isActive, pendingTeaching == nil else {
-                lock.unlock()
-                continuation.resume(throwing: isActive
-                    ? PaceTaughtObjectError.featurePrintUnavailable
-                    : PaceTaughtObjectError.cameraNotActive)
-                return
-            }
-            pendingTeaching = (normalizedLabel, continuation)
-            lock.unlock()
-        }
-    }
-
-    func pendingTeachingLabel() -> String? {
-        lock.lock()
-        defer { lock.unlock() }
-        return pendingTeaching?.label
-    }
-
-    func completeTeaching(_ result: Result<Void, Error>) {
-        lock.lock()
-        let continuation = pendingTeaching?.continuation
-        pendingTeaching = nil
-        lock.unlock()
-        continuation?.resume(with: result)
-    }
-
-    func shouldAnalyzeFrame(capturedAt: Date) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard isActive,
-              capturedAt.timeIntervalSince(lastAcceptedFrameAt) >= minimumFrameInterval else {
-            return false
-        }
-        lastAcceptedFrameAt = capturedAt
-        return true
     }
 
     func process(
         sampledLuma: [UInt8],
         people: [(boundingBox: CGRect, confidence: Double)],
-        objectDetections: [PaceCameraDetection],
         capturedAt: Date
     ) -> PaceCameraFrame? {
         lock.lock()
         defer { lock.unlock() }
-        guard isActive else { return nil }
+        guard isActive,
+              capturedAt.timeIntervalSince(lastAcceptedFrameAt) >= minimumFrameInterval else {
+            return nil
+        }
+        lastAcceptedFrameAt = capturedAt
         let motionScore = PaceCameraMotionEstimator.normalizedDifference(
             previous: previousSampledLuma,
             current: sampledLuma
@@ -267,7 +127,7 @@ private nonisolated final class PaceCameraCaptureState: @unchecked Sendable {
             (x: Double(person.boundingBox.midX), y: Double(person.boundingBox.midY))
         }
         let trackIdentifiers = personTracker.identifiers(for: centers)
-        let personDetections = zip(people, trackIdentifiers).map { person, identifier in
+        let detections = zip(people, trackIdentifiers).map { person, identifier in
             PaceCameraDetection(
                 kind: .person,
                 ephemeralTrackIdentifier: identifier,
@@ -279,7 +139,7 @@ private nonisolated final class PaceCameraCaptureState: @unchecked Sendable {
         return PaceCameraFrame(
             capturedAt: capturedAt,
             motionScore: motionScore,
-            detections: personDetections + objectDetections,
+            detections: detections,
             rawFrame: Data(sampledLuma)
         )
     }
@@ -298,11 +158,9 @@ private nonisolated final class PaceCameraCaptureOutputDelegate:
     @unchecked Sendable
 {
     private let state: PaceCameraCaptureState
-    private let taughtObjectStore: PaceTaughtObjectStore
 
-    init(state: PaceCameraCaptureState, taughtObjectStore: PaceTaughtObjectStore) {
+    init(state: PaceCameraCaptureState) {
         self.state = state
-        self.taughtObjectStore = taughtObjectStore
     }
 
     func captureOutput(
@@ -312,8 +170,6 @@ private nonisolated final class PaceCameraCaptureOutputDelegate:
     ) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
               let sampledLuma = sampledLuma(from: pixelBuffer) else { return }
-        let capturedAt = Date()
-        guard state.shouldAnalyzeFrame(capturedAt: capturedAt) else { return }
 
         let request = VNDetectHumanRectanglesRequest()
         request.upperBodyOnly = false
@@ -322,29 +178,10 @@ private nonisolated final class PaceCameraCaptureOutputDelegate:
         let people = (request.results ?? []).map {
             (boundingBox: $0.boundingBox, confidence: Double($0.confidence))
         }
-        if let pendingTeachingLabel = state.pendingTeachingLabel() {
-            do {
-                let archive = try PaceVisionTaughtObjectMatcher.archiveTeachingFeaturePrint(
-                    from: pixelBuffer
-                )
-                try taughtObjectStore.upsert(PaceTaughtObjectTemplate(
-                    label: pendingTeachingLabel,
-                    featurePrintArchive: archive
-                ))
-                state.completeTeaching(.success(()))
-            } catch {
-                state.completeTeaching(.failure(error))
-            }
-        }
-        let objectDetections = PaceVisionTaughtObjectMatcher.detections(
-            in: pixelBuffer,
-            templates: taughtObjectStore.templates()
-        )
         guard let frame = state.process(
             sampledLuma: sampledLuma,
             people: people,
-            objectDetections: objectDetections,
-            capturedAt: capturedAt
+            capturedAt: Date()
         ) else { return }
         state.yield(frame)
     }
@@ -387,17 +224,12 @@ nonisolated final class PaceAVFoundationCameraCaptureClient:
     private let captureQueue = DispatchQueue(label: "com.pace.companion-camera")
     private let state: PaceCameraCaptureState
     private let outputDelegate: PaceCameraCaptureOutputDelegate
-    private let taughtObjectStore: PaceTaughtObjectStore
     private var runtimeErrorObserver: NSObjectProtocol?
 
-    init(taughtObjectStore: PaceTaughtObjectStore = PaceTaughtObjectStore()) {
+    override init() {
         let state = PaceCameraCaptureState()
         self.state = state
-        self.taughtObjectStore = taughtObjectStore
-        self.outputDelegate = PaceCameraCaptureOutputDelegate(
-            state: state,
-            taughtObjectStore: taughtObjectStore
-        )
+        self.outputDelegate = PaceCameraCaptureOutputDelegate(state: state)
         super.init()
     }
 
@@ -458,18 +290,6 @@ nonisolated final class PaceAVFoundationCameraCaptureClient:
                 continuation.resume()
             }
         }
-    }
-
-    func teachObject(label: String) async throws {
-        try await state.teachObject(label: label)
-    }
-
-    func removeTaughtObject(label: String) async throws {
-        try taughtObjectStore.remove(label: label)
-    }
-
-    func taughtObjectLabels() async -> [String] {
-        taughtObjectStore.templates().map(\.label)
     }
 
     private func configureSessionIfNeeded(cameraDevice: AVCaptureDevice) throws {
