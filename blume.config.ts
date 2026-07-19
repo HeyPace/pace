@@ -71,10 +71,11 @@ export default defineConfig({
     structuredData: true,
   },
 
-  // Deployment — static output. The marketing site (website/) is a separate
-  // Cloudflare Pages project (`pace`); this docs site is a separate deploy.
+  // Deployment — static output merged into the existing marketing Pages
+  // project at heypace.app/docs. There is one canonical public origin.
   deployment: {
+    base: "/docs",
     output: "static",
-    site: "https://docs.heypace.app",
+    site: "https://heypace.app",
   },
 });
