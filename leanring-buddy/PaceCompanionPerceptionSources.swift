@@ -64,15 +64,6 @@ nonisolated protocol PaceCameraCaptureClient: Sendable {
     func permissionState() async -> PacePerceptionPermissionState
     func frames(maximumFramesPerSecond: Double) async throws -> AsyncStream<PaceCameraFrame>
     func stop() async
-    func teachObject(label: String) async throws
-    func removeTaughtObject(label: String) async throws
-    func taughtObjectLabels() async -> [String]
-}
-
-nonisolated extension PaceCameraCaptureClient {
-    func teachObject(label: String) async throws { throw PaceTaughtObjectError.cameraNotActive }
-    func removeTaughtObject(label: String) async throws { }
-    func taughtObjectLabels() async -> [String] { [] }
 }
 
 @MainActor
@@ -84,7 +75,7 @@ final class PaceCameraPerceptionSource: PacePerceptionSourceAdapter {
     private let meaningfulMotionThreshold: Double
     private var isEnabled: Bool
     private var isStopped = false
-    private var lastAcceptedDetectionSignatures: Set<String>?
+    private var lastAcceptedDetectionSignature: String?
     private var rawFrameBuffer = PaceBoundedRawDataBuffer(
         maximumValueCount: 1,
         maximumTotalByteCount: 16 * 1_024 * 1_024
@@ -128,27 +119,21 @@ final class PaceCameraPerceptionSource: PacePerceptionSourceAdapter {
 
     func stop() async {
         isStopped = true
-        lastAcceptedDetectionSignatures = nil
+        lastAcceptedDetectionSignature = nil
         rawFrameBuffer.removeAll()
         await captureClient.stop()
     }
 
     private func acceptedCandidates(for frame: PaceCameraFrame) -> [PaceObservationCandidate] {
-        let detectionSignatures = Set(frame.detections.map(detectionSignature))
-        let detectionsChanged = detectionSignatures != lastAcceptedDetectionSignatures
+        let detectionSignature = frame.detections
+            .map { "\($0.ephemeralTrackIdentifier):\($0.kind):\(zone(for: $0)?.name ?? "unknown")" }
+            .sorted()
+            .joined(separator: "|")
+        let detectionsChanged = detectionSignature != lastAcceptedDetectionSignature
         guard frame.motionScore >= meaningfulMotionThreshold || detectionsChanged else { return [] }
-        let previousDetectionSignatures = lastAcceptedDetectionSignatures ?? []
-        lastAcceptedDetectionSignatures = detectionSignatures
+        lastAcceptedDetectionSignature = detectionSignature
 
         return frame.detections.compactMap { detection in
-            // A motion-heavy frame can contain a person who was already in
-            // view. Re-emitting that stable track as `.entered` would turn
-            // ordinary movement into false person-entry evidence. Object
-            // locations likewise need a new track/zone signature, not every
-            // accepted motion frame.
-            guard previousDetectionSignatures.contains(detectionSignature(detection)) == false else {
-                return nil
-            }
             guard let payload = try? JSONEncoder().encode(PaceCameraCandidatePayload(
                 detection: detection,
                 zoneName: zone(for: detection)?.name
@@ -167,10 +152,6 @@ final class PaceCameraPerceptionSource: PacePerceptionSourceAdapter {
                 )
             )
         }
-    }
-
-    private func detectionSignature(_ detection: PaceCameraDetection) -> String {
-        "\(detection.ephemeralTrackIdentifier):\(detection.kind):\(zone(for: detection)?.name ?? "unknown")"
     }
 
     private func zone(for detection: PaceCameraDetection) -> PaceCameraZone? {

@@ -604,8 +604,6 @@ extension CompanionManager {
     }
 
     func stop() {
-        wakeWordListeningWindowReleaseTask?.cancel()
-        wakeWordListeningWindowReleaseTask = nil
         stopCompanionRuntime()
         appUsageTracker?.stop()
         if isPostureWatchEnabled {

@@ -17,6 +17,19 @@ Core ML runtime expects the app-bundled resource
 Missing or malformed assets fail closed before Speech.framework or the bounded
 post-wake conversation can start.
 
+Ambient voice has no plist override for its classifier contract. The local
+Core ML runtime expects the app-bundled resource
+`PaceWakeWordClassifier.mlmodelc` with exact labels `hey_pace` and `background`.
+Missing or malformed assets fail closed before Speech.framework or the bounded
+post-wake conversation can start.
+
+Always-On Companion Mode adds no Info.plist enable switch. Mode, camera,
+ambient-voice, screen, Mac-context, silent-card, and spoken-intervention choices
+are explicit default-off UserDefaults managed in Settings → Companion. Companion
+visual inference still honors `LocalVLMBaseURL` but validates it fail-closed as
+loopback-only; it never uses the selected cloud conversational tier. See
+[`companion-mode-privacy.md`](companion-mode-privacy.md).
+
 | Key | Default | Effect when changed |
 |---|---|---|
 | `UseLocalVLMForScreenContext` | `true` | `false` to skip the VLM call and send the raw transcript to the planner. |
