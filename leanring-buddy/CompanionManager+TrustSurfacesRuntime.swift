@@ -88,6 +88,17 @@ extension CompanionManager {
         guard !trimmedSpokenText.isEmpty else { return }
         lastSpokenReplyText = trimmedSpokenText
         lastSpokenReplyAt = Date()
+
+        // Privacy-safe activation evidence for the automation matrix.
+        // Emitted once per app launch after the first non-empty spoken
+        // reply finishes. The closed enum prevents transcript, screen
+        // context, and action-target data from entering the log. See
+        // `PaceTelemetryLog.recordFirstSuccessfulLocalActivation` and
+        // `docs/operations/automation-evidence-matrix.md`.
+        if !hasRecordedFirstSuccessfulLocalActivation {
+            hasRecordedFirstSuccessfulLocalActivation = true
+            PaceTelemetryLog.recordFirstSuccessfulLocalActivation(.spokenReplyCompleted)
+        }
     }
 
     /// Clears the replay state. Called when a new turn begins so the
@@ -131,6 +142,23 @@ extension CompanionManager {
 
         let restraintDecision = PaceRestraintGate.decide(
             buildFailureRestraintContext(forNow: Date())
+        )
+        // Privacy-safe failure evidence for the automation matrix.
+        // Records only the stable failure-class identifier, an
+        // aggregate outcome bucket reflecting the restraint gate's
+        // decision, and the app version/build — never the transcript,
+        // screen context, action target, or provider error body. See
+        // `PaceFailureKind.stableLogIdentifier` and
+        // `docs/operations/automation-evidence-matrix.md`.
+        let outcome: PaceFailureOutcome
+        switch restraintDecision {
+        case .speak: outcome = .spoken
+        case .stayQuiet: outcome = .suppressed
+        case .queueUntilIdle: outcome = .queued
+        }
+        PaceTelemetryLog.recordFailure(
+            kind: kind,
+            outcome: outcome
         )
         switch restraintDecision {
         case .speak:

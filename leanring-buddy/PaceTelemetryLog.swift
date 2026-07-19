@@ -12,9 +12,26 @@
 //  measurable: anyone can run Pace, use it normally, and run the
 //  benchmark script to get a reproducible TTFSW distribution.
 //
+//  Privacy contract: every field emitted here is annotated
+//  `privacy: .public` and is an aggregate scalar (count, millisecond,
+//  version string, failure-class enum case name). No transcript, no
+//  screen context, no action target, no key material. The
+//  `PaceTelemetryLogPrivacyBoundaryTests` suite asserts this contract
+//  by calling every recording function with representative inputs.
+//
 
 import Foundation
 import OSLog
+
+enum PaceActivationKind: String, CaseIterable {
+    case spokenReplyCompleted
+}
+
+enum PaceFailureOutcome: String, CaseIterable {
+    case spoken
+    case suppressed
+    case queued
+}
 
 enum PaceTelemetryLog {
     /// `subsystem` and `category` are the filter knobs `log stream`
@@ -83,5 +100,61 @@ enum PaceTelemetryLog {
         modelIdentifier: String
     ) {
         logger.info("TPS=\(String(format: "%.1f", tokensPerSecond), privacy: .public) total=\(totalTokens, privacy: .public) model=\(modelIdentifier, privacy: .public)")
+    }
+
+    // MARK: - Activation evidence
+
+    /// First successful local activation signal. Emitted once per app
+    /// launch when the first non-empty spoken reply finishes. Records
+    /// only a closed activation kind and the app version/build — never
+    /// the transcript, screen context, action target, or user content.
+    ///
+    /// This is the privacy-safe activation contract for the
+    /// `automate-heypace` evidence matrix. There is no fleet-bound
+    /// return path by design — the signal stays in the local unified
+    /// log so a human can run `log stream` and confirm activation
+    /// without centralizing sensitive context.
+    static func recordFirstSuccessfulLocalActivation(_ kind: PaceActivationKind) {
+        let version = PaceTelemetryLog.appShortVersion()
+        let build = PaceTelemetryLog.appBuildNumber()
+        logger.info("ACTIVATE kind=\(kind.rawValue, privacy: .public) ver=\(version, privacy: .public) build=\(build, privacy: .public)")
+    }
+
+    // MARK: - Failure evidence
+
+    /// Privacy-safe failure signal. Emitted whenever a documented
+    /// `PaceFailureKind` fires (see `PaceFailureNarrator`). Records
+    /// only the failure-class enum case name, the app version/build,
+    /// and an aggregate failure-class bucket — never the transcript,
+    /// screen context, action target, provider error body, or any
+    /// other user content.
+    ///
+    /// The API accepts the closed `PaceFailureKind` and
+    /// `PaceFailureOutcome` types rather than free-form strings. The
+    /// stable identifier deliberately drops associated user values.
+    static func recordFailure(
+        kind: PaceFailureKind,
+        outcome: PaceFailureOutcome
+    ) {
+        let version = PaceTelemetryLog.appShortVersion()
+        let build = PaceTelemetryLog.appBuildNumber()
+        logger.info("FAIL kind=\(kind.stableLogIdentifier, privacy: .public) outcome=\(outcome.rawValue, privacy: .public) ver=\(version, privacy: .public) build=\(build, privacy: .public)")
+    }
+
+    // MARK: - App version helpers
+
+    /// Short version string (`CFBundleShortVersionString`) read from
+    /// the main bundle's Info.plist. Returns `"unknown"` when the key
+    /// is missing so a failure emission never crashes on a malformed
+    /// bundle. Matches the read style used by
+    /// `leanring_buddyApp.swift` and `PaceMainView.swift`.
+    static func appShortVersion() -> String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+    }
+
+    /// Build number (`CFBundleVersion`) read from the main bundle's
+    /// Info.plist. Returns `"unknown"` when the key is missing.
+    static func appBuildNumber() -> String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
     }
 }
