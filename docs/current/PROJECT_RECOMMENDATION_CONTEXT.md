@@ -1,6 +1,6 @@
 # Project Recommendation Context — Pace
 
-Companion to [`PROJECT_STATUS.md`](../../PROJECT_STATUS.md) for Starboard
+Companion to [PROJECT_STATUS.md](https://github.com/HeyPace/pace/blob/main/PROJECT_STATUS.md) for Starboard
 recommendations and fleet-wide product context. Per the fleet AGENTS.md
 standard, update this when product scope, major runtime surfaces,
 entrypoints, dependencies, testing signals, or recommendation guidance
@@ -89,7 +89,7 @@ until the follow-up evidence in `companion-mode-dogfood.md` is recorded.
 
 - `website/` — Astro 5 + Tailwind v4 + Lightning CSS, deployed to
   Cloudflare Pages.
-- Positioning follows [`fleet/LANDING_STANDARD.md`](../../../LANDING_STANDARD.md).
+- Positioning follows [fleet/LANDING_STANDARD.md](https://github.com/HeyPace/pace/blob/main/LANDING_STANDARD.md).
 - Pricing: $29 one-time (Pace), $5/mo (Studio), free (Try).
 - Headline: "The voice assistant that doesn't phone home."
 - Single primary CTA: "Download Pace — $29."

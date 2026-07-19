@@ -5,7 +5,7 @@ reason. Read this before retrying a dead end — the next agent should not spend
 turn rediscovering why something doesn't work here. Update this page when an
 approach is abandoned or a deferred idea is revisited.
 
-The durable status record is [`PROJECT_STATUS.md`](../../PROJECT_STATUS.md); this
+The durable status record is [PROJECT_STATUS.md](https://github.com/HeyPace/pace/blob/main/PROJECT_STATUS.md); this
 page is the curated "do not retry without new information" list.
 
 ## Rejected: cloud anything as a default

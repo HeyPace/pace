@@ -2,7 +2,7 @@
 
 <!-- Canonical home for the local-mode Info.plist switch table. Linked from AGENTS.md → Architecture → Local-mode setup, and from SETUP_LOCAL.md. -->
 
-See [`SETUP_LOCAL.md`](../../SETUP_LOCAL.md) for the full local-mode recipe. This is the canonical summary of the Info.plist switches that control local VLM / planner / TTS / transcription behavior; it was relocated here from [`AGENTS.md`](../../AGENTS.md) to keep the agent-instructions file lean.
+See [SETUP_LOCAL.md](https://github.com/HeyPace/pace/blob/main/SETUP_LOCAL.md) for the full local-mode recipe. This is the canonical summary of the Info.plist switches that control local VLM / planner / TTS / transcription behavior; it was relocated here from the [repository AGENTS.md](https://github.com/HeyPace/pace/blob/main/AGENTS.md) to keep the agent-instructions file lean.
 
 Always-On Companion Mode adds no Info.plist enable switch. Mode, camera,
 ambient-voice, screen, Mac-context, silent-card, and spoken-intervention choices

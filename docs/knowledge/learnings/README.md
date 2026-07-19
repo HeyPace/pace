@@ -34,6 +34,6 @@ lives on page B, it links there with a one-line pointer.
 
 ## Architecture cross-references
 
-- Full architecture prose: [`AGENTS.md`](../../../AGENTS.md), [`architecture/overview.md`](../../architecture/overview.md), and [`architecture/systems.md`](../../architecture/systems.md).
+- Full architecture prose: the [repository AGENTS.md](https://github.com/HeyPace/pace/blob/main/AGENTS.md), [`architecture/overview.md`](../../architecture/overview.md), and [`architecture/systems.md`](../../architecture/systems.md).
 - Per-file reference table: [`development/key-files.md`](../../development/key-files.md).
 - Info.plist switches that gate many of these features: [`development/info-plist-switches.md`](../../development/info-plist-switches.md).

@@ -1,7 +1,6 @@
 ---
-Status: shipped in code — hardware meeting-recording smoke remains a release gate
-owner: delegated to Sonnet agent
-priority: P0 — closes the biggest product gap (meeting mode is a stub today) and is the wedge against Granola/Otter/Fireflies, all of which are cloud
+title: On-device meeting notes
+description: PRD for local two-track meeting capture, transcription, and structured notes.
 ---
 
 # PRD — On-device meeting notes

@@ -2,7 +2,7 @@
 
 <!-- Canonical home for the per-file reference table. Linked from AGENTS.md → Key Files. -->
 
-This is the per-file reference for Pace's source, scripts, and bundled resources. It is the canonical home for the table that previously lived inline in [`AGENTS.md`](../../AGENTS.md); the architecture narrative stays in [`docs/architecture/`](../architecture/) and links here.
+This is the per-file reference for Pace's source, scripts, and bundled resources. It is the canonical home for the table that previously lived inline in the [repository AGENTS.md](https://github.com/HeyPace/pace/blob/main/AGENTS.md); the architecture narrative stays in [the architecture docs](../architecture/overview.md) and links here.
 
 | File | Lines | Purpose |
 |------|-------|---------|

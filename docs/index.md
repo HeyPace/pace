@@ -10,9 +10,9 @@ menu-bar voice agent. Markdown committed to this repository is the source of
 truth. [Blume](../blume.config.ts) renders it as a searchable site; it is the
 presentation layer, not the truth.
 
-Agent instructions live in [`AGENTS.md`](../AGENTS.md) (concise bootloader).
-Current state lives in [`../STATUS.md`](../STATUS.md) (lean) and
-[`../PROJECT_STATUS.md`](../PROJECT_STATUS.md) (full history).
+Agent instructions live in the [repository AGENTS.md](https://github.com/HeyPace/pace/blob/main/AGENTS.md) (concise bootloader).
+Current state lives in the [repository STATUS.md](https://github.com/HeyPace/pace/blob/main/STATUS.md) (lean) and
+[PROJECT_STATUS.md](https://github.com/HeyPace/pace/blob/main/PROJECT_STATUS.md) (full history).
 
 ## Architecture
 
@@ -26,9 +26,9 @@ How Pace is built and why.
   mode, journals, proactivity, meeting notes, deeplinks, the plan-act-observe
   loop, and the speculative planner race. This is the canonical detailed
   architecture narrative.
-- [`architecture/decisions/`](architecture/decisions/) — Architecture Decision
+- [Architecture Decision Records](https://github.com/HeyPace/pace/blob/main/docs/architecture/decisions/0001-meeting-audio-capture.md) — Architecture Decision
   Records (ADRs), numbered `NNNN-slug.md`.
-  - [`0001-meeting-audio-capture.md`](architecture/decisions/0001-meeting-audio-capture.md) —
+  - [`0001-meeting-audio-capture.md`](https://github.com/HeyPace/pace/blob/main/docs/architecture/decisions/0001-meeting-audio-capture.md) —
     in-process SCStream for two-track meeting capture (vs out-of-process
     CoreAudio tap).
 
@@ -41,7 +41,7 @@ What Pace does and where it's going.
 - [`product/conversation-model.md`](product/conversation-model.md) — the
   two-tier in-context memory mental model (verbatim window + rolling summary).
 - [`product/roadmap.md`](product/roadmap.md) — local roadmap and priorities.
-- [`product/prds/`](product/prds/) — product briefs:
+- [Product briefs](product/prds/README.md) — product briefs:
   - [`on-device-meeting-notes.md`](product/prds/on-device-meeting-notes.md) —
     two-track capture → segmentation → on-device transcription → structured
     notes. Wedge against Granola/Otter/Fireflies.
@@ -56,8 +56,8 @@ What Pace does and where it's going.
   the live/hardware dogfood gate for Companion Mode.
 - [`product/pace-wake-word-classifier.md`](product/pace-wake-word-classifier.md) —
   the bundled Core ML wake model's runtime contract.
-- [`product/brand/`](product/brand/) — mascot SVGs and brand assets.
-- [`product/landing/`](product/landing/) — landing-page copy drafts.
+- [Brand assets](product/brand/README.md) — mascot SVGs and brand assets.
+- [Product capabilities](product/capabilities.md) — product direction and surface inventory.
 
 ## Development
 
@@ -71,7 +71,7 @@ Building, testing, and navigating the codebase.
   transcription behavior, with defaults.
 - [`development/test-coverage.md`](development/test-coverage.md) — EXEMPLARY
   coverage tier goals, per-component targets, local extraction, CI enforcement.
-- [`../SETUP_LOCAL.md`](../SETUP_LOCAL.md) — full local-mode setup recipe
+- [SETUP_LOCAL.md](https://github.com/HeyPace/pace/blob/main/SETUP_LOCAL.md) — full local-mode setup recipe
   (LM Studio, models, permissions).
 
 ## Operations
@@ -81,23 +81,23 @@ Releasing and running Pace.
 - [`operations/release-smoke-checklist.md`](operations/release-smoke-checklist.md) —
   the hardware smoke checklist walked before every release. The unit suite is
   blind to hardware-boundary defects; this catches what it can't.
-- [`operations/runbooks/`](operations/runbooks/) — operational runbooks:
+- [Operational runbooks](operations/runbooks/voice-mail-latency-demo.md) — operational runbooks:
   - [`voice-mail-latency-demo.md`](operations/runbooks/voice-mail-latency-demo.md) —
     reproducible `<700 ms` voice→Mail TTFSW measurement runbook.
-- [`operations/release-notes/`](operations/release-notes/) — per-release notes.
-  - [`0.3.20.md`](operations/release-notes/0.3.20.md)
+- [Release notes](https://github.com/HeyPace/pace/tree/main/docs/operations/release-notes) — per-release notes.
+  - [`0.3.20.md`](https://github.com/HeyPace/pace/blob/main/docs/operations/release-notes/0.3.20.md)
 
 ## Knowledge
 
 Durable learnings and competitive context.
 
-- [`knowledge/learnings/`](knowledge/learnings/) — the learning roadmap: every
+- [Learning roadmap](knowledge/learnings/README.md) — the learning roadmap: every
   novel framework, algorithm, API, and non-obvious pattern in Pace, grouped by
   theme. Start at [`knowledge/learnings/README.md`](knowledge/learnings/README.md).
   Covers: foundational frameworks, memory & retrieval, screen & vision, actions
   & accessibility, audio pipeline, planning & latency, skills & automation,
   proactive surfaces, infra & patterns.
-- [`knowledge/competitive/`](knowledge/competitive/) — competitive snapshots
+- [Competitive snapshots](knowledge/competitive/steal-catalog.md) — competitive snapshots
   and the steal-catalog (ideas to adopt, with the constraint "runs local").
   - [`steal-catalog.md`](knowledge/competitive/steal-catalog.md)
   - [`littlebird.md`](knowledge/competitive/littlebird.md)
@@ -112,13 +112,13 @@ Durable learnings and competitive context.
 
 The active cycle: objective, plans, and recommendation context.
 
-- [`../STATUS.md`](../STATUS.md) — lean current-state view (objective, active
+- [STATUS.md](https://github.com/HeyPace/pace/blob/main/STATUS.md) — lean current-state view (objective, active
   work, blockers, open questions, next steps).
-- [`../PROJECT_STATUS.md`](../PROJECT_STATUS.md) — the full durable status
+- [PROJECT_STATUS.md](https://github.com/HeyPace/pace/blob/main/PROJECT_STATUS.md) — the full durable status
   record (timeline, shipped features, deferred/blocked, dependencies).
 - [`current/PROJECT_RECOMMENDATION_CONTEXT.md`](current/PROJECT_RECOMMENDATION_CONTEXT.md) —
   fleet-wide product context for Starboard recommendations.
-- [`current/plans/`](current/plans/) — active plans:
+- [Active plans](current/plans/autonomous-companion-consolidation.md) — active plans:
   - [`autonomous-companion-consolidation.md`](current/plans/autonomous-companion-consolidation.md) —
     the canonical handoff for the remaining companion integration gaps and five
     acceptance stories.
@@ -129,20 +129,17 @@ The active cycle: objective, plans, and recommendation context.
 
 Point-in-time snapshots preserved for history (not maintained).
 
-- [`archive/`](archive/) — dated local-project-state and smoke-test snapshots.
+- [Archive snapshot](archive/local-project-state-2026-06-02.md) — dated local-project-state and smoke-test snapshots.
   Prefer `PROJECT_STATUS.md` for current state.
 
 ## Adjacent surfaces (not under `docs/`)
 
-- [`../openspec/`](../openspec/) — OpenSpec specs and archived changes
+- [OpenSpec specs](https://github.com/HeyPace/pace/tree/main/openspec) — OpenSpec specs and archived changes
   (spec-driven workflow). Specs: `ambient-perception`, `codex-direct-brain`,
   `companion-memory-policy`, `companion-mode-controls`, `meeting-note-profiles`,
   `proactive-companion-policy`, `temporal-world-model`,
   `transcript-grounded-actions`.
-- [`../evals/`](../evals/) — eval fixtures and harnesses. Start at
-  [`../evals/README.md`](../evals/README.md).
-- [`../scripts/`](../scripts/) — build/release/eval/smoke scripts. Start at
-  [`../scripts/README.md`](../scripts/README.md).
-- [`../website/`](../website/) — Astro marketing site (Cloudflare Pages).
-  Start at [`../website/README.md`](../website/README.md).
-- [`../SETUP_LOCAL.md`](../SETUP_LOCAL.md) — local-mode setup.
+- [Eval fixtures](https://github.com/HeyPace/pace/tree/main/evals) — eval fixtures and harnesses.
+- [Build and smoke scripts](https://github.com/HeyPace/pace/tree/main/scripts) — build/release/eval/smoke scripts.
+- [Astro marketing site](https://github.com/HeyPace/pace/tree/main/website) — Cloudflare Pages surface.
+- [SETUP_LOCAL.md](https://github.com/HeyPace/pace/blob/main/SETUP_LOCAL.md) — local-mode setup.

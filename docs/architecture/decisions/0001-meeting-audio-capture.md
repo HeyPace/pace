@@ -1,3 +1,8 @@
+---
+title: "ADR-0001: Meeting audio capture approach"
+description: Decision record for in-process ScreenCaptureKit meeting audio capture.
+---
+
 # ADR-0001: Meeting audio capture approach — in-process SCStream
 
 Date: 2026-07-03

@@ -1,7 +1,7 @@
 # Pace — architecture (systems reference)
 
 This is the canonical detailed architecture reference for Pace — the per-system
-bullet list that previously lived inline in [`AGENTS.md`](../../AGENTS.md). It was
+bullet list that previously lived inline in the [repository AGENTS.md](https://github.com/HeyPace/pace/blob/main/AGENTS.md). It was
 extracted to keep `AGENTS.md` a concise agent bootloader. The doctrine and the
 high-level constellation diagram live in [`overview.md`](overview.md); per-file
 responsibilities live in [`../development/key-files.md`](../development/key-files.md).
@@ -73,4 +73,4 @@ responsibilities live in [`../development/key-files.md`](../development/key-file
 
 ## Local-mode setup
 
-See [`SETUP_LOCAL.md`](../../SETUP_LOCAL.md) for the full recipe. The complete Info.plist switch reference (local VLM / planner / TTS-sidecar / transcription-provider knobs and their defaults) lives in [`../development/info-plist-switches.md`](../development/info-plist-switches.md).
+See [SETUP_LOCAL.md](https://github.com/HeyPace/pace/blob/main/SETUP_LOCAL.md) for the full recipe. The complete Info.plist switch reference (local VLM / planner / TTS-sidecar / transcription-provider knobs and their defaults) lives in [`../development/info-plist-switches.md`](../development/info-plist-switches.md).
