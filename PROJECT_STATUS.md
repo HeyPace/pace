@@ -63,6 +63,10 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 
 ## Timeline
 
+- **2026-07-25:** Cancelled the unimplemented `durable-working-runtime`
+  proposal. The existing companion-consolidation plan remains authoritative;
+  any future background-work expansion starts from current product truth and
+  requires a fresh bounded change.
 - **v0.3.12–0.3.14 cycle:** Her-arc voice loop, trust surfaces, on-device model supply, macOS integrations, executor/planner v10, MCP/recipes, landing shipped.
 - **2026-06-20:** Restraint policy, episodic memory, wake word, proactive nudges, barge-in VAD, demonstration replay, trust-and-failures, recipe library, planner tier picker, cloud-bridge toggle, chat interface, conversational thread memory, first-run experience, morning triage, inclusivity surface, always-listening mode, unified memory, local RAG layer (substrate), local VLM runtime port, WhisperKit streaming scaffold, HUD intent disambiguator, dictation postproc, v8/v9/v10 planner iterations, click executor improvements, set-of-mark click recovery, executor surface, Her-arc roadmap meta — all landed.
 - **2026-07-04:** Quality overhaul — sprint payload reviewed + fixed (speculative fast-action double-execution, dead dual-agent prefetch removed, dictation trigger tightening); meeting-notes shipping bugs fixed (16 kHz sample-rate labeling, stop-time OOB crash, crash repair, O(1) memory, cross-track alignment, privacy-pinned synthesis); amber indicator extended to headless planner turns; release-from-main guard + hardware smoke checklist; premium chat panel phase 1 (flag-gated); landing meeting-notes wedge + /privacy + /terms; PRs #57–#63 landed. Teachable skills shipped — describe a `.skill.md` skill by voice or typed form, structured on-device by the privacy-pinned local planner (`docs/product/prds/teachable-skills.md`).
