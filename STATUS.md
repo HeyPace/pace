@@ -2,7 +2,7 @@
 
 > At-a-glance current state. The durable record is
 > [`PROJECT_STATUS.md`](./PROJECT_STATUS.md) — update both together when state
-> changes. Last updated: 2026-07-19.
+> changes. Last updated: 2026-07-25.
 
 ## Objective
 
