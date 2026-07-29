@@ -38,7 +38,7 @@ bash scripts/eval-v10-gate.sh        # v10 planner-response schema gate
 bash scripts/benchmark_ttfsw.sh --last 10m   # publishable TTFSW/TTFT latency table
 ```
 
-Local isolated-DerivedData builds require the Metal Toolchain (`xcodebuild -downloadComponent MetalToolchain`) because `mlx-swift` compiles Metal shaders. The current Xcode 27 beta baseline is compile-blocked — see `STATUS.md` → Blockers and `PROJECT_STATUS.md`.
+Local isolated-DerivedData builds require the Metal Toolchain (`xcodebuild -downloadComponent MetalToolchain`) because `mlx-swift` compiles Metal shaders. Track any current compile blocker in GitHub Issues.
 
 ## Documentation navigation
 
@@ -61,7 +61,8 @@ The committed Markdown under `docs/` is the source of truth. Blume (see `blume.c
 | Failed / deferred approaches | [`docs/knowledge/failed-approaches.md`](./docs/knowledge/failed-approaches.md) |
 | Release smoke checklist | [`docs/operations/release-smoke-checklist.md`](./docs/operations/release-smoke-checklist.md) |
 | Runbooks | [`docs/operations/runbooks/`](./docs/operations/runbooks/) |
-| Current objective / active work / blockers | [`STATUS.md`](./STATUS.md) (lean) · [`PROJECT_STATUS.md`](./PROJECT_STATUS.md) (full) |
+| Current/shipped product truth | [`PROJECT_STATUS.md`](./PROJECT_STATUS.md) |
+| Open work and blockers | GitHub Issues |
 | Active plans | [`docs/current/plans/`](./docs/current/plans/) |
 | Companion-mode privacy & dogfood | [`docs/product/companion-mode-privacy.md`](./docs/product/companion-mode-privacy.md) · [`docs/product/companion-mode-dogfood.md`](./docs/product/companion-mode-dogfood.md) |
 
@@ -121,11 +122,12 @@ The committed Markdown is the source of truth; code is authoritative for impleme
 - **New conventions**: add to the Code Style section above.
 - **New product briefs / decisions**: add a PRD under `docs/product/prds/` or an ADR under `docs/architecture/decisions/` (numbered `NNNN-slug.md`).
 - **Failed / deferred approaches**: record in `docs/knowledge/failed-approaches.md` so the next agent doesn't retry a dead end.
-- **Status changes**: update `STATUS.md` (lean current view) and `PROJECT_STATUS.md` (full history) together — `STATUS.md` is the at-a-glance, `PROJECT_STATUS.md` is the durable record.
+- **Status changes**: update `PROJECT_STATUS.md` only for durable current/shipped
+  product truth; track every open task in GitHub Issues.
 - **Line-count drift > 50 lines**: update the approximate count in `key-files.md`.
 - **Do not** update docs for minor edits or bug fixes that don't change documented architecture or conventions.
 - **Do not** duplicate a fact in two homes. Each fact has one canonical doc; others link to it.
-- **Do not** invent information. Mark unresolved questions explicitly (see `STATUS.md` → Open questions).
+- **Do not** invent information. Track unresolved questions in GitHub Issues.
 
 ### Validating docs
 
