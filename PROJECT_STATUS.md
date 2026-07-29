@@ -224,53 +224,8 @@ Four complementary "do more than talk" layers, from most literal to most flexibl
 - Commerce: `src/config/commerce.ts` — mailto fallback; `PUBLIC_PACE_CHECKOUT_URL` / `PUBLIC_STUDIO_CHECKOUT_URL` at deploy.
 - OG: `public/og-image.png` via `scripts/generate-og-image.sh`; audit against `fleet/LANDING_STANDARD.md`.
 
-## Todo / Planned / Deferred / Blocked
+## Work queue
 
-### Companion consolidation handoff
-
-The major companion primitives are implemented; do not treat capability breadth
-as product readiness. The next product phase is integration and dogfood proof,
-not another broad feature wave. Resume from
-[`docs/current/plans/autonomous-companion-consolidation.md`](docs/current/plans/autonomous-companion-consolidation.md),
-which records the six remaining gap classes, recommended order, and five
-end-to-end acceptance stories.
-
-### Planned (remaining — each blocked on an external input, not on code)
-
-1. **First pace-tuned model** — collect turns via Settings export, LoRA train + eval gate per `docs/current/plans/pace-tuned-model-v1.md`. Blocked on exported turn volume (see Blocked). Per project memory, Pace-side model work is otherwise concluded — this is a data-collection milestone, not new model engineering.
-2. **Stripe checkout URL** — set `PUBLIC_PACE_CHECKOUT_URL` (and optional `PUBLIC_STUDIO_CHECKOUT_URL`) in the Pages build env. Blocked on the real Stripe URL; the mailto checkout fallback ships until it is set.
-3. **Permissioned public testimonials** — replace private-beta theme cards when 3+ real quotes exist. Blocked on real permissioned quotes.
-4. **Voice Mail latency demo** — manual `<700 ms` check with Mail prewarm. Turnkey runbook written (`docs/operations/runbooks/voice-mail-latency-demo.md`); blocked only on the one hardware measurement run (enable `PrewarmMailForDrafts`, do 8–10 voice→Mail turns, `bash scripts/benchmark_ttfsw.sh --last 10m`).
-
-### Resolved this cycle (2026-07-11)
-
-- **WhisperKit streaming bridge (was Planned #5)** — DONE. `WhisperKitTranscriptionProvider.isRuntimeAvailable = true`; the full streaming session (`startStreamingSession` / `appendAudioBuffer` / `requestFinalTranscript`) is wired and the factory selects it when `TranscriptionProvider=whisperKit` and the model is present. Model is still pre-placed (`download: false`) — no silent fetch.
-- **Meeting-notes audio fast-follow (was Planned #6)** — DONE. v0.3.18 (build 18) and v0.3.19 (build 19) shipped; appcast is current at build 19.
-- **Meeting audio capture off the main actor (was Planned #7)** — DONE (code). Per-buffer `Task { @MainActor }` hops replaced by a per-track `MeetingTrackWriter` (an `AsyncStream` drained by a single detached consumer): Float32→PCM16 conversion and `FileHandle` writes now run off the main actor and land in FIFO order by construction; the SCStream delegate pushes system samples through a `@Sendable` sink (`makeSystemSampleSink()`) instead of hopping to main. Mic conversion is boxed in `MicSampleConverter`. Unit suite green with a new `appendedBuffersArePersistedInFIFOOrder` regression guard. **Requires hardware meeting-recording smoke before release** (`docs/operations/release-smoke-checklist.md`) — unit tests inject synthetic samples and cannot see capture-timing defects.
-- **Bundled-MLX planner default decision (was Planned #8)** — RESOLVED: keep the in-process MLX Qwen3-4B planner **opt-in** (default OFF). Rationale: WhisperKit precedent (a downloaded model on disk is an opt-in signal; an explicit Settings choice always wins), flipping would need a 4B-vs-30B eval-gate run on real hardware, and per project memory Pace-side model work is concluded. Stale "default" copy aligned in this file and `docs/current/PROJECT_RECOMMENDATION_CONTEXT.md`; the site FAQ/Features already say "one toggle in Settings → Models."
-
-### Deferred
-
-- **Speaking-time context prefetch (episodic/RAG) (was Planned #9)** — Deferred, not built. The expensive prewarm (VLM screen context) already runs at PTT press via `PaceScreenContextService.prewarmScreenContext`, and local retrieval (BM25 + in-memory episodic) is already sub-millisecond, so a partial-transcript-keyed RAG prewarm adds hot-path complexity for negligible, unmeasurable TTFSW upside — and it mirrors the dual-agent prefetch already removed as dead code. Revisit only if a `benchmark_ttfsw.sh` run shows retrieval on the critical path. Idea tracked in `docs/knowledge/competitive/steal-catalog.md`.
-- **Persistent KV planner backend** — blocked on TinyGPT oMLX qualification. (Note: the in-process MLX planner is available behind the Settings → Models toggle, NOT the default — fresh installs talk via Apple FM or LM Studio.)
-- **Grammar-constrained v10 runtime default** — TinyGPT/eval gated; shipping planner remains current MLX/Qwen stack.
-- **Real-app AX smokes in CI** — manual-only; TCC makes automated live-app tests fragile.
-- **Cloud bridge / Direct API as default** — contradicts on-device moat; opt-in tiers only.
-- **Hosted telemetry or accounts** — local-only analytics hooks; no cloud SDK.
-
-### Blocked
-
-- **Public v0.3.19 ZIP is unavailable:** GitHub's release API and the local
-  appcast list `Pace-0.3.19.zip`, but its anonymous download URL returns 404.
-  Restore or republish the asset through the explicit release workflow before
-  treating distribution as green.
-- **Test baseline resolved (2026-07-19):** `bash scripts/test-pace.sh` now
-  compiles and passes 1606/1606 tests under Xcode 27.0 Beta 3. The earlier
-  `TestCompanionScreenAnalysisClient` actor-isolation compile block is gone.
-- Live-app click ambiguity smokes not CI-automated.
-- Real attributed testimonials pending permission — the live section uses anonymized theme cards (dummy attributed layout is preview-only behind a default-OFF flag).
-- Known non-blocking Xcode warnings (Swift 6 concurrency, deprecated onChange) — intentionally not fixed per AGENTS.md.
-- Pace-tuned LoRA run blocked on sufficient exported turn volume.
-- **TCC:** Never run terminal `xcodebuild` for routine dev — re-requests screen recording, accessibility, mic permissions.
-- **Benchmark publish:** Use measured TTFSW from `benchmark_ttfsw.sh` — do not claim latency without local numbers.
-- **Companion release evidence:** Hardware accuracy/resource thresholds and the manual Xcode `Cmd+R` checklist were explicitly risk-accepted for the 2026-07-13 milestone, not measured. Complete them before a release claim that relies on those thresholds.
+Open work is tracked only in [GitHub Issues](https://github.com/HeyPace/pace/issues).
+An open issue is a to-do, a linked pull request is in progress, and merge plus
+issue closure makes the work done.
