@@ -1,0 +1,102 @@
+---
+import Footer from "../components/Footer.astro";
+import Nav from "../components/Nav.astro";
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+const entries = [
+  {
+    date: "2026-07-25",
+    title: "The background-runtime proposal was retired",
+    outcomes: [
+      "Pace kept the existing companion plan as the product authority instead of adding a second, overlapping runtime.",
+      "Any future background-work expansion now starts from current shipped behavior and a fresh bounded change.",
+    ],
+  },
+  {
+    date: "2026-07-13",
+    title: "Always-On Companion Mode reached an opt-in milestone",
+    outcomes: [
+      "Pace gained local camera, taught-object, screen, Mac-context, and pre-speech wake sources with conservative retention rules.",
+      "Silent cards and spoken interventions remain separate, default-off choices and re-check restraint before acting.",
+    ],
+  },
+  {
+    date: "2026-07-12",
+    title: "Codex became a first-class planner option",
+    outcomes: [
+      "Users can select Codex or Claude as an off-device planner under the same explicit consent, audit, and amber-indicator contract.",
+      "The Models screen now explains planner memory cost and recommends the largest local vision model that fits.",
+    ],
+  },
+  {
+    date: "2026-07-06",
+    title: "Meeting notes became adaptive and source-grounded",
+    outcomes: [
+      "Bundled and user-defined meeting profiles can shape notes while the general profile preserves the earlier output.",
+      "Action items link back to transcript quotes and timestamps so users can verify where each commitment came from.",
+    ],
+  },
+];
+---
+
+<BaseLayout
+  title="Changelog — Pace"
+  description="Verified Pace product updates, written as concise user-visible outcomes."
+  pathname="/changelog"
+>
+  <Nav />
+  <main class="px-6 pb-24 pt-32 md:pt-40">
+    <div class="mx-auto max-w-4xl">
+      <p class="mb-6 font-mono text-sm uppercase tracking-widest text-[var(--color-text-muted)]">
+        Product history
+      </p>
+      <h1 class="pace-display max-w-3xl text-4xl text-white md:text-6xl">
+        What changed, <em>and why it matters.</em>
+      </h1>
+      <p class="mt-8 max-w-2xl text-base leading-7 text-[var(--color-text-secondary)] md:text-lg">
+        A curated record of shipped Pace outcomes. Roadmap work stays in GitHub Issues; this page
+        records what people can use today.
+      </p>
+
+      <div class="mt-10 flex flex-wrap gap-3 text-sm">
+        <a
+          href="https://github.com/HeyPace/pace/issues"
+          class="rounded-[var(--radius-button)] border border-[var(--color-border-subtle)] px-4 py-2.5 text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-accent)] hover:text-white"
+        >Roadmap ↗</a>
+        <a
+          href="https://github.com/HeyPace/pace"
+          class="rounded-[var(--radius-button)] border border-[var(--color-border-subtle)] px-4 py-2.5 text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-accent)] hover:text-white"
+        >Source ↗</a>
+      </div>
+
+      <ol class="mt-20 border-t border-[var(--color-border-subtle)]">
+        {
+          entries.map((entry) => (
+            <li class="grid gap-5 border-b border-[var(--color-border-subtle)] py-10 md:grid-cols-[9rem_1fr] md:gap-10">
+              <time
+                class="font-mono text-xs tracking-wider text-[var(--color-text-muted)]"
+                datetime={entry.date}
+              >
+                {entry.date}
+              </time>
+              <article>
+                <h2 class="pace-display text-2xl text-white md:text-3xl">
+                  <em>{entry.title}</em>
+                </h2>
+                <ul class="mt-5 space-y-3 text-sm leading-6 text-[var(--color-text-secondary)] md:text-base">
+                  {entry.outcomes.map((outcome) => (
+                    <li class="flex gap-3">
+                      <span class="mt-2 h-1 w-1 shrink-0 bg-[var(--color-accent)]" aria-hidden="true" />
+                      <span>{outcome}</span>
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </main>
+  <Footer />
+</BaseLayout>

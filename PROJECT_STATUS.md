@@ -63,6 +63,10 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 
 ## Timeline
 
+- **2026-07-29:** Added a same-origin `/changelog` that turns verified shipped
+  milestones into concise, user-visible outcomes. The public footer now exposes
+  Changelog, routes Roadmap to GitHub Issues, and links Source to the canonical
+  repository. No app runtime, model, privacy, or deployment behavior changed.
 - **2026-07-25:** Cancelled the unimplemented `durable-working-runtime`
   proposal. The existing companion-consolidation plan remains authoritative;
   any future background-work expansion starts from current product truth and
