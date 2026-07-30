@@ -69,7 +69,9 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
   Markdown derives from the same competitor data as the HTML pages. The
   changelog is included, non-HTML documentation indexes remain separate data
   resources, and the catalog no longer claims unsupported content
-  negotiation. Production remains unchanged until a manual website deploy.
+  negotiation. The Linux website CI job now uses Node 22, matching the docs
+  toolchain's declared runtime and the already-current deploy/docs workflows.
+  Production remains unchanged until a manual website deploy.
 - **2026-07-29:** Added a same-origin `/changelog` that turns verified shipped
   milestones into concise, user-visible outcomes. The public footer now exposes
   Changelog, routes Roadmap to GitHub Issues, and links Source to the canonical
