@@ -11,7 +11,7 @@
   --color-border-subtle: #2a2d31;
   --color-text-primary: #ffffff;
   --color-text-secondary: #9ca3af;
-  --color-text-muted: #6b7280;
+  --color-text-muted: #7c8592;
   --color-accent: #4f8bff;
   --color-accent-hover: #6b9fff;
   --color-positive: #34d399;
@@ -94,7 +94,7 @@ h3 {
    the app's button-pressed feedback. */
 .pace-cta-primary {
   background: var(--color-accent);
-  color: #ffffff;
+  color: #000000;
   border-radius: var(--radius-button);
   padding: 14px 22px;
   font-weight: 600;
@@ -106,6 +106,12 @@ h3 {
 .pace-cta-primary:hover {
   background: var(--color-accent-hover);
   transform: translateY(-1px);
+}
+
+.pace-cta-primary:focus-visible,
+.pace-cta-secondary:focus-visible {
+  outline: 2px solid var(--color-text-primary);
+  outline-offset: 3px;
 }
 
 .pace-cta-secondary {

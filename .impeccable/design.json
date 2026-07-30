@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-30T19:06:38.000Z",
+  "title": "Design System: Pace",
+  "extensions": {
+    "colorMeta": {
+      "canvas-black": {
+        "role": "neutral",
+        "displayName": "Canvas Black",
+        "canonical": "#000000"
+      },
+      "surface-ink": {
+        "role": "neutral",
+        "displayName": "Surface Ink",
+        "canonical": "#0b0b0d"
+      },
+      "electric-blue": {
+        "role": "primary",
+        "displayName": "Electric Action Blue",
+        "canonical": "#4f8bff"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Editorial Display",
+        "purpose": "Hero and section statements."
+      },
+      "body": {
+        "displayName": "Interface Body",
+        "purpose": "Explanations and product copy."
+      },
+      "mono": {
+        "displayName": "Command Evidence",
+        "purpose": "Commands, specifications, and system output."
+      }
+    },
+    "shadows": [
+      {
+        "name": "card-ambient",
+        "value": "0 1px 0 rgba(255,255,255,.03) inset, 0 8px 24px rgba(0,0,0,.5)",
+        "purpose": "Quiet separation for major evidence cards."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-fast",
+        "value": "120ms ease",
+        "purpose": "Button and border state feedback."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single highest-emphasis action.",
+      "html": "<button class=\"ds-btn-primary\">Download Pace</button>",
+      "css": ".ds-btn-primary{background:#4f8bff;color:#000;border:0;border-radius:10px;padding:14px 22px;font:600 16px Inter,sans-serif;transition:background 120ms ease,transform 120ms ease}.ds-btn-primary:hover{background:#6b9fff;transform:translateY(-1px)}.ds-btn-primary:focus-visible{outline:2px solid #fff;outline-offset:3px}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "description": "A lower-emphasis supporting action.",
+      "html": "<button class=\"ds-btn-secondary\">See how it works</button>",
+      "css": ".ds-btn-secondary{background:transparent;color:#fff;border:1px solid #2a2d31;border-radius:10px;padding:13px 21px;font:500 16px Inter,sans-serif;transition:background 120ms ease,border-color 120ms ease}.ds-btn-secondary:hover{background:#0b0b0d;border-color:#6b7280}.ds-btn-secondary:focus-visible{outline:2px solid #4f8bff;outline-offset:3px}"
+    },
+    {
+      "name": "Evidence Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Groups product proof or a bounded technical claim.",
+      "html": "<article class=\"ds-card\"><strong>On-device by default</strong><p>Your screen and voice stay on your Mac.</p></article>",
+      "css": ".ds-card{background:#0b0b0d;color:#fff;border:1px solid #2a2d31;border-radius:14px;padding:24px;box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 8px 24px rgba(0,0,0,.5);font-family:Inter,sans-serif}.ds-card p{color:#9ca3af;line-height:1.7}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Private Command Console",
+    "overview": "A restrained black editorial environment that translates Pace's native menu-bar product into product-shaped demonstrations, explicit trust boundaries, and one electric action accent.",
+    "keyCharacteristics": [
+      "Pure-black canvas with graphite surface layering.",
+      "Editorial serif display type paired with neutral sans-serif body copy.",
+      "Command, plan, and system evidence expressed through monospace details.",
+      "One electric-blue action accent and semantic green/yellow status colors."
+    ],
+    "rules": [
+      {
+        "name": "The One Accent Rule",
+        "body": "Electric blue stays scarce so it retains meaning as the active voice and primary action.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "Do show actual product-shaped commands, plans, and trust boundaries.",
+      "Do reserve Electric Action Blue for primary action and active state."
+    ],
+    "donts": [
+      "Don't add unrelated accent colors or decorative gradients.",
+      "Don't fabricate customer names, quantified claims, or measured accuracy."
+    ]
+  }
+}

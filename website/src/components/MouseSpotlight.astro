@@ -28,7 +28,7 @@
     }
     function handlePointerMove(event) {
       pendingX = event.clientX;
-      pendingY = event.clientY + window.scrollY;
+      pendingY = event.clientY;
       if (!rafQueued) {
         rafQueued = true;
         requestAnimationFrame(flushFrame);
