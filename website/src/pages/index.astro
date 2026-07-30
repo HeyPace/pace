@@ -17,10 +17,9 @@ import Comparison from "../components/Comparison.astro";
 import Pricing from "../components/Pricing.astro";
 import SocialProof from "../components/SocialProof.astro";
 import FAQ from "../components/FAQ.astro";
-import Footer from "../components/Footer.astro";
 import LiveByteCounter from "../components/LiveByteCounter.astro";
 
-const description = "Talk to your Mac. Pace listens, reads your screen, and clicks for you — all on your own silicon. No accounts, no cloud, no monthly bill. One-time $29.";
+const description = "Talk to your Mac. Pace listens, reads your screen, and clicks for you with local models by default. No account or subscription required. One-time $29.";
 ---
 
 <BaseLayout title="Pace — voice control for macOS, on-device" description={description}>
@@ -47,6 +46,5 @@ const description = "Talk to your Mac. Pace listens, reads your screen, and clic
     <Pricing />
     <FAQ />
   </main>
-  <Footer />
   <LiveByteCounter />
 </BaseLayout>

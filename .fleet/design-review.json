@@ -2,41 +2,41 @@
   "$schema": "fleet.design-review.v1",
   "version": 1,
   "project": "pace",
-  "target": "/changelog owned product history",
+  "target": "HeyPace marketing homepage",
   "mode": "preserve",
-  "register": "product",
+  "register": "brand",
   "context": {
-    "product": "PROJECT_STATUS.md",
-    "design": "website/src/styles/global.css"
+    "product": "PRODUCT.md",
+    "design": "DESIGN.md"
   },
   "direction": {
     "references": [],
     "probes": [],
     "selected": "existing-design",
     "approval": "not-required",
-    "before": ".fleet/evidence/changelog/before-1440.png"
+    "before": "artifacts/design/before.png"
   },
   "evidence": {
     "screenshots": [
       {
         "width": 390,
-        "path": ".fleet/evidence/changelog/after-390.png"
+        "path": "artifacts/design/after-390.png"
       },
       {
         "width": 768,
-        "path": ".fleet/evidence/changelog/after-768.png"
+        "path": "artifacts/design/after-768.png"
       },
       {
         "width": 1440,
-        "path": ".fleet/evidence/changelog/after-1440.png"
+        "path": "artifacts/design/after-1440.png"
       }
     ],
     "projectCheck": {
-      "command": "npx astro build",
+      "command": "cd website && ../node_modules/.bin/astro build",
       "status": "pass"
     },
     "critique": {
-      "score": 36,
+      "score": 33,
       "maximum": 40
     },
     "audit": {
@@ -49,11 +49,26 @@
     },
     "detector": {
       "posture": "advisory",
-      "findings": []
+      "findings": [
+        "The deterministic Impeccable detector returned zero findings.",
+        "All 15 native disclosure controls are keyboard-operable and start collapsed.",
+        "Browser review at 390, 768, and 1440 pixels found no horizontal overflow, console errors, duplicate IDs, or duplicate footer.",
+        "FAQ summaries retain the browser-default visible focus outline; the capability disclosure uses the stronger project focus treatment."
+      ]
+    },
+    "browserReview": {
+      "viewports": [
+        390,
+        768,
+        1440
+      ],
+      "horizontalOverflow": false,
+      "consoleErrors": 0,
+      "note": "The final review verified the local-mode disclosure, mobile hero composition, contrast, one-footer structure, tablet navigation, progressive capability and FAQ disclosures, and keyboard behavior."
     }
   },
   "ownerFeedback": {
     "decision": "delegated",
-    "note": "The owner delegated the cross-project changelog implementation while preserving each product's established visual system."
+    "note": "Owner delegated completion of the outstanding matrix and HeyPace design-evidence pass on 2026-07-31."
   }
 }

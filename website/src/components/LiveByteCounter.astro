@@ -52,7 +52,7 @@
         <!-- Right: Pace's number (always zero, big and green) -->
         <div class="text-center md:text-left">
           <p class="text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] mb-4">
-            Pace uploaded
+            Pace in local mode uploaded
           </p>
           <div
             class="pace-display text-[var(--color-positive)] tabular-nums"
@@ -113,10 +113,18 @@
         </span>
       </div>
 
-      <div class="flex items-center gap-6 text-xs">
-        <a href="/privacy" class="hover:text-white transition-colors">Privacy</a>
-        <a href="/terms" class="hover:text-white transition-colors">Terms</a>
-        <a href="mailto:hi@sarthakagrawal.dev" class="hover:text-white transition-colors">Email</a>
+      <div class="flex flex-wrap items-center gap-x-6 text-xs">
+        <a href="/download" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Download</a>
+        <a href="/pricing" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Pricing</a>
+        <a href="/compared" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Compared</a>
+        <a href="/faq" class="inline-flex min-h-11 items-center hover:text-white transition-colors">FAQ</a>
+        <a href="/docs/" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Docs</a>
+        <a href="/changelog" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Changelog</a>
+        <a href="https://github.com/HeyPace/pace/issues" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Roadmap</a>
+        <a href="https://github.com/HeyPace/pace" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Source</a>
+        <a href="/privacy" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Privacy</a>
+        <a href="/terms" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Terms</a>
+        <a href="mailto:hi@sarthakagrawal.dev" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Email</a>
         <span>© 2026</span>
       </div>
     </div>
@@ -142,7 +150,7 @@
       return Math.round(kilobytes).toLocaleString("en-US");
     }
 
-    function tick() {
+    function renderCounter() {
       const elapsedSeconds = Math.floor((performance.now() - pageLoadTimestamp) / 1000);
       if (elapsedSeconds !== lastRenderedSeconds) {
         lastRenderedSeconds = elapsedSeconds;
@@ -150,9 +158,9 @@
         const cloudUploadedBytes = elapsedSeconds * cloudBytesPerSecond;
         cloudBytesEl.textContent = formatKBFromBytes(cloudUploadedBytes);
       }
-      requestAnimationFrame(tick);
     }
 
-    requestAnimationFrame(tick);
+    renderCounter();
+    window.setInterval(renderCounter, 1000);
   })();
 </script>

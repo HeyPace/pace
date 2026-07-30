@@ -38,7 +38,7 @@ import HeroArchitectureDiagram from "./HeroArchitectureDiagram.astro";
           <span class="absolute inset-0 rounded-full bg-[var(--color-positive)] animate-ping opacity-60"></span>
           <span class="relative w-2 h-2 rounded-full bg-[var(--color-positive)]"></span>
         </span>
-        <span>0 bytes sent today</span>
+        <span>local mode · 0 bytes sent</span>
       </div>
     </div>
 
@@ -55,12 +55,12 @@ import HeroArchitectureDiagram from "./HeroArchitectureDiagram.astro";
           Pace is a voice assistant for macOS. Hold ctrl+option, say something,
           let go. It listens with your Mac's mic, reads your screen with a
           vision model on the same Apple Silicon chip, and clicks things
-          for you. First answer in <strong>420 ms</strong>. No accounts.
-          No cloud. <strong>$29 once.</strong>
+          for you. First answer in <strong>420 ms</strong>. Local by default.
+          No account required. <strong>$29 once.</strong>
         </p>
         <p class="pace-margin-note text-right md:text-left md:pl-2 md:border-l md:border-[var(--color-border-subtle)]">
-          The whole point is that <em>nothing leaves your Mac.</em><br />
-          Including the bit where I tell you it doesn't.
+          Local models keep voice and screen context on your Mac.<br />
+          If you enable an off-device planner, Pace turns amber and logs it.
         </p>
       </div>
     </div>
@@ -245,13 +245,18 @@ import HeroArchitectureDiagram from "./HeroArchitectureDiagram.astro";
 
   /* Mobile: schematic gets shorter, callout drops below the diagram */
   @media (max-width: 720px) {
-    .pace-schematic-frame { aspect-ratio: 4 / 5; }
+    .pace-schematic-frame {
+      aspect-ratio: 4 / 5;
+      overflow: visible;
+      margin-bottom: 210px;
+    }
     .pace-callout {
-      position: relative;
-      top: auto;
-      right: auto;
+      position: absolute;
+      top: calc(100% + 16px);
+      right: 0;
+      left: 0;
       width: auto;
-      margin: 16px;
+      margin: 0;
     }
     .pace-hero-aurora {
       width: 100%;

@@ -1,9 +1,6 @@
 ---
-// Interview-style Q&A. No accordion. No card grid. Question in
-// serif italic, answer in body, like a magazine profile. Long-
-// form Q&A is one of the formats AI-generated landing pages
-// almost never use, because every Tailwind template defaults to
-// the chevron-accordion shape.
+// Interview-style Q&A with native disclosure controls. The questions stay
+// scannable while detailed answers remain one click away.
 
 const qas = [
   {
@@ -52,7 +49,7 @@ const qas = [
   },
   {
     q: "Can it tell me what I did today?",
-    a: "Yes, from passive local journals. Watch mode logs when your screen meaningfully changes; a separate app-usage journal tracks which apps had focus and for how long, using notifications macOS hands out without any extra permission. Research turns get their own history. Ask \"what did I do today?\" or \"what did I research about X?\" and Pace answers from those journals — all on disk, 7-day retention for the screen/app logs, per-source enable and clear in Settings. Nothing is uploaded.",
+    a: "Yes, from passive local journals. Watch mode logs when your screen meaningfully changes; a separate app-usage journal tracks which apps had focus and for how long, using notifications macOS hands out without any extra permission. Research turns get their own history. Ask \"what did I do today?\" or \"what did I research about X?\" and Pace answers from those journals — all on disk, 7-day retention for the screen/app logs, per-source enable and clear in Settings. In local mode, nothing is uploaded.",
   },
   {
     q: "Can I trigger it from Raycast or Shortcuts?",
@@ -75,22 +72,23 @@ const qas = [
       The questions <em>people actually ask.</em>
     </h2>
 
-    <div class="space-y-12">
+    <div class="divide-y divide-[var(--color-border-subtle)] border-y border-[var(--color-border-subtle)]">
       {
         qas.map((qa, index) => (
-          <div class="grid md:grid-cols-[10rem_1fr] gap-4 md:gap-8 items-start">
-            <p class="text-sm font-mono text-[var(--color-text-muted)] tabular-nums pt-1.5">
-              {String(index + 1).padStart(2, "0")}.
-            </p>
-            <div>
-              <p class="pace-display text-xl md:text-2xl text-white mb-3">
+          <details class="pace-faq-item">
+            <summary class="grid grid-cols-[2.5rem_1fr_auto] md:grid-cols-[6rem_1fr_auto] gap-4 md:gap-8 items-center py-6 cursor-pointer select-none">
+              <span class="text-sm font-mono text-[var(--color-text-muted)] tabular-nums">
+                {String(index + 1).padStart(2, "0")}.
+              </span>
+              <span class="pace-display text-xl md:text-2xl text-white">
                 <em>{qa.q}</em>
-              </p>
-              <p class="text-[var(--color-text-secondary)] leading-relaxed max-w-2xl">
-                {qa.a}
-              </p>
-            </div>
-          </div>
+              </span>
+              <span aria-hidden="true" class="pace-faq-plus text-[var(--color-text-muted)] text-xl">+</span>
+            </summary>
+            <p class="text-[var(--color-text-secondary)] leading-relaxed max-w-2xl pb-7 ml-[4rem] md:ml-[8rem] pr-8">
+              {qa.a}
+            </p>
+          </details>
         ))
       }
     </div>
@@ -104,3 +102,21 @@ const qas = [
     </p>
   </div>
 </section>
+
+<style>
+  .pace-faq-item > summary {
+    list-style: none;
+  }
+
+  .pace-faq-item > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .pace-faq-plus {
+    transition: transform 180ms ease;
+  }
+
+  .pace-faq-item[open] .pace-faq-plus {
+    transform: rotate(45deg);
+  }
+</style>

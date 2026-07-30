@@ -1,8 +1,7 @@
 ---
-// Features as a long-form bulleted list with marginalia, NOT a
-// three-card grid. Each feature is a verb + sentence + technical
-// aside in the right margin. Reads like a feature article, not a
-// spec sheet.
+// Keep the core product legible in the first read, then let interested
+// visitors expand the deeper capability inventory without making every
+// visitor read the full manual.
 const features = [
   {
     verb: "Listens",
@@ -69,7 +68,7 @@ const features = [
 
     <div class="space-y-16 md:space-y-20">
       {
-        features.map((feature, index) => (
+        features.slice(0, 4).map((feature, index) => (
           <div class="grid md:grid-cols-[8rem_1fr_14rem] gap-4 md:gap-10 items-start">
             <p class="text-sm font-mono text-[var(--color-text-muted)] tabular-nums pt-3">
               {String(index + 1).padStart(2, "0")}
@@ -91,5 +90,55 @@ const features = [
         ))
       }
     </div>
+
+    <details class="pace-capability-details mt-16 md:mt-20">
+      <summary class="pace-cta-secondary inline-flex cursor-pointer select-none">
+        View six more capabilities
+        <span aria-hidden="true" class="pace-details-arrow">↓</span>
+      </summary>
+
+      <div class="space-y-16 md:space-y-20 mt-16 md:mt-20">
+        {
+          features.slice(4).map((feature, index) => (
+            <div class="grid md:grid-cols-[8rem_1fr_14rem] gap-4 md:gap-10 items-start">
+              <p class="text-sm font-mono text-[var(--color-text-muted)] tabular-nums pt-3">
+                {String(index + 5).padStart(2, "0")}
+              </p>
+
+              <div>
+                <h3 class="pace-display text-3xl md:text-4xl text-white mb-3">
+                  <em>{feature.verb}.</em>
+                </h3>
+                <p class="text-[var(--color-text-secondary)] leading-relaxed max-w-xl">
+                  {feature.body}
+                </p>
+              </div>
+
+              <p class="pace-margin-note md:border-l md:border-[var(--color-border-subtle)] md:pl-4 md:mt-3">
+                {feature.margin}
+              </p>
+            </div>
+          ))
+        }
+      </div>
+    </details>
   </div>
 </section>
+
+<style>
+  .pace-capability-details > summary {
+    list-style: none;
+  }
+
+  .pace-capability-details > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .pace-details-arrow {
+    transition: transform 180ms ease;
+  }
+
+  .pace-capability-details[open] .pace-details-arrow {
+    transform: rotate(180deg);
+  }
+</style>
