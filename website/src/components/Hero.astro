@@ -29,7 +29,7 @@ import HeroArchitectureDiagram from "./HeroArchitectureDiagram.astro";
 
   <div class="relative max-w-7xl mx-auto">
     <!-- ───── Top status row ───── -->
-    <div class="flex items-center justify-between mb-12 md:mb-16">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-12 md:mb-16">
       <p class="text-xs font-mono uppercase tracking-[0.25em] text-[var(--color-text-muted)]">
         Pace · v1 · for macOS
       </p>
@@ -63,6 +63,24 @@ import HeroArchitectureDiagram from "./HeroArchitectureDiagram.astro";
           If you enable an off-device planner, Pace turns amber and logs it.
         </p>
       </div>
+    </div>
+
+    <!-- Keep the decision next to the promise. On narrow screens the
+         architectural proof is intentionally long, so placing the action
+         after the schematic would hide the first useful next step. -->
+    <div class="mt-10 md:mt-12 flex flex-col items-start gap-3 pace-fade-up" style="animation-delay: 280ms">
+      <div class="flex flex-col sm:flex-row gap-3">
+        <a href="/download" class="pace-cta-primary pace-magnetic text-base">
+          Download Pace — free
+          <span aria-hidden="true">↓</span>
+        </a>
+        <a href="#pricing" class="pace-cta-secondary pace-magnetic text-base">
+          Buy Pace — $29
+        </a>
+      </div>
+      <p class="text-sm text-[var(--color-text-muted)]">
+        Free with Apple Intelligence · One-time payment · No subscription
+      </p>
     </div>
 
     <!-- ───── THE schematic centerpiece (below LCP headline) ───── -->
@@ -125,22 +143,6 @@ import HeroArchitectureDiagram from "./HeroArchitectureDiagram.astro";
           </div>
         </div>
       </div>
-    </div>
-
-    <!-- ───── CTAs ───── -->
-    <div class="mt-16 md:mt-20 flex flex-col items-start gap-3 pace-fade-up" style="animation-delay: 280ms">
-      <div class="flex flex-col sm:flex-row gap-3">
-        <a href="/download" class="pace-cta-primary pace-magnetic text-base">
-          Download Pace — free
-          <span aria-hidden="true">↓</span>
-        </a>
-        <a href="#pricing" class="pace-cta-secondary pace-magnetic text-base">
-          Buy Pace — $29
-        </a>
-      </div>
-      <p class="text-sm text-[var(--color-text-muted)]">
-        Free with Apple Intelligence · One-time payment · No subscription
-      </p>
     </div>
   </div>
 </section>

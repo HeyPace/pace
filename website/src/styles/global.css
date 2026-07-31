@@ -365,6 +365,13 @@ h3 {
   color: var(--color-accent);
 }
 
+@media (max-width: 480px) {
+  .pace-headline-display {
+    font-size: clamp(2.65rem, 12vw, 3rem);
+    line-height: 0.98;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pace-demo-loop,
   .pace-stream-line,
