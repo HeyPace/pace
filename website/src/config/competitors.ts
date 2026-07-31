@@ -354,10 +354,76 @@ export const competitors: Competitor[] = [
     paceDiffers:
       "LocalNotch shares Pace's notch surface but is text/image only — no voice input or TTS. It's a different interaction model. Pace is voice-first; LocalNotch is hover-and-type. The notch integration pattern is worth studying.",
   },
+  {
+    name: "Cyclop One",
+    slug: "cyclop-one",
+    angle: "on-device inference vs Claude-powered desktop automation",
+    tagline: "Autonomous macOS desktop agent powered by Claude vision.",
+    author: "cyclop-one",
+    url: "https://github.com/cyclop-one/cyclop-one",
+    openSource: true,
+    license: "MIT",
+    posture: "cloud",
+    stt: "Local speech recognition",
+    reasoner: "Claude API multimodal vision",
+    tts: "Not documented",
+    screenAware: true,
+    standoutFeatures: [
+      "ScreenCaptureKit observation with desktop clicking, typing, dragging, scrolling, and keyboard actions.",
+      "Markdown skills and a JSON-over-stdio plugin protocol.",
+      "Persistent procedural memory plus remote-control integrations.",
+    ],
+    paceDiffers:
+      "Pace runs its default reasoning and vision stack on-device; Cyclop One requires the Claude API but has a more explicit plugin and remote-control architecture.",
+  },
+  {
+    name: "Peepbox",
+    slug: "peepbox",
+    angle: "voice-first local requests vs persistent region watchers",
+    tagline: "AI agents that see your screen and take action.",
+    author: "Peepbox",
+    url: "https://peepbox.ai/",
+    openSource: false,
+    license: "Proprietary",
+    posture: "cloud",
+    stt: "Not documented",
+    reasoner: "Anthropic Claude, OpenAI, or Google Gemini",
+    tts: "Not documented",
+    screenAware: true,
+    standoutFeatures: [
+      "Window- or region-scoped watchers configured in plain English.",
+      "Persistent monitoring for forms, dashboards, messages, and data extraction.",
+      "Multi-agent chains in which one Peep can notify another.",
+    ],
+    paceDiffers:
+      "Peepbox is built for unattended region watching and multi-agent workflows; Pace is voice-first, local by default, and uses a narrower synchronous approval loop.",
+  },
+  {
+    name: "BoBe",
+    slug: "bobe",
+    angle: "voice-first explicit requests vs proactive goals and memory",
+    tagline: "A local-first proactive AI companion for macOS.",
+    author: "athatheo",
+    url: "https://github.com/athatheo/BoBe",
+    openSource: true,
+    license: "MIT",
+    posture: "hybrid",
+    stt: "Local speech models",
+    reasoner: "Local Ollama or GitHub Copilot cloud",
+    tts: "Local speech models",
+    screenAware: true,
+    standoutFeatures: [
+      "Periodic screen observation tied to durable local memory and goals.",
+      "Proactive outreach with configurable cooldown and engagement awareness.",
+      "Read-only file tools, MCP integration, and a user-editable personality.",
+    ],
+    paceDiffers:
+      "BoBe centers on proactive observation and goals; Pace centers on push-to-talk, screen-referential requests, local approval, and a compact menu-bar surface.",
+  },
 ];
 
 /** When this comparison was last rechecked. Rendered on the page. */
-export const comparisonRechecked = "June 2026";
+export const comparisonRechecked = "July 2026";
 
 /**
  * Derive a URL-safe anchor id / slug from a competitor display name.

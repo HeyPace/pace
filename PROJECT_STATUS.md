@@ -63,6 +63,12 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 
 ## Timeline
 
+- **2026-07-31:** Expanded the screen-aware Mac agent comparison from 13 to
+  16 typed records, adding Cyclop One, Peepbox, and BoBe with sourced runtime
+  posture, strengths, and honest Pace differences. The hub now answers the
+  category intent directly, exposes selection criteria, and regenerates its
+  dedicated HTML, sitemap, and Markdown routes from the same registry.
+
 - **2026-07-31:** Completed the website's source-level SEO/GEO contract for all
   22 canonical public HTML surfaces. The sitemap, compact `/api/ai` catalog,
   and 22 Markdown alternates now derive from one route registry; comparison
