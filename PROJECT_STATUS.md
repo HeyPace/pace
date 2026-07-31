@@ -1,6 +1,6 @@
 # pace — PROJECT STATUS
 
-Last updated: 2026-07-19
+Last updated: 2026-07-31
 
 ## Why/What
 
@@ -63,6 +63,15 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 
 ## Timeline
 
+- **2026-07-31:** Completed the website's source-level SEO/GEO contract for all
+  22 canonical public HTML surfaces. The sitemap, compact `/api/ai` catalog,
+  and 22 Markdown alternates now derive from one route registry; comparison
+  Markdown derives from the same competitor data as the HTML pages. The
+  changelog is included, non-HTML documentation indexes remain separate data
+  resources, and the catalog no longer claims unsupported content
+  negotiation. The Linux website CI job now uses Node 22, matching the docs
+  toolchain's declared runtime and the already-current deploy/docs workflows.
+  Production remains unchanged until a manual website deploy.
 - **2026-07-29:** Added a same-origin `/changelog` that turns verified shipped
   milestones into concise, user-visible outcomes. The public footer now exposes
   Changelog, routes Roadmap to GitHub Issues, and links Source to the canonical
@@ -224,6 +233,9 @@ Four complementary "do more than talk" layers, from most literal to most flexibl
 ### Website (`website/`)
 
 - Astro 5 static export; Cloudflare Pages project **`pace`**.
+- One public-surface registry drives the 22-route sitemap, compact agent
+  catalog, and generated Markdown alternates; the docs build owns its own
+  Markdown corpus and machine-readable index.
 - Components: Nav, Hero (CSS-only animated demo), OnDevice pitch, Features (six capabilities), Comparison vs Wispr/Raycast/MacWhisper/Siri, Pricing (Try/Pace/Studio), gated SocialProof, FAQ (eight questions), Footer with "0 bytes" counter + founder signature.
 - Commerce: `src/config/commerce.ts` — mailto fallback; `PUBLIC_PACE_CHECKOUT_URL` / `PUBLIC_STUDIO_CHECKOUT_URL` at deploy.
 - OG: `public/og-image.png` via `scripts/generate-og-image.sh`; audit against `fleet/LANDING_STANDARD.md`.

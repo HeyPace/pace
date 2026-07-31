@@ -1,24 +1,40 @@
 # Pace — full agent brief
 
-On-device Mac voice agent that reads your screen and acts with local context.
+Pace is an on-device macOS voice agent that listens, reads the screen, and acts
+with local models by default.
 
-## Index
+## Product
 
-# Pace
+- Voice, screen understanding, actions, meeting notes, memory, journals, and
+  teachable recipes run on the Mac by default.
+- Network access is reserved for explicit features such as update checks,
+  user-selected providers, or URLs the user asks Pace to fetch.
+- Pace supports Apple Silicon Macs. Current requirements, releases, and
+  installation notes live on the download page.
 
-On-device Mac voice agent that reads your screen.
+## Public product surfaces
 
-## What it is
+- https://heypace.app/
+- https://heypace.app/download
+- https://heypace.app/pricing
+- https://heypace.app/faq
+- https://heypace.app/compared
+- https://heypace.app/changelog
+- https://heypace.app/privacy
+- https://heypace.app/terms
+- https://heypace.app/docs/
 
-- Local/on-device voice agent for macOS
-- Screen-aware assistance
+Every canonical public HTML surface is inventoried by
+https://heypace.app/api/ai with its Markdown alternate. Competitor comparisons
+derive from the same source registry as the rendered comparison pages.
 
 ## Agent entrypoints
 
 - https://heypace.app/llms.txt
 - https://heypace.app/api/ai
 - https://heypace.app/index.md
-- https://heypace.app/docs/
+- https://heypace.app/sitemap.xml
+- https://heypace.app/docs/llms.txt
 
 ## Product links
 

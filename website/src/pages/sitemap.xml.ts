@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { comparisonPagePaths } from "../config/competitors";
+import { publicSurfaces } from "../config/public-surfaces";
 
 // Hand-rolled sitemap so we add ZERO npm dependency (fleet rule: no new
 // deps without approval). It enumerates every route the static build
@@ -11,30 +11,10 @@ import { comparisonPagePaths } from "../config/competitors";
 // origin so the sitemap is never emitted with relative URLs.
 const PRODUCTION_ORIGIN = "https://heypace.app";
 
-// Static, hand-maintained routes. `changefreq`/`priority` are advisory
-// hints only; kept modest and honest rather than all "1.0 / daily".
-const staticRoutes: { path: string; priority: string }[] = [
-  { path: "/", priority: "1.0" },
-  { path: "/compared", priority: "0.8" },
-  { path: "/download", priority: "0.9" },
-  { path: "/pricing", priority: "0.9" },
-  { path: "/faq", priority: "0.7" },
-  { path: "/docs/", priority: "0.8" },
-  { path: "/privacy", priority: "0.4" },
-  { path: "/terms", priority: "0.4" },
-];
-
 export const GET: APIRoute = ({ site }) => {
   const origin = (site ?? new URL(PRODUCTION_ORIGIN)).origin;
 
-  const comparisonRoutes = comparisonPagePaths().map((path) => ({
-    path,
-    priority: "0.6",
-  }));
-
-  const allRoutes = [...staticRoutes, ...comparisonRoutes];
-
-  const urlEntries = allRoutes
+  const urlEntries = publicSurfaces
     .map(
       ({ path, priority }) =>
         `  <url>\n    <loc>${origin}${path}</loc>\n    <priority>${priority}</priority>\n  </url>`,
