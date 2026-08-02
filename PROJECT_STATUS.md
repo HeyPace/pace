@@ -34,8 +34,8 @@ Last updated: 2026-07-31
 | macOS app | Swift/SwiftUI, Xcode `leanring-buddy.xcodeproj` | Open in Xcode → Cmd+R (**do not** `xcodebuild` — invalidates TCC) |
 | Tests | XCTest via isolated DerivedData | `bash scripts/test-pace.sh` — **~1606 tests, all passing under Xcode 27.0 Beta 3** |
 | Local models | MLX, WhisperKit, TTSKit, Apple Speech | Settings → Models; Sparkle manifest in Info.plist |
-| Landing | Astro 5 + Tailwind v4 + Lightning CSS | `cd website && npm install && npm run dev` (:4321) |
-| Deploy landing | Cloudflare Pages project `pace` | `npm run build && npm run deploy` |
+| Landing | Astro 5 + Tailwind v4 + Lightning CSS | `cd website && pnpm install && pnpm run dev` (:4321) |
+| Deploy landing | Cloudflare Pages project `pace` | `pnpm run build && pnpm run deploy` |
 | Eval / smoke | Shell harnesses | `bash scripts/eval-v10-gate.sh`, `scripts/smoke-executor-surface.sh`, `scripts/benchmark_ttfsw.sh` |
 | Pace-tuned export | Local JSONL → repo | `bash scripts/export-pace-tuned-turns.sh` |
 

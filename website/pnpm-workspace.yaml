@@ -1,0 +1,13 @@
+# website is its own pnpm root: the pace repo root is a separate `pace-docs`
+# (Blume) package and the two share no dependencies.
+packages: []
+
+# `build` relies on the `prebuild` hook (OG image + release info generation).
+# npm runs pre/post scripts by default; pnpm does not, so opt in explicitly or
+# those assets silently stop being generated.
+enablePrePostScripts: true
+
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+  - workerd

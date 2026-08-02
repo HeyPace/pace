@@ -6,10 +6,10 @@
 // not edit docs content to satisfy Blume; edit Blume config to fit the docs.
 //
 // Usage:
-//   npm install            # install Blume (pinned to 1.0.4)
-//   npm run docs:dev       # http://localhost:3000
-//   npm run docs:build     # -> dist/
-//   npm run docs:validate  # broken-link check (also run in CI)
+//   pnpm install            # install Blume (pinned to 1.0.4)
+//   pnpm run docs:dev       # http://localhost:3000
+//   pnpm run docs:build     # -> dist/
+//   pnpm run docs:validate  # broken-link check (also run in CI)
 //
 import { defineConfig } from "blume";
 
