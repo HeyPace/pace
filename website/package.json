@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "private": true,
+  "packageManager": "pnpm@10.33.2",
   "scripts": {
     "dev": "astro dev",
     "prebuild": "bash ../scripts/generate-og-image.sh || true && bash ../scripts/generate-release-info.sh || true",
