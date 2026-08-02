@@ -20,12 +20,13 @@ jobs:
         working-directory: website
     steps:
       - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: 'pnpm'
           # Lockfile lives in website/, not repo root.
-          cache-dependency-path: website/package-lock.json
+          cache-dependency-path: website/pnpm-lock.yaml
       # The build's prebuild step rasterizes public/og-image.svg via rsvg-convert
       # (qlmanage on the maintainer's Mac). Install librsvg on the Linux runner so
       # the OG image is regenerated just like the manual macOS deploy. The prebuild
@@ -33,8 +34,8 @@ jobs:
       - name: Install rsvg-convert for OG image generation
         run: sudo apt-get update && sudo apt-get install -y librsvg2-bin
         working-directory: .
-      - run: npm ci
-      - run: npm run build
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
       - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

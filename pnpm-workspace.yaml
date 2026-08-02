@@ -1,0 +1,13 @@
+# The pace repo root is the `pace-docs` Blume package only; `website/` is a
+# separate pnpm root with its own dependencies.
+packages: []
+
+# blume emits .blume/astro.config.mjs, which imports `astro/config` directly even
+# though `astro` is only a transitive dependency of blume. pnpm's default isolated
+# layout cannot resolve that; the hoisted linker restores it while still sharing
+# every file with the global pnpm store.
+nodeLinker: hoisted
+
+onlyBuiltDependencies:
+  - esbuild
+  - sharp

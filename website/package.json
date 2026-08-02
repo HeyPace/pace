@@ -6,11 +6,11 @@
   "scripts": {
     "dev": "astro dev",
     "prebuild": "bash ../scripts/generate-og-image.sh || true && bash ../scripts/generate-release-info.sh || true",
-    "build": "npm run build:docs && astro build",
+    "build": "pnpm run build:docs && astro build",
     "build:docs": "node scripts/merge-blume-docs.mjs",
     "preview": "astro preview",
     "astro": "astro",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name pace"
+    "deploy": "pnpm run build && wrangler pages deploy dist --project-name pace"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.16",

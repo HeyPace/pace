@@ -6,9 +6,9 @@ Static marketing surface for [heypace.app](https://heypace.app). Fleet web-stack
 
 ```bash
 cd pace/website
-npm install
-npm run dev      # http://localhost:4321
-npm run build    # → dist/
+pnpm install
+pnpm run dev      # http://localhost:4321
+pnpm run build    # → dist/
 ```
 
 Single page at `/` composed of:
@@ -56,8 +56,8 @@ Still manual:
 Cloudflare Pages with `pages_build_output_dir: dist`. Astro's static output is upload-ready.
 
 ```bash
-npm run build
-npm run deploy
+pnpm run build
+pnpm run deploy
 # or: npx wrangler pages deploy dist --project-name pace
 ```
 
