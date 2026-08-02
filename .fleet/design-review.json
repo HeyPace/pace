@@ -36,7 +36,7 @@
       "status": "pass"
     },
     "critique": {
-      "score": 33,
+      "score": 36,
       "maximum": 40
     },
     "audit": {
@@ -50,10 +50,10 @@
     "detector": {
       "posture": "advisory",
       "findings": [
-        "The deterministic Impeccable detector returned zero findings.",
+        "The detector reported one advisory blueprint-grid signature in the hero; it is retained because the grid is confined to the product's documented command-console and architecture-diagram treatment.",
         "All 15 native disclosure controls are keyboard-operable and start collapsed.",
-        "Browser review at 390, 768, and 1440 pixels found no horizontal overflow, console errors, duplicate IDs, or duplicate footer.",
-        "FAQ summaries retain the browser-default visible focus outline; the capability disclosure uses the stronger project focus treatment."
+        "Browser review at 390, 768, and 1440 pixels found no horizontal overflow or console errors.",
+        "The download and purchase actions now sit next to the product promise and remain fully visible in the first 1,000 pixels at every reviewed width."
       ]
     },
     "browserReview": {
@@ -64,7 +64,7 @@
       ],
       "horizontalOverflow": false,
       "consoleErrors": 0,
-      "note": "The final review verified the local-mode disclosure, mobile hero composition, contrast, one-footer structure, tablet navigation, progressive capability and FAQ disclosures, and keyboard behavior."
+      "note": "The final review verified an unclipped mobile headline, stacked local-mode disclosure, 48px header action, 52px hero actions, correct /download and #pricing targets, no horizontal overflow, and reduced-motion suppression at 390, 768, and 1440 pixels."
     }
   },
   "ownerFeedback": {
