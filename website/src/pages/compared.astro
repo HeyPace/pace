@@ -10,7 +10,7 @@ import CompetitorAnalysis from "../components/CompetitorAnalysis.astro";
 import { competitors, comparisonRechecked, type Competitor } from "../config/competitors";
 
 const description =
-  "How Pace compares to the other macOS voice agents — 16 products across cloud, hybrid, and on-device clusters. Open-source status, standout features, and where Pace differs. Honest, including where Pace is behind.";
+  "Compare 16 macOS AI agents by screen access, inference location, actions, approval model, license, and where Pace is honestly behind.";
 
 // Group by posture so the page reads as three clusters, not a flat list.
 const groups: { label: string; blurb: string; items: Competitor[] }[] = [
@@ -45,7 +45,7 @@ const postureColor: Record<string, string> = {
 ---
 
 <BaseLayout
-  title="Pace compared — macOS voice agents, honest side-by-side"
+  title="Mac AI Agents That See Your Screen — 16 Compared | Pace"
   description={description}
   pathname="/compared"
 >
@@ -66,24 +66,34 @@ const postureColor: Record<string, string> = {
       </p>
 
       <h1 class="pace-display text-4xl md:text-6xl text-white mb-10 max-w-3xl">
-        Pace isn't the only one doing this. <em>Here's who else is</em>, and
-        what each one is actually good at.
+        Mac AI agents that <em>see your screen</em> and run tasks.
       </h1>
 
       <div class="pace-prose mb-20">
         <p>
-          A lot of macOS voice agents shipped in 2026. Most of them are
-          interesting. None of them are Pace. This page is the honest version
-          of that sentence — what each product does well, whether it's open
-          source, and where Pace diverges (including the places where Pace is
-          behind).
+          A screen-aware Mac agent combines a way to observe the current interface, a reasoning
+          model, permitted actions, and a visible safety boundary. Similar demos can hide sharp
+          differences in where screenshots go, whether inference is local, whether the agent waits
+          for a prompt or watches continuously, and whether actions need approval.
         </p>
         <p>
-          No checkmark grids. If you want a feature matrix, the repos are
-          linked. What follows is the shape of each product in your head, the
-          way you'd describe it to a friend.
+          This comparison covers {competitors.length} current macOS agents across on-device,
+          hybrid, and cloud-backed postures. It links to each product's source or site, describes
+          what it does well, and says where Pace is behind. It does not assign review scores or
+          declare a universal winner.
         </p>
       </div>
+
+      <section class="pace-prose mb-20">
+        <h2>How to choose a screen-aware Mac agent</h2>
+        <ol>
+          <li><strong>Follow the data path.</strong> A local app can still send screenshots, transcripts, or prompts to a provider API.</li>
+          <li><strong>Separate observation from action.</strong> Region capture, full-screen capture, and the Accessibility tree expose different data and permissions.</li>
+          <li><strong>Check the control model.</strong> Push-to-talk, hotword, proactive watching, scheduled work, and remote commands have different interruption and safety tradeoffs.</li>
+          <li><strong>Inspect approval and recovery.</strong> Look for action previews, permission tiers, audit records, undo, and a reliable stop path.</li>
+          <li><strong>Check distribution reality.</strong> License, signed releases, supported macOS versions, API-key requirements, and update paths matter beyond the demo.</li>
+        </ol>
+      </section>
 
       <!-- ── Cluster legend ──────────────────────────────────── -->
       <div class="pace-prose mb-24">
