@@ -30,6 +30,9 @@ How Pace is built and why.
   mode, journals, proactivity, meeting notes, deeplinks, the plan-act-observe
   loop, and the speculative planner race. This is the canonical detailed
   architecture narrative.
+- [`architecture/computer-use-runtime.md`](architecture/computer-use-runtime.md) —
+  Pace FastPath: the native, semantic, state-synchronized action runtime; the
+  technical edge it creates, the shipped substrate, and the path to complete it.
 - [Architecture Decision Records](https://github.com/HeyPace/pace/blob/main/docs/architecture/decisions/0001-meeting-audio-capture.md) — Architecture Decision
   Records (ADRs), numbered `NNNN-slug.md`.
   - [`0001-meeting-audio-capture.md`](https://github.com/HeyPace/pace/blob/main/docs/architecture/decisions/0001-meeting-audio-capture.md) —

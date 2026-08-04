@@ -29,12 +29,16 @@ extension PaceActionExecutor {
         var observations: [PaceActionExecutionObservation] = []
 
         for (stepIndex, step) in actionExecutionPlan.steps.enumerated() {
+            guard !Task.isCancelled else { return observations }
             guard !step.actions.isEmpty else { continue }
 
             for (actionIndex, action) in step.actions.enumerated() {
+                guard !Task.isCancelled else { return observations }
+
                 if let observation = await executeSingleAction(action, screenCaptures: screenCaptures) {
                     observations.append(observation)
                 }
+                guard !Task.isCancelled else { return observations }
 
                 let isLastActionInStep = (actionIndex == step.actions.count - 1)
                 if !isLastActionInStep {
