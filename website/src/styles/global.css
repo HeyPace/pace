@@ -17,9 +17,9 @@
   --color-positive: #34d399;
   --color-warning: #fbbf24;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
-  --font-display: "Instrument Serif", "Iowan Old Style", "Palatino", Georgia, serif;
+  --font-display: "Iowan Old Style", "Palatino", Georgia, serif;
 
   --radius-card: 14px;
   --radius-button: 10px;
