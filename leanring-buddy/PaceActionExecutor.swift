@@ -290,6 +290,20 @@ struct PaceClickStateSnapshot: Equatable {
     let focusedAXTreeFingerprint: String?
 
     static func captureCurrent() -> PaceClickStateSnapshot {
+        captureCurrent(includeFocusedAXTree: true)
+    }
+
+    /// High-cadence observation intentionally omits the up-to-600-node AX
+    /// tree walk. Click verification still performs one full comparison at
+    /// timeout so controls whose focus/window metadata stays stable preserve
+    /// the existing success behavior.
+    static func captureLightweight() -> PaceClickStateSnapshot {
+        captureCurrent(includeFocusedAXTree: false)
+    }
+
+    private static func captureCurrent(
+        includeFocusedAXTree: Bool
+    ) -> PaceClickStateSnapshot {
         let frontmostApplication = NSWorkspace.shared.frontmostApplication
         let focusedWindowTitle: String?
         let focusedElementFingerprint: String?
@@ -305,9 +319,9 @@ struct PaceClickStateSnapshot: Equatable {
             focusedElementFingerprint = fingerprint(
                 of: focusedElement(in: applicationElement)
             )
-            focusedAXTreeFingerprint = treeFingerprint(
-                of: focusedWindowElement ?? applicationElement
-            )
+            focusedAXTreeFingerprint = includeFocusedAXTree
+                ? treeFingerprint(of: focusedWindowElement ?? applicationElement)
+                : nil
         } else {
             focusedWindowTitle = nil
             focusedElementFingerprint = nil

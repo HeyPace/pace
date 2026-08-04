@@ -47,8 +47,11 @@ extension PaceActionExecutor {
         let maximumAttempts = min(3, orderedCandidates.count)
         let attemptedCandidates = Array(orderedCandidates.prefix(maximumAttempts))
         for (candidateIndex, candidate) in attemptedCandidates.enumerated() {
-            let beforeClickState = actionsAreEnabled && candidate.expectStateChange
+            let beforeClickFullState = actionsAreEnabled && candidate.expectStateChange
                 ? PaceClickStateSnapshot.captureCurrent()
+                : nil
+            let beforeClickObservationState = actionsAreEnabled && candidate.expectStateChange
+                ? PaceClickStateSnapshot.captureLightweight()
                 : nil
 
             let didAttemptClick = await clickCandidate(
@@ -62,10 +65,34 @@ extension PaceActionExecutor {
                 return nil
             }
 
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            let afterClickState = PaceClickStateSnapshot.captureCurrent()
-            if beforeClickState != afterClickState {
+            guard let beforeClickFullState,
+                  let beforeClickObservationState else {
                 return nil
+            }
+
+            let observationOutcome = await PaceActionObservationWaiter.waitForChange(
+                from: beforeClickObservationState,
+                configuration: .clickVerification,
+                currentState: { PaceClickStateSnapshot.captureLightweight() }
+            )
+            switch observationOutcome {
+            case .changed(let completedPollCount):
+                print("✅ PaceActionExecutor: click changed AX state after \(completedPollCount) observation poll(s)")
+                return nil
+            case .cancelled:
+                return PaceActionExecutionObservation(
+                    toolName: "click_candidates",
+                    summary: "Click failed: verification was cancelled."
+                )
+            case .timedOut:
+                // Preserve the old full-tree verification at the edge of the
+                // 200ms window. High-cadence polls stay cheap, while a toggle
+                // or content update that leaves focus metadata unchanged still
+                // counts as a successful click.
+                let afterClickFullState = PaceClickStateSnapshot.captureCurrent()
+                if beforeClickFullState != afterClickFullState {
+                    return nil
+                }
             }
 
             let hasAnotherCandidate = candidateIndex < maximumAttempts - 1

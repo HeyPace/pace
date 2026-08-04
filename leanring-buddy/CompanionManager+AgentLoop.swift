@@ -1805,6 +1805,7 @@ extension CompanionManager {
                     // 10. Execute tool calls/action tags if any.
                     var toolObservations: [PaceActionExecutionObservation] = []
                     var userDeniedActionApproval = false
+                    var preActionObservationBaseline: PaceClickStateSnapshot?
                     if !actionParseResult.actions.isEmpty {
                         let preflightIssues = PaceToolPreflight.evaluate(
                             actionExecutionPlan: actionParseResult.executionPlan,
@@ -1840,6 +1841,7 @@ extension CompanionManager {
                                 // before the synthetic click fires.
                                 try? await Task.sleep(nanoseconds: 350_000_000)
                                 guard !Task.isCancelled else { return }
+                                preActionObservationBaseline = PaceClickStateSnapshot.captureLightweight()
                                 PaceLatencyBudget.shared.mark(.toolExecStart)
                                 if actionExecutor.hasActiveStreamingMailDraft,
                                    let finalMailDraft = streamedMailDraftForFinalization {
@@ -1996,10 +1998,24 @@ extension CompanionManager {
                         break agentStepLoop
                     }
 
-                    // 12. Brief wait so the action's effect lands in the UI
-                    //     before we capture the next screenshot. Without this
-                    //     the new screen capture may still show pre-click state.
-                    try? await Task.sleep(nanoseconds: 600_000_000)
+                    // 12. Advance as soon as lightweight AX-visible state
+                    //     changes. Apps without useful AX state retain the
+                    //     legacy 600ms maximum as a conservative fallback.
+                    if let preActionObservationBaseline {
+                        let observationOutcome = await PaceActionObservationWaiter.waitForChange(
+                            from: preActionObservationBaseline,
+                            configuration: .agentLoopSettling,
+                            currentState: { PaceClickStateSnapshot.captureLightweight() }
+                        )
+                        switch observationOutcome {
+                        case .changed(let completedPollCount):
+                            print("⚡ Agent loop: AX state changed after \(completedPollCount) observation poll(s)")
+                        case .timedOut:
+                            print("⏱  Agent loop: no AX state change before the 600ms fallback elapsed")
+                        case .cancelled:
+                            return
+                        }
+                    }
                     guard !Task.isCancelled else { return }
 
                     // Set up the next iteration.
