@@ -1,6 +1,6 @@
 # pace — PROJECT STATUS
 
-Last updated: 2026-07-31
+Last updated: 2026-08-05
 
 ## Why/What
 
@@ -63,6 +63,14 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 
 ## Timeline
 
+- **2026-08-05:** Shipped Pace FastPath observation v1 for the native action
+  loop. Click verification and screen-dependent agent turns now advance as soon
+  as lightweight Accessibility state changes, while retaining the existing
+  200 ms and 600 ms bounds as conservative fallbacks. Click verification keeps
+  one full AX-tree comparison at timeout, and cancellation now stops both
+  polling and later actions in the cancelled plan. Deterministic waiter and
+  executor coverage is landed; real-app latency and TCC behavior still require
+  the release smoke checklist from an Xcode Cmd+R build.
 - **2026-07-31:** Kept the website's download and purchase decisions beside the
   homepage promise instead of below the long architecture proof. The narrow
   hero now stacks its local-mode status, uses a contained display size, and
@@ -170,6 +178,10 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 ### Executor & planner (v0.3.14)
 
 - **Click executor:** top-K parser/scorer, focused-window scoring, AX verify/retry, recency hints, unit fixtures.
+- **FastPath observation v1:** lightweight bounded AX polling replaces fixed
+  click-verification and agent-loop settling waits, returning early on visible
+  state change while preserving legacy maximum waits and full-tree timeout
+  verification.
 - **Set-of-mark click recovery:** Phase A miss-case (`PaceSetOfMarkClickRecovery`).
 - **Planner v10 + executor surface:** typed envelope, registry validation, streaming fields, smoke runners.
 - **Click ambiguity fixtures**, v10 generic field streaming, executor smoke runner, remote model manifest, v10 eval gate.

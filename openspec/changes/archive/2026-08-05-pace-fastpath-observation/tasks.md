@@ -7,6 +7,7 @@
 
 - [x] 2.1 Replace candidate-click fixed verification sleep with the shared click observation configuration.
 - [x] 2.2 Capture a pre-execution loop baseline and replace the legacy fixed settle sleep with the shared agent-loop observation configuration.
+- [x] 2.3 Stop a cancelled action plan before it dispatches any later action.
 
 ## 3. Documentation And Verification
 

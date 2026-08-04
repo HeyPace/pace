@@ -10,6 +10,23 @@ import Testing
 
 @MainActor
 struct PaceActionExecutorDryRunTests {
+    @Test func cancelledPlanDoesNotDispatchActions() async {
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: false)
+        let actionPlan = PaceActionExecutionPlan.serial(actions: [
+            .openApplication("Notes"),
+            .openURL("example.com"),
+        ])
+        let executionTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            return await executor.executeActionPlan(actionPlan, screenCaptures: [])
+        }
+
+        executionTask.cancel()
+        let observations = await executionTask.value
+
+        #expect(observations.isEmpty)
+    }
+
     @Test func dryRunAppleAndSystemToolsReturnNonMutatingObservations() async throws {
         let executor = PaceActionExecutor(actionsAreEnabledOverride: false)
         #expect(executor.actionsAreEnabled == false)

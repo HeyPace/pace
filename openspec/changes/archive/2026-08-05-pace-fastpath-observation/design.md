@@ -79,7 +79,9 @@ structured output and terminal steps do not pay an observation wait.
 The default sleep propagates `CancellationError`, which the waiter converts to
 `.cancelled`. The agent loop exits promptly. Click verification stops trying
 additional candidates and returns a cancelled failure observation so a new turn
-cannot inherit further click attempts from the cancelled one.
+cannot inherit further click attempts from the cancelled one. The action-plan
+executor also checks cancellation around every dispatch so the same cancelled
+turn cannot continue with later actions after observation ends.
 
 ## Risks / Trade-offs
 

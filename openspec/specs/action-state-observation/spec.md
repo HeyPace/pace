@@ -1,11 +1,10 @@
-## Purpose
+# action-state-observation Specification
 
+## Purpose
 Reduce repeated computer-use latency by advancing from an action as soon as
 observable application state changes, while retaining bounded conservative
 fallbacks when no reliable state change is available.
-
-## ADDED Requirements
-
+## Requirements
 ### Requirement: Action settling is state-driven and bounded
 The system SHALL compare current observable application state with a pre-action
 baseline at a bounded polling cadence and SHALL stop waiting when the state
@@ -22,6 +21,7 @@ changes, the configured timeout is exhausted, or the task is cancelled.
 #### Scenario: Waiting is cancelled
 - **WHEN** the active action task is cancelled while waiting for a state change
 - **THEN** the system returns a cancelled outcome and performs no further polls
+- **AND** the executor does not dispatch later actions from the cancelled plan
 
 ### Requirement: Click verification and agent-loop settling share one contract
 The system SHALL use the same action-state observation behavior for candidate
@@ -43,3 +43,4 @@ step, with call-site-specific bounded configurations.
 #### Scenario: Agent action exposes no observable state
 - **WHEN** an executed action sequence exposes no observable state during the agent-loop window
 - **THEN** the system waits no longer than the existing conservative fallback before taking the next capture
+
