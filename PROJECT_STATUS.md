@@ -63,6 +63,10 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 
 ## Timeline
 
+- **2026-08-05 — On-device assistant field guides:** added five public guides
+  for on-device architecture, screen context, private voice, typed Mac actions,
+  and local meeting notes. The same typed registry now drives their visible
+  pages, Markdown alternates, canonical metadata, agent catalog, and sitemap.
 - **2026-08-05:** Shipped Pace FastPath observation v1 for the native action
   loop. Click verification and screen-dependent agent turns now advance as soon
   as lightweight Accessibility state changes, while retaining the existing
@@ -250,9 +254,11 @@ Four complementary "do more than talk" layers, from most literal to most flexibl
 ### Website (`website/`)
 
 - Astro 5 static export; Cloudflare Pages project **`pace`**.
-- One public-surface registry drives the 22-route sitemap, compact agent
+- One public-surface registry drives the 27-route sitemap, compact agent
   catalog, and generated Markdown alternates; the docs build owns its own
   Markdown corpus and machine-readable index.
+- Five evidence-first field guides explain the product's local architecture,
+  permissions, network exceptions, actions, and meeting-note boundaries.
 - Components: Nav, Hero (CSS-only animated demo), OnDevice pitch, Features (six capabilities), Comparison vs Wispr/Raycast/MacWhisper/Siri, Pricing (Try/Pace/Studio), gated SocialProof, FAQ (eight questions), Footer with "0 bytes" counter + founder signature.
 - Commerce: `src/config/commerce.ts` — mailto fallback; `PUBLIC_PACE_CHECKOUT_URL` / `PUBLIC_STUDIO_CHECKOUT_URL` at deploy.
 - OG: `public/og-image.png` via `scripts/generate-og-image.sh`; audit against `fleet/LANDING_STANDARD.md`.

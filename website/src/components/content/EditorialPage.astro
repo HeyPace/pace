@@ -1,0 +1,71 @@
+---
+import Footer from '../Footer.astro';
+import Nav from '../Nav.astro';
+import PageEnhancements from '../PageEnhancements.astro';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import type { EditorialContent } from '../../config/education-content';
+
+interface Props {
+  content: EditorialContent;
+}
+
+const { content } = Astro.props;
+const canonical = `https://heypace.app${content.path}`;
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    { '@type': content.schema[0] ?? 'TechArticle', headline: content.title, description: content.description, url: canonical },
+    {
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Pace', item: 'https://heypace.app/' },
+        { '@type': 'ListItem', position: 2, name: content.title, item: canonical },
+      ],
+    },
+  ],
+};
+---
+
+<BaseLayout title={`${content.title} — Pace`} description={content.description} pathname={content.path}>
+  <PageEnhancements />
+  <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} slot="head" />
+  <Nav />
+  <main class="px-6 pb-24 pt-24 md:pt-32">
+    <div class="mx-auto max-w-4xl">
+      <header class="border-b border-[var(--color-border-subtle)] pb-14">
+        <a href="/" class="font-mono text-xs text-[var(--color-text-muted)] transition-colors hover:text-white">← Pace</a>
+        <p class="mt-8 font-mono text-xs uppercase tracking-widest text-[var(--color-accent)]">On-device field guide</p>
+        <h1 class="pace-display mt-5 max-w-3xl text-4xl text-white md:text-6xl">{content.title}</h1>
+        <p class="mt-7 max-w-2xl text-lg leading-8 text-[var(--color-text-secondary)]">{content.description}</p>
+      </header>
+
+      <article class="education-body mt-12" set:html={content.html} />
+
+      <aside class="mt-20 border-y border-[var(--color-border-subtle)] py-8" aria-label="Continue reading">
+        <p class="font-mono text-xs uppercase tracking-widest text-[var(--color-text-muted)]">Continue through the local stack</p>
+        <div class="mt-5 flex flex-wrap gap-x-6 gap-y-3 text-sm">
+          {content.internalLinks.map((href) => <a class="text-[var(--color-accent)] hover:underline" href={href}>{href.replace(/^\//, '').replaceAll('-', ' ')}</a>)}
+        </div>
+      </aside>
+    </div>
+  </main>
+  <Footer />
+</BaseLayout>
+
+<style>
+  .education-body { max-width: 42rem; }
+  .education-body :global(h2) { margin-top: 3.75rem; color: white; font-family: var(--font-display); font-size: clamp(1.8rem, 4vw, 2.5rem); font-weight: 400; letter-spacing: -0.012em; }
+  .education-body :global(h3) { margin-top: 2.25rem; color: white; font-size: 1.15rem; }
+  .education-body :global(p), .education-body :global(li) { color: var(--color-text-secondary); font-size: 1.05rem; line-height: 1.75; }
+  .education-body :global(p), .education-body :global(ul), .education-body :global(ol), .education-body :global(table) { margin-top: 1.2rem; }
+  .education-body :global(ul), .education-body :global(ol) { padding-left: 1.5rem; }
+  .education-body :global(li + li) { margin-top: 0.6rem; }
+  .education-body :global(strong) { color: white; font-weight: 600; }
+  .education-body :global(code) { color: white; font-family: var(--font-mono); }
+  .education-body :global(a) { color: var(--color-accent); text-decoration: underline; text-underline-offset: 3px; }
+  .education-body :global(table) { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  .education-body :global(th), .education-body :global(td) { border-bottom: 1px solid var(--color-border-subtle); padding: 0.8rem; text-align: left; vertical-align: top; }
+  .education-body :global(th) { color: white; }
+  .education-body :global(td) { color: var(--color-text-secondary); }
+  @media (max-width: 640px) { .education-body { overflow-wrap: anywhere; } .education-body :global(table) { display: block; overflow-x: auto; } }
+</style>
