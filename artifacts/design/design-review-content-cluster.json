@@ -1,0 +1,69 @@
+{
+  "$schema": "fleet.design-review.v1",
+  "version": 1,
+  "project": "pace",
+  "target": "website/src/pages/on-device-ai-assistant-mac.astro",
+  "mode": "preserve",
+  "register": "product",
+  "context": {
+    "product": "PRODUCT.md",
+    "design": "DESIGN.md"
+  },
+  "direction": {
+    "references": [],
+    "probes": [],
+    "selected": "existing-design",
+    "approval": "not-required",
+    "before": "artifacts/design/content-cluster-before.png"
+  },
+  "evidence": {
+    "screenshots": [
+      {
+        "width": 390,
+        "path": "artifacts/design/content-cluster-after-390.png"
+      },
+      {
+        "width": 768,
+        "path": "artifacts/design/content-cluster-after-768.png"
+      },
+      {
+        "width": 1440,
+        "path": "artifacts/design/content-cluster-after-1440.png"
+      }
+    ],
+    "projectCheck": {
+      "command": "cd website && pnpm exec astro build",
+      "status": "pass"
+    },
+    "critique": {
+      "score": 36,
+      "maximum": 40
+    },
+    "audit": {
+      "score": 18,
+      "maximum": 20
+    },
+    "unresolved": {
+      "p0": 0,
+      "p1": 0
+    },
+    "detector": {
+      "posture": "advisory",
+      "findings": []
+    },
+    "browserReview": {
+      "viewports": [
+        390,
+        768,
+        1440
+      ],
+      "horizontalOverflow": false,
+      "consoleErrors": 0,
+      "note": "Owner approved the exact release manifest and delegated the bounded preserve-lane content cluster. Browser review found one h1, one main landmark, no horizontal overflow, and no console errors at 390, 768, or 1440 pixels."
+    }
+  },
+  "ownerFeedback": {
+    "decision": "delegated",
+    "note": "Owner approved manifest 11f823a26f5193284f926a36d045b49be7237dc9ea744b49680fee80478c83e2 and authorized build, merge, release, and re-indexing."
+  }
+}

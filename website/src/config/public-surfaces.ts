@@ -1,4 +1,5 @@
 import { competitors } from "./competitors";
+import { educationContent } from "./education-content";
 
 const PRODUCTION_ORIGIN = "https://heypace.app";
 
@@ -283,6 +284,16 @@ const comparisonSurfaces: PublicSurface[] = competitors.map((competitor) => {
 
 export const publicSurfaces: PublicSurface[] = [
   ...staticSurfaces,
+  ...Object.values(educationContent).map((content) => ({
+    id: content.path.replace(/^\//, ""),
+    path: content.path,
+    markdownPath: `${content.path}.md`,
+    kind: "static" as const,
+    title: content.title,
+    description: content.description,
+    priority: "0.8",
+    markdown: markdownDocument(content.title, content.description, [content.markdown]),
+  })),
   ...comparisonSurfaces,
 ];
 
