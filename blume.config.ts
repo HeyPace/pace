@@ -32,7 +32,7 @@ export default defineConfig({
 
   // GitHub link in the header (also powers "Edit on GitHub" page actions).
   github: {
-    owner: "sarthakagrawal927",
+    owner: "HeyPace",
     repo: "pace",
   },
 

@@ -15,7 +15,7 @@
 
 A menu-bar voice agent for macOS. Hold a hotkey, talk, and Pace answers — reading the screen you're looking at and (optionally) clicking on your behalf. Every byte stays on your Mac.
 
-**[Download for Mac — free](https://github.com/sarthakagrawal927/pace/releases/latest)** · macOS 14.2+, Apple Silicon, no account, no email.
+**[Download for Mac — free](https://github.com/HeyPace/pace/releases/latest)** · macOS 14.2+, Apple Silicon, no account, no email.
 
 - **Every byte stays on your Mac.** No cloud LLM, no API keys, no Cloudflare Worker. Speech, vision, reasoning, and speech-out all run locally. The "airplane mode" badge is the moat — Wispr Flow, Claude Computer Use, and Superhuman literally cannot ship this.
 - **Time-to-first-spoken-word in milliseconds, not seconds.** Streaming sentence-by-sentence TTS, pre-warmed VLM + OCR during your speech window, prompt-cache reuse across turns, and per-screen hash caching collapse the perceived latency. The number is logged per turn (`⚡ TTFSW: …ms`) and aggregated by [`scripts/benchmark_ttfsw.sh`](./scripts/benchmark_ttfsw.sh) — own the metric, don't just claim the speed.
@@ -24,7 +24,7 @@ A menu-bar voice agent for macOS. Hold a hotkey, talk, and Pace answers — read
 
 ## Install (users)
 
-Grab the latest build from [Releases](https://github.com/sarthakagrawal927/pace/releases/latest) and launch it. Apple Intelligence Macs can talk to Pace immediately via the Apple Foundation Models tier — zero external installs. Bigger local models (in-process MLX planner/VLM/ASR/TTS) download from **Settings → Models** inside the app and enable with one toggle there; no external tools required.
+Grab the latest build from [Releases](https://github.com/HeyPace/pace/releases/latest) and launch it. Apple Intelligence Macs can talk to Pace immediately via the Apple Foundation Models tier — zero external installs. Bigger local models (in-process MLX planner/VLM/ASR/TTS) download from **Settings → Models** inside the app and enable with one toggle there; no external tools required.
 
 ## Build from source (developers)
 
