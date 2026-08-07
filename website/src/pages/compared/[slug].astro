@@ -26,11 +26,11 @@ interface Props {
 
 const { competitor } = Astro.props;
 
-const pageTitle = `Pace vs ${competitor.name} — ${competitor.angle}`;
+// Lead with competitor name so SERPs for "openfelix", "screenvlm", etc. match.
+const pageTitle = `${competitor.name} vs Pace — macOS voice agent comparison`;
 
-// Unique meta description per page: the honest one-sentence difference,
-// which is exactly the field we already author per competitor.
-const description = `Pace vs ${competitor.name}: ${competitor.paceDiffers} An honest side-by-side of two macOS voice agents, including where Pace is behind.`;
+// Unique meta description per page: honest one-sentence difference + keywords.
+const description = `${competitor.name} vs Pace for macOS: ${competitor.paceDiffers} Screen-aware voice agents compared, including where Pace is behind.`;
 
 const canonicalPath = `/compared/${competitor.slug}`;
 
