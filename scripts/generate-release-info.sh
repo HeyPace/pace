@@ -94,7 +94,7 @@ items.sort(key=lambda x: int(x["build"]) if x["build"].isdigit() else 0, reverse
 result = {
     "latest": items[0] if items else None,
     "releases": items[:10],  # Keep the 10 most recent for the page
-    "releasesPageURL": "https://github.com/sarthakagrawal927/pace/releases",
+    "releasesPageURL": "https://github.com/HeyPace/pace/releases",
     # Source revision ties the landing build to a repo commit so the
     # evidence matrix can record "landing built from <sha>". Empty
     # string when git was unavailable at generation time.

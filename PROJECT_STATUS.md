@@ -20,7 +20,7 @@ Last updated: 2026-08-05
 - **Legacy path:** LM Studio optional OpenAI-compatible localhost — `./scripts/setup-local.sh`.
 - **Landing deploy:** Cloudflare Pages project `pace`.
 - **Release:** GitHub Releases + Sparkle updates with bundled model manifest.
-- **License:** MIT — `github.com/sarthakagrawal927/pace/releases/latest`.
+- **License:** MIT — `github.com/HeyPace/pace/releases/latest`.
 
 ### Internal fleet
 

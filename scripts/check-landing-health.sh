@@ -59,7 +59,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 DOWNLOAD_URL="$BASE_URL/download"
-APPCAST_URL="https://raw.githubusercontent.com/sarthakagrawal927/pace/main/appcast.xml"
+APPCAST_URL="https://raw.githubusercontent.com/HeyPace/pace/main/appcast.xml"
 APPCAST_LOCAL="$PROJECT_DIR/appcast.xml"
 RELEASE_INFO="$PROJECT_DIR/website/src/config/release-info.json"
 
