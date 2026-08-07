@@ -45,13 +45,13 @@ const staticSurfaces: PublicSurface[] = [
     path: "/compared",
     markdownPath: "/compared.md",
     kind: "collection",
-    title: "Mac AI agents that see your screen — 16 compared",
+    title: "Mac AI agents that see your screen — 17 compared",
     description:
-      "Compare 16 macOS AI agents by screen access, inference location, actions, approval model, license, and where Pace is honestly behind.",
+      "Compare 17 macOS AI agents by screen access, inference location, actions, approval model, license, and where Pace is honestly behind.",
     priority: "0.8",
     markdown: markdownDocument(
-      "Mac AI agents that see your screen — 16 compared",
-      "Compare 16 macOS AI agents by screen access, inference location, actions, approval model, license, and where Pace is honestly behind.",
+      "Mac AI agents that see your screen — 17 compared",
+      "Compare 17 macOS AI agents by screen access, inference location, actions, approval model, license, and where Pace is honestly behind.",
       [
         "## How to choose",
         "",

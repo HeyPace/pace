@@ -10,7 +10,7 @@ import CompetitorAnalysis from "../components/CompetitorAnalysis.astro";
 import { competitors, comparisonRechecked, type Competitor } from "../config/competitors";
 
 const description =
-  "Compare 16 macOS AI agents by screen access, inference location, actions, approval model, license, and where Pace is honestly behind.";
+  "Compare 17 macOS AI agents by screen access, inference location, actions, approval model, license, and where Pace is honestly behind.";
 
 // Group by posture so the page reads as three clusters, not a flat list.
 const groups: { label: string; blurb: string; items: Competitor[] }[] = [
@@ -45,7 +45,7 @@ const postureColor: Record<string, string> = {
 ---
 
 <BaseLayout
-  title="Mac AI Agents That See Your Screen — 16 Compared | Pace"
+  title="Mac AI Agents That See Your Screen — 17 Compared | Pace"
   description={description}
   pathname="/compared"
 >

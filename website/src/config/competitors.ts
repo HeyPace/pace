@@ -420,10 +420,33 @@ export const competitors: Competitor[] = [
     paceDiffers:
       "BoBe centers on proactive observation and goals; Pace centers on push-to-talk, screen-referential requests, local approval, and a compact menu-bar surface.",
   },
+  {
+    name: "Project Minimi",
+    slug: "project-minimi",
+    angle: "ambient Claude memory vs on-device voice agent",
+    tagline: "Personal memory for Claude that closes open loops on Mac.",
+    author: "Shram / projectminimi.com",
+    url: "https://www.projectminimi.com/",
+    openSource: false,
+    license: "Proprietary",
+    posture: "hybrid",
+    stt: "Ambient capture (not push-to-talk STT)",
+    reasoner: "Claude (via MCP / custom connector)",
+    tts: "Claude side (not a local TTS loop)",
+    screenAware: true,
+    standoutFeatures: [
+      "Ambient Mac capture across tabs, documents, calls, and chat threads for later recall.",
+      "Exposes captured memory to Claude through an MCP / custom connector link.",
+      "Positions itself as personal memory you own, with a local vector store claim on device.",
+      "Strong for “what did I read / decide / leave open” retrieval inside Claude workflows.",
+    ],
+    paceDiffers:
+      "Minimi is ambient memory for Claude, not a local voice agent loop. Pace is push-to-talk, screen-referential actions, and local models by default—without routing your agent loop through Claude. Minimi’s paid plan uses Gemini embeddings, so it is not pure local-only; Pace keeps the default path on-device.",
+  },
 ];
 
 /** When this comparison was last rechecked. Rendered on the page. */
-export const comparisonRechecked = "July 2026";
+export const comparisonRechecked = "August 2026";
 
 /**
  * Derive a URL-safe anchor id / slug from a competitor display name.
