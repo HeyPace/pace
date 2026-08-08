@@ -152,7 +152,7 @@ import HeroArchitectureDiagram from "./HeroArchitectureDiagram.astro";
         opacity. Linear / Lovable trick — not a particle field. */
   .pace-hero-aurora {
     position: absolute;
-    top: 30%;
+    top: clamp(24rem, 36vw, 32.5rem);
     left: 50%;
     transform: translateX(-50%);
     width: 1400px;
@@ -261,6 +261,7 @@ import HeroArchitectureDiagram from "./HeroArchitectureDiagram.astro";
       margin: 0;
     }
     .pace-hero-aurora {
+      top: 31rem;
       width: 100%;
       height: 600px;
     }

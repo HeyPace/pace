@@ -37,6 +37,10 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 /* Headline tracking — slightly tighter than default; matches the
    premium-dark aesthetic of the app's notch capsule + cursor. */
 h1,
