@@ -23,14 +23,6 @@ const description = "Private on-device Mac voice agent: listen, read the screen,
 ---
 
 <BaseLayout title="Pace — private Mac voice agent that sees your screen" description={description}>
-  <!-- Global decoration layers: ambient spotlight tracking the
-       mouse + a custom blue cursor that mirrors Pace's actual
-       in-app cursor. Both no-op on touch / coarse-pointer devices. -->
-  <ScrollProgress />
-  <MouseSpotlight />
-  <CursorFollower />
-  <PageEnhancements />
-
   <Nav />
   <SpecMarquee />
   <main>
@@ -60,4 +52,11 @@ const description = "Private on-device Mac voice agent: listen, read the screen,
     <FAQ />
   </main>
   <LiveByteCounter />
+
+  <!-- Keep enhancement scripts after the page content so parsing reaches
+       the hero first and each initializer can see the complete document. -->
+  <ScrollProgress />
+  <MouseSpotlight />
+  <CursorFollower />
+  <PageEnhancements />
 </BaseLayout>
