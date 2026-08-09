@@ -104,7 +104,7 @@ enum PaceAutomationIntentResolver {
                 to: prompt,
                 generating: PaceFMAutomationIntentSelection.self,
                 options: GenerationOptions(
-                    samplingMode: .greedy,
+                    sampling: .greedy,
                     temperature: 0,
                     maximumResponseTokens: 40
                 )
