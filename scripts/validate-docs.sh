@@ -46,6 +46,14 @@ def find_md_files():
         parts = set(dp.split(os.sep))
         if parts & EXCLUDE_DIRS:
             continue
+        # The website build copies Blume output into this committed mirror.
+        # Validate the canonical docs/ sources instead of treating generated
+        # relative links as though they were authored from this directory.
+        relative_directory = os.path.relpath(dp, ROOT)
+        if relative_directory == os.path.join("website", "public", "docs") \
+                or relative_directory.startswith(os.path.join("website", "public", "docs") + os.sep):
+            dn[:] = []
+            continue
         for f in fn:
             if f.endswith((".md", ".mdx")):
                 out.append(os.path.join(dp, f))

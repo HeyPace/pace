@@ -92,4 +92,23 @@ extension PaceChainedTextEmbeddingClient {
             fallback: PaceAppleNLEmbeddingClient()
         )
     }
+
+    /// Voice/text routing is latency-sensitive. Keep the same Nomic-first
+    /// preference as semantic memory, but fail over quickly when LM Studio is
+    /// not running so an ordinary utterance never waits on a long sidecar
+    /// timeout before reaching the planner.
+    static func makeAutomationRoutingDefault() -> PaceChainedTextEmbeddingClient {
+        let primaryClient: any PaceTextEmbedding = {
+            if PaceBundledModelsSettings.isUsingMLXInProcessEmbedder() {
+                return PaceMLXEmbeddingClient(
+                    modelIdentifier: PaceBundledModelsSettings.embedderModelIdentifier()
+                )
+            }
+            return LMStudioEmbeddingClient(requestTimeoutInSeconds: 0.75)
+        }()
+        return PaceChainedTextEmbeddingClient(
+            primary: primaryClient,
+            fallback: PaceAppleNLEmbeddingClient()
+        )
+    }
 }

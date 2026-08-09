@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "identifier": "open-documents",
+  "name": "open documents",
+  "description": "Opens the current user's Documents folder in Finder.",
+  "category": "files",
+  "invocationPhrases": ["show my documents", "open my documents folder", "take me to documents"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "finder",
+          "arguments": {
+            "path": "~/Documents",
+            "action": "open"
+          }
+        }
+      ]
+    }
+  ]
+}

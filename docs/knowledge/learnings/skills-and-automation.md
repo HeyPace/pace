@@ -1,15 +1,31 @@
 # Skills and automation
 
-Pace automates repeated work at four tiers, from most literal to most
-flexible: **Tools** (single planner-invoked actions, one per turn) are the
-atomic unit every tier above builds on; **Recipes** (bundled, pre-built
-flows a user installs by name) are the zero-effort on-ramp; **Flows**
-(user-recorded AX click/key sequences replayed verbatim) capture a
-literal demonstration; **Skills** (natural-language step lists the
-planner re-grounds every run) trade pixel-exactness for resilience to UI
-change. This page covers recipes, flows, skills, the voice parsers that
-route commands to each tier before the planner, meeting-note profiles,
-and the cron scheduler.
+Pace automates repeated work through distinct execution modes. **Typed local
+automations** compile fixed tool calls; **Pace Programs** add bounded local
+branching and repetition; **recorded flows** replay literal demonstrations;
+**skills** ask the local planner to re-ground natural-language steps; and
+**Shortcuts** execute opaque workflows owned by macOS. The unified read-only
+catalog labels those modes instead of flattening them into one claim.
+
+## Deterministic local automation providers
+- What: Bundled manifests under `Resources/automations/` name canonical Pace tools and bounded JSON arguments. `PaceAutomationCompiler` serializes those calls into the existing parser dialect and refuses partial parses, so execution reuses normal preflight, approval, executor, observation, and audit behavior without invoking a planner.
+- Catalog: `PaceAutomationCatalog` discovers typed manifests, Pace Programs, saved flows, skills, and installed Shortcuts without persisting a duplicate index. “List my automations” labels each entry as deterministic local, deterministic program, deterministic replay, local-planner grounded, or externally opaque. “Run automation &lt;name&gt;” remains an exact normalized management command; ordinary text can use an exact authored alias or a paraphrase through local semantic embeddings. Token overlap never authorizes execution. Close semantic candidates can use the on-device `PaceAutomationIntentResolver`, which may select only from the embedding shortlist, decline, or ask the user to clarify.
+- Shortcuts: `PaceShortcutsAutomationProvider` queries `/usr/bin/shortcuts`, caches only successful catalogs for five minutes, and supports explicit source-specific list/run commands.
+- Privacy: Catalog names and listing responses are not added to planner prompts or conversation memory. Only running a planner-grounded skill enters that skill's existing execution path.
+- Where: `PaceAutomationDefinition.swift`, `PaceAutomationCatalog.swift`, `PaceAutomationIntentResolver.swift`, `PaceShortcutsAutomationProvider.swift`, and pre-planner dispatch in `CompanionManager+AgentLoop.swift`.
+
+## Natural-language selection
+- What: `PaceAutomationNaturalLanguageMatcher` checks normalized authored aliases first, then uses cosine similarity from the local Nomic/Apple embedding chain. A clear winner dispatches directly; a bounded near-threshold shortlist can go to the on-device resolver. Token overlap has no execution authority.
+- Why here: Embeddings retrieve paraphrases but are not authority. Weak scores, close Calendar/read-vs-mutate candidates, catalog failures, and embedding failures preserve the existing planner path instead of guessing an automation.
+- Latency: Exact triggers make no embedding call. Semantic routing uses the bundled MLX Nomic embedder when enabled or gives LM Studio's Nomic endpoint 750 ms before the always-local Apple NaturalLanguage fallback.
+- Text seam: Typed chat, `pace://chat`, and finalized speech transcripts all call `sendTranscriptToPlannerWithScreenshotAsync`, so pure word fixtures cover routing before microphone E2E.
+
+## Natural-language creation
+- What: “create an automation …” and “teach a skill …” use the same least-powerful-complete ladder. A privacy-pinned local text planner first proposes fixed allowlisted calls, then a bounded Pace Program, then a planner-grounded skill. Each structured result is untrusted until its representation-specific validator accepts it.
+- Pace Programs: The version-1 graph supports typed action steps, weekday/hour/frontmost-app conditions over one pre-run snapshot, and literal repetition. It requires real conditional/repeat logic, validates every inactive branch, and caps depth at 4, source nodes at 50, repeats at 10, and worst-case action steps at 50. It compiles into the existing typed executor and never calls a model during a run.
+- Authority boundary: A program document cannot add tools or execute Lua, JavaScript, shell, imports, network access, arbitrary files, or direct Accessibility APIs. General source syntax would need to compile entirely into the same inert graph before installation.
+- Storage: User typed definitions live under `~/Library/Application Support/Pace/automations/`; programs live under `~/Library/Application Support/Pace/programs/`; prose skills remain separate. Atomic writes refuse cross-catalog normalized-name and identifier collisions, and invalid files are skipped independently.
+- Where: `PaceProgrammableSkill.swift` owns the program model, strict decoder, validator, context evaluator, compiler, store, and authoring contract. `CompanionManager+AgentLoop.swift` owns the privacy-pinned authoring calls; `CompanionManager+LocalMemoryCommands.swift` owns discovery and model-free dispatch.
 
 ## Teachable skills (`.skill.md`)
 - What: A skill is a numbered step list stored as a `.skill.md` file (YAML frontmatter + `## Steps` body) that the planner **re-grounds every run** rather than replaying recorded UI actions.
@@ -18,9 +34,9 @@ and the cron scheduler.
 - Source: internal — `.skill.md` format compatible with common agent skill files (see file header comment).
 
 ## Teaching a skill by voice or form
-- What: Two on-device paths turn a description into a structured `PaceSkillFile`: a spoken description parsed by a privacy-pinned local planner call, or a typed Settings form parsed deterministically.
-- Why here: "Teachable by telling" — the user never hand-writes YAML; `skillFromStructuredJSON` (planner path) and `skillFromForm` (typed path) both funnel into the same `PaceSkillFile` model, with `structureSkillDeterministically` as a no-model fallback so teaching never hard-fails.
-- Where: `PaceSkillLoader.swift` — `skillStructuringSystemPrompt`, `skillFromStructuredJSON`, `structureSkillDeterministically`, `skillFromForm`; persistence via `PaceSkillLoader.save`/`deleteUserSkill`/`listUserSkills` (atomic temp-file + rename, same pattern as `PaceFlowStore`).
+- What: Completed teach/create transcripts can become a typed automation, Pace Program, or prose `PaceSkillFile`; typed chat and finalized voice share that transcript seam. The Settings form remains a deterministic manual editor for planner-grounded prose steps.
+- Why here: “Teachable by telling” describes the product surface, not one storage format. Fixed work should not pay a model on every run, bounded logic should remain deterministic, and only genuinely contextual work should use a planner-grounded skill.
+- Where: `PaceProgrammableSkill.swift` and the shared reusable-work handler in `CompanionManager+AgentLoop.swift`; prose persistence remains in `PaceSkillLoader.save`/`deleteUserSkill`/`listUserSkills`.
 - Source: internal — no external spec.
 
 ## Skill command parser
@@ -37,24 +53,25 @@ and the cron scheduler.
 
 ## Flow store
 - What: Atomic JSON persistence for recorded flows — one file per flow, keyed by a slug derived from the flow's display name.
-- Why here: The durable-storage layer both recipes and flows share: installing a bundled recipe means writing its flow JSON into the same store a user-recorded flow would land in, so `run_flow` doesn't need to know which tier produced a flow.
-- Where: `PaceFlowStore.swift` — `PaceFlowStore` (`slug(for:)`, atomic `writeAtomically`), `PaceFlowStoreError`; the Settings surface for browsing/installing/deleting flows and recipes is `PaceFlowsSettingsTab.swift` — `PaceFlowsSettingsTab`.
+- Why here: Recorded demonstrations retain literal replay semantics and stay separate from bundled typed automations.
+- Where: `PaceFlowStore.swift` — `PaceFlowStore` (`slug(for:)`, atomic `writeAtomically`), `PaceFlowStoreError`; the Settings surface for browsing/deleting flows is `PaceFlowsSettingsTab.swift`.
 - Source: internal — no external spec.
 
-## Recipe library
-- What: A small set of pre-built flow definitions ("recipes") bundled as `Resources/recipes/<slug>.json`, installable by voice or from Settings → Flows.
-- Why here: The zero-effort on-ramp to automation — a user says "install the morning standup recipe" and gets a working flow with no recording step; recipes that need user state declare `requiredPreferences` and refuse install until that preference is set.
-- Where: `PaceRecipeLibrary.swift` — `PaceBundledRecipe` (`slug`, `requiredPreferences`, …), `PaceRecipeLibrary.install`, `PaceRecipeValidationIssue`, `PaceRecipeInstallError`. Bundled recipe/skill/profile JSON is all validated at app launch through one shared entry point, `PaceToolRegistry.validateForAppStartup` (`PaceToolRegistry.swift`), so malformed drift in any bundled file fails loud at startup instead of silently at first use.
-- Source: internal — no external spec.
+## Bundled typed automations
+- What: Seventeen honest, model-free starter workflows ship across Notes templates, local Calendar reads, standard focus/break timers, Finder locations, current-window layouts, bounded media control, weekly review, and end-of-day reset.
+- Why here: Native Notes and EventKit actions express the complete outcome more reliably than recorded keystrokes. Every manifest is versioned, registry-validated, allowlisted, and compiled completely at startup.
+- Where: `Resources/automations/<identifier>.json`, loaded and validated by `PaceAutomationDefinitionLibrary`.
+- Boundary: This library does not replace the other execution tiers. App-specific demonstrations remain flows, contextual procedures remain planner-grounded skills, user-owned OS workflows remain Shortcuts, and cron/background agents remain schedulers.
+- Source: internal typed manifest contract.
 
 ## Voice command parsers (pre-planner fast path)
 - What: A family of small, pure, deterministic parsers that each recognize one automation surface's trigger phrases and short-circuit before the transcript reaches the planner or intent classifier.
-- Why here: Installing a recipe, toggling watch mode, starting a profiled meeting, or teaching/running a skill are all one-shot deterministic intents — routing them here avoids a planner round-trip and keeps the grammar unit-testable without constructing `CompanionManager`.
-- Where: `PaceRecipeCommandParser.swift` — `PaceRecipeCommandParser`/`PaceRecipeCommand`; `PaceWatchModeCommandParser.swift` — `PaceWatchModeCommandParser`/`PaceWatchModeCommand`; `PaceAutomationCommandParser.swift` — `PaceMeetingModeCommandParser`/`PaceMeetingModeCommand` and `PaceSkillCommandParser`/`PaceSkillCommand` (both live in this one file alongside `PaceCronCommandParser` and `PaceBackgroundAgentCommandParser`).
+- Why here: Listing or selecting an automation, running an installed Shortcut, toggling watch mode, starting a profiled meeting, or teaching/running a skill should not burn a planner round-trip merely to choose a route.
+- Where: `PaceAutomationCatalog.swift` — `PaceAutomationCatalogCommandParser`; `PaceWatchModeCommandParser.swift`; `PaceShortcutsAutomationProvider.swift`; and `PaceAutomationCommandParser.swift` for meeting, skill, cron, and background-agent commands.
 - Source: internal — no external spec.
 
 ## Voice-command parser precedence (a chain, not independent parsers)
-- What: The pre-planner parsers are tried in a fixed sequence (`CompanionManager+AgentLoop.swift`: recipe → flow → remember-site → cron → background-agent → meeting-mode → skill), and a parser earlier in the chain can match and short-circuit a phrase that was meant for a parser later in the chain.
+- What: The pre-planner routes are tried in a fixed sequence (`CompanionManager+AgentLoop.swift`: explicit automation → Shortcut → create automation/skill → conservative natural match → flow → remember-site → cron → background-agent → meeting-mode → skill), and an earlier route can match and short-circuit a phrase that was meant for a later one.
 - Why here: `PaceFlowCommandParser`'s bare `"run "` / `"play back "` / `"do "` prefix match (`PaceFlowReplay.swift:128`) runs before `PaceSkillCommandParser`, and its `.run` case returns immediately — even on a miss ("i couldn't find a flow named X", `CompanionManager+DemonstrationFlow.swift:26-34`) — without falling through to try the skill parser next. A greedy bare prefix earlier in the chain can starve a more specific parser later in it; the fix is chain-level ordering/deferral discipline, not a fix to either parser in isolation. Regression-test the chain's dispatch order, not each parser alone.
 - Where: dispatch order in `CompanionManager+AgentLoop.swift` (parser calls around lines 853-923); the starvable prefix match in `PaceFlowReplay.swift` (`PaceFlowCommandParser.parse`, line 128); the no-fallthrough `.run` handler in `CompanionManager+DemonstrationFlow.swift`.
 - Source: internal — no external spec; general lesson (prefix-matching command chains need explicit ordering + deferral guards, not per-parser correctness alone).
@@ -67,7 +84,7 @@ and the cron scheduler.
 
 ## Cron scheduler
 - What: A general-purpose recurring-task scheduler — "every 30 minutes check my calendar" — where each task is a stored interval + prompt that fires through the normal restraint-gated speaking pipeline.
-- Why here: Extends automation from "user-triggered" (recipes/flows/skills) to "time-triggered": a fired task sends its `taskPrompt` through the same planner pipeline a live voice turn would use, so scheduled automation gets the same tool/approval guarantees as a spoken command.
+- Why here: Extends automation from user-triggered reusable work to time-triggered tasks: a fired task sends its `taskPrompt` through the same planner pipeline a live voice turn would use, so scheduled automation gets the same tool/approval guarantees as a spoken command.
 - Where: `PaceCronScheduler.swift` — `PaceCronScheduler` (`@MainActor` `ObservableObject`, `.shared`), `PaceCronTask`; voice grammar in `PaceAutomationCommandParser.swift` — `PaceCronCommandParser`/`PaceCronCommand`.
 - Source: internal — no external spec.
 

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "identifiers": [
+    "brain-dump-note",
+    "center-current-window",
+    "daily-plan-note",
+    "decision-log-note",
+    "end-of-day-reset",
+    "focus-timer",
+    "maximize-current-window",
+    "meeting-prep-note",
+    "open-documents",
+    "open-downloads",
+    "pause-music-and-lower-volume",
+    "project-kickoff-note",
+    "short-break-timer",
+    "today-schedule",
+    "tomorrow-schedule",
+    "week-schedule",
+    "weekly-review-note"
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "identifier": "project-kickoff-note",
+  "name": "project kickoff note",
+  "description": "Creates an Apple Note with goal, success-metric, scope, risks, milestones, and next-actions sections.",
+  "category": "planning",
+  "invocationPhrases": ["kick off a new project", "make a project kickoff note", "set up a project plan"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "notes",
+          "arguments": {
+            "action": "create",
+            "title": "Project kickoff",
+            "body": "Goal\n\nSuccess metric\n\nIn scope\n- \n\nOut of scope\n- \n\nRisks\n- \n\nMilestones\n- \n\nNext actions\n- "
+          }
+        }
+      ]
+    }
+  ]
+}

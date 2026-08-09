@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "identifier": "daily-plan-note",
+  "name": "daily plan note",
+  "description": "Creates an Apple Note with top priorities, schedule, tasks, and notes sections.",
+  "category": "planning",
+  "invocationPhrases": ["help me plan my day", "make my daily plan", "set up my plan for today"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "notes",
+          "arguments": {
+            "action": "create",
+            "title": "Daily plan",
+            "body": "Top priorities\n1. \n2. \n3. \n\nSchedule\n- \n\nTasks\n- \n\nNotes\n- "
+          }
+        }
+      ]
+    }
+  ]
+}

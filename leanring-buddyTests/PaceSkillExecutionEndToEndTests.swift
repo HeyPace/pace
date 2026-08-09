@@ -184,7 +184,7 @@ struct PaceSkillExecutionEndToEndTests {
         #expect(missingPreferenceKey == "preferredFocusPlaylist")
 
         // The run path returns before dispatching to the planner, and the
-        // message it speaks mirrors the recipes' wording verbatim.
+        // message it speaks mirrors typed automation preflight wording.
         let spokenRefusal = "i need \(missingPreferenceKey) set first."
         #expect(spokenRefusal == "i need preferredFocusPlaylist set first.")
         // The planner is never called when the run is blocked.

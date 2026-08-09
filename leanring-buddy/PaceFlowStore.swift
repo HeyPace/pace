@@ -11,17 +11,11 @@
 //  (temp file in the same directory + rename) so a crash mid-write
 //  can never leave the user with a half-written flow on disk.
 //
-//  Schema is byte-identical to the bundled recipe JSON shape under
-//  `Resources/recipes/<slug>.json` — `PaceRecipeLibrary` literally
-//  installs a recipe by calling `PaceFlowStore.save(_:)` with a
-//  `PaceRecordedFlow`. Keeping that surface stable means a recipe
-//  install is just "drop the right JSON in the same directory".
-//
 //  v1 didn't have a persistent flow store — `PaceFlowStore` only
 //  shipped as a thin file-backed wrapper inside `PaceFlowReplay.swift`.
 //  This file is the Wave 3a split-out; the public symbol name stays
 //  `PaceFlowStore` so every production call site (CompanionManager,
-//  PaceActionExecutor, PaceRecipeLibrary, PaceSettingsWindow) keeps
+//  PaceActionExecutor, PaceSettingsWindow) keeps
 //  compiling without touching its own file.
 //
 
@@ -198,7 +192,7 @@ nonisolated struct PaceFlowStore {
     // MARK: - Slug helpers
 
     /// Map a display name to its on-disk slug. Public so callers (the
-    /// Settings UI, the recipe library) can preview the resulting
+    /// Settings UI and skill storage) can preview the resulting
     /// filename without duplicating the normalization rules.
     static func slug(for name: String) -> String {
         let allowedScalars = CharacterSet.alphanumerics

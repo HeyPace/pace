@@ -18,7 +18,7 @@
 //  Bundled profiles ship at `Resources/meeting-note-profiles/<slug>.json`
 //  and user profiles override by slug from
 //  `~/Library/Application Support/Pace/meeting-note-profiles/`, mirroring
-//  the `PaceRecipeLibrary` / `PaceSkillLoader` pattern.
+//  the bundled-resource loader / `PaceSkillLoader` pattern.
 //
 //  See openspec/changes/adaptive-meeting-notes for the full spec.
 //

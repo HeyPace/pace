@@ -202,7 +202,7 @@ final class CompanionManager: ObservableObject {
     let overlayWindowManager = OverlayWindowManager()
     /// Screen-edge glow border that shifts color with voice state.
     /// Inspired by ORB's glow border phase indicator. Gated by the
-    /// `isGlowBorderEnabled` preference (default ON).
+    /// `isGlowBorderEnabled` preference (default OFF).
     let glowBorderManager = GlowBorderManager()
 
     /// Tooltip-style bubble that follows the cursor and shows what's
@@ -865,7 +865,7 @@ final class CompanionManager: ObservableObject {
     /// User preference for the screen-edge glow border. When toggled
     /// at runtime, the glow border manager shows/hides immediately.
     @Published var isGlowBorderEnabled: Bool = PaceUserPreferencesStore
-        .bool(.isGlowBorderEnabled, default: true)
+        .bool(.isGlowBorderEnabled, default: PaceGlowBorderDefaults.isEnabled)
 
     func setGlowBorderEnabled(_ enabled: Bool) {
         isGlowBorderEnabled = enabled

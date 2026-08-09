@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "identifier": "short-break-timer",
+  "name": "short break timer",
+  "description": "Starts a 5-minute timer labeled Short break.",
+  "category": "focus",
+  "invocationPhrases": ["give me a five minute break", "start a short break", "set a 5 minute break timer"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "start_timer",
+          "arguments": {
+            "duration": "5 minutes",
+            "label": "Short break"
+          }
+        }
+      ]
+    }
+  ]
+}

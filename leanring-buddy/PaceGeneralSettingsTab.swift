@@ -15,7 +15,9 @@ struct PaceGeneralSettingsTab: View {
     @ObservedObject var companionManager: CompanionManager
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
+            generalSectionHeader("Core behavior")
+
             paceSettingsToggleRow(
                 title: "Read my screen",
                 subtitle: "Use local screen context when a turn needs it.",
@@ -26,7 +28,7 @@ struct PaceGeneralSettingsTab: View {
             )
             paceSettingsToggleRow(
                 title: "Approve risky actions",
-                subtitle: "Ask before non-undoable local changes, message drafts, shortcuts, and MCP calls.",
+                subtitle: "Ask before non-undoable local changes, message drafts, shortcuts, and connected-tool actions.",
                 isOn: Binding(
                     get: { companionManager.requiresActionApproval },
                     set: { companionManager.setRequiresActionApproval($0) }
@@ -64,6 +66,10 @@ struct PaceGeneralSettingsTab: View {
                     set: { companionManager.setAlwaysListeningEnabled($0) }
                 )
             )
+
+            generalSectionHeader("Proactive support")
+                .padding(.top, 18)
+
             paceSettingsToggleRow(
                 title: "Focus nudges",
                 subtitle: "Offer a short break prompt after long active foreground sessions.",
@@ -116,6 +122,13 @@ struct PaceGeneralSettingsTab: View {
             automationSubsection
                 .padding(.top, 18)
         }
+    }
+
+    private func generalSectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(DS.Typography.captionStrong)
+            .foregroundStyle(DS.Colors.textTertiary)
+            .padding(.bottom, 6)
     }
 
     // MARK: - Automation subsection

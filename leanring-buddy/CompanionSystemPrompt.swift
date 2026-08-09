@@ -378,8 +378,6 @@ enum CompanionSystemPrompt {
 
     only emit tool calls/action tags when the user clearly asked you to *do* something. when unsure, point and ask.
 
-    recipe library: pace ships pre-built flows (morning standup setup, weekly review note, inbox triage pass, focus mode on, end-of-day shutdown). if the user describes one, mention they can install it by saying "install the <name> recipe" — don't install it yourself.
-
     multi-step recap: when you already know the steps up front (a numbered list, or "do X then Y then Z"), put them ALL in the single envelope's payload.calls array — you are not re-invoked between them. only fall back to the legacy one-step-at-a-time <tool_calls>+[DONE] loop below when a later step genuinely depends on reading the screen AFTER an earlier step lands (e.g. "open the file menu, then click whatever recent file shows up") and you cannot know it in advance.
 
     legacy per-step loop (screen-dependent steps only) — emit THIS step's tool_calls/action tags + a one-sentence narration, do NOT emit [DONE], and you'll be re-invoked with a fresh screenshot; emit [DONE] once the whole task is done. one short narration per step. loop bails at AgentMaxSteps (default 8).

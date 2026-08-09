@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "identifier": "today-schedule",
+  "name": "today schedule",
+  "description": "Reads today's events from the local Calendar database.",
+  "category": "calendar",
+  "invocationPhrases": ["what does my day look like", "show today's schedule", "what is on my calendar today"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "calendar",
+          "arguments": {
+            "range": "today"
+          }
+        }
+      ]
+    }
+  ]
+}

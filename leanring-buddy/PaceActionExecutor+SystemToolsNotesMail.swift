@@ -737,7 +737,10 @@ extension PaceActionExecutor {
             )
         }
 
-        let shortcutListResult = runShortcutsCommand(arguments: ["list"])
+        let shortcutListResult = await PaceShortcutsCommandRunner.run(
+            arguments: ["list"],
+            timeout: 10
+        )
         guard shortcutListResult.terminationStatus == 0 else {
             return PaceActionExecutionObservation(
                 toolName: "shortcuts",
@@ -758,7 +761,10 @@ extension PaceActionExecutor {
             )
         }
 
-        let shortcutRunResult = runShortcutsCommand(arguments: ["run", trimmedShortcutName])
+        let shortcutRunResult = await PaceShortcutsCommandRunner.run(
+            arguments: ["run", trimmedShortcutName],
+            timeout: 300
+        )
         guard shortcutRunResult.terminationStatus == 0 else {
             return PaceActionExecutionObservation(
                 toolName: "shortcuts",
@@ -790,11 +796,7 @@ extension PaceActionExecutor {
     }
 
     static func normalizeShortcutName(_ shortcutName: String) -> String {
-        shortcutName
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-            .lowercased()
-            .split(whereSeparator: { $0.isWhitespace })
-            .joined(separator: " ")
+        PaceShortcutAutomationCatalog.normalizedName(shortcutName)
     }
 
 }

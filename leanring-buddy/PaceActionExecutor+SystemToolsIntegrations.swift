@@ -90,57 +90,6 @@ extension PaceActionExecutor {
         return (resultDescriptor.stringValue, nil)
     }
 
-    struct PaceLocalCommandResult {
-        let output: String
-        let errorOutput: String
-        let terminationStatus: Int32
-
-        var failureSummary: String {
-            let trimmedErrorOutput = errorOutput.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedErrorOutput.isEmpty {
-                return trimmedErrorOutput
-            }
-
-            let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedOutput.isEmpty {
-                return trimmedOutput
-            }
-
-            return "command exited with status \(terminationStatus)"
-        }
-    }
-
-    func runShortcutsCommand(arguments: [String]) -> PaceLocalCommandResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
-        process.arguments = arguments
-
-        let standardOutputPipe = Pipe()
-        let standardErrorPipe = Pipe()
-        process.standardOutput = standardOutputPipe
-        process.standardError = standardErrorPipe
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return PaceLocalCommandResult(
-                output: "",
-                errorOutput: error.localizedDescription,
-                terminationStatus: 1
-            )
-        }
-
-        let standardOutputData = standardOutputPipe.fileHandleForReading.readDataToEndOfFile()
-        let standardErrorData = standardErrorPipe.fileHandleForReading.readDataToEndOfFile()
-
-        return PaceLocalCommandResult(
-            output: String(data: standardOutputData, encoding: .utf8) ?? "",
-            errorOutput: String(data: standardErrorData, encoding: .utf8) ?? "",
-            terminationStatus: process.terminationStatus
-        )
-    }
-
     static func findApplicationURL(named applicationName: String) -> URL? {
         let trimmedApplicationName = applicationName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedApplicationName.isEmpty else { return nil }

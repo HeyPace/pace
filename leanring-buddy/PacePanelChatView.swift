@@ -23,23 +23,56 @@ import SwiftUI
 
 struct PacePanelChatView: View {
     @ObservedObject var companionManager: CompanionManager
+    let isEmbeddedInLivingNotch: Bool
 
     @State private var draftMessageText: String = ""
     @FocusState private var isInputFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let panelWidth: CGFloat = 320
-    private let panelHeight: CGFloat = 460
+    init(
+        companionManager: CompanionManager,
+        isEmbeddedInLivingNotch: Bool = false
+    ) {
+        self.companionManager = companionManager
+        self.isEmbeddedInLivingNotch = isEmbeddedInLivingNotch
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider().background(DS.Colors.borderSubtle)
+            if isEmbeddedInLivingNotch == false {
+                header
+            }
+            turnStage
             transcript
-            Divider().background(DS.Colors.borderSubtle)
             inputRow
         }
-        .frame(width: panelWidth, height: panelHeight)
-        .background(DS.Colors.background)
+        .frame(
+            width: isEmbeddedInLivingNotch
+                ? PaceQuickPanelMetrics.width - 24
+                : PaceQuickPanelMetrics.width,
+            height: isEmbeddedInLivingNotch
+                ? PaceQuickPanelMetrics.height - 12
+                : PaceQuickPanelMetrics.height
+        )
+        .background(DS.Colors.surface)
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: isEmbeddedInLivingNotch ? 12 : DS.Radius.window,
+                style: .continuous
+            )
+        )
+        .overlay {
+            if isEmbeddedInLivingNotch == false {
+                RoundedRectangle(cornerRadius: DS.Radius.window, style: .continuous)
+                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+            }
+        }
+        .shadow(
+            color: Color.black.opacity(isEmbeddedInLivingNotch ? 0 : 0.46),
+            radius: isEmbeddedInLivingNotch ? 0 : 22,
+            x: 0,
+            y: isEmbeddedInLivingNotch ? 0 : 12
+        )
         .onAppear {
             companionManager.chatSession.loadHistory()
             isInputFocused = true
@@ -51,27 +84,84 @@ struct PacePanelChatView: View {
     private var header: some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(statusDotColor)
-                .frame(width: 8, height: 8)
-                .shadow(color: statusDotColor.opacity(0.6), radius: 4)
+                .fill(signalColorRole.color)
+                .frame(width: 7, height: 7)
+                .shadow(color: signalColorRole.color.opacity(0.5), radius: 5, x: 0, y: 2)
             Text("Pace")
-                .font(.system(size: 14, weight: .semibold))
+                .font(DS.Typography.bodyStrong)
                 .foregroundColor(DS.Colors.textPrimary)
-            Text(statusText)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(DS.Colors.textTertiary)
+
+            Text(companionManager.isOffDeviceTurnInFlight ? "Off-device" : "On this Mac")
+                .font(DS.Typography.captionStrong)
+                .foregroundColor(signalColorRole.color)
+                .help(boundaryHelpText)
 
             Spacer()
 
-            iconButton(systemName: "gearshape", help: "Settings — planner, voice, permissions, activity") {
+            iconButton(systemName: "gearshape", help: "Open Pace settings") {
                 PaceSettingsWindowManager.shared.show(companionManager: companionManager)
             }
+            .keyboardShortcut(",", modifiers: [.command])
             iconButton(systemName: "xmark", help: "Close") {
                 NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
             }
+            .keyboardShortcut(.escape, modifiers: [])
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .frame(height: 46)
+    }
+
+    private var turnStage: some View {
+        VStack(alignment: .leading, spacing: signalState == .ready ? 6 : 9) {
+            HStack {
+                Text(signalPresentation.label)
+                    .font(DS.Typography.sectionTitle)
+                    .foregroundStyle(DS.Colors.textPrimary)
+
+                Spacer()
+
+                if companionManager.allPermissionsGranted {
+                    Text(turnStageMetadata)
+                        .font(DS.Typography.captionStrong)
+                        .foregroundStyle(signalColorRole.color)
+                }
+            }
+
+            if showsActiveSignal {
+                PaceSignalView(
+                    state: signalState,
+                    isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
+                    audioPowerLevel: companionManager.currentAudioPowerLevel,
+                    lineCount: 1,
+                    colorRoleOverride: companionManager.nativeEffectiveSignalColorRoleOverride
+                )
+                .frame(height: 20)
+            }
+
+            if companionManager.allPermissionsGranted,
+               let currentTurnDetail {
+                Text(currentTurnDetail)
+                    .font(DS.Typography.callout)
+                    .foregroundStyle(DS.Colors.textSecondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+        .padding(.bottom, signalState == .ready ? 8 : 10)
+        .background(DS.Colors.surfaceInset.opacity(0.72))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(signalPresentation.accessibilityValue)
+        .accessibilityValue(currentTurnDetail ?? "")
+    }
+
+    private var showsActiveSignal: Bool {
+        switch signalState {
+        case .listening, .understanding, .awaitingApproval, .acting, .speaking:
+            return true
+        case .ready, .completed, .blocked, .failed:
+            return false
+        }
     }
 
     private func iconButton(
@@ -83,12 +173,13 @@ struct PacePanelChatView: View {
             Image(systemName: systemName)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(DS.Colors.textTertiary)
-                .frame(width: 22, height: 22)
-                .background(Circle().fill(Color.white.opacity(0.08)))
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(DS.Colors.surfaceRaised))
         }
         .buttonStyle(.plain)
         .pointerCursor()
         .help(help)
+        .accessibilityLabel(help)
     }
 
     // MARK: - Transcript
@@ -97,10 +188,10 @@ struct PacePanelChatView: View {
         ScrollViewReader { scrollProxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    if threadItems.isEmpty
-                        && inFlightStreamedText.isEmpty
-                        && liveSpeechDraft.isEmpty {
-                        emptyState.padding(.top, 48)
+                    if companionManager.allPermissionsGranted == false {
+                        permissionRecoveryState.padding(.top, 24)
+                    } else if companionManager.nativePanelPresentation.showsEmptyState {
+                        emptyState.padding(.top, 24)
                     } else {
                         ForEach(threadItems) { item in
                             switch item {
@@ -117,6 +208,16 @@ struct PacePanelChatView: View {
                 .padding(14)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .top) {
+                LinearGradient(
+                    colors: [DS.Colors.surfaceInset, DS.Colors.surfaceInset.opacity(0)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 16)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
             .onChange(of: companionManager.chatSession.messages.count) {
                 scrollToBottom(scrollProxy)
             }
@@ -140,20 +241,71 @@ struct PacePanelChatView: View {
         // (Color.clear when idle), so it's a stable scroll target across
         // messages, tool chips, the live bubble, and the streamed reply.
         if animated {
-            withAnimation(.easeOut(duration: 0.18)) { scrollProxy.scrollTo(Self.streamingAnchorID, anchor: .bottom) }
+            if reduceMotion {
+                scrollProxy.scrollTo(Self.streamingAnchorID, anchor: .bottom)
+            } else {
+                withAnimation(.easeOut(duration: DS.Motion.micro)) {
+                    scrollProxy.scrollTo(Self.streamingAnchorID, anchor: .bottom)
+                }
+            }
         } else {
             scrollProxy.scrollTo(Self.streamingAnchorID, anchor: .bottom)
         }
     }
 
     private var emptyState: some View {
-        VStack(spacing: 6) {
-            Text("Hold ⌃⌥ to talk")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(DS.Colors.textSecondary)
-            Text("…or type below.")
-                .font(.system(size: 12))
-                .foregroundColor(DS.Colors.textTertiary)
+        VStack(spacing: 14) {
+            VStack(spacing: 5) {
+                Text("Hold ⌃⌥ and speak naturally")
+                    .font(DS.Typography.bodyStrong)
+                    .foregroundColor(DS.Colors.textPrimary)
+                Text("or start with one useful request")
+                    .font(DS.Typography.callout)
+                    .foregroundColor(DS.Colors.textTertiary)
+            }
+
+            Button("Show what I can automate") {
+                companionManager.chatSession.submitUserMessage("What can you help me automate on this Mac?")
+            }
+            .buttonStyle(.plain)
+            .font(DS.Typography.captionStrong)
+            .foregroundStyle(DS.Colors.localSignal)
+            .padding(.horizontal, 12)
+            .frame(height: 30)
+            .background(DS.Colors.surfaceRaised)
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+            .pointerCursor()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var permissionRecoveryState: some View {
+        VStack(spacing: 14) {
+            VStack(spacing: 5) {
+                Text("Finish Pace setup")
+                    .font(DS.Typography.bodyStrong)
+                    .foregroundColor(DS.Colors.textPrimary)
+                Text("Voice and screen-aware actions need the remaining macOS permissions. You can still type below.")
+                    .font(DS.Typography.callout)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 300)
+            }
+
+            Button("Open Permissions") {
+                PaceSettingsWindowManager.shared.show(
+                    companionManager: companionManager,
+                    destination: .permissions
+                )
+            }
+            .buttonStyle(.plain)
+            .font(DS.Typography.captionStrong)
+            .foregroundStyle(DS.Colors.localSignal)
+            .padding(.horizontal, 12)
+            .frame(height: 30)
+            .background(DS.Colors.surfaceRaised)
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+            .pointerCursor()
         }
         .frame(maxWidth: .infinity)
     }
@@ -184,7 +336,7 @@ struct PacePanelChatView: View {
     /// completed/failed actions become chips (skip the transient "planned"
     /// record so each tool use shows once, as its result).
     private var threadItems: [ThreadItem] {
-        let messageItems = companionManager.chatSession.messages.map(ThreadItem.message)
+        let messageItems = companionManager.chatSession.userFacingMessages.map(ThreadItem.message)
         let toolItems = companionManager.recentActionResults
             .filter { $0.status == .completed || $0.status == .failed }
             .map(ThreadItem.tool)
@@ -198,19 +350,35 @@ struct PacePanelChatView: View {
         let chipText = actionRecord.detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? actionRecord.title
             : actionRecord.detail
-        return HStack(spacing: 6) {
-            Image(systemName: didFail ? "exclamationmark.triangle" : "wrench.and.screwdriver")
-                .font(.system(size: 9, weight: .semibold))
-            Text(chipText)
-                .font(.system(size: 11))
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
+        return VStack(spacing: 7) {
+            HStack(spacing: 6) {
+                Image(systemName: didFail ? "exclamationmark.triangle" : "wrench.and.screwdriver")
+                    .font(.system(size: 9, weight: .semibold))
+                Text(chipText)
+                    .font(DS.Typography.callout)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+            }
+
+            if didFail {
+                Button("Open Help & Diagnostics") {
+                    PaceSettingsWindowManager.shared.show(
+                        companionManager: companionManager,
+                        destination: .doctor
+                    )
+                }
+                .buttonStyle(.plain)
+                .font(DS.Typography.captionStrong)
+                .foregroundStyle(DS.Colors.localSignal)
+                .pointerCursor()
+            }
         }
-        .foregroundColor(didFail ? DS.Colors.warning : DS.Colors.textTertiary)
+        .foregroundColor(didFail ? DS.Colors.failure : DS.Colors.textSecondary)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(
-            Capsule(style: .continuous).fill(Color.white.opacity(0.05))
+            RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                .fill(DS.Colors.surfaceRaised)
         )
         .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -220,14 +388,14 @@ struct PacePanelChatView: View {
         return HStack {
             if isFromUser { Spacer(minLength: 32) }
             Text(message.body)
-                .font(.system(size: 13))
+                .font(DS.Typography.body)
                 .foregroundColor(DS.Colors.textPrimary)
                 .textSelection(.enabled)
                 .padding(.horizontal, 11)
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(isFromUser ? DS.Colors.accent.opacity(0.22) : Color.white.opacity(0.05))
+                        .fill(isFromUser ? DS.Colors.localSignal.opacity(0.20) : DS.Colors.surfaceRaised)
                 )
                 .frame(maxWidth: .infinity, alignment: isFromUser ? .trailing : .leading)
             if !isFromUser { Spacer(minLength: 32) }
@@ -239,13 +407,13 @@ struct PacePanelChatView: View {
         if !inFlightStreamedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             HStack {
                 Text(inFlightStreamedText)
-                    .font(.system(size: 13))
+                    .font(DS.Typography.body)
                     .foregroundColor(DS.Colors.textPrimary)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 8)
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.white.opacity(0.05))
+                            .fill(DS.Colors.surfaceRaised)
                     )
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Spacer(minLength: 32)
@@ -269,13 +437,13 @@ struct PacePanelChatView: View {
             HStack {
                 Spacer(minLength: 32)
                 Text(liveSpeechDraft)
-                    .font(.system(size: 13))
+                    .font(DS.Typography.body)
                     .foregroundColor(DS.Colors.textPrimary)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 8)
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(DS.Colors.accent.opacity(0.30))
+                            .fill(DS.Colors.localSignal.opacity(0.28))
                     )
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
@@ -292,31 +460,47 @@ struct PacePanelChatView: View {
         HStack(spacing: 8) {
             TextField("Message Pace…", text: $draftMessageText, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(DS.Typography.body)
                 .foregroundColor(DS.Colors.textPrimary)
-                .lineLimit(1...4)
+                .lineLimit(1...3)
                 .focused($isInputFocused)
                 .onSubmit(submitDraft)
                 .padding(.horizontal, 11)
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.06))
+                        .fill(DS.Colors.surfaceInset)
                         .overlay(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
                                 .stroke(DS.Colors.borderSubtle, lineWidth: 0.7)
                         )
                 )
 
-            Button(action: submitDraft) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundColor(isDraftEmpty ? DS.Colors.textTertiary : DS.Colors.accent)
+            if companionManager.voiceState == .idle {
+                Button(action: submitDraft) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(isDraftEmpty ? DS.Colors.textTertiary : DS.Colors.localSignal)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor(isEnabled: !isDraftEmpty)
+                .keyboardShortcut(.return, modifiers: [.command])
+                .disabled(isDraftEmpty)
+                .accessibilityLabel("Send message")
+            } else {
+                Button {
+                    companionManager.cancelCurrentTurnFromPanel()
+                } label: {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(DS.Colors.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .keyboardShortcut(.escape, modifiers: [.command])
+                .accessibilityLabel("Stop current request")
+                .help("Stop after the current completed action")
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .keyboardShortcut(.return, modifiers: [.command])
-            .disabled(isDraftEmpty)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -336,21 +520,46 @@ struct PacePanelChatView: View {
 
     // MARK: - Status
 
-    private var statusDotColor: Color {
-        switch companionManager.voiceState {
-        case .listening: return DS.Colors.accent
-        case .processing: return DS.Colors.warning
-        case .responding: return DS.Colors.accent
-        case .idle: return Color.green
-        }
+    private var signalState: PaceSignalState {
+        companionManager.nativeEffectiveSignalState
     }
 
-    private var statusText: String {
-        switch companionManager.voiceState {
-        case .listening: return "Listening"
-        case .processing: return "Thinking"
-        case .responding: return "Speaking"
-        case .idle: return "Ready"
+    private var signalPresentation: PaceSignalPresentation {
+        PaceSignalPresentation.resolve(
+            state: signalState,
+            isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
+            reduceMotion: reduceMotion
+        )
+    }
+
+    private var signalColorRole: PaceSignalColorRole {
+        companionManager.nativeEffectiveSignalColorRoleOverride
+            ?? signalPresentation.colorRole
+    }
+
+    private var turnStageMetadata: String {
+        if companionManager.isOffDeviceTurnInFlight {
+            return "Using enabled off-device model"
         }
+        return signalState == .ready ? "⌃⌥ to speak" : "Stays on this Mac"
+    }
+
+    private var boundaryHelpText: String {
+        companionManager.isOffDeviceTurnInFlight
+            ? "This request is using the off-device model you enabled."
+            : "This request is being processed on this Mac."
+    }
+
+    private var currentTurnDetail: String? {
+        if companionManager.allPermissionsGranted == false {
+            return "Finish setup for voice and screen-aware actions"
+        }
+        if !liveSpeechDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return liveSpeechDraft
+        }
+        if companionManager.currentTurnHUDState.status != .idle {
+            return companionManager.currentTurnHUDState.detail
+        }
+        return nil
     }
 }

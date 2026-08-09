@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "identifier": "pause-music-and-lower-volume",
+  "name": "pause music and lower volume",
+  "description": "Pauses Apple Music and lowers the system volume by three steps.",
+  "category": "media",
+  "invocationPhrases": ["quiet things down", "pause the music and lower the volume", "stop the music and turn it down"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "music",
+          "arguments": {
+            "command": "pause"
+          }
+        }
+      ]
+    },
+    {
+      "toolCalls": [
+        {
+          "tool": "volume",
+          "arguments": {
+            "direction": "down",
+            "steps": 3
+          }
+        }
+      ]
+    }
+  ]
+}

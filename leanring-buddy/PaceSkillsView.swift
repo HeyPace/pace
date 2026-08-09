@@ -34,6 +34,7 @@ struct PaceSkillsView: View {
     // and are read-only.
     @State private var userTaughtSkills: [PaceSkillFile] = []
     @State private var bundledSkills: [PaceSkillFile] = []
+    @State private var userPrograms: [PaceProgramDefinition] = []
 
     // "Teach a skill" form draft state (the typed sibling of the voice path).
     @State private var isTeachFormExpanded: Bool = false
@@ -43,22 +44,21 @@ struct PaceSkillsView: View {
     @State private var teachFeedbackMessage: String? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            sectionHeader
-            searchField
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    yourSkillsSection
-                    localSkillsSection
-                    if !configuredMCPServerNames.isEmpty {
-                        mcpSkillsSection
-                    }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 18) {
+                sectionHeader
+                searchField
+                yourSkillsSection
+                localSkillsSection
+                if !configuredMCPServerNames.isEmpty {
+                    mcpSkillsSection
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
             }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(DS.Colors.surface)
         .onAppear {
             configuredMCPServerNames = Array(PaceMCPServerRegistry
                 .loadConfiguredServers()
@@ -72,21 +72,20 @@ struct PaceSkillsView: View {
 
     private var sectionHeader: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Skills")
-                .font(.system(size: 22, weight: .semibold))
-            Text("Everything Pace can run — including skills you teach it. Teach a skill by describing it here or by saying \u{201C}teach a skill\u{2026}\u{201D} out loud. Local skills are built-in tools; MCP servers add more via stdio bridges configured at ~/.config/pace/mcp-servers.json.")
-                .font(.system(size: 13))
-                .foregroundColor(.secondary)
+            Text("Automations")
+                .font(DS.Typography.windowTitle)
+                .tracking(-0.45)
+                .foregroundStyle(DS.Colors.textPrimary)
+            Text("Teach Pace a repeatable action in plain language, or browse what it can already run on this Mac.")
+                .font(DS.Typography.body)
+                .foregroundStyle(DS.Colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 24)
     }
 
     private var searchField: some View {
-        TextField("Search skills…", text: $searchQuery)
+        TextField("Search automations…", text: $searchQuery)
             .textFieldStyle(.roundedBorder)
-            .padding(.horizontal, 24)
     }
 
     // MARK: - Your skills (taught .skill.md skills)
@@ -95,14 +94,14 @@ struct PaceSkillsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Your skills")
+                    Text("Your automations")
                         .font(.system(size: 14, weight: .semibold))
-                    Text("Multi-step tasks you taught Pace. Say \u{201C}run <name>\u{201D} to execute one.")
+                    Text("Repeatable actions you taught Pace. Say a saved trigger phrase to run one.")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 }
                 Spacer()
-                Button(isTeachFormExpanded ? "Cancel" : "Teach a skill") {
+                Button(isTeachFormExpanded ? "Cancel" : "Teach an automation") {
                     withAnimation { isTeachFormExpanded.toggle() }
                     if !isTeachFormExpanded { clearTeachDraft() }
                 }
@@ -115,14 +114,20 @@ struct PaceSkillsView: View {
             }
 
             VStack(spacing: 0) {
+                ForEach(filteredUserPrograms(), id: \.identifier) { program in
+                    programmedSkillRow(program: program)
+                    Divider().opacity(0.25)
+                }
                 ForEach(filteredUserSkills(), id: \.slug) { skill in
                     taughtSkillRow(skill: skill, isDeletable: true)
                     Divider().opacity(0.25)
                 }
-                if filteredUserSkills().isEmpty && !isTeachFormExpanded {
+                if filteredUserPrograms().isEmpty
+                    && filteredUserSkills().isEmpty
+                    && !isTeachFormExpanded {
                     Text(searchQuery.isEmpty
-                         ? "No taught skills yet. Tap \u{201C}Teach a skill\u{201D} or say \u{201C}teach a skill\u{2026}\u{201D} out loud."
-                         : "No taught skills match \u{201C}\(searchQuery)\u{201D}.")
+                         ? "No taught automations yet. Describe one here or ask Pace to create one."
+                         : "No taught automations match \u{201C}\(searchQuery)\u{201D}.")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .padding(.vertical, 12)
@@ -130,7 +135,7 @@ struct PaceSkillsView: View {
             }
 
             if !filteredBundledSkills().isEmpty {
-                Text("Built-in skills")
+                Text("Built-in automations")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.secondary)
                     .padding(.top, 6)
@@ -146,7 +151,7 @@ struct PaceSkillsView: View {
 
     private var teachSkillForm: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField("Skill name (e.g. Start My Day)", text: $teachDraftName)
+            TextField("Automation name (e.g. Start My Day)", text: $teachDraftName)
                 .textFieldStyle(.roundedBorder)
             TextField("Trigger phrase — optional (e.g. start my day)", text: $teachDraftTrigger)
                 .textFieldStyle(.roundedBorder)
@@ -167,7 +172,7 @@ struct PaceSkillsView: View {
                         .foregroundColor(.secondary)
                 }
                 Spacer()
-                Button("Save skill") { saveTaughtSkillFromForm() }
+                Button("Save automation") { saveTaughtSkillFromForm() }
                     .buttonStyle(.borderedProminent)
                     .pointerCursor()
                     .disabled(
@@ -226,8 +231,58 @@ struct PaceSkillsView: View {
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
-                .help("Delete this skill")
+                .help("Delete this automation")
             }
+        }
+        .padding(.vertical, 10)
+    }
+
+    private func programmedSkillRow(program: PaceProgramDefinition) -> some View {
+        let maximumActionStepCount = PaceProgramValidator
+            .worstCaseExpandedActionSteps(for: program)
+        return HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(program.name)
+                        .font(.system(size: 13, weight: .medium))
+                    Text("deterministic program")
+                        .font(.system(size: 10, weight: .medium))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor.opacity(0.14))
+                        .clipShape(Capsule())
+                }
+                Text(program.description)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    Image(systemName: "point.3.connected.trianglepath.dotted")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    Text("up to \(maximumActionStepCount) action step\(maximumActionStepCount == 1 ? "" : "s")")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                    if let invocationPhrase = program.invocationPhrases.first {
+                        Image(systemName: "quote.bubble")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                        Text("“\(invocationPhrase)”")
+                            .font(.system(size: 12, design: .serif))
+                            .italic()
+                            .foregroundColor(.primary)
+                    }
+                }
+            }
+            Spacer()
+            Button(role: .destructive) {
+                deleteProgrammedSkill(program)
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .help("Delete this programmed automation")
         }
         .padding(.vertical, 10)
     }
@@ -236,6 +291,20 @@ struct PaceSkillsView: View {
 
     private func filteredUserSkills() -> [PaceSkillFile] {
         filterTaughtSkills(userTaughtSkills)
+    }
+
+    private func filteredUserPrograms() -> [PaceProgramDefinition] {
+        let normalizedQuery = searchQuery
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !normalizedQuery.isEmpty else { return userPrograms }
+        return userPrograms.filter { program in
+            program.name.lowercased().contains(normalizedQuery)
+                || program.description.lowercased().contains(normalizedQuery)
+                || program.invocationPhrases.contains(where: {
+                    $0.lowercased().contains(normalizedQuery)
+                })
+        }
     }
 
     private func filteredBundledSkills() -> [PaceSkillFile] {
@@ -255,6 +324,7 @@ struct PaceSkillsView: View {
     }
 
     private func reloadTaughtSkills() {
+        userPrograms = PaceUserProgramStore().listValidPrograms()
         let loadedUserSkills = PaceSkillLoader.listUserSkills()
         let userSkillSlugs = Set(loadedUserSkills.map(\.slug))
         userTaughtSkills = loadedUserSkills
@@ -298,11 +368,16 @@ struct PaceSkillsView: View {
         reloadTaughtSkills()
     }
 
+    private func deleteProgrammedSkill(_ program: PaceProgramDefinition) {
+        try? PaceUserProgramStore().delete(identifier: program.identifier)
+        reloadTaughtSkills()
+    }
+
     // MARK: - Local skills
 
     private var localSkillsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Local skills")
+            Text("Built-in actions")
                 .font(.system(size: 14, weight: .semibold))
             Text("On-device. No network. Always available.")
                 .font(.system(size: 12))
@@ -314,7 +389,7 @@ struct PaceSkillsView: View {
                     Divider().opacity(0.25)
                 }
                 if filteredLocalTools().isEmpty {
-                    Text("No skills match \"\(searchQuery)\".")
+                    Text("No actions match \"\(searchQuery)\".")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .padding(.vertical, 12)
@@ -413,7 +488,7 @@ struct PaceSkillsView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("MCP servers")
                 .font(.system(size: 14, weight: .semibold))
-            Text("Configured at ~/.config/pace/mcp-servers.json. Each server adds external skills via the Model Context Protocol.")
+            Text("Configured at ~/.config/pace/mcp-servers.json. Each server adds external actions through the Model Context Protocol.")
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
 

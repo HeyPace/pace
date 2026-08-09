@@ -666,11 +666,14 @@ extension CompanionManager {
     /// generated actions.
     func handleFastLocalActionPath(
         transcript: String,
-        fastActionParseResult: PaceFastActionParseResult
+        fastActionParseResult: PaceFastActionParseResult,
+        shouldRecordConversationTurn: Bool = true
     ) {
         let spokenText = fastActionParseResult.spokenText
         currentTurnHUDState = .acting(fastActionParseResult.executionPlan.approvalSummary)
-        recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
+        if shouldRecordConversationTurn {
+            recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
+        }
 
         responseOverlayManager.showOverlayAndBeginStreaming()
         responseOverlayManager.updateStreamingText(spokenText)
@@ -883,6 +886,20 @@ extension CompanionManager {
         }
     }
 
+    /// Stops the current turn without closing the conversation surface. A
+    /// completed system action is never rolled back; cancellation only prevents
+    /// the remaining planner, speech, and follow-up steps from continuing.
+    func cancelCurrentTurnFromPanel() {
+        currentResponseTask?.cancel()
+        currentResponseTask = nil
+        ttsClient.stopPlayback()
+        streamingSentenceTTSPipeline.resetForNewTurn()
+        clearLastSpokenReplyState()
+        responseOverlayManager.finishStreaming()
+        voiceState = .idle
+        currentTurnHUDState = .idle
+    }
+
     func sendTranscriptToPlannerWithScreenshotAsync(transcript: String) async {
         currentResponseTask?.cancel()
         ttsClient.stopPlayback()
@@ -894,7 +911,7 @@ extension CompanionManager {
         // Tuition-mode annotations live until the next user turn or the
         // 30 s auto-fade. PTT-release IS the next user turn, so wipe
         // them here BEFORE any routing branch — every fast path
-        // (watch-mode, recipe, memory, fast-action) clears them too.
+        // (watch-mode, automation, memory, fast-action) clears them too.
         annotationOverlayController.clearOnNextUserTurn()
 
         // Idle gate: if the thread sat quiet past the configured
@@ -963,9 +980,47 @@ extension CompanionManager {
             return
         }
 
-        if let recipeCommand = PaceRecipeCommandParser.parse(transcript) {
-            print("📦 Recipe voice command: \(recipeCommand)")
-            handleRecipeCommand(recipeCommand, transcript: transcript)
+        // Unified reusable-work catalog. This exact-name route runs before
+        // source-specific Shortcut, flow, and skill parsers so "run automation
+        // X" cannot be swallowed by the broad flow "run" prefix.
+        if let automationCatalogCommand = PaceAutomationCatalogCommandParser.parse(transcript) {
+            print("⚙️ Automation catalog voice command: \(automationCatalogCommand)")
+            await handleAutomationCatalogCommand(automationCatalogCommand, transcript: transcript)
+            return
+        }
+
+        // Explicit macOS Shortcut commands must run before the flow parser:
+        // PaceFlowCommandParser deliberately accepts a broad bare "run …"
+        // prefix and would otherwise consume "run my Morning shortcut."
+        // The Shortcuts catalog remains local and never enters a prompt.
+        if let shortcutCommand = PaceShortcutCommandParser.parse(transcript) {
+            print("⚙️ Shortcut automation voice command: \(shortcutCommand)")
+            await handleShortcutAutomationCommand(shortcutCommand, transcript: transcript)
+            return
+        }
+
+        if let creationCommand = PaceAutomationCreationCommandParser.parse(transcript) {
+            print("⚙️ Natural-language automation creation command")
+            handleCreateAutomationCommand(creationCommand, transcript: transcript)
+            return
+        }
+
+        // Skill creation is also an explicit management command. Route it
+        // before catalog matching so "teach a skill that ..." can never be
+        // mistaken for a request to run an existing skill.
+        if let skillCreationCommand = PaceSkillCommandParser.parse(transcript),
+           case .create = skillCreationCommand {
+            print("📋 Skill creation command")
+            handleSkillCommand(skillCreationCommand, transcript: transcript)
+            return
+        }
+
+        // Ordinary completed transcript -> conservative local catalog match.
+        // Both typed chat and finalized voice recognition use this same seam.
+        // Weak/ambiguous outcomes return false and preserve every existing
+        // parser/classifier/planner fallback below.
+        if activeSkillRun == nil,
+           await dispatchNaturalLanguageAutomationIfConfident(transcript: transcript) {
             return
         }
 
@@ -2540,10 +2595,11 @@ extension CompanionManager {
         switch command {
         case .list:
             let skills = PaceSkillLoader.loadAllSkills()
-            if skills.isEmpty {
+            let programs = PaceUserProgramStore().listValidPrograms()
+            if skills.isEmpty && programs.isEmpty {
                 Task { try? await ttsClient.speakText("No skills installed."); voiceState = .idle }
             } else {
-                let names = skills.map(\.name).joined(separator: ", ")
+                let names = (programs.map(\.name) + skills.map(\.name)).joined(separator: ", ")
                 Task { try? await ttsClient.speakText("Available skills: \(names)."); voiceState = .idle }
             }
         case .run(let slug, let name):
@@ -2554,14 +2610,14 @@ extension CompanionManager {
                 in: skills
             ) {
                 // Enforce `requiredPreferences` at RUN time (deterministic,
-                // no LLM). Mirrors the recipe installer's gate + wording —
+                // no LLM). Mirrors typed automation preflight + wording —
                 // both read through `PaceLocalMemoryStore`, one source of
                 // truth. A skill that needs a preference the user hasn't set
                 // must not run against empty state.
                 switch PaceSkillLoader.preflightRequiredPreferences(for: skill) {
                 case .missingPreference(let requiredPreferenceKey):
-                    // Same phrasing as PaceRecipeLibrary's missing-preference
-                    // refusal in handleRecipeCommand.
+                    // Same phrasing as typed automation missing-preference
+                    // refusal.
                     PaceSkillRunJournal.shared.recordFailed(
                         runId: PaceSkillRunJournal.shared.recordStarted(
                             skillSlug: skill.slug,
@@ -2606,25 +2662,161 @@ extension CompanionManager {
                 Task { try? await ttsClient.speakText("No skill called \(name) was found."); voiceState = .idle }
             }
         case .create(let rawDescription):
-            handleTeachSkillCommand(rawDescription: rawDescription)
+            handleTeachSkillCommand(rawDescription: rawDescription, transcript: transcript)
         }
     }
 
-    /// Teach a new skill from a free-form spoken description. Structures the
-    /// description into a `PaceSkillFile` with a privacy-pinned LOCAL planner
-    /// (never the CLI bridge or Direct API tier — teaching stays on-device
-    /// even for cloud-tier users, same pin as meeting-notes synthesis), then
-    /// persists it to the user skills directory. Fails soft: if the planner is
-    /// unavailable or returns junk, a deterministic splitter takes over, so
-    /// teaching never hard-fails.
-    func handleTeachSkillCommand(rawDescription: String) {
+    func handleTeachSkillCommand(rawDescription: String, transcript: String) {
+        handleCreateReusableWork(
+            rawDescription: rawDescription,
+            transcript: transcript,
+            setupSpokenText: "let me find the safest way to teach that."
+        )
+    }
+
+    func handleCreateAutomationCommand(
+        _ command: PaceAutomationCreationCommand,
+        transcript: String
+    ) {
+        handleCreateReusableWork(
+            rawDescription: command.rawDescription,
+            transcript: transcript,
+            setupSpokenText: "let me structure and validate that."
+        )
+    }
+
+    /// Creates the least-powerful complete reusable representation. Authoring
+    /// can use a privacy-pinned local model, but every persisted deterministic
+    /// representation must validate before it gains access to the existing
+    /// action pipeline.
+    func handleCreateReusableWork(
+        rawDescription: String,
+        transcript: String,
+        setupSpokenText: String
+    ) {
         Task { @MainActor in
-            try? await ttsClient.speakText("let me set that up.")
+            try? await ttsClient.speakText(setupSpokenText)
 
             let privacyPinnedLocalPlanner = BuddyPlannerClientFactory
-                .makeLocalOnlyPlannerForPrivacyPinnedFeatures()
+                .makeLocalOnlyTextPlannerForPrivacyPinnedFeatures()
 
-            var taughtSkill: PaceSkillFile?
+            var structuredDefinition: PaceAutomationDefinition?
+            do {
+                let plannerResult = try await privacyPinnedLocalPlanner.generateResponseStreaming(
+                    images: [],
+                    systemPrompt: PaceNaturalLanguageAutomationStructurer.systemPrompt,
+                    conversationHistory: [],
+                    userPrompt: rawDescription,
+                    onTextChunk: { _ in }
+                )
+                structuredDefinition = PaceNaturalLanguageAutomationStructurer
+                    .definition(fromStructuredJSON: plannerResult.text)
+            } catch {
+                structuredDefinition = nil
+            }
+
+            if let structuredDefinition {
+                let discoveredCatalog = await discoverAutomationCatalog()
+                let existingNormalizedNames = Set(discoveredCatalog.catalog.entries.map {
+                    PaceAutomationCatalog.normalizedName($0.name)
+                })
+                let existingIdentifiers = Set(
+                    discoveredCatalog.typedDefinitions.map(\.identifier)
+                        + discoveredCatalog.programs.map(\.identifier)
+                        + discoveredCatalog.catalog.entries.map {
+                            PaceFlowStore.slug(for: $0.name)
+                        }
+                )
+                do {
+                    try PaceUserAutomationStore().save(
+                        structuredDefinition,
+                        existingNormalizedNames: existingNormalizedNames,
+                        existingIdentifiers: existingIdentifiers
+                    )
+                    handleImmediateLocalModeResponse(
+                        transcript: transcript,
+                        spokenText: "saved \(structuredDefinition.name) as a deterministic local automation. you can ask for it naturally now.",
+                        shouldRecordConversationTurn: false
+                    )
+                    return
+                } catch PaceUserAutomationStoreError.nameCollision(let name) {
+                    handleImmediateLocalModeResponse(
+                        transcript: transcript,
+                        spokenText: "you already have an automation called \(name), so i didn't overwrite it.",
+                        shouldRecordConversationTurn: false
+                    )
+                    return
+                } catch PaceUserAutomationStoreError.identifierCollision(_) {
+                    handleImmediateLocalModeResponse(
+                        transcript: transcript,
+                        spokenText: "that automation conflicts with an existing identifier, so i didn't overwrite it.",
+                        shouldRecordConversationTurn: false
+                    )
+                    return
+                } catch {
+                    print("⚠️ Could not save structured automation: \(error)")
+                }
+            }
+
+            var structuredProgram: PaceProgramDefinition?
+            do {
+                let plannerResult = try await privacyPinnedLocalPlanner.generateResponseStreaming(
+                    images: [],
+                    systemPrompt: PaceNaturalLanguageProgramStructurer.systemPrompt,
+                    conversationHistory: [],
+                    userPrompt: rawDescription,
+                    onTextChunk: { _ in }
+                )
+                structuredProgram = PaceNaturalLanguageProgramStructurer
+                    .program(fromStructuredJSON: plannerResult.text)
+            } catch {
+                structuredProgram = nil
+            }
+
+            if let structuredProgram {
+                let discoveredCatalog = await discoverAutomationCatalog()
+                let existingNormalizedNames = Set(discoveredCatalog.catalog.entries.map {
+                    PaceAutomationCatalog.normalizedName($0.name)
+                })
+                let existingIdentifiers = Set(
+                    discoveredCatalog.typedDefinitions.map(\.identifier)
+                        + discoveredCatalog.programs.map(\.identifier)
+                        + discoveredCatalog.catalog.entries.map {
+                            PaceFlowStore.slug(for: $0.name)
+                        }
+                )
+                do {
+                    try PaceUserProgramStore().save(
+                        structuredProgram,
+                        existingNormalizedNames: existingNormalizedNames,
+                        existingIdentifiers: existingIdentifiers
+                    )
+                    handleImmediateLocalModeResponse(
+                        transcript: transcript,
+                        spokenText: "saved \(structuredProgram.name) as a deterministic Pace Program. it will run locally without a model.",
+                        shouldRecordConversationTurn: false
+                    )
+                    return
+                } catch PaceUserProgramStoreError.nameCollision(let name) {
+                    handleImmediateLocalModeResponse(
+                        transcript: transcript,
+                        spokenText: "you already have an automation called \(name), so i didn't overwrite it.",
+                        shouldRecordConversationTurn: false
+                    )
+                    return
+                } catch PaceUserProgramStoreError.identifierCollision(_) {
+                    handleImmediateLocalModeResponse(
+                        transcript: transcript,
+                        spokenText: "that program conflicts with an existing identifier, so i didn't overwrite it.",
+                        shouldRecordConversationTurn: false
+                    )
+                    return
+                } catch {
+                    print("⚠️ Could not save structured program: \(error)")
+                }
+            }
+
+            var fallbackSkill: PaceSkillFile?
             do {
                 let plannerResult = try await privacyPinnedLocalPlanner.generateResponseStreaming(
                     images: [],
@@ -2633,39 +2825,58 @@ extension CompanionManager {
                     userPrompt: rawDescription,
                     onTextChunk: { _ in }
                 )
-                taughtSkill = PaceSkillLoader.skillFromStructuredJSON(
+                fallbackSkill = PaceSkillLoader.skillFromStructuredJSON(
                     plannerResult.text,
                     fallbackName: "Custom Skill"
                 )
             } catch {
-                taughtSkill = nil
+                fallbackSkill = nil
             }
-
-            // Deterministic fallback covers planner-offline and junk responses.
-            if taughtSkill == nil {
-                taughtSkill = PaceSkillLoader.structureSkillDeterministically(from: rawDescription)
-            }
-
-            guard let skillToSave = taughtSkill, !skillToSave.steps.isEmpty else {
-                try? await ttsClient.speakText(
-                    "i couldn't turn that into a skill. try describing the steps one by one."
+            if fallbackSkill == nil {
+                fallbackSkill = PaceSkillLoader.structureSkillDeterministically(
+                    from: rawDescription
                 )
-                voiceState = .idle
+            }
+
+            guard let fallbackSkill, !fallbackSkill.steps.isEmpty else {
+                handleImmediateLocalModeResponse(
+                    transcript: transcript,
+                    spokenText: "i couldn't represent that safely. describe the steps and any trigger phrase more explicitly.",
+                    shouldRecordConversationTurn: false
+                )
+                return
+            }
+
+            let discoveredCatalog = await discoverAutomationCatalog()
+            let normalizedFallbackSkillName = PaceAutomationCatalog.normalizedName(
+                fallbackSkill.name
+            )
+            let hasSkillNameCollision = discoveredCatalog.catalog.entries.contains { entry in
+                PaceAutomationCatalog.normalizedName(entry.name) == normalizedFallbackSkillName
+            }
+            guard !hasSkillNameCollision else {
+                handleImmediateLocalModeResponse(
+                    transcript: transcript,
+                    spokenText: "you already have a skill called \(fallbackSkill.name), so i didn't overwrite it.",
+                    shouldRecordConversationTurn: false
+                )
                 return
             }
 
             do {
-                try PaceSkillLoader.save(skillToSave)
-                let stepCount = skillToSave.steps.count
-                try? await ttsClient.speakText(
-                    "saved \(skillToSave.name) with \(stepCount) step\(stepCount == 1 ? "" : "s"). say run \(skillToSave.name) anytime."
+                try PaceSkillLoader.save(fallbackSkill)
+                handleImmediateLocalModeResponse(
+                    transcript: transcript,
+                    spokenText: "saved \(fallbackSkill.name) as a flexible skill. it will use the local planner when it runs.",
+                    shouldRecordConversationTurn: false
                 )
             } catch {
-                try? await ttsClient.speakText(
-                    "i built the \(skillToSave.name) skill but couldn't save it."
+                handleImmediateLocalModeResponse(
+                    transcript: transcript,
+                    spokenText: "i structured that as a skill but couldn't save it.",
+                    shouldRecordConversationTurn: false
                 )
             }
-            voiceState = .idle
         }
     }
 }

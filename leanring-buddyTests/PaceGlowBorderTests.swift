@@ -36,14 +36,24 @@ struct PaceGlowBorderTests {
 
     // MARK: - Preference
 
-    /// The glow border preference key exists and defaults to true.
+    /// The glow border is opt-in so Pace never outlines every app by default.
     @Test
-    func glowBorderPreferenceDefaultsTrue() {
-        // Reset to default by reading with default=true.
-        let value = PaceUserPreferencesStore.bool(.isGlowBorderEnabled, default: true)
-        // The stored value may be true or the default; either way
-        // the key exists.
-        #expect(value == true || value == false)
+    func glowBorderDefaultsOff() {
+        #expect(PaceGlowBorderDefaults.isEnabled == false)
+    }
+
+    /// Future screen-activity glow states must remain visually subordinate
+    /// to the notch, while deliberate teaching annotations stay topmost.
+    @Test
+    func glowBorderCannotCoverLivingNotch() {
+        #expect(
+            PaceWindowLayering.screenActivityGlow.rawValue
+                < PaceWindowLayering.livingNotch.rawValue
+        )
+        #expect(
+            PaceWindowLayering.livingNotch.rawValue
+                < PaceWindowLayering.teachingOverlay.rawValue
+        )
     }
 
     // MARK: - Helper

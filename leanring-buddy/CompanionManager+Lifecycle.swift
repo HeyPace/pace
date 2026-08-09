@@ -138,6 +138,12 @@ extension CompanionManager {
     func start() {
         refreshAllPermissions()
         loadPersistedToolCallDebugRecords()
+        // Warm the local Shortcuts names asynchronously. Natural transcript
+        // routing reads only the fresh cache so a first utterance can never
+        // inherit the CLI's ten-second timeout.
+        Task { @MainActor in
+            _ = await PaceShortcutsAutomationProvider.shared.catalog()
+        }
         // Mascot mode suppresses the whole cursor overlay window — but the
         // tuition-annotation layer LIVES in that window, so a planner
         // `draw_annotation` would render into a hidden panel and the user
@@ -271,7 +277,7 @@ extension CompanionManager {
         // Glow border: show on all screens once onboarded. The border
         // is click-through and sits below the cursor overlay, so it
         // doesn't interfere with interaction. Gated by the
-        // `isGlowBorderEnabled` preference (default ON).
+        // `isGlowBorderEnabled` preference (default OFF).
         if hasCompletedOnboarding {
             glowBorderManager.show(onScreens: NSScreen.screens, companionManager: self)
         }

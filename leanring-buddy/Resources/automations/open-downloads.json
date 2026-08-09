@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "identifier": "open-downloads",
+  "name": "open downloads",
+  "description": "Opens the current user's Downloads folder in Finder.",
+  "category": "files",
+  "invocationPhrases": ["show my downloads", "open my downloads folder", "take me to downloads"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "finder",
+          "arguments": {
+            "path": "~/Downloads",
+            "action": "open"
+          }
+        }
+      ]
+    }
+  ]
+}

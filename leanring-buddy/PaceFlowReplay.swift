@@ -10,7 +10,7 @@
 //  unit-tested in isolation and re-used wherever they make sense.
 //
 //  - `PaceRecordedFlow` / `PaceRecordedStep`: the on-disk schema.
-//    Schema-identical to the bundled recipe JSON shape.
+//    Stable JSON schema for user-recorded flows.
 //  - `PaceFlowCommand` / `PaceFlowCommandParser`: voice-side parser
 //    that routes "remember this flow as …" / "stop recording" / "run
 //    …" / "delete the flow …" before the planner.

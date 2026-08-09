@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "identifier": "brain-dump-note",
+  "name": "brain dump note",
+  "description": "Creates an Apple Note titled Brain dump with inbox, questions, and next-actions sections.",
+  "category": "capture",
+  "invocationPhrases": ["capture a brain dump", "get these thoughts out of my head", "make a brain dump note"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "notes",
+          "arguments": {
+            "action": "create",
+            "title": "Brain dump",
+            "body": "Inbox\n- \n\nQuestions\n- \n\nNext actions\n- "
+          }
+        }
+      ]
+    }
+  ]
+}

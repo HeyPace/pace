@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "identifier": "decision-log-note",
+  "name": "decision log note",
+  "description": "Creates an Apple Note with decision, context, options, rationale, and follow-up sections.",
+  "category": "capture",
+  "invocationPhrases": ["log a decision", "make a decision record", "capture this decision"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "notes",
+          "arguments": {
+            "action": "create",
+            "title": "Decision log",
+            "body": "Decision\n\nContext\n\nOptions considered\n- \n\nRationale\n\nFollow-up\n- "
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "identifier": "end-of-day-reset",
+  "name": "end of day reset",
+  "description": "Opens Calendar and creates a reminder to review tomorrow's calendar.",
+  "category": "shutdown",
+  "invocationPhrases": ["wrap up my day", "do my end of day reset", "help me close out the day"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "open_app",
+          "arguments": {
+            "app": "Calendar"
+          }
+        }
+      ]
+    },
+    {
+      "toolCalls": [
+        {
+          "tool": "reminder",
+          "arguments": {
+            "title": "Review tomorrow's calendar"
+          }
+        }
+      ]
+    }
+  ]
+}

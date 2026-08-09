@@ -136,8 +136,8 @@ extension CompanionManager {
 
         if let smokeAutoCancelAfter {
             DispatchQueue.main.asyncAfter(deadline: .now() + smokeAutoCancelAfter) {
-                alert.window.close()
-                NSApp.abortModal()
+                NSApp.stopModal(withCode: .alertFirstButtonReturn)
+                alert.window.orderOut(nil)
             }
         }
 
@@ -160,6 +160,13 @@ extension CompanionManager {
         ])
         return requestUserApprovalForActionPlan(
             syntheticActionPlan,
+            preflightIssues: [
+                PaceToolPreflightIssue(
+                    severity: .blocking,
+                    title: "Synthetic approval smoke",
+                    repairHint: "Cancel this prompt. No action will run."
+                )
+            ],
             smokeAutoCancelAfter: 0.5
         )
     }

@@ -8,7 +8,7 @@
 //
 //  Color mapping matches PaceMenuBarOverlay's activeAccentColor so
 //  the border and the menu-bar capsule stay in sync:
-//    idle       → dim cyan (barely visible, "alive but waiting")
+//    idle       → hidden
 //    listening  → green
 //    processing → blue
 //    responding → purple
@@ -18,11 +18,15 @@ import AppKit
 import Combine
 import SwiftUI
 
+enum PaceGlowBorderDefaults {
+    static let isEnabled = false
+}
+
 // MARK: - Window
 
 /// Transparent, click-through borderless window that renders only the
-/// glow border. Sits one level below the cursor overlay (which uses
-/// `.screenSaver`) so the cursor buddy always paints on top.
+/// glow border. It sits below the Living Notch so an opt-in screen-activity
+/// signal can never paint over Pace's primary product surface.
 class GlowBorderWindow: NSWindow {
     init(screen: NSScreen) {
         super.init(
@@ -34,9 +38,7 @@ class GlowBorderWindow: NSWindow {
 
         self.isOpaque = false
         self.backgroundColor = .clear
-        // One notch below the cursor overlay's .screenSaver level so
-        // the cursor buddy always renders above the glow.
-        self.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue - 1)
+        self.level = PaceWindowLayering.screenActivityGlow
         self.ignoresMouseEvents = true
         self.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         self.isReleasedWhenClosed = false
@@ -82,12 +84,12 @@ struct GlowBorderView: View {
         }
     }
 
-    /// Border opacity by state. Idle is barely visible; active states
-    /// are more prominent but still subtle.
+    /// Border opacity by state. Idle stays fully transparent so Pace
+    /// never leaves a persistent outline around every app.
     private var opacity: Double {
         switch voiceState {
         case .idle:
-            return 0.15
+            return 0
         case .listening:
             return 0.55
         case .processing:
@@ -148,7 +150,10 @@ final class GlowBorderManager {
     private var isEnabled: Bool = true
 
     init() {
-        isEnabled = PaceUserPreferencesStore.bool(.isGlowBorderEnabled, default: true)
+        isEnabled = PaceUserPreferencesStore.bool(
+            .isGlowBorderEnabled,
+            default: PaceGlowBorderDefaults.isEnabled
+        )
     }
 
     /// Show glow border windows on all screens and begin observing

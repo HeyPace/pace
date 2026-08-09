@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "identifier": "weekly-review-note",
+  "name": "weekly review note",
+  "description": "Creates an Apple Note for reflecting on the past week, with wins, blockers, and next-week sections.",
+  "category": "work",
+  "invocationPhrases": ["help me review my week", "make a weekly review", "set up my weekly review note"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "notes",
+          "arguments": {
+            "action": "create",
+            "title": "Weekly review",
+            "body": "Wins\n- \n\nBlockers\n- \n\nNext week\n- "
+          }
+        }
+      ]
+    }
+  ]
+}

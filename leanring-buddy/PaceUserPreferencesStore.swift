@@ -104,8 +104,8 @@ enum PaceUserPreferenceKey: String {
     /// Screen-edge glow border that shifts color with the agent's
     /// voice state (listening → green, processing → blue, responding →
     /// purple). Inspired by ORB's glow border phase indicator. Default
-    /// ON — it's subtle and helps users know what Pace is doing at a
-    /// glance without looking at the menu bar.
+    /// OFF because the notch is Pace's primary state surface and an
+    /// always-present display outline is visually distracting.
     case isGlowBorderEnabled
     /// Meeting mode: captures system audio via ScreenCaptureKit for
     /// live transcription and action item extraction. Inspired by

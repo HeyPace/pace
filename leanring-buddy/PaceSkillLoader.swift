@@ -2,9 +2,8 @@
 //  PaceSkillLoader.swift
 //  leanring-buddy
 //
-//  Loads common .skill.md files and converts them to PaceRecordedFlow
-//  recipes so natural-language procedures can run through Pace's
-//  existing planner and action pipeline.
+//  Loads common .skill.md files so natural-language procedures can run
+//  through Pace's existing planner and action pipeline.
 //
 //  .skill.md format:
 //  ---
@@ -49,9 +48,8 @@ struct PaceSkillStep: Codable, Equatable {
 
 /// Loader for .skill.md files. Scans the bundled Resources/skills/
 /// directory and the user's ~/Library/Application Support/Pace/skills/
-/// directory for .skill.md files, parses them, and converts them to
-/// PaceRecordedFlow recipes that can be installed via the existing
-/// recipe library.
+/// directory for .skill.md files and parses them into planner-grounded
+/// reusable work.
 enum PaceSkillLoader {
 
     /// Load all .skill.md files from bundled and user directories.
@@ -157,8 +155,8 @@ enum PaceSkillLoader {
     }
 
     /// Convert a PaceSkillFile's steps into a planner prompt that
-    /// the agent loop can execute. Unlike recipes (which are recorded
-    /// UI actions replayed verbatim), skills are natural-language
+    /// the agent loop can execute. Unlike typed automations and recorded
+    /// flows, skills are natural-language
     /// instructions that the planner interprets and executes step by
     /// step — more flexible and more resilient to UI changes.
     static func toPlannerPrompt(_ skill: PaceSkillFile) -> String {
@@ -195,9 +193,9 @@ enum PaceSkillLoader {
     }
 
     /// Deterministic, no-LLM check run BEFORE a taught skill executes.
-    /// Mirrors `PaceRecipeLibrary.install`'s `requiredPreferences` gate —
-    /// it reads through the SAME `PaceLocalMemoryStoreReadable` abstraction
-    /// the recipe installer uses (`PaceLocalMemoryStore` in production), so
+    /// Mirrors typed automation `requiredPreferences` preflight. It reads
+    /// through the SAME `PaceLocalMemoryStoreReadable` abstraction
+    /// (`PaceLocalMemoryStore` in production), so
     /// there is exactly one source of truth for where a required preference
     /// lives. A preference is "set" only when the store returns a non-nil
     /// value for it. Unknown keys (not a valid `PaceLocalMemoryKey`) are

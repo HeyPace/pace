@@ -86,6 +86,16 @@ enum PaceNotchChatShortcut {
         }
     }()
 
+    static var currentShortcutAccessibilityLabel: String {
+        switch currentShortcutOption {
+        case .commandShiftP: return "Command Shift P"
+        case .commandShiftK: return "Command Shift K"
+        case .commandShiftSpace: return "Command Shift Space"
+        case .controlShiftP: return "Control Shift P"
+        case .controlShiftSpace: return "Control Shift Space"
+        }
+    }
+
     /// Pure helper used by the live event tap and by unit tests so the
     /// detection logic can be verified without simulating real CGEvents.
     /// Returns `true` when the (keyCode, modifierFlags) pair matches the

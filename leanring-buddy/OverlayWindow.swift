@@ -24,7 +24,7 @@ class OverlayWindow: NSWindow {
         // Make window transparent and non-interactive
         self.isOpaque = false
         self.backgroundColor = .clear
-        self.level = .screenSaver  // Always on top, above submenus and popups
+        self.level = PaceWindowLayering.teachingOverlay
         self.ignoresMouseEvents = true  // Click-through
         self.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         self.isReleasedWhenClosed = false

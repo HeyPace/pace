@@ -1,0 +1,34 @@
+{
+  "title": "Choose Pace's native interface world",
+  "question": "Pace needs one coherent command surface across the notch, quick panel, and management window. Keep the signal-desk direction, choose a more radical alternate, re-roll, or steer it.",
+  "options": [
+    {
+      "id": "signal-desk",
+      "label": "Signal Desk",
+      "kicker": "PRIMARY DIRECTION",
+      "lineage": "A calm recording console and stage-manager cue desk, translated into native macOS",
+      "body": "World: graphite and soft neutral surfaces, plain system type, Pace blue reserved for the live local signal, amber only for off-device work. First view: the notch is a status lamp; opening it reveals one active turn, its transcript, and a three-stage Input → Understand → Act signal path—never a scrolling pile of cards. The larger window becomes one Control Room for conversations, automations, activity, and grouped settings. Signature interaction: every request visibly advances through the local signal chain, and its result collapses into an auditable cue. Risk: it can feel technical if internal terminology leaks through, so every stage keeps a plain-language label and details stay progressive."
+    },
+    {
+      "id": "dispatch-board",
+      "label": "Local Dispatch Board",
+      "kicker": "ALTERNATE",
+      "lineage": "Rail-concourse split-flap boards, fused with Pace's live requests and scheduled work",
+      "body": "The quick panel is a tiny departures board: current request, queued tasks, and recent outcomes occupy fixed rows with Local, Waiting, Running, Done, or Needs Approval states. The main window expands that same board into conversations, automations, and activity without changing visual grammar. It makes operational truth extremely scannable and gives scheduled work a natural home. Risk: the voice companion can feel impersonal, and literal flap animation must be restrained to state changes only.",
+      "hero": "artifacts/design/native-overhaul/references/split-flap-hero.webp",
+      "board": "artifacts/design/native-overhaul/references/split-flap-board.webp"
+    },
+    {
+      "id": "control-deck",
+      "label": "Tactile Control Deck",
+      "kicker": "ALTERNATE",
+      "lineage": "Creator hardware, shortcut decks, and deliberate physical controls",
+      "body": "The notch is the deck's status screen; the panel exposes a small set of key-like actions around the current transcript, while the larger window treats automations and teachable skills as programmable control banks. Bone and graphite surfaces keep the deck calm; one action color marks the next safe commitment, with amber still reserved for off-device execution. This makes Pace feel programmable and gives the enlarged automation catalogue a memorable home. Risk: skeuomorphism and a control grid can overwhelm conversation unless the present request remains dominant.",
+      "hero": "artifacts/design/native-overhaul/references/hardware-bench-hero.webp",
+      "board": "artifacts/design/native-overhaul/references/hardware-bench-board.webp"
+    }
+  ],
+  "reroll": true,
+  "canon": true,
+  "steer": true
+}

@@ -32,7 +32,16 @@ enum DS {
         /// contrast-forward dark surface that lets the accent blue
         /// and any white-opacity-elevated cards pop without the
         /// "off-black gray" muddiness lighter values introduce.
-        static let background = Color.black
+        static let background = Color(hex: "#080A0D")
+
+        /// The graphite desk surface used by full-window native experiences.
+        static let surface = Color(hex: "#101318")
+
+        /// Raised operating surface for controls and selected navigation.
+        static let surfaceRaised = Color(hex: "#171B22")
+
+        /// Recessed surface for transcript and diagnostic wells.
+        static let surfaceInset = Color(hex: "#080A0D")
 
         /// Card / panel surface that sits one elevation above the
         /// base background. Pure-black main surface means cards need
@@ -44,18 +53,18 @@ enum DS {
         /// Subtle border — used for card outlines, dividers, input
         /// field borders. Slightly cooler now so dividers stay
         /// visible against pure black without feeling industrial.
-        static let borderSubtle = Color(hex: "#2A2D31")
+        static let borderSubtle = Color(hex: "#2A3039")
 
         // ── Text ─────────────────────────────────────────────────────
 
         /// Primary text — main body text, titles, headings.
-        static let textPrimary = Color(hex: "#ECEEED")
+        static let textPrimary = Color(hex: "#F1F0EC")
 
         /// Secondary text — descriptions, hints, muted labels.
-        static let textSecondary = Color(hex: "#ADB5B2")
+        static let textSecondary = Color(hex: "#A7AFBA")
 
         /// Tertiary text — very muted, used for section labels, timestamps, disabled text.
-        static let textTertiary = Color(hex: "#6B736F")
+        static let textTertiary = Color(hex: "#8B9590")
 
         /// Text on the accent fill (the Blue-600 keystone). White → ~5.1:1
         /// contrast on #2563eb (WCAG AA).
@@ -67,6 +76,12 @@ enum DS {
         /// hover backgrounds, and the overlay cursor's gradient stops.
         static let accent = Color(hex: "#2563eb")
 
+        /// Pace's local signal. Blue means the active request remains on this Mac.
+        static let localSignal = Color(hex: "#4F8BFF")
+
+        /// Explicit disclosure for a planner boundary that leaves the Mac.
+        static let offDeviceSignal = Color(hex: "#FFB347")
+
         // ── Semantic ─────────────────────────────────────────────────
 
         /// Success — checkmarks, granted permission status indicators.
@@ -74,6 +89,9 @@ enum DS {
 
         /// Warning — caution messages, manual verification failure explanations.
         static let warning = Color(hex: "#FFB224")      // Radix Amber 9
+
+        static let failure = Color(hex: "#FF6B6B")
+        static let blocked = Color(hex: "#F59E5B")
 
         // ── Overlay Cursor ───────────────────────────────────────────
 
@@ -94,6 +112,36 @@ enum DS {
         static let annotationGreen  = Color(red: 0.30, green: 0.75, blue: 0.45)
         static let annotationYellow = Color(red: 0.95, green: 0.80, blue: 0.30)
         static let annotationOrange = Color(red: 0.95, green: 0.55, blue: 0.25)
+    }
+
+    enum Radius {
+        static let control: CGFloat = 10
+        static let surface: CGFloat = 14
+        static let window: CGFloat = 20
+    }
+
+    /// Semantic roles keep Pace readable when the system text size changes.
+    /// Display moments stay rare; working surfaces use native text styles.
+    enum Typography {
+        static let display = Font.system(.largeTitle, design: .default, weight: .medium)
+        static let windowTitle = Font.system(.title, design: .default, weight: .semibold)
+        static let sceneTitle = Font.system(.title, design: .default, weight: .medium)
+        static let sectionTitle = Font.system(.title3, design: .default, weight: .semibold)
+        static let headline = Font.system(.headline, design: .default, weight: .semibold)
+        static let body = Font.system(.body, design: .default, weight: .regular)
+        static let bodyStrong = Font.system(.body, design: .default, weight: .semibold)
+        static let callout = Font.system(.callout, design: .default, weight: .regular)
+        static let calloutStrong = Font.system(.callout, design: .default, weight: .semibold)
+        static let caption = Font.system(.caption, design: .default, weight: .regular)
+        static let captionStrong = Font.system(.caption, design: .default, weight: .semibold)
+        static let metadata = Font.system(.caption2, design: .monospaced, weight: .semibold)
+    }
+
+    enum Motion {
+        static let micro = 0.16
+        static let stateChange = 0.28
+        static let sceneReveal = 0.64
+        static let handoff = 1.0
     }
 }
 

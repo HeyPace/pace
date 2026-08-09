@@ -441,6 +441,14 @@ enum BuddyPlannerClientFactory {
         makeLocalOrFoundationModelsPlanner()
     }
 
+    /// Privacy-pinned local planner without the main v10 action-response
+    /// schema. Feature-specific structurers (skills and automations) provide
+    /// their own JSON contract and must not be forced into the action envelope.
+    @MainActor
+    static func makeLocalOnlyTextPlannerForPrivacyPinnedFeatures() -> any BuddyPlannerClient {
+        makeLocalOrFoundationModelsPlanner(requestsStructuredActionOutput: false)
+    }
+
     // MARK: - Internal factory helpers
 
     /// `requestsStructuredActionOutput` defaults true because every caller of
