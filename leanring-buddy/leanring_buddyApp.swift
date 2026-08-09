@@ -101,17 +101,34 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         PaceTTSSidecarLauncher.startIfNotRunning()
         prewarmMailForFastDraftsIfNeeded()
 
-        let menuBarPanelManager = MenuBarPanelManager(companionManager: companionManager)
+        let menuBarPanelManager = MenuBarPanelManager(
+            companionManager: companionManager,
+            onVisibilityChanged: { [weak self] isVisible in
+                self?.menuBarOverlayManager?.setQuickPanelPresented(isVisible)
+            }
+        )
         self.menuBarPanelManager = menuBarPanelManager
 
-        // Primary surface: the top-right mascot perch. The notch capsule
-        // (PaceMenuBarOverlayManager) is created + preserved but not shown —
-        // flip useRightCornerMascot to false to restore the notch.
-        let useRightCornerMascot = true
-        menuBarOverlayManager = PaceMenuBarOverlayManager(
+        // The notch is Pace's primary ambient surface. Keep the former
+        // right-corner mascot path as a local rollback seam while this
+        // native overhaul is dogfooded; it is intentionally not the default.
+        let useRightCornerMascot = false
+        let menuBarOverlayManager = PaceMenuBarOverlayManager(
             companionManager: companionManager,
             onTap: { [weak self] anchorFrame in
                 self?.menuBarPanelManager?.togglePanel(anchoredTo: anchorFrame)
+            }
+        )
+        self.menuBarOverlayManager = menuBarOverlayManager
+        menuBarPanelManager.useIntegratedLivingNotchPresentation(
+            isPresented: { [weak menuBarOverlayManager] in
+                menuBarOverlayManager?.isQuickPanelOpen == true
+            },
+            show: { [weak menuBarOverlayManager] in
+                menuBarOverlayManager?.setQuickPanelPresented(true)
+            },
+            hide: { [weak menuBarOverlayManager] in
+                menuBarOverlayManager?.setQuickPanelPresented(false)
             }
         )
         if useRightCornerMascot {
@@ -127,7 +144,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             avatarOverlayManager = mascot
             mascot.show()
         } else {
-            menuBarOverlayManager?.show()
+            menuBarOverlayManager.show()
         }
         // Unit tests run inside this app as their test host. Skip the full
         // companion startup there: start() ignites live subsystems (Apple FM
@@ -157,7 +174,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         // the required permissions, replacing the old "shove the notch
         // panel in their face" pattern. Future launches go straight to the
         // menu bar — the user opens the panel themselves.
-        PaceOnboardingWindowManager.shared.showOnboardingIfNeeded()
+        PaceOnboardingWindowManager.shared.showOnboardingIfNeeded(
+            companionManager: companionManager
+        )
         registerAsLoginItemIfNeeded()
 
         hasFinishedLaunching = true

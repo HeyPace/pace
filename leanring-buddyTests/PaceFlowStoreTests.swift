@@ -8,10 +8,8 @@
 //  directory; that means a developer running the test suite locally
 //  can't accidentally clobber a saved flow.
 //
-//  The store is intentionally Codable round-trippable because
-//  `PaceRecipeLibrary.install(...)` writes recipe JSON through the
-//  exact same code path. Drift between this test and the bundled
-//  recipe schema would break recipe install in production.
+//  The store is intentionally Codable round-trippable so recorded flows
+//  survive app restarts without changing replay semantics.
 //
 
 import XCTest

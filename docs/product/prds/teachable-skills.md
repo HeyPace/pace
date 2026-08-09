@@ -84,6 +84,18 @@ on-device moat.
 - `requiredPreferences` on *taught* skills — default `[]`; bundled-skill preference
   gating via `PaceLocalMemoryKey` is unchanged.
 
+## Programmable extension (2026-08-09)
+
+Explicit teach/create transcripts now target the least-powerful complete
+representation: fixed typed automation, bounded deterministic Pace Program, or
+planner-grounded prose skill. Pace Programs add weekday/hour/frontmost-app
+conditions and literal repetition, validate every branch, and compile through
+the existing typed action safety pipeline without a model at run time. They are
+not Lua or JavaScript: raw scripts, shell, network, arbitrary files, imports,
+and direct Accessibility authority remain outside the format. The active design
+and verification state live in OpenSpec change
+`add-programmable-teachable-skills`.
+
 ## Tests
 
 `leanring-buddyTests/PaceSkillLoaderTests.swift`: serialize round-trip, save/list/

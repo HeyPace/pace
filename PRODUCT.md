@@ -4,7 +4,7 @@
 
 ## Platform
 
-web
+Native macOS product with a web marketing and documentation surface.
 
 ## Users
 
@@ -51,6 +51,12 @@ The product name is Pace. The public promise centers on direct voice control,
 useful screen awareness, and on-device privacy. Product claims must not imply
 unmeasured grounding accuracy, fictional customer proof, or cloud-free behavior
 for explicitly enabled off-device planner paths.
+
+The native product uses a Local Signal Desk world: calm graphite surfaces,
+system typography, and an electric-blue signal reserved for active local work.
+Amber always means an explicitly enabled off-device path. Cinematic motion is
+welcome during first-run activation, but it must explain real state and collapse
+into the same notch and panel surfaces the user operates afterward.
 
 ## Evidence on Hand
 

@@ -38,6 +38,22 @@ nonisolated struct PaceChatMessage: Identifiable, Equatable {
     let role: PaceChatRole
     let body: String
     let createdAt: Date
+
+    var isInternalRuntimeEvent: Bool {
+        guard role == .user else { return false }
+        let normalizedBody = body
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalizedBody.hasPrefix("(system)")
+            || normalizedBody.hasPrefix("(agent step ")
+            || normalizedBody.hasPrefix("session ended (cause:")
+    }
+
+    var persistedTurnIdentifier: String? {
+        guard id.hasSuffix(":user") || id.hasSuffix(":pace"),
+              let roleSeparatorIndex = id.lastIndex(of: ":") else { return nil }
+        return String(id[..<roleSeparatorIndex])
+    }
 }
 
 /// Read surface the chat session uses to rehydrate prior turns from
@@ -202,7 +218,26 @@ final class PaceChatSession: ObservableObject {
         }
     }
 
-    /// Pure test surface: returns whichever subset of `messages` matches
+    /// Internal runtime turns stay in persistence and planner history, but they
+    /// must never masquerade as something the user typed in chat surfaces.
+    var userFacingMessages: [PaceChatMessage] {
+        let hiddenTurnIdentifiers = Set(
+            messages.compactMap { message in
+                message.isInternalRuntimeEvent
+                    ? message.persistedTurnIdentifier
+                    : nil
+            }
+        )
+
+        return messages.filter { message in
+            guard let persistedTurnIdentifier = message.persistedTurnIdentifier else {
+                return !message.isInternalRuntimeEvent
+            }
+            return !hiddenTurnIdentifiers.contains(persistedTurnIdentifier)
+        }
+    }
+
+    /// Pure test surface: returns whichever subset of user-visible messages matches
     /// the search query (case-insensitive substring against role-agnostic
     /// body text). Lives here rather than in the view so the search
     /// behavior is unit-testable and consistent if more surfaces start
@@ -211,8 +246,8 @@ final class PaceChatSession: ObservableObject {
         let trimmedQuery = searchQuery
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        guard !trimmedQuery.isEmpty else { return messages }
-        return messages.filter { message in
+        guard !trimmedQuery.isEmpty else { return userFacingMessages }
+        return userFacingMessages.filter { message in
             message.body.lowercased().contains(trimmedQuery)
         }
     }

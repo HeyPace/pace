@@ -256,6 +256,36 @@ struct PaceChatSessionTests {
         #expect(pizzaMatches.first?.role == .pace)
     }
 
+    @Test func internalSystemTurnsStayOutOfUserFacingConversationSurfaces() async throws {
+        let session = makeSession(
+            historySource: FakeHistorySource(),
+            submitter: FakeTranscriptSubmitter()
+        )
+        session.appendCompletedTurn(
+            userTranscript: "(system) proactive nudge",
+            assistantResponse: "Take a short break"
+        )
+        session.appendCompletedTurn(
+            userTranscript: "session ended (cause: idleTimeout)",
+            assistantResponse: "session thread-example ended"
+        )
+        session.appendCompletedTurn(
+            userTranscript: "(agent step 2)",
+            assistantResponse: "Intermediate tool result"
+        )
+        session.appendCompletedTurn(
+            userTranscript: "Show my schedule",
+            assistantResponse: "You have two meetings"
+        )
+
+        #expect(session.messages.count == 8)
+        #expect(session.userFacingMessages.map(\.body) == [
+            "Show my schedule",
+            "You have two meetings",
+        ])
+        #expect(session.filteredMessages(matching: "nudge").isEmpty)
+    }
+
     // MARK: - Local history reader text parsing
 
     @Test func localHistoryReaderSplitsUserAndPaceFromDocumentText() async throws {

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "identifier": "meeting-prep-note",
+  "name": "meeting prep note",
+  "description": "Creates an Apple Note with objective, attendees, context, questions, and desired-outcome sections.",
+  "category": "planning",
+  "invocationPhrases": ["help me prepare for a meeting", "make a meeting prep note", "set up meeting preparation"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "notes",
+          "arguments": {
+            "action": "create",
+            "title": "Meeting prep",
+            "body": "Objective\n\nAttendees\n- \n\nContext\n\nQuestions\n- \n\nDesired outcome\n"
+          }
+        }
+      ]
+    }
+  ]
+}

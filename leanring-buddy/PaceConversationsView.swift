@@ -125,7 +125,7 @@ struct PaceConversationsView: View {
             if companionManager.streamingSentenceTTSPipeline.inFlightStreamedText.isEmpty == false {
                 return PaceConversationsView.streamingRowAnchorId
             }
-            return companionManager.chatSession.messages.last?.id
+            return filteredMessages.last?.id
                 ?? PaceConversationsView.streamingRowAnchorId
         }()
         if animated {

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "identifier": "maximize-current-window",
+  "name": "maximize current window",
+  "description": "Maximizes the currently focused window within the visible screen.",
+  "category": "window",
+  "invocationPhrases": ["make this window fill the screen", "maximize this window", "make the current window bigger"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "window_snap",
+          "arguments": {
+            "position": "maximize"
+          }
+        }
+      ]
+    }
+  ]
+}

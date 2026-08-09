@@ -3,12 +3,12 @@
 //  leanring-buddy
 //
 //  Loads meeting note profiles from two sources, mirroring the
-//  `PaceRecipeLibrary` (bundled) + `PaceSkillLoader` (user override)
+//  bundled resource loaders + `PaceSkillLoader` (user override)
 //  pattern:
 //    1. Bundled `Resources/meeting-note-profiles/<slug>.json` — the
 //       curated set shipped with the app. Validated at startup via
 //       `PaceToolRegistry.validateForAppStartup` so malformed drift
-//       fails loud at launch (same contract as recipes).
+//       fails loud at launch (same contract as typed automations).
 //    2. User `~/Library/Application Support/Pace/meeting-note-profiles/
 //       <slug>.json` — user-authored profiles. A user profile whose
 //       slug matches a bundled one OVERRIDES it. A malformed user file
@@ -129,7 +129,7 @@ nonisolated enum PaceMeetingNoteProfileLibrary {
 
     /// Load bundled profiles that decode cleanly. Skips (does not throw
     /// on) a profile whose JSON fails to decode — startup validation
-    /// surfaces the precise failure separately, matching recipes.
+    /// surfaces the precise failure separately, matching typed automations.
     static func loadBundledProfiles(bundle: Bundle = .main) -> [PaceMeetingNoteProfile] {
         var loaded: [PaceMeetingNoteProfile] = []
         for slug in bundledProfileSlugs {
@@ -275,7 +275,7 @@ nonisolated enum PaceMeetingNoteProfileLibrary {
         return issues
     }
 
-    /// Bundle resource lookup, mirroring `PaceRecipeLibrary`. Tries the
+    /// Bundle resource lookup, mirroring other bundled resource loaders. Tries the
     /// synchronized-group layout, the flat layout, then optionally the
     /// source tree (validation/tests only).
     private static func profileResourceURL(

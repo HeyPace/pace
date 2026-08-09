@@ -31,8 +31,8 @@ wider the consequences of a bug, the higher the bar.
 | **TTS** (Kokoro sidecar + AVSpeechSynthesizer fallback) | **> 75%** | `LocalServerTTSClient`, `LocalTTSClient`, `BuddyTTSClient` |
 | **MCP integration** (stdio bridge, catalog installer) | **> 75%** | `PaceMCPClient`, `PaceMCPCatalogInstaller`, `PaceToolPreflight` |
 | **Screen capture / watch mode** | **> 70%** | `PaceScreenCaptureService`, `PaceScreenWatchModeController`, `PaceScreenImageDiffer` |
-| **UI / overlays / panels** | **> 70%** | `PaceMenuBarOverlay`, `PaceMainWindow`, `PacePrivacyDashboardView`, `PaceUndoBanner` |
-| **Recipe library / flows** | **> 75%** | `PaceRecipeLibrary`, `PaceRecipeCommandParser`, `PaceFlowStore` |
+| **Native interface state / overlays / panels** | **> 70%** | `PaceNativeInterfaceModel`, `PaceSignalView`, `PaceOnboardingView`, `PaceMenuBarOverlay`, `PacePanelChatView`, `PaceMainWindow` |
+| **Automation catalog / flows** | **> 75%** | `PaceAutomationDefinitionLibrary`, `PaceUserAutomationStore`, `PaceProgramValidator`, `PaceProgramCompiler`, `PaceUserProgramStore`, `PaceAutomationNaturalLanguageMatcher`, `PaceAutomationIntentResolver`, `PaceAutomationCatalog`, `PaceFlowStore` |
 | **Failure narration / restraint gate** | **> 80%** | `PaceFailureNarrator`, `PaceRestraintGate` |
 
 A component is considered "on target" when its line coverage in the most

@@ -16,6 +16,12 @@ if [[ -z "$APP_PATH" || ! -x "$APP_PATH/Contents/MacOS/Pace" ]]; then
     exit 1
 fi
 
+APP_BUNDLE_IDENTIFIER="$(defaults read "$APP_PATH/Contents/Info" CFBundleIdentifier 2>/dev/null || true)"
+if [[ -z "$APP_BUNDLE_IDENTIFIER" ]]; then
+    echo "missing CFBundleIdentifier in $APP_PATH" >&2
+    exit 1
+fi
+
 post_notification() {
     local notification_name="$1"
     swift -e "import Foundation; DistributedNotificationCenter.default().postNotificationName(Notification.Name(\"${notification_name}\"), object: nil, userInfo: nil, deliverImmediately: true)"
@@ -23,7 +29,7 @@ post_notification() {
 
 read_default() {
     local key="$1"
-    defaults read com.pace.app "$key" 2>/dev/null || true
+    defaults read "$APP_BUNDLE_IDENTIFIER" "$key" 2>/dev/null || true
 }
 
 wait_for_default() {
@@ -57,22 +63,24 @@ wait_for_default_contains() {
 }
 
 cancel_approval_if_visible() {
-    osascript >/dev/null 2>&1 <<'APPLESCRIPT' || true
+    osascript >/dev/null 2>&1 <<APPLESCRIPT || true
 tell application "System Events"
-    if exists process "Pace" then
-        tell process "Pace"
+    set smokeProcesses to every process whose unix id is ${SMOKE_APP_PID}
+    if (count of smokeProcesses) is 1 then
+        tell item 1 of smokeProcesses
             set frontmost to true
-            key code 53
-            if exists window 1 then
-                if exists button "Cancel" of window 1 then
-                    click button "Cancel" of window 1
+            repeat with currentWindow in windows
+                if exists button "Cancel" of currentWindow then
+                    click button "Cancel" of currentWindow
+                    exit repeat
                 end if
-                if exists sheet 1 of window 1 then
-                    if exists button "Cancel" of sheet 1 of window 1 then
-                        click button "Cancel" of sheet 1 of window 1
+                if exists sheet 1 of currentWindow then
+                    if exists button "Cancel" of sheet 1 of currentWindow then
+                        click button "Cancel" of sheet 1 of currentWindow
+                        exit repeat
                     end if
                 end if
-            end if
+            end repeat
         end tell
     end if
 end tell
@@ -95,24 +103,31 @@ wait_for_approval_cancel() {
 
 cleanup() {
     launchctl unsetenv PACE_ENABLE_SMOKE_HOOKS 2>/dev/null || true
-    pkill -x Pace 2>/dev/null || true
+    if [[ -n "${SMOKE_APP_PID:-}" ]]; then
+        kill "$SMOKE_APP_PID" 2>/dev/null || true
+        wait "$SMOKE_APP_PID" 2>/dev/null || true
+    fi
 }
 trap cleanup EXIT
 
-defaults delete com.pace.app PaceSmoke.lastPanelCommand 2>/dev/null || true
-defaults delete com.pace.app PaceSmoke.lastCursorAnnotationsEnabled 2>/dev/null || true
-defaults delete com.pace.app PaceSmoke.lastApprovalAllowed 2>/dev/null || true
-defaults delete com.pace.app PaceSmoke.lastClarificationState 2>/dev/null || true
-defaults delete com.pace.app PaceSmoke.lastClarifiedTranscript 2>/dev/null || true
-defaults delete com.pace.app PaceSmoke.lastClickTargetClarificationState 2>/dev/null || true
-defaults delete com.pace.app PaceSmoke.lastClickTargetResolution 2>/dev/null || true
-defaults delete com.pace.app PaceSmoke.lastClickAllFailSummary 2>/dev/null || true
-defaults delete com.pace.app PaceSmoke.ready 2>/dev/null || true
+defaults delete "$APP_BUNDLE_IDENTIFIER" PaceSmoke.lastPanelCommand 2>/dev/null || true
+defaults delete "$APP_BUNDLE_IDENTIFIER" PaceSmoke.lastCursorAnnotationsEnabled 2>/dev/null || true
+defaults delete "$APP_BUNDLE_IDENTIFIER" PaceSmoke.lastApprovalAllowed 2>/dev/null || true
+defaults delete "$APP_BUNDLE_IDENTIFIER" PaceSmoke.lastClarificationState 2>/dev/null || true
+defaults delete "$APP_BUNDLE_IDENTIFIER" PaceSmoke.lastClarifiedTranscript 2>/dev/null || true
+defaults delete "$APP_BUNDLE_IDENTIFIER" PaceSmoke.lastClickTargetClarificationState 2>/dev/null || true
+defaults delete "$APP_BUNDLE_IDENTIFIER" PaceSmoke.lastClickTargetResolution 2>/dev/null || true
+defaults delete "$APP_BUNDLE_IDENTIFIER" PaceSmoke.lastClickAllFailSummary 2>/dev/null || true
+defaults delete "$APP_BUNDLE_IDENTIFIER" PaceSmoke.ready 2>/dev/null || true
 
-pkill -x Pace 2>/dev/null || true
-sleep 1
 launchctl setenv PACE_ENABLE_SMOKE_HOOKS 1
-open "$APP_PATH"
+open -n "$APP_PATH"
+sleep 1
+SMOKE_APP_PID="$(pgrep -n -x Pace || true)"
+if [[ -z "$SMOKE_APP_PID" ]]; then
+    echo "Pace did not launch for runtime smoke testing" >&2
+    exit 1
+fi
 
 wait_for_default PaceSmoke.ready 1
 

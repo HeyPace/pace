@@ -1,6 +1,6 @@
 # pace — PROJECT STATUS
 
-Last updated: 2026-08-05
+Last updated: 2026-08-09
 
 ## Why/What
 
@@ -32,7 +32,7 @@ Last updated: 2026-08-05
 | Surface | Stack | Commands |
 | --- | --- | --- |
 | macOS app | Swift/SwiftUI, Xcode `leanring-buddy.xcodeproj` | Open in Xcode → Cmd+R (**do not** `xcodebuild` — invalidates TCC) |
-| Tests | XCTest via isolated DerivedData | `bash scripts/test-pace.sh` — **~1606 tests, all passing under Xcode 27.0 Beta 3** |
+| Tests | XCTest via isolated DerivedData | `bash scripts/test-pace.sh` — **1664 tests passing** |
 | Local models | MLX, WhisperKit, TTSKit, Apple Speech | Settings → Models; Sparkle manifest in Info.plist |
 | Landing | Astro 5 + Tailwind v4 + Lightning CSS | `cd website && pnpm install && pnpm run dev` (:4321) |
 | Deploy landing | Cloudflare Pages project `pace` | `pnpm run build && pnpm run deploy` |
@@ -63,6 +63,21 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 
 ## Timeline
 
+- **2026-08-09 — Native Local Signal Desk overhaul built:** the hardware-derived
+  Living Notch is again Pace's primary ambient surface. It matches the physical
+  camera housing at idle, adds state and signal wings directly beside that
+  housing for hover/active states, and resizes the same clipped window into the
+  complete quick panel on click rather than joining a second panel beneath it,
+  recalculates across wake/display changes, and does not synthesize a notch on
+  unsupported displays. Onboarding now reaches one real typed
+  or spoken command through a versioned, resumable three-scene journey; the
+  shipped quick panel prioritizes the present turn; and Open Pace plus legacy
+  Settings routes reuse one searchable Command Center grouped under Use Pace,
+  Activity & Privacy, Customize, and Help, with optional integrations and
+  developer controls behind an Advanced disclosure. Shared semantic signal states preserve
+  amber off-device disclosure across every transition and honor Reduce Motion.
+  Pure state/routing coverage and the full 1664-test isolated suite pass. Xcode
+  hardware, VoiceOver, and final visual-owner signoff remain release checks.
 - **2026-08-05 — On-device assistant field guides:** added five public guides
   for on-device architecture, screen context, private voice, typed Mac actions,
   and local meeting notes. The same typed registry now drives their visible
@@ -126,7 +141,7 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 
 ### Voice loop & core UX (v0.3.12–13, Her-arc)
 
-- Push-to-talk with glassmorphic notch animation; Codex-style cursor with gradient arrow.
+- Push-to-talk with a hardware-derived Living Notch signal; Codex-style cursor with gradient arrow.
 - Streaming sentence TTS for sub-500 ms perceived latency; TTFSW logged per turn (`scripts/benchmark_ttfsw.sh`).
 - In-window chat (`cmd+shift+P`) in menu-bar panel.
 - Intent classifier routes chitchat / pure-knowledge / screen-action paths.
@@ -198,11 +213,12 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 - Bundled catalog — 4 one-tap servers (filesystem, fetch, applescript, composio); github/slack/linear now route through the composio OAuth bridge (`PaceMCPServerCatalog.supersededBySlug`) — atomic install into `mcp-servers.json`.
 - Recipe library: 5 bundled flows (morning-standup, weekly-review, email-zero, focus-mode, end-of-day); voice install/uninstall.
 
-### Skills — flows vs recipes vs skills vs tools
+### Automations, programs, flows, skills, and tools
 
-Four complementary "do more than talk" layers, from most literal to most flexible:
+Five complementary "do more than talk" layers, from most literal to most flexible:
 - **Tools** (`PaceToolRegistry`) — atomic built-in capabilities (click, type, open app…).
-- **Recipes** — bundled `PaceRecordedFlow` JSON, voice-installable.
+- **Automations** (`PaceAutomationCatalog`) — bundled and Shortcuts-backed typed action sequences, semantically resolved from ordinary requests and run through the fast local action path.
+- **Programs** (`PaceProgramDefinition`) — user-taught, versioned condition/repetition graphs that compile deterministically into the same typed actions. Natural-language authoring stays local; raw Lua, JavaScript, and shell are not accepted.
 - **Flows** (`record_flow`) — user-recorded AX steps, replayed **verbatim** (pixel tier).
 - **Skills** (`.skill.md`) — natural-language step lists the planner **re-grounds each run** (intent tier). **Teachable by telling** (PRD `docs/product/prds/teachable-skills.md`): say "teach a skill …" or use Settings → Skills → "Teach a skill"; a privacy-pinned LOCAL planner structures the description into a `.skill.md` (deterministic fallback if the planner is unavailable), saved to `~/Library/Application Support/Pace/skills/` and runnable via "run <name>". Fully on-device.
 
@@ -240,7 +256,11 @@ Four complementary "do more than talk" layers, from most literal to most flexibl
 
 ### Settings & configuration surfaces
 
-- **PaceSettingsWindow** (gear from notch panel): MCP servers, permissions, voice, preferences, memory (with Past-research history), scheduled tasks (Tasks tab), action history, planner tier, models download, flows/recipes, privacy dashboard.
+- **Pace Command Center** (gear from notch panel or Open Pace): one resizable
+  window with searchable Work, Observe, Configure, and Diagnostics groups.
+  `PaceSettingsWindowManager` is a compatibility router into this window, not a
+  second host. It preserves MCP, permissions, voice, preferences, memory,
+  tasks, action history, planner, models, flows, and privacy surfaces.
 - **Info.plist switches** documented in `docs/development/info-plist-switches.md` — `EnableActions`, `UseLocalVLMForScreenContext`, `TranscriptionProvider`, `TTSProvider`, planner/VLM URLs, smoke hooks (`PACE_ENABLE_SMOKE_HOOKS=1`).
 - **First-run default:** fresh installs with no planner tier UserDefaults prefer Apple Foundation Models when Apple Intelligence available; existing users unchanged.
 

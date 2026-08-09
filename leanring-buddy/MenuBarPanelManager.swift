@@ -11,6 +11,7 @@
 //
 
 import AppKit
+import QuartzCore
 import SwiftUI
 
 extension Notification.Name {
@@ -39,15 +40,36 @@ final class MenuBarPanelManager: NSObject {
     /// the panel (e.g. tapping the mascot, which is outside the panel frame)
     /// can't immediately close it.
     private var panelShownAt: Date?
+    private var visibilityAnimationGeneration = 0
     private var dismissPanelObserver: NSObjectProtocol?
     private var showPanelObserver: NSObjectProtocol?
 
     private let companionManager: CompanionManager
-    private let panelWidth: CGFloat = 320
-    private let panelHeight: CGFloat = 380
+    private let usesChatPanelAsPrimarySurface: Bool
+    private let panelWidth: CGFloat
+    private let panelHeight: CGFloat
+    private let onVisibilityChanged: (Bool) -> Void
+    private var integratedPanelIsPresented: (() -> Bool)?
+    private var showIntegratedPanel: (() -> Void)?
+    private var hideIntegratedPanel: (() -> Void)?
 
-    init(companionManager: CompanionManager) {
+    init(
+        companionManager: CompanionManager,
+        onVisibilityChanged: @escaping (Bool) -> Void = { _ in }
+    ) {
+        let shouldUseChatPanelAsPrimarySurface = PaceUserPreferencesStore.bool(
+            for: .useChatPanelAsPrimarySurface
+        )
         self.companionManager = companionManager
+        self.onVisibilityChanged = onVisibilityChanged
+        self.usesChatPanelAsPrimarySurface = shouldUseChatPanelAsPrimarySurface
+        if shouldUseChatPanelAsPrimarySurface {
+            self.panelWidth = 320
+            self.panelHeight = 380
+        } else {
+            self.panelWidth = PaceQuickPanelMetrics.width
+            self.panelHeight = PaceQuickPanelMetrics.height
+        }
         super.init()
 
         dismissPanelObserver = NotificationCenter.default.addObserver(
@@ -89,6 +111,17 @@ final class MenuBarPanelManager: NSObject {
     }
 
     func togglePanel() {
+        if let integratedPanelIsPresented,
+           let showIntegratedPanel,
+           let hideIntegratedPanel {
+            if integratedPanelIsPresented() {
+                hideIntegratedPanel()
+            } else {
+                showIntegratedPanel()
+            }
+            return
+        }
+
         if let panel, panel.isVisible {
             hidePanel()
         } else {
@@ -106,6 +139,11 @@ final class MenuBarPanelManager: NSObject {
     /// already-open panel mid-turn).
     func showPanel(anchoredTo anchorFrame: NSRect) {
         panelAnchorFrameOverride = anchorFrame
+        if let showIntegratedPanel {
+            showIntegratedPanel()
+            return
+        }
+
         if panel?.isVisible != true {
             showPanel()
         } else {
@@ -126,24 +164,108 @@ final class MenuBarPanelManager: NSObject {
         hidePanel()
     }
 
+    func useIntegratedLivingNotchPresentation(
+        isPresented: @escaping () -> Bool,
+        show: @escaping () -> Void,
+        hide: @escaping () -> Void
+    ) {
+        integratedPanelIsPresented = isPresented
+        showIntegratedPanel = show
+        hideIntegratedPanel = hide
+    }
+
     // MARK: - Panel Lifecycle
 
     private func showPanel() {
+        if let showIntegratedPanel {
+            showIntegratedPanel()
+            return
+        }
+
         if panel == nil {
             createPanel()
         }
 
+        guard let panel else { return }
+        let wasVisible = panel.isVisible
         positionPanelBelowAnchor()
+        let expandedPanelFrame = panel.frame
+        visibilityAnimationGeneration += 1
+        onVisibilityChanged(true)
 
-        panel?.makeKeyAndOrderFront(nil)
-        panel?.orderFrontRegardless()
+        if wasVisible == false,
+           NSWorkspace.shared.accessibilityDisplayShouldReduceMotion == false {
+            let collapsedPanelFrame = NSRect(
+                x: expandedPanelFrame.minX,
+                y: expandedPanelFrame.maxY - 24,
+                width: expandedPanelFrame.width,
+                height: 24
+            )
+            panel.alphaValue = 0
+            panel.setFrame(collapsedPanelFrame, display: false)
+            panel.makeKeyAndOrderFront(nil)
+            panel.orderFrontRegardless()
+
+            NSAnimationContext.runAnimationGroup { animationContext in
+                animationContext.duration = 0.24
+                animationContext.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = 1
+                panel.animator().setFrame(expandedPanelFrame, display: true)
+            }
+        } else {
+            panel.alphaValue = 1
+            panel.makeKeyAndOrderFront(nil)
+            panel.orderFrontRegardless()
+        }
         panelShownAt = Date()
         installClickOutsideMonitor()
     }
 
     private func hidePanel() {
-        panel?.orderOut(nil)
+        if let hideIntegratedPanel {
+            hideIntegratedPanel()
+            return
+        }
+
+        guard let panel, panel.isVisible else {
+            removeClickOutsideMonitor()
+            return
+        }
+
+        visibilityAnimationGeneration += 1
+        let animationGeneration = visibilityAnimationGeneration
+        let expandedPanelFrame = panel.frame
         removeClickOutsideMonitor()
+        onVisibilityChanged(false)
+
+        guard NSWorkspace.shared.accessibilityDisplayShouldReduceMotion == false else {
+            panel.orderOut(nil)
+            panel.alphaValue = 1
+            return
+        }
+
+        let collapsedPanelFrame = NSRect(
+            x: expandedPanelFrame.minX,
+            y: expandedPanelFrame.maxY - 24,
+            width: expandedPanelFrame.width,
+            height: 24
+        )
+        NSAnimationContext.runAnimationGroup { animationContext in
+            animationContext.duration = 0.18
+            animationContext.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().alphaValue = 0
+            panel.animator().setFrame(collapsedPanelFrame, display: true)
+        } completionHandler: { [weak self, weak panel] in
+            Task { @MainActor in
+                guard let self,
+                      let panel,
+                      self.visibilityAnimationGeneration == animationGeneration else {
+                    return
+                }
+                panel.orderOut(nil)
+                panel.alphaValue = 1
+            }
+        }
     }
 
     private func createPanel() {
@@ -154,7 +276,7 @@ final class MenuBarPanelManager: NSObject {
         // is read once, at panel creation (first show after launch), so
         // flipping it takes effect on the next app launch.
         let hostingView: NSView
-        if PaceUserPreferencesStore.bool(for: .useChatPanelAsPrimarySurface) {
+        if usesChatPanelAsPrimarySurface {
             let chatPanelView = PaceChatPanelView(companionManager: companionManager)
                 .frame(width: panelWidth)
             hostingView = NSHostingView(rootView: chatPanelView)
@@ -203,7 +325,10 @@ final class MenuBarPanelManager: NSObject {
         } else {
             return
         }
-        let gapBelowMenuBar: CGFloat = 4
+        // Let the panel tuck under the rounded Living Notch lip so the two
+        // AppKit windows read as one center-out expansion instead of a detached
+        // dropdown with desktop showing through between them.
+        let connectedNotchOverlap: CGFloat = 4
 
         // Calculate the panel's content height from the hosting view's fitting size
         // so the panel snugly wraps the SwiftUI content instead of using a fixed height.
@@ -211,7 +336,7 @@ final class MenuBarPanelManager: NSObject {
         let actualPanelHeight = fittingSize.height
 
         var panelOriginX = anchorFrame.midX - (panelWidth / 2)
-        let panelOriginY = anchorFrame.minY - actualPanelHeight - gapBelowMenuBar
+        let panelOriginY = anchorFrame.minY - actualPanelHeight + connectedNotchOverlap
 
         // Keep the panel fully on-screen. A right-corner anchor (the mascot
         // perch) would otherwise center the panel under the mascot and push
@@ -230,15 +355,19 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func defaultMenuBarAnchorFrame() -> NSRect? {
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return nil }
+        if let livingNotchGeometry = PaceLivingNotchScreenGeometryResolver.geometry(
+            displayMode: .panelOpen
+        ) {
+            return livingNotchGeometry.presentationFrame
+        }
 
-        let fallbackAnchorWidth: CGFloat = 292
-        let fallbackAnchorHeight: CGFloat = 34
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return nil }
+        let menuBarHeight = max(screen.frame.maxY - screen.visibleFrame.maxY, 1)
         return NSRect(
-            x: screen.frame.midX - (fallbackAnchorWidth / 2),
-            y: screen.frame.maxY - fallbackAnchorHeight,
-            width: fallbackAnchorWidth,
-            height: fallbackAnchorHeight
+            x: screen.frame.midX,
+            y: screen.frame.maxY - menuBarHeight,
+            width: 0,
+            height: menuBarHeight
         )
     }
 

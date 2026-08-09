@@ -49,7 +49,7 @@ import FoundationModels
 @available(macOS 26.0, *)
 @Generable
 struct PaceFMToolCall {
-    @Guide(description: "Tool name from the available tools list. Must be one of: click, type, key, scroll, open_app, open_url, music, volume, brightness, calendar, reminder, create_note, append_note, compose_mail, create_reminder, create_calendar_event, clipboard_read, clipboard_write, download_file, run_flow, record_flow, mcp, draw_annotation, clear_annotations, undo.")
+    @Guide(description: "Tool name from the available tools list. Must be one of: click, double_click, type, set_value, undo_last, key, clipboard_read, window_snap, scroll, open_app, open_url, music, volume, brightness, calendar, calendar_create, reminder, finder, notes, mail, things, shortcuts, messages, download_file, start_timer, record_flow, run_flow, draw_annotation, clear_annotations, mcp.")
     let tool: String
 
     @Guide(description: "JSON object with the tool's arguments. Example: {\"x\":400,\"y\":300} for click, {\"text\":\"hello\"} for type, {\"app\":\"Safari\"} for open_app.")

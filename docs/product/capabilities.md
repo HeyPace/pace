@@ -10,7 +10,7 @@ I ask it" reference.
 ## Tools (the action catalog)
 
 The 29 local tools live in `PaceToolRegistry.localTools` and are surfaced,
-auto-generated, in **PaceMainWindow → Skills** (every tool has a name, an
+auto-generated, in **Command Center → Use Pace → Automations** (every tool has a name, an
 example utterance, and a risk badge). Startup validation refuses to launch if
 any tool lacks an example utterance, so the Skills tab can never go stale.
 
@@ -28,6 +28,24 @@ Multi-action commands ride in a single planner response (the v10 envelope's
 [conversation-model.md](conversation-model.md) for why.
 
 ## Capability classes (beyond tools)
+
+**Native interaction surfaces** — first launch opens a skippable three-scene
+journey: Pace's local signal, three live macOS permissions, then one editable
+typed or spoken request sent through the same real request and approval path as
+everyday use. A real response or completed action hands off into the persistent
+Living Notch signal; blocked and failed turns remain visible without a fake
+success moment. On a notched MacBook, the idle surface exactly matches the
+camera housing and adds compact state and signal wings beside it on hover or
+while Pace is active. On click, the same clipped surface extends equally left,
+right, and downward to reveal the complete quick panel. Pace
+does not draw a fake notch on other displays; the global shortcut still opens
+the centered quick panel. Everyday use stays in the notch and present-turn quick panel. Durable work,
+history, privacy, customization, and help live in one searchable, resizable
+Command Center that shows at most four primary choices per group and places
+advanced integrations behind progressive disclosure. It remembers the last destination. Blue means the active turn
+is local; amber explicitly marks an enabled off-device planner boundary. All
+cinematic travel has a Reduce Motion alternative, and the introduction can be
+replayed from the Command Center without clearing permissions or data.
 
 **Understanding the screen** — describe what's on screen, answer questions about
 it, point the cursor at / click a named element. Backed by the local VLM +
@@ -99,6 +117,32 @@ General → Automation:
 workflows that are parsed into planner prompts. Voice: "run the standup skill"
 (`PaceSkillLoader`).
 
+**Local automation reuse** — “list my automations” builds a non-persisted local
+catalog over bundled typed automations, bounded Pace Programs, recorded flows,
+planner-grounded skills, and installed macOS Shortcuts. Each entry discloses
+its execution mode. “Run
+automation &lt;name&gt;” remains an exact model-free command, while ordinary requests
+such as “help me plan my day” or “what does tomorrow look like?” are matched
+locally using exact authored aliases and Nomic/Apple sentence embeddings;
+token overlap never authorizes execution. Automatic execution requires one candidate above both a confidence
+threshold and winner margin; ambiguity falls through without running a catalog
+entry unless the on-device Apple language model resolves it confidently or asks
+the user to clarify. “Create an automation …” and “teach a skill …” share a
+privacy-pinned local authoring ladder: fixed typed calls first, a bounded Pace
+Program for simple weekday/hour/frontmost-app branches or literal repetition
+second, and a planner-grounded skill when the workflow needs live contextual
+interpretation. Every program branch validates before persistence; runs flatten
+into the typed action pipeline without invoking a model. Raw Lua, JavaScript,
+shell, network, arbitrary file, and direct Accessibility authority are not
+available. User typed definitions and programs live in separate Application
+Support directories. The 17 bundled
+entries span Notes templates, Calendar reads, timers, Finder folders,
+current-window layouts, bounded media control, weekly review, and end-of-day
+reset. Recorded flows, skills, Shortcuts, cron, and background agents keep their
+distinct executors. Catalog metadata never enters planner prompts or
+conversation memory (`PaceAutomationCatalog`, `PaceUserAutomationStore`,
+`PaceUserProgramStore`, `PaceShortcutsAutomationProvider`).
+
 **Apple Foundation Models tool-calling** — when the planner tier is Apple FM,
 multi-step tool calls are serialized from the typed `PaceFMTurnResponse.toolCalls`
 array into `<tool_calls>` JSON blocks that the existing action parser executes.
@@ -122,10 +166,11 @@ default-off. See `docs/architecture/overview.md` for the privacy posture.
 1. **Fast path** (`PaceFastActionCommandParser`) — deterministic, no model, no
    screen: open app/URL/known site, media, volume, brightness, undo, window
    snap, common key shortcuts. Sub-200ms.
-2. **Automation parsers** — deterministic, no model: cron scheduling ("every 30
-   minutes..."), background agents ("in the background..."), meeting mode
-   ("start meeting mode"), skills ("run the standup skill"). Routes to the
-   relevant module before the planner.
+2. **Automation parsers** — deterministic, no model: installed Shortcuts ("run
+   my Morning Routine shortcut"), cron scheduling ("every 30 minutes..."),
+   background agents ("in the background..."), meeting mode ("start meeting
+   mode"), skills ("run the standup skill"). Routes to the relevant module
+   before the planner.
 3. **Text-only planner** — pure-knowledge answers, no screen capture.
 4. **Screen pipeline** — VLM + planner, for commands that genuinely need to see
    or act on the screen. The VLM is skipped for launch/navigate verbs that don't

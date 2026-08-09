@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "identifier": "focus-timer",
+  "name": "focus timer",
+  "description": "Starts a 25-minute timer labeled Focus session.",
+  "category": "focus",
+  "invocationPhrases": ["give me 25 minutes to focus", "start a focus session", "help me focus for 25 minutes"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "start_timer",
+          "arguments": {
+            "duration": "25 minutes",
+            "label": "Focus session"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -447,19 +447,18 @@ nonisolated enum PaceToolRegistry {
                 bundle: .main,
                 allowSourceTreeFallback: false
             )
-        // Recipe library validation runs alongside the tool registry
-        // validation so malformed recipe JSON fails the app at launch
-        // — same fail-fast contract the registry uses.
-        let recipeValidationIssues = PaceRecipeLibrary
-            .validateBundledRecipes(bundle: .main, allowSourceTreeFallback: false)
-            .map { PaceToolRegistryValidationIssue(message: "bundled recipe: \($0.message)") }
-        // Meeting note profiles validate alongside recipes — same
+        // Typed automation validation runs alongside the tool registry so a
+        // malformed, forbidden, or partially parsed manifest fails at launch.
+        let automationValidationIssues = PaceAutomationDefinitionLibrary
+            .validateBundledDefinitions(bundle: .main, allowSourceTreeFallback: false)
+            .map { PaceToolRegistryValidationIssue(message: "bundled automation: \($0.message)") }
+        // Meeting note profiles validate alongside automations — same
         // fail-fast contract so malformed bundled profile JSON is caught
         // at launch, not at first meeting synthesis.
         let profileValidationIssues = PaceMeetingNoteProfileLibrary
             .validateBundledProfiles(bundle: .main, allowSourceTreeFallback: false)
             .map { PaceToolRegistryValidationIssue(message: "bundled meeting note profile: \($0.message)") }
-        let allValidationIssues = validationIssues + recipeValidationIssues + profileValidationIssues
+        let allValidationIssues = validationIssues + automationValidationIssues + profileValidationIssues
         guard allValidationIssues.isEmpty else {
             let formattedIssues = allValidationIssues
                 .map { "- \($0.description)" }

@@ -99,3 +99,26 @@ live gauntlet that should be fixed, not retried as-is:
 `OverlayWindow.swift` are intentionally not fixed (per `AGENTS.md`). Do not
 attempt these unless explicitly asked — they are noise, not signal, and chasing
 them risks churn on stable paths.
+
+## Rejected: bundled recipes that overclaim recorded UI steps
+
+The original five bundled recipes encoded literal app activation and keystrokes
+while their descriptions promised higher-level outcomes. They were retired in
+favor of typed local automations that must compile completely through Pace's
+canonical tool registry.
+
+- **Inbox triage pass:** opened Mail and selected the inbox but never judged or
+  described which messages mattered. Revisit only with an explicit local mail
+  read/triage contract and truthful privacy behavior.
+- **Focus mode on:** opened Music but did not enable Do Not Disturb or play the
+  preferred playlist. Revisit only when Pace has a validated local Focus-mode
+  action and a complete playlist action.
+- **Morning standup setup:** depended on Slack being installed and replayed a
+  brittle `cmd+k`, text, and Return sequence; opening Calendar did not “pull”
+  today's schedule. Revisit as an imported user-owned Shortcut or with native,
+  availability-checked Slack and Calendar actions.
+- **Weekly review draft:** retained as the typed `weekly-review-note`
+  automation because the native Notes tool fulfills the complete outcome.
+- **End-of-day shutdown:** narrowed and retained as `end-of-day-reset`; it now
+  honestly opens Calendar and creates the promised reminder through native
+  tools rather than pretending to review the schedule.

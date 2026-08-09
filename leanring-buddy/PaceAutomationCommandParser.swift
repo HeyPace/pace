@@ -4,11 +4,59 @@
 //
 //  Pre-planner voice command parsers for the automation features:
 //  cron scheduling, background agents, meeting mode, and skills.
-//  Each parser follows the existing pattern (PaceWatchModeCommandParser,
-//  PaceRecipeCommandParser, etc.) — deterministic, no model, no screen.
+//  Each parser follows the existing Pace command-parser pattern —
+//  deterministic, no model, no screen.
 //
 
 import Foundation
+
+// MARK: - Natural-language automation creation
+
+nonisolated struct PaceAutomationCreationCommand: Equatable, Sendable {
+    let rawDescription: String
+}
+
+nonisolated enum PaceAutomationCreationCommandParser {
+    private static let creationPrefixes = [
+        "create a new automation",
+        "create an automation",
+        "create automation",
+        "make a new automation",
+        "make me an automation",
+        "make an automation",
+        "build an automation",
+        "set up an automation",
+        "teach you an automation",
+        "teach an automation",
+    ]
+
+    static func parse(_ transcript: String) -> PaceAutomationCreationCommand? {
+        let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        for creationPrefix in creationPrefixes {
+            guard let prefixRange = trimmedTranscript.range(
+                of: creationPrefix,
+                options: [.caseInsensitive, .anchored]
+            ) else {
+                continue
+            }
+            var rawDescription = String(trimmedTranscript[prefixRange.upperBound...])
+                .trimmingCharacters(in: CharacterSet(charactersIn: " :,.-\t"))
+            for leadingConnective in ["to ", "that ", "which "] {
+                if let connectiveRange = rawDescription.range(
+                    of: leadingConnective,
+                    options: [.caseInsensitive, .anchored]
+                ) {
+                    rawDescription = String(rawDescription[connectiveRange.upperBound...])
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    break
+                }
+            }
+            guard !rawDescription.isEmpty else { return nil }
+            return PaceAutomationCreationCommand(rawDescription: rawDescription)
+        }
+        return nil
+    }
+}
 
 // MARK: - Cron scheduling
 

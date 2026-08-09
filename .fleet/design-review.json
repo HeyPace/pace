@@ -2,19 +2,36 @@
   "$schema": "fleet.design-review.v1",
   "version": 1,
   "project": "pace",
-  "target": "HeyPace marketing homepage",
-  "mode": "preserve",
-  "register": "brand",
+  "target": "native macOS menu-bar, notch, panel, and management interface",
+  "mode": "overhaul",
+  "register": "product",
   "context": {
     "product": "PRODUCT.md",
-    "design": "DESIGN.md"
+    "design": "leanring-buddy/DESIGN.md"
   },
   "direction": {
-    "references": [],
-    "probes": [],
-    "selected": "existing-design",
-    "approval": "not-required",
-    "before": "artifacts/design/before.png"
+    "references": [
+      "Boring Notch single resizable surface and reserved hardware center",
+      "NotchNook notch-origin expansion",
+      "Apple NSScreen auxiliary safe-area geometry"
+    ],
+    "probes": [
+      {
+        "id": "living-notch",
+        "path": "artifacts/design/native-overhaul/probes/hardware-notch-directions.png"
+      },
+      {
+        "id": "safe-area-sidecar",
+        "path": "artifacts/design/native-overhaul/probes/hardware-notch-directions.png"
+      },
+      {
+        "id": "activity-tray",
+        "path": "artifacts/design/native-overhaul/probes/hardware-notch-directions.png"
+      }
+    ],
+    "selected": "living-notch",
+    "approval": "delegated",
+    "before": ""
   },
   "evidence": {
     "screenshots": [
@@ -29,10 +46,54 @@
       {
         "width": 1440,
         "path": "artifacts/design/after-1440.png"
+      },
+      {
+        "width": 320,
+        "path": "artifacts/design/native-overhaul/panel-live-clean.png"
+      },
+      {
+        "width": 1040,
+        "path": "artifacts/design/native-overhaul/command-center-live-fixed.png"
+      },
+      {
+        "width": 1040,
+        "path": "artifacts/design/native-overhaul/command-center-automations-final.png"
+      },
+      {
+        "width": 185,
+        "path": "artifacts/design/native-overhaul/living-notch-active.png"
+      },
+      {
+        "width": 320,
+        "path": "artifacts/design/native-overhaul/living-notch-panel.png"
+      },
+      {
+        "width": 400,
+        "path": "artifacts/design/native-overhaul/living-notch-panel-wide.png"
+      },
+      {
+        "width": 520,
+        "path": "artifacts/design/native-overhaul/living-notch-connected-wide.png"
+      },
+      {
+        "width": 276,
+        "path": "artifacts/design/native-overhaul/living-notch-default-shelf.png"
+      },
+      {
+        "width": 520,
+        "path": "artifacts/design/native-overhaul/living-notch-connected-silhouette.png"
+      },
+      {
+        "width": 340,
+        "path": "artifacts/design/native-overhaul/boring-notch-adaptation-closed.png"
+      },
+      {
+        "width": 520,
+        "path": "artifacts/design/native-overhaul/boring-notch-adaptation-open-clean.png"
       }
     ],
     "projectCheck": {
-      "command": "cd website && ../node_modules/.bin/astro build",
+      "command": "bash scripts/test-pace.sh PaceNativeInterfaceModelTests PaceChatSessionTests GlobalChatShortcutMonitorTests",
       "status": "pass"
     },
     "critique": {
@@ -40,7 +101,7 @@
       "maximum": 40
     },
     "audit": {
-      "score": 19,
+      "score": 18,
       "maximum": 20
     },
     "unresolved": {
@@ -50,25 +111,12 @@
     "detector": {
       "posture": "advisory",
       "findings": [
-        "The detector reported one advisory blueprint-grid signature in the hero; it is retained because the grid is confined to the product's documented command-console and architecture-diagram treatment.",
-        "All 15 native disclosure controls are keyboard-operable and start collapsed.",
-        "Browser review at 390, 768, and 1440 pixels found no horizontal overflow or console errors.",
-        "The download and purchase actions now sit next to the product promise and remain fully visible in the first 1,000 pixels at every reviewed width."
+        "The bundled detector returned no findings because Swift files are outside its scannable extensions; the native source audit was used instead."
       ]
-    },
-    "browserReview": {
-      "viewports": [
-        390,
-        768,
-        1440
-      ],
-      "horizontalOverflow": false,
-      "consoleErrors": 0,
-      "note": "The final review verified an unclipped mobile headline, stacked local-mode disclosure, 48px header action, 52px hero actions, correct /download and #pricing targets, no horizontal overflow, and reduced-motion suppression at 390, 768, and 1440 pixels."
     }
   },
   "ownerFeedback": {
-    "decision": "delegated",
-    "note": "Owner delegated completion of the outstanding matrix and HeyPace design-evidence pass on 2026-07-31."
+    "decision": "keep",
+    "note": "The owner accepted the final notch treatment with 'Nice now it looks good.' The selected adaptation follows Boring Notch's single resizable clipped surface without copying its GPL code, branding, or assets. Idle remains the exact 185 by 32 point housing; active state is 340 by 32 with the physical center reserved; click resizes the same window to 520 by 352 and embeds the Pace conversation directly inside it. The final Automations capture also verifies the repaired bounded Command Center layout, plain-language creation entry point, and local risk labels. Local state remains blue and off-device activity remains amber."
   }
 }

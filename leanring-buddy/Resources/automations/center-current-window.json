@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "identifier": "center-current-window",
+  "name": "center current window",
+  "description": "Centers the currently focused window and sizes it to most of the visible screen.",
+  "category": "window",
+  "invocationPhrases": ["center this window", "put this window in the center", "center the current window"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "window_snap",
+          "arguments": {
+            "position": "center"
+          }
+        }
+      ]
+    }
+  ]
+}

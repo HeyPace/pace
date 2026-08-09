@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "identifier": "week-schedule",
+  "name": "week schedule",
+  "description": "Reads upcoming Calendar events for the next seven days without creating a review note.",
+  "category": "calendar",
+  "invocationPhrases": ["what does my week look like", "show this week's schedule", "what is on my calendar this week"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "calendar",
+          "arguments": {
+            "range": "week"
+          }
+        }
+      ]
+    }
+  ]
+}

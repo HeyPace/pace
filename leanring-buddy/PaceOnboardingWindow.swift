@@ -19,37 +19,42 @@ final class PaceOnboardingWindowManager {
 
     private init() {}
 
-    /// True if the user has completed onboarding before. Stored as a
-    /// UserDefaults bool so the welcome window only shows once. The
-    /// onboarding view writes this when the user clicks Finish.
     static var hasCompletedOnboarding: Bool {
-        UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
+        PaceOnboardingProgressStore.shared.loadState().stage == .complete
     }
 
-    func showOnboardingIfNeeded() {
+    func showOnboardingIfNeeded(companionManager: CompanionManager) {
         guard !Self.hasCompletedOnboarding else { return }
-        show()
+        show(companionManager: companionManager)
     }
 
-    func show() {
+    func show(companionManager: CompanionManager, isReplay: Bool = false) {
         if let existingWindow = window {
             existingWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let rootView = PaceOnboardingView(onComplete: { [weak self] in
-            self?.close()
-        })
+        let rootView = PaceOnboardingView(
+            companionManager: companionManager,
+            isReplay: isReplay,
+            onComplete: { [weak self] in
+                self?.close()
+            }
+        )
         let hostingController = NSHostingController(rootView: rootView)
         let newWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 460),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            contentRect: NSRect(x: 0, y: 0, width: 920, height: 640),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         newWindow.title = "Welcome to Pace"
+        newWindow.titleVisibility = .hidden
         newWindow.titlebarAppearsTransparent = true
+        newWindow.isMovableByWindowBackground = true
+        newWindow.backgroundColor = NSColor(DS.Colors.surface)
+        newWindow.minSize = NSSize(width: 900, height: 620)
         newWindow.contentViewController = hostingController
         newWindow.center()
         newWindow.isReleasedWhenClosed = false

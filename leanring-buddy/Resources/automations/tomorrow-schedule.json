@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "identifier": "tomorrow-schedule",
+  "name": "tomorrow schedule",
+  "description": "Reads tomorrow's events from the local Calendar database.",
+  "category": "calendar",
+  "invocationPhrases": ["what does tomorrow look like", "show tomorrow's schedule", "what is on my calendar tomorrow"],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "calendar",
+          "arguments": {
+            "range": "tomorrow"
+          }
+        }
+      ]
+    }
+  ]
+}

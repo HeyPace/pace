@@ -1,0 +1,52 @@
+{
+  "$schema": "fleet.design-review.v1",
+  "version": 1,
+  "project": "pace",
+  "target": "HeyPace marketing homepage",
+  "mode": "preserve",
+  "register": "brand",
+  "context": {
+    "product": "PRODUCT.md",
+    "design": "DESIGN.md"
+  },
+  "direction": {
+    "references": [],
+    "probes": [],
+    "selected": "existing-design",
+    "approval": "not-required",
+    "before": "artifacts/design/before.png"
+  },
+  "evidence": {
+    "screenshots": [
+      { "width": 390, "path": "artifacts/design/after-390.png" },
+      { "width": 768, "path": "artifacts/design/after-768.png" },
+      { "width": 1440, "path": "artifacts/design/after-1440.png" }
+    ],
+    "projectCheck": {
+      "command": "cd website && ../node_modules/.bin/astro build",
+      "status": "pass"
+    },
+    "critique": { "score": 36, "maximum": 40 },
+    "audit": { "score": 19, "maximum": 20 },
+    "unresolved": { "p0": 0, "p1": 0 },
+    "detector": {
+      "posture": "advisory",
+      "findings": [
+        "The detector reported one advisory blueprint-grid signature in the hero; it is retained because the grid is confined to the product's documented command-console and architecture-diagram treatment.",
+        "All 15 native disclosure controls are keyboard-operable and start collapsed.",
+        "Browser review at 390, 768, and 1440 pixels found no horizontal overflow or console errors.",
+        "The download and purchase actions now sit next to the product promise and remain fully visible in the first 1,000 pixels at every reviewed width."
+      ]
+    },
+    "browserReview": {
+      "viewports": [390, 768, 1440],
+      "horizontalOverflow": false,
+      "consoleErrors": 0,
+      "note": "The final review verified an unclipped mobile headline, stacked local-mode disclosure, 48px header action, 52px hero actions, correct /download and #pricing targets, no horizontal overflow, and reduced-motion suppression at 390, 768, and 1440 pixels."
+    }
+  },
+  "ownerFeedback": {
+    "decision": "delegated",
+    "note": "Owner delegated completion of the outstanding matrix and HeyPace design-evidence pass on 2026-07-31."
+  }
+}

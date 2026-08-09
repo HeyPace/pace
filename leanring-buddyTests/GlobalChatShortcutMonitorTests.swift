@@ -21,6 +21,10 @@ struct GlobalChatShortcutMonitorTests {
 
     // MARK: - Shortcut-match helper
 
+    @Test func configuredShortcutHasAnAccessibilityLabel() {
+        #expect(!PaceNotchChatShortcut.currentShortcutAccessibilityLabel.isEmpty)
+    }
+
     @Test func detectsCommandShiftPOnKeyDownEvent() {
         // P key code is 35; both .command and .shift must be set.
         let modifierFlagsRawValue = UInt64(
