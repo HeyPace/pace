@@ -1,12 +1,12 @@
 # pace — PROJECT STATUS
 
-Last updated: 2026-08-09
+Last updated: 2026-08-10
 
 ## Why/What
 
 **Thesis:** macOS menu-bar voice agent that answers in under ~500 ms time-to-first-spoken-word (TTFSW), fully on-device — no cloud LLM, no API keys, no Worker telemetry. Hold hotkey → speak → Pace reads the screen (optional), plans locally, streams TTS, and optionally executes approved macOS actions.
 
-**In scope:** Menu-bar/notch UI, push-to-talk, on-device ASR/TTS/VLM/planner, action executor (AX-first clicks), trust surfaces, episodic + thread memory, watch mode, journals, proactive nudges (opt-in), MCP substrate, recipe library, `pace://` deeplinks, App Intents (Siri/Shortcuts), bundled MLX model supply, marketing site (`website/`), eval gates, pace-tuned model export scaffold.
+**In scope:** Menu-bar/notch UI, push-to-talk, on-device ASR/TTS/VLM/planner, action executor (AX-first clicks), trust surfaces, episodic + thread memory, watch mode, journals, proactive nudges (opt-in), MCP substrate, typed automation catalog, `pace://` deeplinks, App Intents (Siri/Shortcuts), bundled MLX model supply, marketing site (`website/`), eval gates, pace-tuned model export scaffold.
 
 **Out / parked:** Persistent KV planner backend (blocked on TinyGPT oMLX), grammar-constrained v10 as runtime default (eval-gated), cloud bridge as default tier, hosted monitoring, CI-automated live-app AX smokes.
 
@@ -32,7 +32,7 @@ Last updated: 2026-08-09
 | Surface | Stack | Commands |
 | --- | --- | --- |
 | macOS app | Swift/SwiftUI, Xcode `leanring-buddy.xcodeproj` | Open in Xcode → Cmd+R (**do not** `xcodebuild` — invalidates TCC) |
-| Tests | XCTest via isolated DerivedData | `bash scripts/test-pace.sh` — **1664 tests passing** |
+| Tests | XCTest via isolated DerivedData | `bash scripts/test-pace.sh` — **1676 tests passing** |
 | Local models | MLX, WhisperKit, TTSKit, Apple Speech | Settings → Models; Sparkle manifest in Info.plist |
 | Landing | Astro 5 + Tailwind v4 + Lightning CSS | `cd website && pnpm install && pnpm run dev` (:4321) |
 | Deploy landing | Cloudflare Pages project `pace` | `pnpm run build && pnpm run deploy` |
@@ -63,6 +63,15 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 
 ## Timeline
 
+- **2026-08-10 — Local automation catalog and programmable skills shipped to
+  `main`:** Pace now discovers bundled typed automations, recorded flows,
+  installed macOS Shortcuts, prose skills, and validated Pace Programs through
+  one local catalog. Ordinary transcripts use deterministic triggers first and
+  local semantic routing only when needed; natural-language authoring chooses
+  the safest representation that can truthfully express the request. The
+  legacy recipe layer was removed. The five completed OpenSpec changes were
+  archived after strict validation; release 0.3.20 still requires the hardware
+  smoke checklist.
 - **2026-08-09 — Native Local Signal Desk overhaul built:** the hardware-derived
   Living Notch is again Pace's primary ambient surface. It matches the physical
   camera housing at idle, adds state and signal wings directly beside that
@@ -76,7 +85,7 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
   Activity & Privacy, Customize, and Help, with optional integrations and
   developer controls behind an Advanced disclosure. Shared semantic signal states preserve
   amber off-device disclosure across every transition and honor Reduce Motion.
-  Pure state/routing coverage and the full 1664-test isolated suite pass. Xcode
+  Pure state/routing coverage and the full 1676-test isolated suite pass. Xcode
   hardware, VoiceOver, and final visual-owner signoff remain release checks.
 - **2026-08-05 — On-device assistant field guides:** added five public guides
   for on-device architecture, screen context, private voice, typed Mac actions,
@@ -135,7 +144,7 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 | Pace macOS app | Menu-bar/notch capsule + floating panel | On-device voice agent with optional screen actions |
 | Marketing site | `website/` on Cloudflare Pages | Try/Pace/Studio pricing, on-device pitch, FAQ |
 | Pace-tuned model scaffold | Settings export + eval scripts | Local turn collection → LoRA training pipeline |
-| MCP + recipes | Settings → MCP, bundled flows | stdio tool bridge + voice-installable recipe library |
+| MCP + automations | Command Center, bundled definitions, flows, skills, and Shortcuts | Local tool bridge plus one reusable-work catalog |
 
 ## Features (shipped)
 
@@ -147,6 +156,17 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 - Intent classifier routes chitchat / pure-knowledge / screen-action paths.
 - VLM-skip heuristic for non-screen-referential transcripts; override `AlwaysRunLocalVLMRegardlessOfTranscript`.
 - Speculative planner race (first step): Apple FM lite vs full VLM path; action parsing always from full planner text.
+
+### Automations and reusable work
+
+- One typed catalog covers bundled deterministic automations, recorded flows,
+  installed macOS Shortcuts, teachable prose skills, and validated Pace
+  Programs.
+- Natural transcripts resolve exact authored triggers without a model, then use
+  the privacy-pinned local intent resolver only for genuinely semantic matches.
+- “Create an automation” and “teach a skill” share one local authoring pipeline:
+  fixed typed automation first, validated Pace Program second, prose skill as
+  the flexible fallback.
 
 ### Trust & failures
 
