@@ -122,6 +122,7 @@ xcodebuild test \
     -destination "$DESTINATION" \
     -derivedDataPath "$DERIVED_DATA_PATH" \
     -resultBundlePath "$RESULT_BUNDLE_PATH" \
+    -parallel-testing-enabled NO \
     -only-testing:"$TEST_TARGET" \
     "${ONLY_TESTING_ARGS[@]+"${ONLY_TESTING_ARGS[@]}"}" \
     CODE_SIGN_IDENTITY="" \

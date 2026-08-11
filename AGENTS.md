@@ -36,6 +36,7 @@ Full setup, switches, and tuning: [`SETUP_LOCAL.md`](./SETUP_LOCAL.md). Info.pli
 bash scripts/test-pace.sh            # ~1400 unit tests, isolated DerivedData (no TCC impact)
 bash scripts/eval-v10-gate.sh        # v10 planner-response schema gate
 bash scripts/benchmark_ttfsw.sh --last 10m   # publishable TTFSW/TTFT latency table
+bash scripts/prepare-release.sh      # isolated Release .app; never publishes or bumps versions
 ```
 
 Local isolated-DerivedData builds require the Metal Toolchain (`xcodebuild -downloadComponent MetalToolchain`) because `mlx-swift` compiles Metal shaders. Track any current compile blocker in GitHub Issues.

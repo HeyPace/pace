@@ -63,6 +63,14 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 
 ## Timeline
 
+- **2026-08-11 — Non-publishing Mac distribution preparation:** Pace can now
+  assemble and strictly verify an isolated arm64 Release app without changing
+  versions, editing the Sparkle appcast, or publishing. The helper supports an
+  explicitly configured Developer ID identity and fails closed when that
+  identity is unavailable; the current locally verified app and DMG remain
+  ad-hoc signed. CI's native build and tests pass with serial XCTest execution.
+  Developer ID signing, notarization, and the physical-hardware release smoke
+  checklist remain required before a public DMG release.
 - **2026-08-10 — Local automation catalog and programmable skills shipped to
   `main`:** Pace now discovers bundled typed automations, recorded flows,
   installed macOS Shortcuts, prose skills, and validated Pace Programs through
