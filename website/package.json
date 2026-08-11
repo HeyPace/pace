@@ -14,12 +14,12 @@
     "deploy": "pnpm run build && wrangler pages deploy dist --project-name pace"
   },
   "dependencies": {
-    "@tailwindcss/vite": "^4.1.16",
-    "astro": "^5.16.0",
-    "tailwindcss": "^4.1.16"
+    "@tailwindcss/vite": "^4.3.3",
+    "astro": "^5.18.2",
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
-    "lightningcss": "^1.30.5",
-    "wrangler": "^4.103.0"
+    "lightningcss": "^1.33.0",
+    "wrangler": "^4.120.1"
   }
 }

@@ -40,6 +40,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Select latest Xcode
         run: |
@@ -49,6 +51,11 @@ jobs:
           sudo xcode-select -s "${LATEST_XCODE}"
           xcodebuild -version
           xcodebuild -showsdks
+
+      - name: Check changed Swift formatting
+        env:
+          CODE_HEALTH_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/check-swift-format.mjs
 
       - name: Xcode version (for cache key)
         id: xcode
@@ -87,6 +94,7 @@ jobs:
               -scheme leanring-buddy \
               -destination "platform=macOS" \
               -configuration Debug \
+              -enableCodeCoverage ${{ env.ENABLE_COVERAGE }} \
               CLANG_ENABLE_CODE_COVERAGE=${{ env.ENABLE_COVERAGE }} \
               CODE_SIGNING_ALLOWED=NO \
               CODE_SIGNING_REQUIRED=NO \
@@ -109,6 +117,7 @@ jobs:
               -scheme leanring-buddy \
               -destination "platform=macOS" \
               -configuration Debug \
+              -enableCodeCoverage ${{ env.ENABLE_COVERAGE }} \
               CLANG_ENABLE_CODE_COVERAGE=${{ env.ENABLE_COVERAGE }} \
               CODE_SIGNING_ALLOWED=NO \
               CODE_SIGNING_REQUIRED=NO \
@@ -162,6 +171,7 @@ jobs:
             -parallel-testing-enabled NO \
             -retry-tests-on-failure \
             -test-iterations 3 \
+            -enableCodeCoverage ${{ env.ENABLE_COVERAGE }} \
             CLANG_ENABLE_CODE_COVERAGE=${{ env.ENABLE_COVERAGE }} \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -258,3 +268,33 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+  code-health:
+    name: Code health
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            website/pnpm-lock.yaml
+
+      - name: Install quality tooling
+        run: pnpm install --frozen-lockfile
+
+      - name: Check production duplication baseline
+        run: pnpm run quality:duplication
+
+      - name: Audit dependencies
+        run: pnpm run quality:dependencies

@@ -9,11 +9,11 @@ const publicDocs = resolve(websiteRoot, "public/docs");
 
 // Blume is pinned in the repository root. Building it here keeps the local
 // deploy, GitHub Actions deploy, and docs integrity workflow on one path.
-execFileSync("npm", ["install", "--no-package-lock"], {
+execFileSync("pnpm", ["install", "--frozen-lockfile"], {
   cwd: repoRoot,
   stdio: "inherit",
 });
-execFileSync("npm", ["run", "docs:build"], {
+execFileSync("pnpm", ["run", "docs:build"], {
   cwd: repoRoot,
   stdio: "inherit",
 });
