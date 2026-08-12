@@ -437,11 +437,22 @@ struct PaceLocalRetrievalTests {
             appliesPersistedSourcePreferences: false
         )
         var journal = retriever.rehydratedAppUsageJournal()
-        let startedAt = Date()
+        // Keep the interval away from midnight so the test does not split the
+        // Xcode and Safari usage into different day buckets late in the evening.
+        let startedAt = try #require(
+            Calendar.current.date(
+                from: DateComponents(
+                    year: 2026,
+                    month: 8,
+                    day: 11,
+                    hour: 12
+                )
+            )
+        )
         journal.recordActivation(appName: "Xcode", at: startedAt)
         journal.recordActivation(appName: "Safari", at: startedAt.addingTimeInterval(1200))
-        let flushed_flushedDocument = journal.flush(now: startedAt.addingTimeInterval(1500))
-        let flushedDocument = try #require(flushed_flushedDocument)
+        let flushedJournalDocument = journal.flush(now: startedAt.addingTimeInterval(1500))
+        let flushedDocument = try #require(flushedJournalDocument)
         retriever.recordAppUsageDocument(flushedDocument)
 
         // The exact phrasing a user says — must match through the doc's

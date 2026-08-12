@@ -3,8 +3,9 @@
 //  leanring-buddyTests
 //
 //  Benchmarks Apple Foundation Models intent classifier against the
-//  same held-out eval set used for the TinyGPT pace-intent-router.
-//  Stratified sample of 500 examples (proportional to class distribution).
+//  same held-out eval set used for the TinyGPT pace-intent-router. This is an
+//  explicit benchmark, not part of the default unit-test cost: opt in with
+//  PACE_RUN_FM_INTENT_BENCHMARK=1 and provide PACE_INTENT_EVAL_PATH.
 //
 
 import Foundation
@@ -20,20 +21,16 @@ struct PaceFMIntentClassifierBenchmark {
     /// ~4 hours.
     static let sampleSize = 200
 
-    /// Load eval data from posttrainllm/data/pace-intent-eval.jsonl
-    /// and create a stratified sample.
+    /// Load caller-supplied eval data and create a stratified sample without
+    /// coupling Pace's test suite to a particular sibling checkout path.
     private func loadStratifiedSample() -> [(query: String, expected: String)] {
-        let evalPath = "../../../posttrainllm/data/pace-intent-eval.jsonl"
-        let resolvedPath = FileManager.default.fileSystemRepresentation(withPath: evalPath)
-
-        guard let fileHandle = FileHandle(forReadingAtPath: evalPath) else {
-            // Try absolute path as fallback
-            let absPath = "/Users/sarthak/Desktop/fleet/posttrainllm/data/pace-intent-eval.jsonl"
-            guard let absHandle = FileHandle(forReadingAtPath: absPath) else {
-                Issue.record("Could not open eval data file")
-                return []
-            }
-            return parseAndSample(from: absHandle)
+        guard
+            let evalPath = ProcessInfo.processInfo.environment["PACE_INTENT_EVAL_PATH"],
+            !evalPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            let fileHandle = FileHandle(forReadingAtPath: evalPath)
+        else {
+            Issue.record("Set PACE_INTENT_EVAL_PATH to a readable intent-eval JSONL file")
+            return []
         }
         return parseAndSample(from: fileHandle)
     }
@@ -77,6 +74,10 @@ struct PaceFMIntentClassifierBenchmark {
 
     @Test
     func benchmarkFMClassifierAccuracy() async {
+        guard ProcessInfo.processInfo.environment["PACE_RUN_FM_INTENT_BENCHMARK"] == "1" else {
+            print("⏭️ Skipping Apple FM benchmark: set PACE_RUN_FM_INTENT_BENCHMARK=1 to opt in")
+            return
+        }
         guard #available(macOS 26.0, *) else {
             print("⏭️ Skipping Apple FM benchmark: requires macOS 26.0+")
             return

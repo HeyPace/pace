@@ -215,6 +215,10 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `PaceScreenContextScaler.swift` | ~95 | Maps VLM element coordinates between downsampled-screenshot space and full screenshot/display space, including multi-monitor origin handling. |
 | `PaceFMTurnResponse.swift` | ~110 | `@Generable` typed response envelope for the Apple Foundation Models planner path. |
 | `scripts/test-pace.sh` | ~200 | Runs the unit-test suite TCC-safely: `xcodebuild test` into an isolated `/tmp` DerivedData path with code signing disabled, so the interactive Pace.app's permissions stay untouched. Prints a structured pass/fail summary via xcresulttool. The standard way for agents to run tests. |
+| `scripts/check-swift-format.mjs` | ~120 | Changed-line Swift format ratchet. Compares against the PR/push base, runs the Xcode toolchain's `swift-format`, and fails only diagnostics on changed Swift lines while reporting historical file debt separately. |
+| `scripts/check-unused-code.mjs` | ~50 | Periphery no-regression gate over the isolated test index. Enforces the repository-owned 80-finding review baseline rather than treating dynamically referenced Swift declarations as automatically safe to delete. |
+| `scripts/check-duplication.mjs` | ~60 | jscpd Swift production-clone gate with an exact 1,442-line / 1.7331% no-regression baseline. |
+| `scripts/check-dependency-risk.mjs` | ~60 | Audits the root docs and website lockfiles, rejects critical or new high advisories, and accepts only the exact IDs tracked in the repository baseline issue. |
 | `scripts/verify.sh` | ~67 | Pre-commit gate: runs `test-pace.sh`, optionally followed by `diag-pace.py --quick --eval`. Non-zero exit on any failure for safe `&& git commit` chaining. |
 | `scripts/start-tts-server.sh` | ~38 | Launches the Kokoro TTS sidecar via uvx/mlx-audio on port 8880. Pace hot-swaps to it without restart; first call downloads the model. |
 | `scripts/tts-fixture-server.py` | ~58 | Stdlib HTTP fixture returning a silent WAV from `/v1/audio/speech`, so `LocalServerTTSClient`'s synth→decode→play→drain loop is integration-tested without a model. |
