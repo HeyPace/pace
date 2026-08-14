@@ -1,5 +1,6 @@
 ---
 import "../styles/global.css";
+import { canonicalPublicPagePath } from "../config/public-surfaces";
 
 interface Props {
   title: string;
@@ -8,7 +9,10 @@ interface Props {
 }
 
 const { title, description, pathname = "/" } = Astro.props;
-const canonicalURL = new URL(pathname, Astro.site ?? "https://heypace.app").toString();
+const canonicalURL = new URL(
+  canonicalPublicPagePath(pathname),
+  Astro.site ?? "https://heypace.app",
+).toString();
 const ogImageURL = new URL("/og-image.png", Astro.site ?? "https://heypace.app").toString();
 
 // Clamp meta description to 70–160 chars for SEO best practice.
