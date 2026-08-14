@@ -16,8 +16,15 @@ export interface PublicSurface {
   markdown: string;
 }
 
+export function canonicalPublicPagePath(path: string): string {
+  if (path === "/" || path.endsWith("/") || /\.[a-z0-9]+$/i.test(path)) {
+    return path;
+  }
+  return `${path}/`;
+}
+
 function absoluteURL(path: string): string {
-  return new URL(path, PRODUCTION_ORIGIN).toString();
+  return new URL(canonicalPublicPagePath(path), PRODUCTION_ORIGIN).toString();
 }
 
 function markdownDocument(
