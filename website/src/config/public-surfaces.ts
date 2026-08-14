@@ -178,7 +178,7 @@ const staticSurfaces: PublicSurface[] = [
   },
   {
     id: "docs",
-    path: "/docs/",
+    path: "/docs",
     markdownPath: "/docs/index.md",
     kind: "collection",
     title: "Pace documentation",
