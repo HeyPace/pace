@@ -1,5 +1,8 @@
 import type { APIRoute } from "astro";
-import { publicSurfaces } from "../config/public-surfaces";
+import {
+  canonicalPublicPagePath,
+  publicSurfaces,
+} from "../config/public-surfaces";
 
 // Hand-rolled sitemap so we add ZERO npm dependency (fleet rule: no new
 // deps without approval). It enumerates every route the static build
@@ -17,7 +20,7 @@ export const GET: APIRoute = ({ site }) => {
   const urlEntries = publicSurfaces
     .map(
       ({ path, priority }) =>
-        `  <url>\n    <loc>${origin}${path}</loc>\n    <priority>${priority}</priority>\n  </url>`,
+        `  <url>\n    <loc>${origin}${canonicalPublicPagePath(path)}</loc>\n    <priority>${priority}</priority>\n  </url>`,
     )
     .join("\n");
 
