@@ -3,7 +3,7 @@
 //  leanring-buddy
 //
 //  Reusable SwiftUI building blocks shared across the per-tab Settings
-//  view files (PaceGeneralSettingsTab, PacePermissionsSettingsTab, etc.).
+//  view files (PaceGeneralSettingsTab, etc.).
 //  Extracted from PaceSettingsWindow.swift so each tab file can be split
 //  into its own struct without duplicating these tiny row/button helpers.
 //
@@ -98,44 +98,4 @@ func paceSettingsButton(
     }
     .buttonStyle(.plain)
     .pointerCursor()
-}
-
-/// Permission row used by the Permissions tab. Shows a status dot,
-/// title/subtitle, and either a "Granted" label or a trailing action
-/// button that deep-links into System Settings.
-@MainActor
-@ViewBuilder
-func paceSettingsPermissionRow(
-    title: String,
-    subtitle: String,
-    isGranted: Bool,
-    actionTitle: String,
-    action: @escaping () -> Void
-) -> some View {
-    HStack(spacing: 12) {
-        Circle()
-            .fill(isGranted ? DS.Colors.success : DS.Colors.warning)
-            .frame(width: 8, height: 8)
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(DS.Colors.textPrimary)
-            Text(subtitle)
-                .font(.system(size: 12))
-                .foregroundColor(DS.Colors.textTertiary)
-        }
-        Spacer()
-        if isGranted {
-            Text("Granted")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(DS.Colors.success)
-        } else {
-            paceSettingsButton(actionTitle, systemName: "arrow.up.right.square", action: action)
-        }
-    }
-    .padding(.vertical, 12)
-    .overlay(alignment: .bottom) {
-        Divider()
-            .background(DS.Colors.borderSubtle)
-    }
 }
