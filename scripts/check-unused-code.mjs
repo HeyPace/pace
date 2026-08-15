@@ -3,7 +3,7 @@
 import { spawnSync } from 'node:child_process';
 
 // Accepted review inventory: https://github.com/HeyPace/pace/issues/154.
-const maximumFindingCount = 80;
+const maximumFindingCount = 74;
 
 const version = spawnSync('periphery', ['version'], { encoding: 'utf8' });
 if (version.status !== 0) {

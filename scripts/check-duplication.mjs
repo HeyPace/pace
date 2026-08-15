@@ -7,8 +7,8 @@ import { spawnSync } from 'node:child_process';
 
 // Accepted legacy baseline: https://github.com/HeyPace/pace/issues/154.
 const baseline = {
-  duplicatedLines: 1442,
-  percentage: 1.7330689261462653,
+  duplicatedLines: 1433,
+  percentage: 1.7272551950243478,
 };
 
 const outputDirectory = mkdtempSync(join(tmpdir(), 'pace-jscpd-'));

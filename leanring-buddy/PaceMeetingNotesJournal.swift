@@ -114,20 +114,6 @@ nonisolated struct PaceMeetingNotesJournal {
         "\(documentIdPrefix)-\(meetingID.uuidString)"
     }
 
-    /// Renders the summary + action items + decisions as natural
-    /// language so BM25 lexical retrieval can match "what did we
-    /// decide" / "action items from standup" / "did we agree on the
-    /// launch date". Only document text is indexed.
-    static func renderRetrievalText(for notes: PaceMeetingNotes) -> String {
-        renderRetrievalText(
-            title: notes.title,
-            summary: notes.summary,
-            actionItems: notes.actionItems,
-            decisions: notes.decisions,
-            synthesisFailed: notes.synthesisFailed
-        )
-    }
-
     private static func renderRetrievalText(
         title: String,
         summary: String,
