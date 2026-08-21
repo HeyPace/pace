@@ -23,8 +23,10 @@ __pycache__/
 .blume-verify/
 node_modules/
 dist/
+.build/
+.wrangler/
+personal-platform/.wrangler/
 
 # Local agent logs / scratch (never commit agent session artifacts)
 .agent-logs/
 .devin-scratch/
-

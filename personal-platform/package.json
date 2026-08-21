@@ -1,0 +1,28 @@
+{
+  "name": "@pace/personal-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "types": "wrangler types worker-configuration.d.ts",
+    "types:check": "wrangler types --check worker-configuration.d.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "check": "pnpm types:check && pnpm typecheck && pnpm typecheck:test && pnpm test && wrangler deploy --dry-run",
+    "db:migrate:local": "wrangler d1 migrations apply personal-platform --local",
+    "deploy": "wrangler deploy --tag \"$(git -C .. rev-parse HEAD)\""
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "@types/node": "^26.2.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11",
+    "wrangler": "4.124.0"
+  }
+}

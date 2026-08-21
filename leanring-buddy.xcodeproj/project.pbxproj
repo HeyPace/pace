@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		CC00DD022F7000020039DA55 /* PersonalSyncKit in Frameworks */ = {isa = PBXBuildFile; productRef = CC00DD032F7000030039DA55 /* PersonalSyncKit */; };
 		2DD12CCA2FC82FE8009F8723 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB082F6500080039DA55 /* WhisperKit */; };
 		AA00BB032F6500030039DA55 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB022F6500020039DA55 /* Sparkle */; };
 		BB00CC052F6500050039DA55 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = BB00CC022F6500020039DA55 /* MLXLLM */; };
@@ -75,6 +76,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CC00DD022F7000020039DA55 /* PersonalSyncKit in Frameworks */,
 				2DD12CCA2FC82FE8009F8723 /* WhisperKit in Frameworks */,
 				AA00BB032F6500030039DA55 /* Sparkle in Frameworks */,
 				BB00CC052F6500050039DA55 /* MLXLLM in Frameworks */,
@@ -142,6 +144,7 @@
 			);
 			name = "leanring-buddy";
 			packageProductDependencies = (
+				CC00DD032F7000030039DA55 /* PersonalSyncKit */,
 				AA00BB022F6500020039DA55 /* Sparkle */,
 				AA00BB082F6500080039DA55 /* WhisperKit */,
 				BB00CC022F6500020039DA55 /* MLXLLM */,
@@ -233,6 +236,7 @@
 			mainGroup = 28F22CB62F56440300A0FC59;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				CC00DD012F7000010039DA55 /* XCLocalSwiftPackageReference "PersonalSyncKit" */,
 				AA00BB012F6500010039DA55 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				AA00BB072F6500070039DA55 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 				BB00CC012F6500010039DA55 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */,
@@ -627,6 +631,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		CC00DD012F7000010039DA55 /* XCLocalSwiftPackageReference "PersonalSyncKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = PersonalSyncKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CC00DD032F7000030039DA55 /* PersonalSyncKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC00DD012F7000010039DA55 /* XCLocalSwiftPackageReference "PersonalSyncKit" */;
+			productName = PersonalSyncKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCRemoteSwiftPackageReference section */
 		AA00BB012F6500010039DA55 /* XCRemoteSwiftPackageReference "Sparkle" */ = {

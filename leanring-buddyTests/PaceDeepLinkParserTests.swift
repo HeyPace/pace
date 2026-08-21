@@ -68,4 +68,5 @@ struct PaceDeepLinkParserTests {
     @Test func extraPathSegmentsReturnNil() async throws {
         #expect(PaceDeepLinkParser.parse(URL(string: "pace://listen/now")!) == nil)
     }
+
 }

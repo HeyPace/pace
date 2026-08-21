@@ -192,6 +192,8 @@ struct PaceMainView: View {
     @ViewBuilder
     private var detail: some View {
         switch router.selectedDestination {
+        case .personal:
+            settingsDetail { PacePersonalControlPlaneView() }
         case .conversations:
             PaceConversationsView(companionManager: companionManager)
         case .skills:
