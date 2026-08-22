@@ -2,6 +2,17 @@
 
 > On-device Mac voice agent that reads your screen and acts with local context.
 
+## When to use this
+
+Reach for Pace when you need a fully on-device macOS voice agent that transcribes speech, reads your screen, plans actions, and executes approved macOS actions — all locally, with no cloud LLM, STT, TTS, or telemetry. Best-fit jobs:
+
+- Voice-driven macOS automation with privacy (no cloud calls)
+- Screen-aware voice assistance (reads what's on screen via a local VLM)
+- On-device meeting notes and action capture
+- Local TTS streaming from a menu-bar voice agent
+
+Do not use Pace for: cloud-based voice assistants, cross-platform (non-macOS) voice tools, or anything that requires sending audio or screen content to a remote server.
+
 ## Product
 
 - [Home](https://heypace.app/): Product landing
@@ -15,6 +26,7 @@
 ## Machine surfaces
 
 - [Agent catalog](https://heypace.app/api/ai): JSON inventory of public surfaces
+- [OpenAPI spec](https://heypace.app/openapi.json): Machine-readable API description
 - [Homepage markdown](https://heypace.app/index.md): Product brief without JavaScript
 - [This index](https://heypace.app/llms.txt)
 
