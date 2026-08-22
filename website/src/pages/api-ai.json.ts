@@ -16,8 +16,9 @@ export const GET: APIRoute = () =>
         robots: `${PRODUCTION_ORIGIN}/robots.txt`,
         markdown: {
           suffix: ".md",
-          negotiation: false,
+          negotiation: true,
         },
+        openapi: `${PRODUCTION_ORIGIN}/openapi.json`,
         surfaces: publicSurfaceCatalog(),
         dataResources: [
           {
