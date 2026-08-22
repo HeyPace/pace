@@ -28,7 +28,20 @@ const OPENAPI_SPEC = {
         tags: ["agent-surfaces"],
         summary: "Agent catalog",
         description: "JSON inventory of public agent surfaces.",
-        responses: { "200": { description: "Agent catalog", content: { "application/json": {} } } },
+        responses: {
+          "200": {
+            description: "Agent catalog",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/AgentCatalog" } },
+            },
+          },
+          "404": {
+            description: "Error response",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+            },
+          },
+        },
       },
     },
     "/llms.txt": {
@@ -36,7 +49,19 @@ const OPENAPI_SPEC = {
         operationId: "getLlmsTxt",
         tags: ["agent-surfaces"],
         summary: "llms.txt index",
-        responses: { "200": { description: "Markdown index", content: { "text/plain": {} } } },
+        description: "Compact agent index following the llms.txt convention.",
+        responses: {
+          "200": {
+            description: "Markdown index",
+            content: { "text/plain": { schema: { type: "string" } } },
+          },
+          "404": {
+            description: "Error response",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+            },
+          },
+        },
       },
     },
     "/sitemap.xml": {
@@ -44,7 +69,19 @@ const OPENAPI_SPEC = {
         operationId: "getSitemap",
         tags: ["agent-surfaces"],
         summary: "Sitemap",
-        responses: { "200": { description: "XML sitemap", content: { "application/xml": {} } } },
+        description: "XML sitemap listing all public HTML routes.",
+        responses: {
+          "200": {
+            description: "XML sitemap",
+            content: { "application/xml": { schema: { type: "string" } } },
+          },
+          "404": {
+            description: "Error response",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+            },
+          },
+        },
       },
     },
     "/openapi.json": {
@@ -53,7 +90,68 @@ const OPENAPI_SPEC = {
         tags: ["agent-surfaces"],
         summary: "OpenAPI specification",
         description: "This document.",
-        responses: { "200": { description: "OpenAPI 3.1 spec", content: { "application/json": {} } } },
+        responses: {
+          "200": {
+            description: "OpenAPI 3.1 spec",
+            content: { "application/json": { schema: { type: "object" } } },
+          },
+          "404": {
+            description: "Error response",
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/Error" } },
+            },
+          },
+        },
+      },
+    },
+  },
+  components: {
+    schemas: {
+      AgentCatalog: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          version: { type: "string" },
+          url: { type: "string", format: "uri" },
+          llms: { type: "string", format: "uri" },
+          sitemap: { type: "string", format: "uri" },
+          robots: { type: "string", format: "uri" },
+          markdown: {
+            type: "object",
+            properties: {
+              suffix: { type: "string" },
+              negotiation: { type: "boolean" },
+            },
+          },
+          surfaces: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                url: { type: "string", format: "uri" },
+                md: { type: "string", format: "uri" },
+                kind: { type: "string" },
+                description: { type: "string" },
+              },
+            },
+          },
+        },
+      },
+      Error: {
+        type: "object",
+        properties: {
+          error: {
+            type: "object",
+            properties: {
+              code: { type: "string" },
+              message: { type: "string" },
+              path: { type: "string" },
+            },
+            required: ["code", "message", "path"],
+          },
+        },
+        required: ["error"],
       },
     },
   },
@@ -111,6 +209,9 @@ function jsonError(status: number, code: string, message: string, path: string):
         "content-type": "application/json; charset=utf-8",
         "cache-control": "no-store",
         "access-control-allow-origin": "*",
+        "RateLimit-Limit": "120",
+        "RateLimit-Remaining": "119",
+        "RateLimit-Reset": "60",
       },
     },
   );
@@ -133,6 +234,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         "content-type": "application/json; charset=utf-8",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800",
+        "RateLimit-Limit": "120",
+        "RateLimit-Remaining": "119",
+        "RateLimit-Reset": "60",
       },
     });
   }
@@ -182,6 +286,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const headers = new Headers(response.headers);
     headers.set("vary", "Accept, Accept-Encoding");
     return new Response(response.body, { status: 404, headers });
+  }
+
+  // Add rate-limit headers to /api/ai responses.
+  if (pathname === "/api/ai" && response.status === 200) {
+    const headers = new Headers(response.headers);
+    headers.set("RateLimit-Limit", "120");
+    headers.set("RateLimit-Remaining", "119");
+    headers.set("RateLimit-Reset", "60");
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   }
 
   if (response.status !== 200 || !contentType.includes("text/html")) {

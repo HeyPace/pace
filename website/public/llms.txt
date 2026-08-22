@@ -30,6 +30,11 @@ Do not use Pace for: cloud-based voice assistants, cross-platform (non-macOS) vo
 - [Homepage markdown](https://heypace.app/index.md): Product brief without JavaScript
 - [This index](https://heypace.app/llms.txt)
 
+## CLI
+
+No CLI tool is currently available. Pace is a macOS menu-bar application —
+download it from [heypace.app/download](https://heypace.app/download).
+
 ## Optional
 
 - [Foundry](https://sassmaker.com): Parent fleet showcase
