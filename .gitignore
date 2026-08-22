@@ -28,3 +28,5 @@ dist/
 .agent-logs/
 .devin-scratch/
 
+# SwiftPM build directory
+.build/
