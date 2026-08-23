@@ -30,3 +30,7 @@ dist/
 
 # SwiftPM build directory
 .build/
+
+# Orphaned dependency tree — personal-platform/ holds only node_modules and
+# .wrangler with no source; safe to delete locally.
+personal-platform/
