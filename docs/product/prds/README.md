@@ -6,6 +6,11 @@ Canonical status: [PROJECT_STATUS.md](https://github.com/HeyPace/pace/blob/main/
 
 ## PRDs
 
+- [`ipad-companion-mode.md`](ipad-companion-mode.md) — A dedicated iPad gives
+  Pace a persistent face, microphone, speaker, camera, and touch surface while
+  the Mac remains the only planner and memory owner. Status: **implemented in
+  source**; pairing, permission, thermal, reconnection, and 12-hour physical
+  iPad acceptance remain open.
 - [`on-device-meeting-notes.md`](on-device-meeting-notes.md) — P0. Assemble
   Pace's meeting-mode stub into a real product: two-track capture →
   energy-based turn segmentation → on-device transcription → structured

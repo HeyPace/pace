@@ -4,17 +4,21 @@
 
 ## Platform
 
-Native macOS product with a web marketing and documentation surface.
+adaptive
+
+Native macOS brain with a native iPad companion surface, plus a web marketing
+and documentation surface.
 
 ## Users
 
 Mac users who want to control applications, retrieve information, and automate
 recurring work through voice without giving a cloud service access to their
-screen, audio, or local context.
+screen, audio, or local context. A dedicated iPad can extend Pace into the room
+without moving its intelligence or durable memory off the Mac.
 
 ## Product Purpose
 
-Pace is a menu-bar voice agent for macOS. It listens, can read the current
+Pace is a menu-bar voice agent for macOS with an optional iPad companion. It listens, can read the current
 screen through a local vision model, plans locally, speaks responses, and—with
 explicit action enablement—executes approved macOS actions. Success means the
 user can complete useful computer work conversationally while retaining local
@@ -28,9 +32,10 @@ an optional privacy mode.
 
 ## Operating Context
 
-The native product lives in the macOS menu bar and notch rather than a
+The brain lives in the macOS menu bar and notch rather than a
 traditional application window. Users invoke it by hotkey or enabled
-background modes, interact through its capsule and floating panel, and can
+background modes, interact through its capsule and floating panel or a paired
+full-screen iPad face, and can
 connect local models, macOS integrations, MCP servers, recipes, flows, and
 taught skills. The public website explains the product, its privacy model,
 capabilities, comparisons, pricing, and release path.
@@ -42,7 +47,8 @@ capabilities, comparisons, pricing, and release path.
   state, audit logging, and fail-loud behavior.
 - Risky or non-undoable actions can require approval; reversible mutations
   expose undo.
-- The app is macOS-native. The marketing and documentation surface is web.
+- The brain is macOS-native. PacePad is a native iPad input/output edge with no
+  separate planner, tools, or memory. The marketing and documentation surface is web.
 - Hardware-bound behavior and signed releases require manual validation.
 
 ## Brand Commitments
@@ -60,8 +66,8 @@ into the same notch and panel surfaces the user operates afterward.
 
 ## Evidence on Hand
 
-- Native product implementation and tests under `leanring-buddy/` and
-  `leanring-buddyTests/`.
+- Native product implementation and tests under `leanring-buddy/`, `PacePad/`,
+  `PaceShared/`, and `leanring-buddyTests/`.
 - Public landing and documentation under `website/`.
 - Product and release history in `PROJECT_STATUS.md`.
 - Architecture, privacy, capability, evaluation, and operations evidence under

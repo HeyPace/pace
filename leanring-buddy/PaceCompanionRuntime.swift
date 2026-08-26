@@ -148,6 +148,30 @@ final class PaceCompanionRuntime {
         publishStatus()
     }
 
+    func acceptRemotePresenceChange(
+        isUserPresent: Bool,
+        confidence: Double,
+        observedAt: Date
+    ) {
+        guard
+            let subject = try? PaceWorldSubject(kind: .personPresence, identifier: "person"),
+            let location = try? PaceWorldLocation(source: .camera, zone: "paired iPad camera"),
+            let observation = try? PaceWorldObservation(
+                observedAt: observedAt,
+                source: .camera,
+                subject: subject,
+                predicate: isUserPresent ? .entered : .exited,
+                value: isUserPresent ? .presence : .boolean(false),
+                location: location,
+                confidence: min(max(confidence, 0), 1),
+                expiresAt: observedAt.addingTimeInterval(10 * 60)
+            )
+        else {
+            return
+        }
+        acceptObservation(observation)
+    }
+
     private func acceptObservation(_ observation: PaceWorldObservation) {
         let ambientSnapshot = ambientContextStore.currentSnapshot
         let context = PaceWorldObservationContext(

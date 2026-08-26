@@ -37,6 +37,7 @@
 		28F22CBF2F56440300A0FC59 /* Pace.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pace.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		28F22CCC2F56440300A0FC59 /* leanring-buddyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "leanring-buddyTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		28F22CD62F56440300A0FC59 /* leanring-buddyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "leanring-buddyUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0A000022FD0000100000002 /* PacePad.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PacePad.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -46,6 +47,13 @@
 				Info.plist,
 			);
 			target = 28F22CBE2F56440300A0FC59 /* leanring-buddy */;
+		};
+		C0A000042FD0000100000004 /* Exceptions for "PacePad" folder in "PacePad" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = C0A000082FD0000100000008 /* PacePad */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -66,6 +74,19 @@
 		28F22CD92F56440300A0FC59 /* leanring-buddyUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "leanring-buddyUITests";
+			sourceTree = "<group>";
+		};
+		C0A000012FD0000100000001 /* PaceShared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PaceShared;
+			sourceTree = "<group>";
+		};
+		C0A000032FD0000100000003 /* PacePad */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C0A000042FD0000100000004 /* Exceptions for "PacePad" folder in "PacePad" target */,
+			);
+			path = PacePad;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -99,6 +120,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C0A000062FD0000100000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -106,6 +134,8 @@
 			isa = PBXGroup;
 			children = (
 				28F22CC12F56440300A0FC59 /* leanring-buddy */,
+				C0A000012FD0000100000001 /* PaceShared */,
+				C0A000032FD0000100000003 /* PacePad */,
 				28F22CCF2F56440300A0FC59 /* leanring-buddyTests */,
 				28F22CD92F56440300A0FC59 /* leanring-buddyUITests */,
 				28F22CC02F56440300A0FC59 /* Products */,
@@ -118,6 +148,7 @@
 				28F22CBF2F56440300A0FC59 /* Pace.app */,
 				28F22CCC2F56440300A0FC59 /* leanring-buddyTests.xctest */,
 				28F22CD62F56440300A0FC59 /* leanring-buddyUITests.xctest */,
+				C0A000022FD0000100000002 /* PacePad.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -139,6 +170,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				28F22CC12F56440300A0FC59 /* leanring-buddy */,
+				C0A000012FD0000100000001 /* PaceShared */,
 			);
 			name = "leanring-buddy";
 			packageProductDependencies = (
@@ -200,6 +232,29 @@
 			productReference = 28F22CD62F56440300A0FC59 /* leanring-buddyUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		C0A000082FD0000100000008 /* PacePad */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C0A0000B2FD000010000000B /* Build configuration list for PBXNativeTarget "PacePad" */;
+			buildPhases = (
+				C0A000052FD0000100000005 /* Sources */,
+				C0A000062FD0000100000006 /* Frameworks */,
+				C0A000072FD0000100000007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				C0A000032FD0000100000003 /* PacePad */,
+				C0A000012FD0000100000001 /* PaceShared */,
+			);
+			name = PacePad;
+			packageProductDependencies = (
+			);
+			productName = PacePad;
+			productReference = C0A000022FD0000100000002 /* PacePad.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -220,6 +275,9 @@
 					28F22CD52F56440300A0FC59 = {
 						CreatedOnToolsVersion = 26.2;
 						TestTargetID = 28F22CBE2F56440300A0FC59;
+					};
+					C0A000082FD0000100000008 = {
+						CreatedOnToolsVersion = 27.0;
 					};
 				};
 			};
@@ -245,6 +303,7 @@
 				28F22CBE2F56440300A0FC59 /* leanring-buddy */,
 				28F22CCB2F56440300A0FC59 /* leanring-buddyTests */,
 				28F22CD52F56440300A0FC59 /* leanring-buddyUITests */,
+				C0A000082FD0000100000008 /* PacePad */,
 			);
 		};
 /* End PBXProject section */
@@ -271,6 +330,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C0A000072FD0000100000007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -289,6 +355,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		28F22CD22F56440300A0FC59 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C0A000052FD0000100000005 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -587,6 +660,82 @@
 			};
 			name = Release;
 		};
+		C0A000092FD0000100000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8F7LXHTJZR;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PacePad/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Pace;
+				INFOPLIST_KEY_CFBundleName = PacePad;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pace.pad.debug;
+				PRODUCT_NAME = PacePad;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Debug;
+		};
+		C0A0000A2FD000010000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8F7LXHTJZR;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PacePad/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Pace;
+				INFOPLIST_KEY_CFBundleName = PacePad;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pace.pad;
+				PRODUCT_NAME = PacePad;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -622,6 +771,15 @@
 			buildConfigurations = (
 				28F22CE72F56440300A0FC59 /* Debug */,
 				28F22CE82F56440300A0FC59 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C0A0000B2FD000010000000B /* Build configuration list for PBXNativeTarget "PacePad" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C0A000092FD0000100000009 /* Debug */,
+				C0A0000A2FD000010000000A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

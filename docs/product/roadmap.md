@@ -253,6 +253,34 @@ classifier). All default OFF except barge-in echo rejection (always on).
 - Source of truth: archived OpenSpec change
   `openspec/changes/archive/2026-07-13-always-on-companion-mode`.
 
+## Priority 12c: PacePad Companion Surface — IMPLEMENTED IN SOURCE, HARDWARE GATE OPEN
+
+- The main Xcode project now contains a SwiftUI `PacePad` target and shared
+  versioned local-network protocol. Bonjour discovery, six-digit TLS-PSK
+  pairing, Keychain credential reconnect, heartbeats, and bounded framing are
+  implemented without a cloud relay or new dependency.
+- Tap-to-talk audio enters the existing Mac transcription/conversation path;
+  responses and already-approved proactive messages return to iPad system TTS.
+  The Mac remains the only planner, memory, tool, Mac-context, and restraint
+  owner.
+- The iPad launches into an always-awake ambient face that fills the screen;
+  system chrome is hidden, detailed controls start hidden and auto-hide after
+  use while the privacy HUD and pause action remain visible. A deep ocean-blue
+  CRT-style idle expression on an inky navy canvas with a cohesive screen
+  bezel, raster, and layered phosphor treatment, five-minute low-energy
+  dimming, periodic pixel
+  relocation, and restored night-mode brightness protect the dedicated
+  display. Idle, listening, transcribing, processing,
+  speaking, proactive, disconnected, paused, and sleeping states retain visible
+  camera/mic and local/off-device trust status. Local Vision presence emits
+  semantic events at no more than 1 fps; explicit scene questions can request
+  one expiring JPEG.
+- Remaining product evidence: physical-iPad signing and permission prompts,
+  full conversation/proactivity/camera round trips, reconnect sampling,
+  thermal behavior, 12-hour foreground longevity, and the 14-day personal
+  experiment. See [`ipad-companion-mode.md`](prds/ipad-companion-mode.md) and
+  [`companion-mode-dogfood.md`](companion-mode-dogfood.md).
+
 ## Priority 13: Premium Conversational UI
 
 Status: unstarted. Biggest remaining quality lever toward "best local tool."

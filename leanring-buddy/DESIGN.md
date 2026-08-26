@@ -36,6 +36,11 @@ website, a generic AI dashboard, or a developer console.
   metadata remains above 4.5:1 on every graphite surface.
 - **Local signal:** electric Pace blue (`#4F8BFF`). Blue means active local
   input, focus, selection, or the primary safe action; it is not decoration.
+- **PacePad expression:** deep ocean blue (`#2A94E1`) is reserved for the
+  companion face's idle eye and smile glyphs, with an ink-blue mouth core
+  (`#156EAE`) on the dedicated navy canvas (`#06121E`). Electric Pace blue
+  still owns active local work, controls, and trust state; the expression blue
+  is not an action color.
 - **Off-device:** amber (`#FFB347`) across every surface and transition.
 - **Success:** green (`#34D399`) only after a completed outcome.
 - **Failure:** system red only for an actual error or denied destructive state.
@@ -62,6 +67,13 @@ scene titles, body/callout for working content, and caption for metadata.
 - Working surfaces use 10–14pt continuous corners; pills are reserved for
   status, filters, and short values.
 - The shared signal mark is a waveform or single routed line, never sparkles.
+- PacePad's idle expression uses two happy signal arcs and one scanlined smile
+  on the physical display. It stays abstract and screen-native rather than
+  reproducing a robot chassis or a licensed character.
+- PacePad renders those features as one coherent CRT material: a shallow
+  full-screen bezel, low-contrast static raster, layered phosphor edges, and a
+  compact state capsule. The eyes and mouth share the same light treatment;
+  they must not read as unrelated flat SwiftUI symbols floating on a canvas.
 - The Living Notch reads its closed width and height from the current display's
   auxiliary safe areas. Idle remains hardware-exact. Hover and runtime states
   add short horizontal wings at menu-bar height: state sits beside the left edge

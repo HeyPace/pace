@@ -1,0 +1,72 @@
+{
+  "$schema": "fleet.design-review.v1",
+  "version": 1,
+  "project": "pace",
+  "target": "PacePad Companion Surface",
+  "mode": "preserve",
+  "register": "product",
+  "context": {
+    "product": "PRODUCT.md",
+    "design": "leanring-buddy/DESIGN.md"
+  },
+  "direction": {
+    "references": [
+      "User-provided happy CRT robot face reference"
+    ],
+    "probes": [],
+    "selected": "full-screen-friendly-crt-material-polish",
+    "approval": "not-required",
+    "before": "artifacts/design/pacepad-before-crt-polish.png"
+  },
+  "evidence": {
+    "screenshots": [
+      {
+        "width": 390,
+        "path": "artifacts/design/pacepad-after-390.png"
+      },
+      {
+        "width": 768,
+        "path": "artifacts/design/pacepad-after-768.png"
+      },
+      {
+        "width": 1440,
+        "path": "artifacts/design/pacepad-after-1440.png"
+      },
+      {
+        "width": 1668,
+        "path": "artifacts/design/pacepad-friendly-crt-polished-portrait.png"
+      },
+      {
+        "width": 1668,
+        "path": "artifacts/design/pacepad-friendly-crt-polished-listening.png"
+      }
+    ],
+    "projectCheck": {
+      "command": "swiftc iPad typecheck plus shared protocol and Mac server typecheck",
+      "status": "pass"
+    },
+    "critique": {
+      "score": 36,
+      "maximum": 40
+    },
+    "audit": {
+      "score": 20,
+      "maximum": 20
+    },
+    "unresolved": {
+      "p0": 0,
+      "p1": 0
+    },
+    "detector": {
+      "posture": "advisory",
+      "findings": [
+        "Native SwiftUI target; browser and web aesthetic detectors are not applicable.",
+        "Native review verified one display-scale-aware raster plane, bounded asynchronous rendering outside TimelineView, and zero unresolved P0/P1 findings."
+      ]
+    }
+  },
+  "ownerFeedback": {
+    "decision": "keep",
+    "note": "The owner accepted this direction for now with 'Let's just move on and use this for now.' This is pragmatic acceptance, not strong aesthetic approval; do not restart visual polish without new feedback or physical-iPad evidence."
+  }
+}

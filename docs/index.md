@@ -49,6 +49,8 @@ What Pace does and where it's going.
   two-tier in-context memory mental model (verbatim window + rolling summary).
 - [`product/roadmap.md`](product/roadmap.md) — local roadmap and priorities.
 - [Product briefs](product/prds/README.md) — product briefs:
+  - [`ipad-companion-mode.md`](product/prds/ipad-companion-mode.md) — a
+    persistent iPad face/camera/audio surface with the Mac as Pace's only brain.
   - [`on-device-meeting-notes.md`](product/prds/on-device-meeting-notes.md) —
     two-track capture → segmentation → on-device transcription → structured
     notes. Wedge against Granola/Otter/Fireflies.

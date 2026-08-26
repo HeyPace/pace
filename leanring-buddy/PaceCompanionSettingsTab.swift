@@ -10,9 +10,11 @@ import SwiftUI
 
 struct PaceCompanionSettingsTab: View {
     @ObservedObject var controlCenter: PaceCompanionControlCenter
+    @ObservedObject private var companionServer = PaceCompanionServer.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            iPadCompanionSection
             statusCard
 
             paceSettingsToggleRow(
@@ -36,6 +38,63 @@ struct PaceCompanionSettingsTab: View {
             sourceSection
             outputSection
             storageSection
+        }
+    }
+
+    private var iPadCompanionSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("iPad companion")
+            HStack(alignment: .center, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(companionServerStatusText)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(DS.Colors.textPrimary)
+                    Text("Pairing code")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(DS.Colors.textTertiary)
+                    Text(companionServer.pairingCode)
+                        .font(.system(size: 26, weight: .semibold, design: .monospaced))
+                        .foregroundColor(DS.Colors.localSignal)
+                        .textSelection(.enabled)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 8) {
+                    paceSettingsButton("New code", systemName: "arrow.clockwise") {
+                        companionServer.rotatePairingCode()
+                    }
+                    if companionServer.pairedDeviceName != nil {
+                        paceSettingsButton("Unpair iPad", systemName: "link.badge.minus") {
+                            companionServer.unpairCurrentDevice()
+                        }
+                    }
+                }
+            }
+            Text(
+                "Discovery, speech, presence events, and requested camera stills stay "
+                    + "on your local network. The Mac remains the only place that plans and remembers."
+            )
+            .font(.system(size: 12))
+            .foregroundColor(DS.Colors.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private var companionServerStatusText: String {
+        switch companionServer.connectionStatus {
+        case .stopped:
+            return "iPad companion server stopped"
+        case .advertising:
+            if let pairedDeviceName = companionServer.pairedDeviceName {
+                return "Waiting for \(pairedDeviceName)"
+            }
+            return "Ready to pair an iPad"
+        case .connected(let deviceName):
+            return "Connected to \(deviceName)"
+        case .unavailable(let reason):
+            return "Local connection unavailable: \(reason)"
         }
     }
 

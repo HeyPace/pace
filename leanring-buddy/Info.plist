@@ -81,6 +81,12 @@
 	<string>Pace checks your macOS Focus state so proactive nudges (morning brief, posture, fatigue) stay silent during Do Not Disturb, Work, Sleep, and other Focus modes.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Pace uses your microphone so you can talk to it</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Pace connects to your paired iPad companion on your local network.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_pace-companion._tcp</string>
+	</array>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>Pace uses reminders access only when you ask it to create reminders.</string>
 	<key>NSRemindersUsageDescription</key>

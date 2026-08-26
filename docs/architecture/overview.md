@@ -12,6 +12,11 @@
 
 ## The constellation
 
+PacePad is a second native target and an input/output edge, not another brain.
+It connects over the local network to the same Mac conversation and proactivity
+pipelines shown below. Only semantic presence events and explicitly requested
+camera stills cross from the room into the Mac.
+
 ```
                 ┌──────────────────────────────────────────────┐
                 │  Voice model — WhisperKit-on-ANE             │
@@ -56,6 +61,13 @@ USER VOICE ───►│  streaming partials + LocalAgreement +       │
                 │  bodyText streamed into AX setValue +        │
                 │  HUD overlay                                 │
                 └──────────────────────────────────────────────┘
+```
+
+```text
+                  authenticated local network
+Pace on Mac  <-------------------------------->  PacePad
+planner · memory · tools · restraint             face · mic · speaker
+Mac context · local models                        local presence · one-shot stills
 ```
 
 ## Stolen from Apple

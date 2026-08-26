@@ -30,6 +30,30 @@ unavailable or resource-limited expensive source is suspended.
   `~/Library/Application Support/Pace/companion-observations.json`. Retention is
   1–90 days, with per-source and clear-all controls.
 
+### Paired iPad boundary
+
+- PacePad discovery and conversation transport are local-network only and use
+  TLS 1.3 PSKs plus a session proof. The random device credential is stored in
+  Keychain on both devices. An authenticated iPad unpair request invalidates
+  the Mac copy before the iPad removes its local credential; Mac-side unpairing
+  deletes the server copy immediately.
+- The iPad front camera performs Vision presence detection locally at no more
+  than 1 fps. Routine presence messages contain only present/absent, confidence,
+  and time; no video stream crosses the network.
+- A JPEG crosses only after the user asks a physical-scene question and the Mac
+  sends one visible, expiring frame request. Incidental room or camera mentions
+  do not authorize capture. Pause, camera disable, or permission loss cancels
+  the pending request and both sides re-check privacy before sending or accepting
+  a frame. The Mac uses the existing privacy-pinned local vision client and
+  neither side stores the image.
+- Tap-to-talk audio is bounded to one turn, written to a temporary Mac file for
+  local transcription, and removed immediately afterward. There is no ambient
+  iPad transcription or wake-word path in V1.
+- The full-screen pause state stops camera and microphone capture immediately;
+  queued presence callbacks are discarded, pending still requests are cleared,
+  proactive output stays suppressed rather than falling back to Mac speech, and
+  separate activity indicators stay visible whenever either sensor is active.
+
 ## Local-only inference
 
 Companion planning always uses `makeLocalOnlyPlannerForPrivacyPinnedFeatures()`.

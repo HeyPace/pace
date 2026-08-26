@@ -1398,6 +1398,11 @@ extension CompanionManager {
             var cumulativeOutputTokenEstimate = 0
             var stepIndex = 0
             var currentTurnUserPrompt = transcript
+            if let physicalSceneContext = consumePacePadPhysicalSceneContext() {
+                currentTurnUserPrompt +=
+                    "\n\nPhysical scene observed locally from the paired iPad for this turn only:\n"
+                    + physicalSceneContext
+            }
             var pendingPostActionFeedbackText: String?
             var turnFullResponseText: String = ""
             // The most recent step's cleaned spoken text. Research turns

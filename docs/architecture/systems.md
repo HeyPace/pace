@@ -9,10 +9,37 @@ responsibilities live in [`../development/key-files.md`](../development/key-file
 ## App shape
 
 - **App Type**: Menu-bar-first (`LSUIElement=true`) with no Dock icon. On MacBooks with a camera housing, the always-available Living Notch signal and quick panel are joined by one on-demand resizable Command Center window. Displays without a reported housing use the global shortcut without a synthetic center notch.
+- **iPad companion target**: `PacePad` is a full-screen iPadOS 26 input/output surface in the same Xcode project. It owns Bonjour discovery, authenticated reconnect, tap-to-talk recording, local system TTS, the companion face, low-rate local presence detection, and requested-only camera still capture. It owns no planner, durable memory, Mac inspection, tool execution, or interruption policy.
 - **Framework**: SwiftUI (macOS native) with AppKit bridging for onboarding, the Command Center window, menu-bar panel, hardware-derived notch overlay, and cursor overlay
 - **Pattern**: MVVM with `@StateObject` / `@Published` state management
 - **Concurrency**: `@MainActor` isolation, async/await throughout
 - **Analytics**: local-only no-op/timing-safe hooks via `PaceAnalytics.swift`; no cloud analytics SDK is linked.
+
+## iPad companion transport
+
+- `PaceCompanionServer` is a thin Mac adapter over the existing conversation,
+  local audio transcription, privacy-pinned vision, world observation, and
+  proactivity pipelines. It advertises `_pace-companion._tcp` and never creates
+  a second planner or memory store.
+- `PaceShared` defines versioned messages and a length-prefixed frame containing
+  bounded JSON control data plus optional AAC/JPEG bytes. Heartbeats and a
+  bounded message-ID window handle connection health and replayed frames;
+  shared policy also validates semantic payloads, stale sessions, privacy gates,
+  heartbeat expiry, and bounded reconnect timing.
+- Pairing uses a six-digit, in-memory code only to establish TLS 1.3 PSK
+  transport. The Mac then issues a random 256-bit credential stored in each
+  device's Keychain. Reconnect PSKs and a session HMAC derive from that
+  credential; no secret is stored in UserDefaults or logged.
+- The iPad sends ordinary utterance audio and semantic presence events. JPEG
+  bytes are sent only in response to an expiring `camera_frame_request` created
+  by the conservative explicit physical-scene request parser. Pause or camera
+  disable discards queued presence, cancels pending still continuations, and is
+  re-checked before either side sends or accepts camera media. Temporary Mac
+  audio files are removed after local transcription and requested images are
+  never persisted.
+- If the Mac's selected planner crosses the on-device boundary, the existing
+  audit/tint behavior remains authoritative and the iPad processing and
+  speaking states become amber for the same turn.
 
 ## Planner
 

@@ -35,6 +35,10 @@ enum CompanionVoiceState {
 @MainActor
 final class CompanionManager: ObservableObject {
     @Published var voiceState: CompanionVoiceState = .idle
+    weak var pacePadOutputDelegate: PacePadOutputDelegate?
+    var activePacePadTurnIdentifier: String?
+    var activePacePadTurnUsesOffDevicePlanner = false
+    var pendingPacePadPhysicalSceneContext: String?
     @Published var lastTranscript: String?
     /// Timestamp of the most recent PTT press, used to measure STT
     /// latency (time from key press → final transcript arrival).
@@ -994,7 +998,13 @@ final class CompanionManager: ObservableObject {
     /// so EVERY off-device turn is visible, not just bridge calls.
     /// `isCloudBridgeCallActive` remains as a subset for backward compat
     /// during the v1 cycle and continues to set/reset alongside this flag.
-    @Published var isOffDeviceTurnInFlight: Bool = false
+    @Published var isOffDeviceTurnInFlight: Bool = false {
+        didSet {
+            if isOffDeviceTurnInFlight, activePacePadTurnIdentifier != nil {
+                activePacePadTurnUsesOffDevicePlanner = true
+            }
+        }
+    }
 
     /// Count of HEADLESS planner calls (background agents, subagents,
     /// cron, plugin auto-repair) currently in flight on an off-device
@@ -1079,6 +1089,9 @@ final class CompanionManager: ObservableObject {
                 // shape exactly: `Task { try? speakText }` with
                 // print-on-failure so a TTS error never escapes here.
                 guard let self else { return }
+                if self.pacePadOutputDelegate?.deliverProactiveMessage(utterance) == true {
+                    return
+                }
                 Task { @MainActor [weak self] in
                     do {
                         try await self?.ttsClient.speakText(utterance.spokenText)
