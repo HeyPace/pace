@@ -197,6 +197,14 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 - Separately consented low-rate camera, taught-object, screen, Mac-context, and bundled pre-STT Core ML wake sources; people remain non-identifying and raw frames/pre-wake audio are never persisted.
 - Silent cards and spoken interventions are independent default-off opt-ins. Cards retain provenance; speech re-checks active-call, Focus, input, expiry, and cooldown restraint before delivery.
 - OpenSpec `always-on-companion-mode` archived on 2026-07-13 at 40/40 tasks. Hardware thresholds and manual Xcode checks remain explicitly unmeasured release evidence under the owner's milestone risk acceptance.
+- PacePad Companion V1 is implemented in source as a second target: authenticated
+  LAN pairing/reconnect, an always-awake full-screen deep-blue CRT face with
+  hidden system chrome, auto-hiding controls, low-energy/pixel-shift idle
+  protection, tap-to-talk and tap-to-interrupt, actionable recovery, iPad
+  speech, semantic local presence, requested-only stills, and privacy/night
+  controls reuse the Mac conversation and proactivity pipelines. Physical-iPad permission,
+  reconnect, thermal, 12-hour, and 14-day dogfood gates remain open; this is not
+  a release or shipped-hardware claim.
 
 ### Memory & recall
 

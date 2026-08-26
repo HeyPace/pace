@@ -92,6 +92,35 @@ Run from Xcode, never terminal `xcodebuild`:
 10. Complete every row in the threshold table with dated measurements before
     making a release claim based on those thresholds.
 
+### PacePad V1 checklist
+
+Run the `PacePad` target from Xcode on the documented physical iPad; terminal
+`xcodebuild` is not an acceptable substitute for permission, thermal, or
+foreground-longevity evidence.
+
+1. Pair with the code in Settings → Companion, relaunch both apps, cycle Wi-Fi,
+   and verify reconnect without re-pairing in at least 19 of 20 interruptions.
+2. Complete ten tap-to-talk turns and verify the iPad face shows listening,
+   transcribing, processing, and speaking while the Mac speaker stays quiet.
+3. Trigger one existing proactive nudge and confirm PacePad speaks only after
+   the Mac restraint gate permits it.
+4. Observe ten presence entry/exit cycles and inspect traffic/logs to prove the
+   normal path contains semantic events and no JPEG/video bytes.
+5. Ask an explicit scene question, confirm one expiring still request, and prove
+   no image remains on either device afterward.
+6. Pause capture during recording and presence sampling; confirm mic/camera stop
+   and indicators change immediately. Repeat with permission denial and restore.
+7. Run a continuous 12-hour foreground session on power. Record crashes,
+   reconnects, CPU/GPU behavior, battery state, and enclosure temperature.
+   Confirm the full-screen ambient face remains awake, the controls start
+   hidden, the HUD and pause action remain reachable, and the controls return
+   to the ambient view after inactivity. Leave Pace untouched for five minutes
+   and confirm the face/HUD dim without the display sleeping; return to Pace and
+   confirm presence or the first touch restores the normal treatment without
+   starting a recording. Background and
+   foreground the app while night mode is active and confirm other apps regain
+   the prior screen brightness.
+
 ## Release follow-up order
 
 1. Measure person, object, wake, resource, privacy, and lifecycle rows on target

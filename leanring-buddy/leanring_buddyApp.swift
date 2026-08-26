@@ -82,6 +82,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
         PaceAnalytics.configure()
         PaceAnalytics.trackAppOpened()
+        PaceCompanionServer.shared.start(companionManager: companionManager)
 
         // Auto-load the configured planner + VLM into LM Studio so the
         // user's first push-to-talk doesn't pay the cold-load tax.
@@ -238,6 +239,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             window.orderOut(nil)
         }
         menuBarOverlayManager?.hide()
+        PaceCompanionServer.shared.stop()
         companionManager.stop()
         // Stop the keepalive heartbeat so it doesn't race with the
         // unload below and immediately re-trigger a load.

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_pace-companion._tcp</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Pace uses the front camera for on-device presence detection and sends one still only when you ask about the room.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Pace connects directly to your paired Mac on your local network.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Pace uses the microphone only while you are talking to your paired Mac.</string>
+	<key>UIRequiresFullScreen</key>
+	<true/>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+</dict>
+</plist>

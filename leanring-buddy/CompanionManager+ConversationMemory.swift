@@ -38,6 +38,15 @@ extension CompanionManager {
         userTranscript: String,
         assistantResponse: String
     ) {
+        if let activePacePadTurnIdentifier {
+            _ = pacePadOutputDelegate?.deliverAssistantResponse(
+                turnIdentifier: activePacePadTurnIdentifier,
+                spokenText: assistantResponse,
+                usesOffDevicePlanner: activePacePadTurnUsesOffDevicePlanner
+            )
+            self.activePacePadTurnIdentifier = nil
+            activePacePadTurnUsesOffDevicePlanner = false
+        }
         // The committed user message is about to land in the chat transcript,
         // so retire the live in-progress speech bubble (no duplicate).
         liveSpeechDraft = ""
