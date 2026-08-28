@@ -152,14 +152,10 @@ struct PaceGeneralSettingsTab: View {
                 .padding(.bottom, 6)
 
             HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Retention")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(DS.Colors.textPrimary)
-                    Text("Days to keep meeting notes in the retrieval index.")
-                        .font(.system(size: 12))
-                        .foregroundColor(DS.Colors.textTertiary)
-                }
+                paceSettingsRowLabel(
+                    title: "Retention",
+                    subtitle: "Days to keep meeting notes in the retrieval index."
+                )
                 Spacer()
                 Stepper(
                     value: Binding(
@@ -180,14 +176,10 @@ struct PaceGeneralSettingsTab: View {
             }
 
             HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Transcription backend")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(DS.Colors.textPrimary)
-                    Text("WhisperKit is more accurate on long audio; Apple Speech needs no model download.")
-                        .font(.system(size: 12))
-                        .foregroundColor(DS.Colors.textTertiary)
-                }
+                paceSettingsRowLabel(
+                    title: "Transcription backend",
+                    subtitle: "WhisperKit is more accurate on long audio; Apple Speech needs no model download."
+                )
                 Spacer()
                 Picker(
                     "Backend",
@@ -209,14 +201,10 @@ struct PaceGeneralSettingsTab: View {
             }
 
             HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Default note profile")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(DS.Colors.textPrimary)
-                    Text("Shapes how notes are organized. General reproduces the classic summary + actions + decisions.")
-                        .font(.system(size: 12))
-                        .foregroundColor(DS.Colors.textTertiary)
-                }
+                paceSettingsRowLabel(
+                    title: "Default note profile",
+                    subtitle: "Controls note structure. General uses the classic summary, actions, and decisions."
+                )
                 Spacer()
                 Picker(
                     "Profile",

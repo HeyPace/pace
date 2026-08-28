@@ -17,6 +17,19 @@
 
 import SwiftUI
 
+@MainActor
+@ViewBuilder
+func paceSettingsRowLabel(title: String, subtitle: String) -> some View {
+    VStack(alignment: .leading, spacing: 3) {
+        Text(title)
+            .font(DS.Typography.calloutStrong)
+            .foregroundColor(DS.Colors.textPrimary)
+        Text(subtitle)
+            .font(DS.Typography.caption)
+            .foregroundColor(DS.Colors.textTertiary)
+    }
+}
+
 /// Title/subtitle row with a trailing `Toggle`. Bottom divider so a
 /// vertical stack of these forms a clean list without each call site
 /// repeating the divider.
@@ -28,14 +41,7 @@ func paceSettingsToggleRow(
     isOn: Binding<Bool>
 ) -> some View {
     HStack(spacing: 12) {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(DS.Typography.calloutStrong)
-                .foregroundColor(DS.Colors.textPrimary)
-            Text(subtitle)
-                .font(DS.Typography.caption)
-                .foregroundColor(DS.Colors.textTertiary)
-        }
+        paceSettingsRowLabel(title: title, subtitle: subtitle)
         Spacer()
         Toggle(title, isOn: isOn)
             .labelsHidden()
