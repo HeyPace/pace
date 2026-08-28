@@ -1,0 +1,98 @@
+{
+  "$schema": "fleet.design-review.v1",
+  "version": 1,
+  "project": "pace",
+  "target": "Living Notch and embedded command tray usability",
+  "surfaceMode": "operate",
+  "mode": "preserve",
+  "register": "product",
+  "context": {
+    "product": "PRODUCT.md",
+    "design": "leanring-buddy/DESIGN.md"
+  },
+  "direction": {
+    "references": [],
+    "probes": [],
+    "selected": "existing-design",
+    "approval": "not-required",
+    "before": "artifacts/design/native-notch-polish/tray-before.jpeg",
+    "contract": {
+      "purpose": "Make the Living Notch a fast, calm command surface for everyday Pace use.",
+      "purposeSource": "PRODUCT.md",
+      "canonicalPurpose": "Pace helps a Mac user ask, understand, and act through a private on-device voice agent.",
+      "purposeAlignment": "match",
+      "driftNote": "",
+      "audience": "A Mac user using voice or text while staying focused on their current work.",
+      "job": "Show Pace's state, then let the user issue and follow one request without layout friction or dead air.",
+      "thesis": "Preserve the measured hardware notch and let the same black surface expand edge-to-edge into the command tray.",
+      "system": "Local Signal Desk: graphite and black surfaces, system typography, electric blue for local activity, semantic state colors, and a 4-point spacing rhythm.",
+      "signature": "The exact physical camera housing remains centered while the same clipped surface grows into the tray.",
+      "risk": "Removing the nested gutter could make the tray feel dense, so content keeps 12 to 14 point internal padding while the outer notch owns the silhouette."
+    }
+  },
+  "evidence": {
+    "screenshots": [
+      {
+        "width": 390,
+        "path": "artifacts/design/native-notch-polish/notch-after.jpeg"
+      },
+      {
+        "width": 768,
+        "path": "artifacts/design/native-notch-polish/tray-after-polish.jpeg"
+      },
+      {
+        "width": 1440,
+        "path": "artifacts/design/native-notch-polish/tray-after-conversation.jpeg"
+      }
+    ],
+    "projectCheck": {
+      "command": "bash scripts/test-pace.sh PaceChatSessionTests PaceNativeInterfaceModelTests PaceIntentClassifierTests LocalPlannerClientThinkingStripperTests",
+      "status": "pass"
+    },
+    "critique": {
+      "score": 33,
+      "maximum": 40
+    },
+    "audit": {
+      "score": 17,
+      "maximum": 20
+    },
+    "unresolved": {
+      "p0": 0,
+      "p1": 0
+    },
+    "detector": {
+      "posture": "advisory",
+      "findings": [
+        "The SwiftUI detector returned no findings, but the generic fallback is advisory-only for native Swift surfaces.",
+        "Browser overlay inspection is not applicable to the native AppKit panel."
+      ]
+    },
+    "comprehension": {
+      "status": "not-applicable",
+      "reviewer": "",
+      "answers": {
+        "product": "",
+        "audience": "",
+        "value": "",
+        "mechanism": "",
+        "proof": "",
+        "nextAction": ""
+      },
+      "purposeScore": {
+        "product": 0,
+        "audience": 0,
+        "value": 0,
+        "mechanism": 0,
+        "proof": 0,
+        "nextAction": 0,
+        "total": 0
+      },
+      "mismatches": []
+    }
+  },
+  "ownerFeedback": {
+    "decision": "agent-selected",
+    "note": "The existing Pace design system was preserved while the user-requested notch usability defects were corrected."
+  }
+}

@@ -23,9 +23,9 @@ import SwiftUI
 
 struct PacePanelChatView: View {
     @ObservedObject var companionManager: CompanionManager
+    @ObservedObject private var chatSession: PaceChatSession
     let isEmbeddedInLivingNotch: Bool
 
-    @State private var draftMessageText: String = ""
     @FocusState private var isInputFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -34,6 +34,7 @@ struct PacePanelChatView: View {
         isEmbeddedInLivingNotch: Bool = false
     ) {
         self.companionManager = companionManager
+        self._chatSession = ObservedObject(wrappedValue: companionManager.chatSession)
         self.isEmbeddedInLivingNotch = isEmbeddedInLivingNotch
     }
 
@@ -43,21 +44,20 @@ struct PacePanelChatView: View {
                 header
             }
             turnStage
+            if shouldShowCompactPermissionRecovery {
+                compactPermissionRecoveryBanner
+            }
             transcript
             inputRow
         }
         .frame(
-            width: isEmbeddedInLivingNotch
-                ? PaceQuickPanelMetrics.width - 24
-                : PaceQuickPanelMetrics.width,
-            height: isEmbeddedInLivingNotch
-                ? PaceQuickPanelMetrics.height - 12
-                : PaceQuickPanelMetrics.height
+            width: PaceQuickPanelMetrics.width,
+            height: PaceQuickPanelMetrics.height
         )
         .background(DS.Colors.surface)
         .clipShape(
             RoundedRectangle(
-                cornerRadius: isEmbeddedInLivingNotch ? 12 : DS.Radius.window,
+                cornerRadius: isEmbeddedInLivingNotch ? 0 : DS.Radius.window,
                 style: .continuous
             )
         )
@@ -74,7 +74,7 @@ struct PacePanelChatView: View {
             y: isEmbeddedInLivingNotch ? 0 : 12
         )
         .onAppear {
-            companionManager.chatSession.loadHistory()
+            chatSession.loadHistoryWithoutBlockingInterface()
             isInputFocused = true
         }
     }
@@ -177,6 +177,7 @@ struct PacePanelChatView: View {
                 .background(Circle().fill(DS.Colors.surfaceRaised))
         }
         .buttonStyle(.plain)
+        .paceControlHoverHighlight(cornerRadius: 15)
         .pointerCursor()
         .help(help)
         .accessibilityLabel(help)
@@ -187,8 +188,13 @@ struct PacePanelChatView: View {
     private var transcript: some View {
         ScrollViewReader { scrollProxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    if companionManager.allPermissionsGranted == false {
+                // The panel transcript is deliberately bounded by PaceChatSession.
+                // A regular stack keeps the accessibility tree stable while a
+                // response is replaced or queued rows are completed; SwiftUI's
+                // lazy-layout accessibility bridge can otherwise traverse a
+                // changing ForEach from a non-main update group and trap.
+                VStack(alignment: .leading, spacing: 8) {
+                    if shouldShowPermissionRecoveryState {
                         permissionRecoveryState.padding(.top, 24)
                     } else if companionManager.nativePanelPresentation.showsEmptyState {
                         emptyState.padding(.top, 24)
@@ -218,7 +224,7 @@ struct PacePanelChatView: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
-            .onChange(of: companionManager.chatSession.messages.count) {
+            .onChange(of: chatSession.messages.count) {
                 scrollToBottom(scrollProxy)
             }
             .onChange(of: inFlightStreamedText) {
@@ -235,6 +241,18 @@ struct PacePanelChatView: View {
     }
 
     private static let streamingAnchorID = "panel-streaming-anchor"
+
+    private var shouldShowPermissionRecoveryState: Bool {
+        companionManager.allPermissionsGranted == false
+            && threadItems.isEmpty
+            && liveSpeechDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && inFlightStreamedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var shouldShowCompactPermissionRecovery: Bool {
+        companionManager.allPermissionsGranted == false
+            && shouldShowPermissionRecoveryState == false
+    }
 
     private func scrollToBottom(_ scrollProxy: ScrollViewProxy, animated: Bool = true) {
         // The streaming anchor row is always present at the very bottom
@@ -265,7 +283,7 @@ struct PacePanelChatView: View {
             }
 
             Button("Show what I can automate") {
-                companionManager.chatSession.submitUserMessage("What can you help me automate on this Mac?")
+                chatSession.submitUserMessage("What can you help me automate on this Mac?")
             }
             .buttonStyle(.plain)
             .font(DS.Typography.captionStrong)
@@ -274,6 +292,7 @@ struct PacePanelChatView: View {
             .frame(height: 30)
             .background(DS.Colors.surfaceRaised)
             .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+            .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
             .pointerCursor()
         }
         .frame(maxWidth: .infinity)
@@ -305,9 +324,43 @@ struct PacePanelChatView: View {
             .frame(height: 30)
             .background(DS.Colors.surfaceRaised)
             .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+            .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
             .pointerCursor()
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var compactPermissionRecoveryBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(DS.Colors.localSignal)
+
+            Text("Voice and screen features need permission")
+                .font(DS.Typography.captionStrong)
+                .foregroundStyle(DS.Colors.textSecondary)
+
+            Spacer(minLength: 8)
+
+            Button("Open Permissions") {
+                PaceSettingsWindowManager.shared.show(
+                    companionManager: companionManager,
+                    destination: .permissions
+                )
+            }
+            .buttonStyle(.plain)
+            .font(DS.Typography.captionStrong)
+            .foregroundStyle(DS.Colors.textOnAccent)
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .background(DS.Colors.localSignal)
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+            .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+            .pointerCursor()
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 40)
+        .background(DS.Colors.surfaceRaised.opacity(0.72))
     }
 
     /// A single item in the conversation timeline — either a chat message or
@@ -336,7 +389,7 @@ struct PacePanelChatView: View {
     /// completed/failed actions become chips (skip the transient "planned"
     /// record so each tool use shows once, as its result).
     private var threadItems: [ThreadItem] {
-        let messageItems = companionManager.chatSession.userFacingMessages.map(ThreadItem.message)
+        let messageItems = chatSession.userFacingMessages.map(ThreadItem.message)
         let toolItems = companionManager.recentActionResults
             .filter { $0.status == .completed || $0.status == .failed }
             .map(ThreadItem.tool)
@@ -370,6 +423,7 @@ struct PacePanelChatView: View {
                 .buttonStyle(.plain)
                 .font(DS.Typography.captionStrong)
                 .foregroundStyle(DS.Colors.localSignal)
+                .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
                 .pointerCursor()
             }
         }
@@ -457,49 +511,95 @@ struct PacePanelChatView: View {
     // MARK: - Input
 
     private var inputRow: some View {
-        HStack(spacing: 8) {
-            TextField("Message Pace…", text: $draftMessageText, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(DS.Typography.body)
-                .foregroundColor(DS.Colors.textPrimary)
-                .lineLimit(1...3)
-                .focused($isInputFocused)
-                .onSubmit(submitDraft)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(DS.Colors.surfaceInset)
-                        .overlay(
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                TextField("Message Pace…", text: $chatSession.draftMessageText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(DS.Typography.body)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .lineLimit(1...3)
+                    .focused($isInputFocused)
+                    .onSubmit(submitDraft)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(DS.Colors.surfaceInset)
+                            .overlay(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(DS.Colors.borderSubtle, lineWidth: 0.7)
-                        )
-                )
+                                    .stroke(
+                                        isInputFocused
+                                            ? DS.Colors.localSignal.opacity(0.82)
+                                            : DS.Colors.borderSubtle,
+                                        lineWidth: isInputFocused ? 1.2 : 0.7
+                                    )
+                            )
+                    )
 
-            if companionManager.voiceState == .idle {
                 Button(action: submitDraft) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 22))
                         .foregroundColor(isDraftEmpty ? DS.Colors.textTertiary : DS.Colors.localSignal)
+                        .frame(width: 30, height: 30)
                 }
                 .buttonStyle(.plain)
+                .paceControlHoverHighlight(cornerRadius: 15, isEnabled: !isDraftEmpty)
                 .pointerCursor(isEnabled: !isDraftEmpty)
                 .keyboardShortcut(.return, modifiers: [.command])
                 .disabled(isDraftEmpty)
-                .accessibilityLabel("Send message")
-            } else {
-                Button {
-                    companionManager.cancelCurrentTurnFromPanel()
-                } label: {
-                    Image(systemName: "stop.circle.fill")
-                        .font(.system(size: 22))
-                        .foregroundColor(DS.Colors.textSecondary)
+                .accessibilityLabel(
+                    companionManager.voiceState == .idle
+                        ? "Send message"
+                        : "Queue message"
+                )
+                .help(
+                    companionManager.voiceState == .idle
+                        ? "Send message"
+                        : "Add message to queue"
+                )
+
+                if companionManager.voiceState != .idle {
+                    Button {
+                        companionManager.cancelCurrentTurnFromPanel()
+                    } label: {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .frame(width: 30, height: 30)
+                    }
+                    .buttonStyle(.plain)
+                    .paceControlHoverHighlight(cornerRadius: 15)
+                    .pointerCursor()
+                    .keyboardShortcut(.escape, modifiers: [.command])
+                    .accessibilityLabel("Stop current request")
+                    .help("Stop after the current completed action")
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .keyboardShortcut(.escape, modifiers: [.command])
-                .accessibilityLabel("Stop current request")
-                .help("Stop after the current completed action")
+            }
+
+            if companionManager.queuedChatTurnCount > 0 {
+                HStack(spacing: 8) {
+                    Image(systemName: "text.line.last.and.arrowtriangle.forward")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(DS.Colors.localSignal)
+                    Text(
+                        companionManager.queuedChatTurnCount == 1
+                            ? "1 message queued"
+                            : "\(companionManager.queuedChatTurnCount) messages queued"
+                    )
+                    .font(DS.Typography.caption)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    Spacer(minLength: 8)
+                    Button("Clear") {
+                        companionManager.clearQueuedChatTurns()
+                    }
+                    .buttonStyle(.plain)
+                    .font(DS.Typography.caption)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .paceControlHoverHighlight(cornerRadius: 6)
+                    .pointerCursor()
+                    .accessibilityLabel("Clear queued messages")
+                }
+                .padding(.horizontal, 4)
             }
         }
         .padding(.horizontal, 12)
@@ -507,14 +607,14 @@ struct PacePanelChatView: View {
     }
 
     private var isDraftEmpty: Bool {
-        draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        chatSession.draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func submitDraft() {
-        let trimmed = draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = chatSession.draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        companionManager.chatSession.submitUserMessage(trimmed)
-        draftMessageText = ""
+        chatSession.submitUserMessage(trimmed)
+        chatSession.draftMessageText = ""
         isInputFocused = true
     }
 
@@ -551,14 +651,14 @@ struct PacePanelChatView: View {
     }
 
     private var currentTurnDetail: String? {
-        if companionManager.allPermissionsGranted == false {
-            return "Finish setup for voice and screen-aware actions"
-        }
         if !liveSpeechDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return liveSpeechDraft
         }
         if companionManager.currentTurnHUDState.status != .idle {
             return companionManager.currentTurnHUDState.detail
+        }
+        if companionManager.allPermissionsGranted == false {
+            return "Finish setup for voice and screen-aware actions"
         }
         return nil
     }

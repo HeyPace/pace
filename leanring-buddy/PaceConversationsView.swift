@@ -21,22 +21,28 @@ import SwiftUI
 
 struct PaceConversationsView: View {
     @ObservedObject var companionManager: CompanionManager
+    @ObservedObject private var chatSession: PaceChatSession
 
     @State private var searchQuery: String = ""
-    @State private var draftMessageText: String = ""
     @FocusState private var isInputFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(companionManager: CompanionManager) {
+        self.companionManager = companionManager
+        self._chatSession = ObservedObject(wrappedValue: companionManager.chatSession)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             chatHeader
             searchField
             transcriptScrollView
-            footerHint
             chatInputRow
         }
+        .background(DS.Colors.surface)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            companionManager.chatSession.loadHistory()
+            chatSession.loadHistoryWithoutBlockingInterface()
             isInputFocused = true
         }
     }
@@ -44,45 +50,98 @@ struct PaceConversationsView: View {
     // MARK: - Header
 
     private var chatHeader: some View {
-        HStack {
-            Text("Conversations")
-                .font(.system(size: 22, weight: .semibold))
-            Spacer()
-            muteToggleButton
-            Button(action: { companionManager.chatSession.loadHistory() }) {
-                Image(systemName: "arrow.clockwise")
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("Conversations")
+                    .font(DS.Typography.windowTitle)
+                    .tracking(-0.45)
+                    .foregroundStyle(DS.Colors.textPrimary)
+
+                Text(companionManager.isOffDeviceTurnInFlight ? "Off-device" : "On this Mac")
+                    .font(DS.Typography.captionStrong)
+                    .foregroundStyle(
+                        companionManager.isOffDeviceTurnInFlight
+                            ? DS.Colors.offDeviceSignal
+                            : DS.Colors.localSignal
+                    )
+
+                Spacer()
+                muteToggleButton
+                headerIconButton(
+                    systemName: "arrow.clockwise",
+                    help: "Refresh conversations"
+                ) {
+                    chatSession.loadHistoryWithoutBlockingInterface()
+                }
             }
-            .buttonStyle(.plain)
-            .help("Refresh from the local retrieval index")
+
+            Text("Your voice and typed turns share one private conversation history.")
+                .font(DS.Typography.callout)
+                .foregroundStyle(DS.Colors.textSecondary)
         }
         .padding(.horizontal, 24)
         .padding(.top, 24)
+        .padding(.bottom, 14)
     }
 
     private var muteToggleButton: some View {
-        // Read the published flag through the chat session so any other
-        // surface that flips it (currently none, but the property is
-        // public on the session) stays in sync with this view.
-        let isMuted = companionManager.chatSession.isChatTTSMuted
-        return Button {
-            companionManager.chatSession.isChatTTSMuted.toggle()
-        } label: {
-            Image(systemName: isMuted ? "speaker.slash" : "speaker.wave.2")
-                .foregroundColor(isMuted ? .secondary : .primary)
+        let isMuted = chatSession.isChatTTSMuted
+        return headerIconButton(
+            systemName: isMuted ? "speaker.slash" : "speaker.wave.2",
+            help: isMuted
+                ? "Replies are silent this session. Unmute Pace."
+                : "Pace speaks replies. Mute this session."
+        ) {
+            chatSession.isChatTTSMuted.toggle()
+        }
+    }
+
+    private func headerIconButton(
+        systemName: String,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(DS.Colors.textSecondary)
+                .frame(width: 30, height: 30)
+                .background(
+                    Circle()
+                        .fill(DS.Colors.surfaceRaised)
+                )
         }
         .buttonStyle(.plain)
-        .help(isMuted
-              ? "Pace replies silently this session. Click to unmute."
-              : "Pace speaks replies. Click to mute for this session.")
+        .paceControlHoverHighlight(cornerRadius: 15)
+        .pointerCursor()
+        .help(help)
+        .accessibilityLabel(help)
     }
 
     // MARK: - Search
 
     private var searchField: some View {
-        TextField("Search past turns…", text: $searchQuery)
-            .textFieldStyle(.roundedBorder)
-            .padding(.horizontal, 24)
-            .padding(.top, 12)
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(DS.Colors.textTertiary)
+            TextField("Search past turns", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .font(DS.Typography.callout)
+                .foregroundStyle(DS.Colors.textPrimary)
+        }
+        .padding(.horizontal, 11)
+        .frame(height: 34)
+        .background(
+            RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                .fill(DS.Colors.surfaceInset)
+                .overlay {
+                    RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                        .stroke(DS.Colors.borderSubtle, lineWidth: 0.8)
+                }
+        )
+        .padding(.horizontal, 24)
+        .padding(.bottom, 12)
     }
 
     // MARK: - Transcript
@@ -91,22 +150,30 @@ struct PaceConversationsView: View {
         ScrollViewReader { scrollViewProxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    if filteredMessages.isEmpty {
-                        emptyStateText
-                            .padding(.top, 60)
+                    if filteredThreadRows.isEmpty {
+                        emptyState
+                            .padding(.top, 72)
                     } else {
-                        ForEach(filteredMessages) { message in
-                            messageRow(message)
-                                .id(message.id)
+                        ForEach(filteredThreadRows) { threadRow in
+                            switch threadRow {
+                            case .message(let messageRowModel):
+                                messageRow(messageRowModel)
+                            case .toolActivity(let toolActivityRowModel):
+                                toolActivityRow(toolActivityRowModel)
+                            }
                         }
                     }
                     streamingAssistantRowIfActive
                         .id(PaceConversationsView.streamingRowAnchorId)
                 }
-                .padding(24)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onChange(of: companionManager.chatSession.messages.count) {
+            .onChange(of: chatSession.messages.count) {
+                scrollToBottom(scrollViewProxy: scrollViewProxy)
+            }
+            .onChange(of: companionManager.recentActionResults.count) {
                 scrollToBottom(scrollViewProxy: scrollViewProxy)
             }
             .onChange(of: companionManager.streamingSentenceTTSPipeline.inFlightStreamedText) {
@@ -125,10 +192,10 @@ struct PaceConversationsView: View {
             if companionManager.streamingSentenceTTSPipeline.inFlightStreamedText.isEmpty == false {
                 return PaceConversationsView.streamingRowAnchorId
             }
-            return filteredMessages.last?.id
+            return filteredThreadRows.last?.id
                 ?? PaceConversationsView.streamingRowAnchorId
         }()
-        if animated {
+        if animated && !reduceMotion {
             withAnimation(.easeOut(duration: 0.18)) {
                 scrollViewProxy.scrollTo(targetId, anchor: .bottom)
             }
@@ -137,51 +204,152 @@ struct PaceConversationsView: View {
         }
     }
 
-    private var emptyStateText: some View {
-        VStack(spacing: 4) {
-            Text("No conversations yet.")
-                .foregroundColor(.secondary)
-                .font(.system(size: 13))
-            Text("Type below or press ctrl+option anywhere to talk.")
-                .foregroundColor(.secondary)
-                .font(.system(size: 12))
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            PaceSignalNotchView(state: .ready, isOffDeviceTurn: false)
+                .frame(width: 140, height: 44)
+            Text(searchQuery.isEmpty ? "Start with one useful request." : "No matching turns.")
+                .font(DS.Typography.headline)
+                .foregroundStyle(DS.Colors.textPrimary)
+            Text(
+                searchQuery.isEmpty
+                    ? "Type below or hold Control + Option anywhere to talk."
+                    : "Try a shorter phrase or clear the search."
+            )
+            .font(DS.Typography.callout)
+            .foregroundStyle(DS.Colors.textSecondary)
         }
         .frame(maxWidth: .infinity)
     }
 
     private var filteredMessages: [PaceChatMessage] {
-        companionManager.chatSession.filteredMessages(matching: searchQuery)
+        chatSession.filteredMessages(matching: searchQuery)
     }
 
-    private func messageRow(_ message: PaceChatMessage) -> some View {
-        let isFromUser = message.role == .user
-        return VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Text(isFromUser ? "You" : "Pace")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.secondary)
-                Text(message.createdAt.formatted(date: .omitted, time: .shortened))
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-            }
-            Text(message.body)
-                .font(.system(size: 13))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+    private var filteredThreadRows: [PaceChatThreadRowModel] {
+        let normalizedSearchQuery =
+            searchQuery
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let actionRowModels = PaceChatTranscriptModel.toolActivityRowModels(
+            fromNewestFirstActionRunRecords: companionManager.recentActionResults
+        ).filter { actionRowModel in
+            normalizedSearchQuery.isEmpty
+                || actionRowModel.toolDisplayName.lowercased().contains(normalizedSearchQuery)
+                || actionRowModel.resultSummaryLine.lowercased().contains(normalizedSearchQuery)
         }
-        .padding(12)
-        .background(isFromUser
-                    ? Color(NSColor.controlBackgroundColor)
-                    : Color(NSColor.controlBackgroundColor).opacity(0.6))
-        .cornerRadius(8)
-        .contextMenu {
-            // Right-click any message to share or copy. NSSharing-
-            // ServicePicker enumerates every install destination —
-            // Messages, Mail, Notes, AirDrop, third-party share
-            // extensions — so we don't have to build per-target
-            // integrations. The picker is anchored to a hidden
-            // tracker view we attach via NSViewRepresentable.
-            ShareAndCopyContextMenuItems(messageBody: message.body)
+        return PaceChatTranscriptModel.threadRows(
+            messageRowModels: PaceChatTranscriptModel.messageRowModels(
+                fromChatMessages: filteredMessages
+            ),
+            toolActivityRowModels: actionRowModels
+        )
+    }
+
+    private func messageRow(_ messageRowModel: PaceChatTranscriptMessageRowModel) -> some View {
+        let isFromUser = messageRowModel.author == .user
+        return HStack(alignment: .bottom, spacing: 0) {
+            if isFromUser {
+                Spacer(minLength: 120)
+            }
+
+            VStack(alignment: isFromUser ? .trailing : .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(isFromUser ? "You" : "Pace")
+                        .font(DS.Typography.captionStrong)
+                    Text(messageRowModel.createdAt.formatted(date: .omitted, time: .shortened))
+                        .font(DS.Typography.caption)
+                }
+                .foregroundStyle(DS.Colors.textTertiary)
+
+                Text(messageRowModel.bodyText)
+                    .font(DS.Typography.body)
+                    .foregroundStyle(DS.Colors.textPrimary)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous)
+                            .fill(
+                                isFromUser
+                                    ? DS.Colors.localSignal.opacity(0.20)
+                                    : DS.Colors.surfaceRaised
+                            )
+                            .overlay {
+                                RoundedRectangle(
+                                    cornerRadius: DS.Radius.surface,
+                                    style: .continuous
+                                )
+                                .stroke(
+                                    isFromUser
+                                        ? DS.Colors.localSignal.opacity(0.26)
+                                        : DS.Colors.borderSubtle.opacity(0.70),
+                                    lineWidth: 0.7
+                                )
+                            }
+                    )
+                    .contextMenu {
+                        ShareAndCopyContextMenuItems(messageBody: messageRowModel.bodyText)
+                    }
+            }
+            .frame(maxWidth: 620, alignment: isFromUser ? .trailing : .leading)
+
+            if !isFromUser {
+                Spacer(minLength: 120)
+            }
+        }
+    }
+
+    private func toolActivityRow(
+        _ toolActivityRowModel: PaceChatToolActivityRowModel
+    ) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: toolActivityRowModel.resultState.systemSymbolName)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(toolActivityColor(for: toolActivityRowModel.resultState))
+
+            Text(toolActivityRowModel.toolDisplayName)
+                .font(DS.Typography.captionStrong)
+                .foregroundStyle(DS.Colors.textSecondary)
+                .lineLimit(1)
+
+            Text(toolActivityRowModel.resultSummaryLine)
+                .font(DS.Typography.caption)
+                .foregroundStyle(DS.Colors.textTertiary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 11)
+        .frame(height: 30)
+        .background(
+            Capsule(style: .continuous)
+                .fill(DS.Colors.surfaceRaised)
+                .overlay {
+                    Capsule(style: .continuous)
+                        .stroke(DS.Colors.borderSubtle.opacity(0.75), lineWidth: 0.7)
+                }
+        )
+        .frame(maxWidth: 620, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            "\(toolActivityRowModel.resultState.displayLabel): "
+                + "\(toolActivityRowModel.toolDisplayName). "
+                + toolActivityRowModel.resultSummaryLine
+        )
+    }
+
+    private func toolActivityColor(
+        for resultState: PaceChatToolActivityResultState
+    ) -> Color {
+        switch resultState {
+        case .running:
+            return DS.Colors.localSignal
+        case .done:
+            return DS.Colors.success
+        case .failed:
+            return DS.Colors.warning
         }
     }
 
@@ -189,67 +357,112 @@ struct PaceConversationsView: View {
     private var streamingAssistantRowIfActive: some View {
         let streamingText = companionManager.streamingSentenceTTSPipeline.inFlightStreamedText
         if !streamingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text("Pace")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.secondary)
-                    Text("typing…")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 6) {
+                        Text("Pace")
+                            .font(DS.Typography.captionStrong)
+                        Text("responding")
+                            .font(DS.Typography.caption)
+                    }
+                    .foregroundStyle(DS.Colors.localSignal)
+
+                    Text(streamingText)
+                        .font(DS.Typography.body)
+                        .foregroundStyle(DS.Colors.textPrimary)
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(
+                                cornerRadius: DS.Radius.surface,
+                                style: .continuous
+                            )
+                            .fill(DS.Colors.surfaceRaised)
+                        )
                 }
-                Text(streamingText)
-                    .font(.system(size: 13))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: 620, alignment: .leading)
+                Spacer(minLength: 120)
             }
-            .padding(12)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-            .cornerRadius(8)
         } else {
-            // Empty spacer keeps the ScrollViewReader anchor present so
-            // initial scroll-to-bottom never targets a missing id.
             Color.clear.frame(height: 0)
         }
     }
 
-    // MARK: - Footer + input
-
-    private var footerHint: some View {
-        Text("Tip: you can also press ctrl+option anywhere to talk.")
-            .font(.system(size: 11))
-            .foregroundColor(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
-            .padding(.top, 4)
-    }
-
     private var chatInputRow: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .bottom, spacing: 10) {
             TextField(
-                "Type a message — Enter to send, Shift+Enter for newline",
-                text: $draftMessageText,
+                "Message Pace…",
+                text: $chatSession.draftMessageText,
                 axis: .vertical
             )
-            .lineLimit(1...6)
-            .textFieldStyle(.roundedBorder)
+            .lineLimit(1...4)
+            .textFieldStyle(.plain)
+            .font(DS.Typography.body)
+            .foregroundStyle(DS.Colors.textPrimary)
             .focused($isInputFocused)
             .onSubmit(submitDraftMessage)
-            .help("Pace replies inline and speaks aloud unless muted.")
+            .padding(.horizontal, 13)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous)
+                    .fill(DS.Colors.surfaceInset)
+                    .overlay {
+                        RoundedRectangle(
+                            cornerRadius: DS.Radius.surface,
+                            style: .continuous
+                        )
+                        .stroke(
+                            isInputFocused
+                                ? DS.Colors.localSignal.opacity(0.85)
+                                : DS.Colors.borderSubtle,
+                            lineWidth: isInputFocused ? 1.2 : 0.8
+                        )
+                    }
+            )
+            .help("Return sends. Shift + Return inserts a new line.")
 
-            Button("Send", action: submitDraftMessage)
-                .keyboardShortcut(.return, modifiers: [.command])
-                .disabled(draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button(action: submitDraftMessage) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(
+                        isDraftEmpty
+                            ? DS.Colors.textTertiary
+                            : DS.Colors.textOnAccent
+                    )
+                    .frame(width: 34, height: 34)
+                    .background(
+                        Circle()
+                            .fill(isDraftEmpty ? DS.Colors.surfaceRaised : DS.Colors.accent)
+                    )
+            }
+            .buttonStyle(.plain)
+            .paceControlHoverHighlight(cornerRadius: 17, isEnabled: !isDraftEmpty)
+            .pointerCursor(isEnabled: !isDraftEmpty)
+            .keyboardShortcut(.return, modifiers: [.command])
+            .disabled(isDraftEmpty)
+            .accessibilityLabel("Send message")
         }
         .padding(.horizontal, 24)
-        .padding(.top, 8)
-        .padding(.bottom, 16)
+        .padding(.vertical, 14)
+        .background(DS.Colors.surfaceRaised.opacity(0.34))
+        .overlay(alignment: .top) {
+            Divider()
+                .background(DS.Colors.borderSubtle)
+        }
+    }
+
+    private var isDraftEmpty: Bool {
+        chatSession.draftMessageText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
     }
 
     private func submitDraftMessage() {
-        let trimmedDraftMessage = draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDraftMessage = chatSession.draftMessageText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDraftMessage.isEmpty else { return }
-        companionManager.chatSession.submitUserMessage(trimmedDraftMessage)
-        draftMessageText = ""
+        chatSession.submitUserMessage(trimmedDraftMessage)
+        chatSession.draftMessageText = ""
         isInputFocused = true
     }
 }

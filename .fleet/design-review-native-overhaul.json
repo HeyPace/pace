@@ -1,0 +1,122 @@
+{
+  "$schema": "fleet.design-review.v1",
+  "version": 1,
+  "project": "pace",
+  "target": "native macOS menu-bar, notch, panel, and management interface",
+  "mode": "overhaul",
+  "register": "product",
+  "context": {
+    "product": "PRODUCT.md",
+    "design": "leanring-buddy/DESIGN.md"
+  },
+  "direction": {
+    "references": [
+      "Boring Notch single resizable surface and reserved hardware center",
+      "NotchNook notch-origin expansion",
+      "Apple NSScreen auxiliary safe-area geometry"
+    ],
+    "probes": [
+      {
+        "id": "living-notch",
+        "path": "artifacts/design/native-overhaul/probes/hardware-notch-directions.png"
+      },
+      {
+        "id": "safe-area-sidecar",
+        "path": "artifacts/design/native-overhaul/probes/hardware-notch-directions.png"
+      },
+      {
+        "id": "activity-tray",
+        "path": "artifacts/design/native-overhaul/probes/hardware-notch-directions.png"
+      }
+    ],
+    "selected": "living-notch",
+    "approval": "delegated",
+    "before": ""
+  },
+  "evidence": {
+    "screenshots": [
+      {
+        "width": 390,
+        "path": "artifacts/design/after-390.png"
+      },
+      {
+        "width": 768,
+        "path": "artifacts/design/after-768.png"
+      },
+      {
+        "width": 1440,
+        "path": "artifacts/design/after-1440.png"
+      },
+      {
+        "width": 320,
+        "path": "artifacts/design/native-overhaul/panel-live-clean.png"
+      },
+      {
+        "width": 1040,
+        "path": "artifacts/design/native-overhaul/command-center-live-fixed.png"
+      },
+      {
+        "width": 1040,
+        "path": "artifacts/design/native-overhaul/command-center-automations-final.png"
+      },
+      {
+        "width": 185,
+        "path": "artifacts/design/native-overhaul/living-notch-active.png"
+      },
+      {
+        "width": 320,
+        "path": "artifacts/design/native-overhaul/living-notch-panel.png"
+      },
+      {
+        "width": 400,
+        "path": "artifacts/design/native-overhaul/living-notch-panel-wide.png"
+      },
+      {
+        "width": 520,
+        "path": "artifacts/design/native-overhaul/living-notch-connected-wide.png"
+      },
+      {
+        "width": 276,
+        "path": "artifacts/design/native-overhaul/living-notch-default-shelf.png"
+      },
+      {
+        "width": 520,
+        "path": "artifacts/design/native-overhaul/living-notch-connected-silhouette.png"
+      },
+      {
+        "width": 340,
+        "path": "artifacts/design/native-overhaul/boring-notch-adaptation-closed.png"
+      },
+      {
+        "width": 520,
+        "path": "artifacts/design/native-overhaul/boring-notch-adaptation-open-clean.png"
+      }
+    ],
+    "projectCheck": {
+      "command": "bash scripts/test-pace.sh PaceNativeInterfaceModelTests PaceChatSessionTests GlobalChatShortcutMonitorTests",
+      "status": "pass"
+    },
+    "critique": {
+      "score": 36,
+      "maximum": 40
+    },
+    "audit": {
+      "score": 18,
+      "maximum": 20
+    },
+    "unresolved": {
+      "p0": 0,
+      "p1": 0
+    },
+    "detector": {
+      "posture": "advisory",
+      "findings": [
+        "The bundled detector returned no findings because Swift files are outside its scannable extensions; the native source audit was used instead."
+      ]
+    }
+  },
+  "ownerFeedback": {
+    "decision": "keep",
+    "note": "The owner accepted the final notch treatment with 'Nice now it looks good.' The selected adaptation follows Boring Notch's single resizable clipped surface without copying its GPL code, branding, or assets. Idle remains the exact 185 by 32 point housing; active state is 340 by 32 with the physical center reserved; click resizes the same window to 520 by 352 and embeds the Pace conversation directly inside it. The final Automations capture also verifies the repaired bounded Command Center layout, plain-language creation entry point, and local risk labels. Local state remains blue and off-device activity remains amber."
+  }
+}

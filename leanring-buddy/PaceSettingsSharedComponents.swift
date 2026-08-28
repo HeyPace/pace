@@ -17,6 +17,19 @@
 
 import SwiftUI
 
+@MainActor
+@ViewBuilder
+func paceSettingsRowLabel(title: String, subtitle: String) -> some View {
+    VStack(alignment: .leading, spacing: 3) {
+        Text(title)
+            .font(DS.Typography.calloutStrong)
+            .foregroundColor(DS.Colors.textPrimary)
+        Text(subtitle)
+            .font(DS.Typography.caption)
+            .foregroundColor(DS.Colors.textTertiary)
+    }
+}
+
 /// Title/subtitle row with a trailing `Toggle`. Bottom divider so a
 /// vertical stack of these forms a clean list without each call site
 /// repeating the divider.
@@ -28,17 +41,12 @@ func paceSettingsToggleRow(
     isOn: Binding<Bool>
 ) -> some View {
     HStack(spacing: 12) {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(DS.Colors.textPrimary)
-            Text(subtitle)
-                .font(.system(size: 12))
-                .foregroundColor(DS.Colors.textTertiary)
-        }
+        paceSettingsRowLabel(title: title, subtitle: subtitle)
         Spacer()
-        Toggle("", isOn: isOn)
+        Toggle(title, isOn: isOn)
             .labelsHidden()
+            .accessibilityLabel(title)
+            .accessibilityHint(subtitle)
     }
     .padding(.vertical, 12)
     .overlay(alignment: .bottom) {
@@ -54,11 +62,11 @@ func paceSettingsToggleRow(
 func paceSettingsInfoRow(title: String, value: String) -> some View {
     HStack {
         Text(title)
-            .font(.system(size: 13, weight: .medium))
+            .font(DS.Typography.calloutStrong)
             .foregroundColor(DS.Colors.textSecondary)
         Spacer()
         Text(value)
-            .font(.system(size: 12, weight: .medium))
+            .font(DS.Typography.captionStrong)
             .foregroundColor(DS.Colors.textPrimary)
     }
     .padding(.vertical, 10)
@@ -82,7 +90,7 @@ func paceSettingsButton(
             Image(systemName: systemName)
                 .font(.system(size: 11, weight: .medium))
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(DS.Typography.captionStrong)
         }
         .foregroundColor(DS.Colors.textPrimary)
         .padding(.horizontal, 10)

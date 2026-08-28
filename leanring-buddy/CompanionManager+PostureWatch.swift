@@ -75,6 +75,7 @@ extension CompanionManager {
             while ttsClient.isPlaying {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
+            guard !Task.isCancelled else { return }
             responseOverlayManager.finishStreaming()
             voiceState = .idle
         }

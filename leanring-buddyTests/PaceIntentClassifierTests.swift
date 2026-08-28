@@ -40,6 +40,11 @@ struct PaceIntentClassifierTests {
             "explain css",
             "tell me about transformers",
             "how does dns work",
+            "which metal is liquid at room temperature",
+            "who painted the mona lisa",
+            "where is mount everest",
+            "when was the first moon landing",
+            "how many planets are in the solar system",
         ] {
             let prediction = classifier.classify(question)
             #expect(prediction.intent == .pureKnowledge, "expected pureKnowledge for \(question), got \(prediction.intent)")
@@ -104,6 +109,7 @@ struct PaceIntentClassifierTests {
         for request in [
             "what's on the screen",
             "what am i looking at",
+            "describe my screen",
             "describe this",
             "what does this show",
         ] {

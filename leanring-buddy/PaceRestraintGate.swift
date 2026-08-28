@@ -118,8 +118,6 @@ nonisolated enum PaceRestraintGate {
         "com.microsoft.teams",
         "com.apple.facetime",
         "com.tinyspeck.slackmacgap",
-        "com.google.chrome",
-        "com.apple.Safari",
     ]
 
     /// Per-profile cooldown tuning. Talkative shortens the focus

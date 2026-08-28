@@ -7,10 +7,69 @@
 //  by thinking-mode models (Qwen3-Thinking, DeepSeek-R1-Distill, etc.).
 //
 
+import Foundation
 import Testing
 @testable import Pace
 
 struct LocalPlannerClientThinkingStripperTests {
+
+    @Test func localRequestsDisableHiddenReasoning() async throws {
+        var requestBody: [String: Any] = ["model": "qwen/qwen3.5-4b"]
+        PaceLocalOpenAIRequestTuning.apply(to: &requestBody)
+
+        #expect(requestBody["reasoning_effort"] as? String == "none")
+        let chatTemplateArguments = requestBody["chat_template_kwargs"] as? [String: Bool]
+        #expect(chatTemplateArguments?["enable_thinking"] == false)
+    }
+
+    @Test func nativeChatURLRemovesOpenAICompatibilitySuffix() {
+        let nativeChatURL = LocalPlannerClient.lmStudioNativeChatURL(
+            openAICompatibleBaseURL: URL(string: "http://localhost:1234/v1")!
+        )
+
+        #expect(nativeChatURL.absoluteString == "http://localhost:1234/api/v1/chat")
+    }
+
+    @Test func nativeChatRequestDisablesReasoningAndStorage() {
+        let requestBody = LocalPlannerClient.lmStudioNativeChatRequestBody(
+            modelIdentifier: "qwen/qwen3.5-4b",
+            systemPrompt: "Be concise.",
+            conversationHistory: [
+                (userPlaceholder: "Who wrote Hamlet?", assistantResponse: "William Shakespeare.")
+            ],
+            userPrompt: "What is the largest planet?"
+        )
+
+        #expect(requestBody["reasoning"] as? String == "off")
+        #expect(requestBody["store"] as? Bool == false)
+        #expect(requestBody["stream"] as? Bool == true)
+        #expect((requestBody["input"] as? String)?.contains("Who wrote Hamlet?") == true)
+        #expect((requestBody["input"] as? String)?.hasSuffix("Assistant:") == true)
+    }
+
+    @Test func warmupAndKeepaliveProbeCannotEnterThinkingMode() {
+        let requestBody = PaceLMStudioModelLoader.nativeChatProbeRequestBody(
+            modelIdentifier: "qwen/qwen3.5-4b",
+            input: "ok"
+        )
+
+        #expect(requestBody["reasoning"] as? String == "off")
+        #expect(requestBody["store"] as? Bool == false)
+        #expect(requestBody["stream"] as? Bool == false)
+        #expect(requestBody["max_output_tokens"] as? Int == 1)
+    }
+
+    @Test func nativeChatParserReturnsOnlyMessageDeltas() {
+        let textDelta = LocalPlannerClient.lmStudioNativeMessageDelta(
+            fromSSELine: #"data: {"type":"message.delta","content":"Jupiter"}"#
+        )
+        let reasoningDelta = LocalPlannerClient.lmStudioNativeMessageDelta(
+            fromSSELine: #"data: {"type":"reasoning.delta","content":"hidden"}"#
+        )
+
+        #expect(textDelta == "Jupiter")
+        #expect(reasoningDelta == nil)
+    }
 
     @Test func responseWithoutThinkBlockIsUnchanged() async throws {
         let raw = "saving it now. [KEY:cmd+s]"

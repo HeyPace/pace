@@ -49,12 +49,21 @@ extension CompanionManager {
     }
 
     var nativeEffectiveSignalState: PaceSignalState {
-        allPermissionsGranted ? nativePanelPresentation.signalState : .blocked
+        let currentSignalState = nativePanelPresentation.signalState
+        guard allPermissionsGranted == false else {
+            return currentSignalState
+        }
+
+        // Missing voice or screen permissions must not mask a typed turn that
+        // is actively progressing. The idle state still calls out setup.
+        return currentSignalState == .ready ? .blocked : currentSignalState
     }
 
     var nativeEffectiveSignalColorRoleOverride: PaceSignalColorRole? {
         guard allPermissionsGranted == false,
-              isOffDeviceTurnInFlight == false else {
+            nativeEffectiveSignalState == .blocked,
+            isOffDeviceTurnInFlight == false
+        else {
             return nil
         }
         return .local
@@ -130,7 +139,8 @@ struct PaceSignalView: View {
                     let progress = CGFloat(sampleIndex) / 80
                     let xPosition = progress * size.width
                     let envelope = sin(progress * .pi)
-                    let yPosition = centerY
+                    let yPosition =
+                        centerY
                         + verticalOffset
                         + waveformOffset(
                             progress: progress,

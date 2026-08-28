@@ -21,8 +21,8 @@ The detailed manual steps below explain what the script does and what to tweak.
 |---|---|
 | Speech-to-text | **Apple Speech** (`SFSpeechRecognizer`, on-device). |
 | Text-to-speech | **AVSpeechSynthesizer** (Apple built-in) — the only TTS path; no cloud option. |
-| Screen analysis (VLM) | **LM Studio** at `localhost:1234`, default model `ui-venus-ground-7b` (GUI-specialist, ScreenSpot-v2 ~94). Only invoked when `UseLocalVLMForScreenContext=true`. |
-| Reasoning / planning | **LM Studio** at `localhost:1234`, default model `qwen3-30b-a3b-thinking-2507`. `LocalPlannerClient` is the only conformer to `BuddyPlannerClient` today. |
+| Screen analysis (VLM) | **LM Studio** at `127.0.0.1:1234`, default model `ui-venus-ground-7b` (GUI-specialist, ScreenSpot-v2 ~94). Only invoked when `UseLocalVLMForScreenContext=true`. |
+| Reasoning / planning | **LM Studio** at `127.0.0.1:1234`, default model `qwen/qwen3.5-4b`. The same multimodal model handles fallback vision so Pace avoids model swaps on the default setup. |
 | Click targeting | **AX-tree hybrid** — `PaceAXTargeter` tries `AXUIElementPerformAction` on pressable elements first; falls back to CGEvent when AX can't resolve. |
 | Agent loop | **Plan-act-observe** — `CompanionManager` re-screenshots between actions and re-invokes the planner until it emits `[DONE]` or actions stop. Capped at `AgentMaxSteps` (default 8). |
 | Real clicks / keystrokes | **PaceActionExecutor** — CGEvent mouse + keyboard with AX-tree pre-pass, gated by Info.plist `EnableActions` and the user-facing `Approve Actions` preference. |
@@ -31,18 +31,16 @@ The detailed manual steps below explain what the script does and what to tweak.
 | Cursor | **Codex-style arrow** — sharp pointer with linear gradient + highlight stroke. |
 | Walking avatar | **`PaceAvatarOverlay`** — small character that walks along the bottom of the cursor screen. Click to open the menu-bar panel. Toggleable. |
 
-## 1. Install LM Studio and load both a VLM and a reasoner
+## 1. Install LM Studio and load the default multimodal model
 
 1. Download LM Studio from <https://lmstudio.ai>.
-2. In the search tab, download:
-   - A vision model: `Qwen3-VL-8B-Instruct` (recommended ~6GB) or `Qwen3-VL-4B-Instruct` (~3GB).
-   - A planner: `google/gemma-3-12b` (recommended — the qat-4bit MLX build, ~8GB; eval-validated default, see table below). Smaller fallback: `Qwen3-4B-Instruct` (~2.5GB).
-3. Go to **Developer** tab → **Start server** (default port 1234). LM Studio can host multiple models on the same port; load both the VLM and the reasoner. Make sure the identifiers match `LocalVLMModelIdentifier` and `LocalPlannerModelIdentifier` in Info.plist.
+2. In the search tab, download `qwen/qwen3.5-4b` (~3GB).
+3. Go to **Developer** tab → **Start server** (default port 1234) and load the model. It supports both chat and vision, so the default setup needs one resident model. Make sure its identifier matches both `LocalVLMModelIdentifier` and `LocalPlannerModelIdentifier` in Info.plist.
 
-Verify the server is up and both models are listed:
+Verify the server is up and the model is listed:
 
 ```bash
-curl -s http://localhost:1234/v1/models | grep -E "ui-venus|qwen3-vl|gemma-3-12b|qwen3-4b"
+curl -s http://127.0.0.1:1234/v1/models | grep "qwen/qwen3.5-4b"
 ```
 
 ## 2. Flip the Info.plist switches
@@ -54,11 +52,11 @@ curl -s http://localhost:1234/v1/models | grep -E "ui-venus|qwen3-vl|gemma-3-12b
 | Key | Default | Set to | Effect |
 |---|---|---|---|
 | `UseLocalVLMForScreenContext` | `true` | `false` | Default-on; flip off to skip the VLM call and send the raw transcript straight to the planner. |
-| `LocalVLMBaseURL` | `http://localhost:1234/v1` | same | LM Studio OpenAI-compatible root for the VLM |
-| `LocalVLMModelIdentifier` | `ui-venus-1.5-8b` | same | Must match the VLM model loaded in LM Studio. Default is UI-Venus-1.5-8B (GUI specialist built on Qwen3-VL, mlx-community 4-bit). |
+| `LocalVLMBaseURL` | `http://127.0.0.1:1234/v1` | same | LM Studio OpenAI-compatible root for the VLM |
+| `LocalVLMModelIdentifier` | `qwen/qwen3.5-4b` | same | Default multimodal model shared with the planner, avoiding a second resident model and model-swap stalls. |
 | `AlwaysRunLocalVLMRegardlessOfTranscript` | `false` | `true` | Forces the VLM to run on every turn even when the transcript looks like pure Q&A. Default off — the VLM-skip heuristic saves perception cost on "what is HTML" style queries. |
-| `LocalPlannerBaseURL` | `http://localhost:1234/v1` | same | OpenAI-compatible root for the local reasoner. Often the same LM Studio server as the VLM. |
-| `LocalPlannerModelIdentifier` | `google/gemma-3-12b` | same | Gemma-3-12B-it (qat-4bit, ~8 GB) is the eval-validated default — only model ≤14B that beat the 4B baseline on all three unhappy-path eval dimensions (clarify / out-of-scope / destructive-confirm, 2026-06-12 drilldown). Swap down (`qwen3-4b-instruct`) on tighter hardware. Load with `--num-parallel 1` for the lowest KV-cache footprint. |
+| `LocalPlannerBaseURL` | `http://127.0.0.1:1234/v1` | same | OpenAI-compatible root for the local reasoner. Often the same LM Studio server as the VLM. |
+| `LocalPlannerModelIdentifier` | `qwen/qwen3.5-4b` | same | Default single-model local stack. Hidden reasoning is disabled for low latency; load with `--num-parallel 1` for the lowest KV-cache footprint. Gemma 3 12B remains an optional quality-over-memory planner. |
 | `LocalTTSVoiceIdentifier` | `com.apple.voice.compact.en-IN.Rishi` | Apple voice identifier | Explicit voice override. Install a Premium or Enhanced voice and put its identifier here for the best local sound. |
 | `LocalTTSSpeechRate` | `0.44` | `0.35`-`0.58` | Pace's AVSpeechSynthesizer rate. The default is slower than stock so compact voices sound less rushed. |
 | `LocalTTSPitchMultiplier` | `0.88` | `0.75`-`1.15` | Lowers compact voices so the response is less sharp. |
@@ -229,13 +227,14 @@ Q3 keeps most of the grounding quality at ~75% of Q4's size. ANE doesn't acceler
 
 | Model | Params (active) | RAM | When to pick it |
 |---|---|---|---|
-| `google/gemma-3-12b` | 12B dense (qat-4bit) | ~8 GB | **Default.** Eval-validated 2026-06-12: only model ≤14B beating Qwen3-4B on all three unhappy-path dims (clarify, out-of-scope, destructive-confirm). |
+| `qwen/qwen3.5-4b` | 4B dense, multimodal | ~3 GB | **Default.** One fast resident model for planner and fallback vision; qualified at 16/19 legacy planner fixtures and 7/8 v10 action fixtures on 2026-08-27. |
+| `google/gemma-3-12b` | 12B dense (qat-4bit) | ~8 GB | Quality-over-memory planner. Eval-validated 2026-06-12: only model ≤14B beating the earlier Qwen3-4B baseline on all three unhappy-path dims. Requires a separate VLM. |
 | `qwen3-30b-a3b-thinking-2507` | 30B (3B active, MoE) | ~18 GB | Strongest multi-step agent reasoning if you have 48 GB. Thinking-mode latency cost on every turn. |
 | `gpt-oss-20b` | 20B (3.6B active, MoE) | ~13 GB | OpenAI's open-weights MoE, A/B alternative. Apache-2.0. |
 | `qwen3-4b-instruct` | 4B dense | ~2.5 GB | Lower-end devices (8-16 GB). Holds up on out-of-scope refusals (78%) but never asks clarifying questions. |
 | `phi-4-mini-reasoning` | ~3.8B dense | ~2.5 GB | Smallest viable. Equivalent tier to Qwen3-4B. |
 
-Thinking-mode models emit `<think>…</think>` blocks; `LocalPlannerClient.stripThinkingBlocks` removes them before TTS and action-tag parsing, so you get the post-thought answer cleanly.
+Thinking-mode models emit `<think>…</think>` blocks; local requests set `reasoning_effort=none` for immediate user-facing output, and `LocalPlannerClient.stripThinkingBlocks` remains as a defensive fallback before TTS and action parsing.
 
 **VLM-skip heuristic** is on by default — pure-Q&A transcripts ("what is HTML", "explain async") skip the VLM call entirely. To disable for benchmarking, set `AlwaysRunLocalVLMRegardlessOfTranscript=true`.
 
@@ -277,7 +276,7 @@ If acceptance rate falls below ~0.5 (LM Studio logs it as `acc_rate=…`), specu
 | `--num-parallel 1` | LM Studio model load flags | Single-batch inference uses less KV cache, faster decode. |
 | Drop `max_tokens` lower | `LocalPlannerClient.swift` | Shorter cap = earlier end-of-stream when the model's verbose. |
 | Set Q4 → Q5 on the planner | LM Studio | Better quality, ~30% slower. Trade for accuracy when speed is acceptable. |
-| Smaller VLM (`ui-venus-1.5-2b` default) | Info.plist `LocalVLMModelIdentifier` | Already on the smallest viable; OCR layer fills text fidelity. |
+| Shared multimodal model (`qwen/qwen3.5-4b` default) | Info.plist planner + VLM identifiers | Keeps one model resident and prevents planner/VLM swap stalls. |
 
 ## Troubleshooting
 

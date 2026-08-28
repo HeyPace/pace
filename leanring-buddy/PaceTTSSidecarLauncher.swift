@@ -31,8 +31,18 @@ enum PaceTTSSidecarLauncher {
     /// Probes the configured base URL with a short HEAD-equivalent
     /// request, then spawns the sidecar if nothing is listening.
     static func startIfNotRunning() {
-        let baseURLString = AppBundleConfiguration.stringValue(forKey: "LocalTTSServerBaseURL")
-            ?? "http://localhost:8880/v1"
+        let configuredTTSProvider =
+            AppBundleConfiguration
+            .stringValue(forKey: "TTSProvider")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard configuredTTSProvider == "localserver" else {
+            return
+        }
+
+        let baseURLString =
+            AppBundleConfiguration.stringValue(forKey: "LocalTTSServerBaseURL")
+            ?? "http://127.0.0.1:8880/v1"
         guard let modelsURL = URL(string: baseURLString)?.appendingPathComponent("models") else {
             print("🔊 TTS sidecar launcher: invalid LocalTTSServerBaseURL — skipping")
             return
@@ -116,42 +126,42 @@ enum PaceTTSSidecarLauncher {
         // Inline plist generation so the format is co-located with the
         // launch code and stays in sync if either side changes.
         return """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-            <key>Label</key>
-            <string>\(launchAgentLabel)</string>
-            <key>ProgramArguments</key>
-            <array>
-                <string>/bin/bash</string>
-                <string>\(launcherScriptPath)</string>
-            </array>
-            <key>EnvironmentVariables</key>
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
             <dict>
-                <key>PATH</key>
-                <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-                <key>PORT</key>
-                <string>\(portNumber)</string>
-            </dict>
-            <key>WorkingDirectory</key>
-            <string>/tmp</string>
-            <key>RunAtLoad</key>
-            <true/>
-            <key>KeepAlive</key>
-            <dict>
-                <key>SuccessfulExit</key>
-                <false/>
-                <key>NetworkState</key>
+                <key>Label</key>
+                <string>\(launchAgentLabel)</string>
+                <key>ProgramArguments</key>
+                <array>
+                    <string>/bin/bash</string>
+                    <string>\(launcherScriptPath)</string>
+                </array>
+                <key>EnvironmentVariables</key>
+                <dict>
+                    <key>PATH</key>
+                    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+                    <key>PORT</key>
+                    <string>\(portNumber)</string>
+                </dict>
+                <key>WorkingDirectory</key>
+                <string>/tmp</string>
+                <key>RunAtLoad</key>
                 <true/>
+                <key>KeepAlive</key>
+                <dict>
+                    <key>SuccessfulExit</key>
+                    <false/>
+                    <key>NetworkState</key>
+                    <true/>
+                </dict>
+                <key>StandardOutPath</key>
+                <string>/tmp/pace-tts-sidecar.log</string>
+                <key>StandardErrorPath</key>
+                <string>/tmp/pace-tts-sidecar.log</string>
             </dict>
-            <key>StandardOutPath</key>
-            <string>/tmp/pace-tts-sidecar.log</string>
-            <key>StandardErrorPath</key>
-            <string>/tmp/pace-tts-sidecar.log</string>
-        </dict>
-        </plist>
-        """
+            </plist>
+            """
     }
 
     private static func runLaunchctl(arguments: [String]) -> (terminationStatus: Int32, output: String) {
@@ -180,7 +190,8 @@ enum PaceTTSSidecarLauncher {
         var request = URLRequest(url: modelsURL)
         request.timeoutInterval = 1.5
         guard let (_, response) = try? await URLSession.shared.data(for: request),
-              let httpResponse = response as? HTTPURLResponse else {
+            let httpResponse = response as? HTTPURLResponse
+        else {
             return false
         }
         return (200..<500).contains(httpResponse.statusCode)
@@ -217,7 +228,9 @@ enum PaceTTSSidecarLauncher {
 
         do {
             try sidecarProcess.run()
-            print("🔊 TTS sidecar launching (pid \(sidecarProcess.processIdentifier), port \(portNumber)) — first run downloads the model")
+            print(
+                "🔊 TTS sidecar launching (pid \(sidecarProcess.processIdentifier), port \(portNumber)) — first run downloads the model"
+            )
         } catch {
             print("🔊 TTS sidecar launch failed: \(error.localizedDescription)")
         }
@@ -228,7 +241,8 @@ enum PaceTTSSidecarLauncher {
         // Bundled alongside the .app first.
         if let resourceURL = Bundle.main.resourceURL?
             .appendingPathComponent("scripts/start-tts-server.sh"),
-           fileManager.fileExists(atPath: resourceURL.path) {
+            fileManager.fileExists(atPath: resourceURL.path)
+        {
             return resourceURL
         }
         // Developer source tree (Debug builds): walk up from the
@@ -244,8 +258,9 @@ enum PaceTTSSidecarLauncher {
             searchURL = candidateURL.deletingLastPathComponent()
         }
         // Fallback: hardcoded repo path so dev builds always work.
-        let developerScriptURL = URL(fileURLWithPath:
-            "/Users/sarthak/Desktop/fleet/pace/scripts/start-tts-server.sh"
+        let developerScriptURL = URL(
+            fileURLWithPath:
+                "/Users/sarthak/Desktop/fleet/pace/scripts/start-tts-server.sh"
         )
         if fileManager.fileExists(atPath: developerScriptURL.path) {
             return developerScriptURL

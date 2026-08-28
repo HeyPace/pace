@@ -81,6 +81,10 @@ final class CompanionManager: ObservableObject {
         .rootPaths(for: PaceLocalRetrievalFileRootPreferences.userSelectedRootURLs())
     @Published var currentTurnHUDState: PaceTurnHUDState = .idle
 
+    /// Typed messages accepted while another turn is active. The queue itself
+    /// stays internal; the panel only needs the count for truthful feedback.
+    @Published var queuedChatTurnCount: Int = 0
+
     // MARK: - Trust surfaces (undo banner + reply replay)
     //
     // See PRD `docs/prds/trust-and-failures.md`. These three published
@@ -281,12 +285,17 @@ final class CompanionManager: ObservableObject {
         return BuddyPlannerClientFactory.makeDefault()
     }()
 
-    // Fast answer planner for pure-knowledge turns. Apple Foundation
-    // Models runs in-process when Apple Intelligence is ready; otherwise
-    // the factory falls back to the configured local planner.
+    // Fast answer planner for pure-knowledge turns. The local model uses LM
+    // Studio's native non-thinking stream so short factual answers do not
+    // spend their latency budget on hidden reasoning.
     lazy var textOnlyPlannerClient: any BuddyPlannerClient = {
         return BuddyPlannerClientFactory.makeFastTextOnlyPlannerOrFallback()
     }()
+
+    /// One actual throwaway MLX answer turn started at launch. An early user
+    /// turn awaits this task so model loading and kernel compilation happen
+    /// once instead of racing two multi-gigabyte inference sessions.
+    var textOnlyPlannerWarmupTask: Task<Void, Never>?
 
     /// Post-hoc response quality checker. After the local model generates a
     /// response, this checks whether it is adequate before speaking it. If
@@ -698,9 +707,18 @@ final class CompanionManager: ObservableObject {
     /// speaks again so a new response can begin immediately.
     var currentResponseTask: Task<Void, Never>?
 
+    /// Routing and intent work happens before most response paths install
+    /// `currentResponseTask`. Track it separately so Stop and replacement
+    /// turns can cancel the complete pipeline, including that early window.
+    var currentTurnDispatchTask: Task<Void, Never>?
+    var turnLeaseRegistry = PaceTurnLeaseRegistry()
+    var chatTurnQueue = PaceChatTurnQueue()
+    var queuedChatTurnDrainTask: Task<Void, Never>?
+
     var shortcutTransitionCancellable: AnyCancellable?
     var chatShortcutCancellable: AnyCancellable?
     var voiceStateCancellable: AnyCancellable?
+    var queuedChatTurnDrainCancellable: AnyCancellable?
     var audioPowerCancellable: AnyCancellable?
 
     /// Wave 1c barge-in plumbing. The VAD is a mutable struct; we hold
@@ -1207,7 +1225,13 @@ final class PaceChatSessionSubmitterAdapter: PaceChatTranscriptSubmitting {
         self.owner = owner
     }
 
-    func submitChatTranscript(_ transcript: String) {
-        owner?.submitChatTranscriptFromChatSession(transcript)
+    func submitChatTranscript(
+        _ transcript: String,
+        optimisticMessageIdentifier: String
+    ) {
+        owner?.submitChatTranscriptFromChatSession(
+            transcript,
+            optimisticMessageIdentifier: optimisticMessageIdentifier
+        )
     }
 }

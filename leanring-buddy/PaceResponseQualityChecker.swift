@@ -7,11 +7,6 @@
 //  speaking it to the user. If the response is poor AND a stronger
 //  model is available (codex CLI), the turn is re-routed.
 //
-//  Two layers:
-//  1. Heuristic checks (instant, zero cost) — catches obvious failures
-//  2. Apple FM scoring (~200ms, in-process) — catches subtle quality
-//     issues that heuristics miss
-//
 //  Only applied to text-only answer paths (pureKnowledge, chitchat)
 //  where the response is generated fully before TTS begins. The main
 //  agent loop (screenAction, screenDescription) streams to TTS
@@ -19,7 +14,6 @@
 //
 
 import Foundation
-import FoundationModels
 
 /// Result of a quality check on a planner response.
 enum PaceResponseQualityVerdict: Equatable {
@@ -30,14 +24,11 @@ enum PaceResponseQualityVerdict: Equatable {
     /// The reason is logged for debugging.
     case inadequate(reason: String)
 
-    /// Quality check could not run (e.g., Apple FM unavailable).
-    /// Proceed with the response — don't block on uncertainty.
-    case skipped(reason: String)
 }
 
 /// Heuristic quality checks on a planner response. Zero latency, zero
 /// model cost. Catches the most common failure modes of small local
-/// models: hedging, repetition, non-answers, and too-short responses.
+/// models: empty output, hedging, repetition, and non-answers.
 enum PaceResponseQualityHeuristics {
 
     /// Phrases that indicate the local model is hedging or failing.
@@ -73,21 +64,11 @@ enum PaceResponseQualityHeuristics {
         let responseWords = lowercaseResponse.split { $0.isWhitespace }
         let responseWordCount = responseWords.count
 
-        // 1. Too short for a knowledge question (chitchat is exempt —
-        //    "yes" or "no problem" are valid chitchat responses).
-        //    A pureKnowledge answer under 10 words is almost always
-        //    a non-answer like "I don't know" or a one-word hedge.
-        if responseWordCount < 10 {
-            // Allow short responses if they contain actionable content
-            // (URLs, numbers, direct answers to "what is X" questions).
-            let queryLower = query.lowercased()
-            let isLikelyDefinitionQuery = queryLower.hasPrefix("what is ")
-                || queryLower.hasPrefix("what's ")
-                || queryLower.hasPrefix("who is ")
-                || queryLower.hasPrefix("who's ")
-            if isLikelyDefinitionQuery && responseWordCount < 5 {
-                return .inadequate(reason: "response too short for knowledge query (\(responseWordCount) words)")
-            }
+        // 1. Empty output is always broken. Brevity is not: "Jupiter" is a
+        // complete answer to a short factual question, and sending it through
+        // another model merely because it is one word adds delay and risk.
+        if response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .inadequate(reason: "empty response")
         }
 
         // 2. Failure markers — the model is explicitly saying it
@@ -130,114 +111,16 @@ enum PaceResponseQualityHeuristics {
 
         return .adequate
     }
+
 }
 
-/// Apple Foundation Models-based quality scoring. Asks the in-process
-/// 3B model to rate the response quality on a 1-10 scale. Catches
-/// subtle quality issues that heuristics miss (e.g., partially correct
-/// but shallow answers). ~200ms warm, in-process, zero cost.
-///
-/// Only available when Apple Intelligence is enabled. Falls through
-/// to `.skipped` when unavailable — the caller proceeds with the
-/// response rather than blocking on uncertainty.
-@available(macOS 26.0, *)
-@MainActor
-final class PaceResponseQualityFMScorer {
-    private var session: LanguageModelSession?
-
-    /// Score threshold below which the response is considered inadequate.
-    /// 6/10 means "adequate but not great" passes, "poor" fails.
-    nonisolated static let inadequateThreshold: Int = 6
-
-    func score(query: String, response: String) async -> PaceResponseQualityVerdict {
-        let resolvedSession = resolveSession()
-        let prompt = """
-        Rate this AI assistant response on a 1-10 scale for how well it answers the user's question. \
-        Consider: does it answer the question? Is it accurate? Is it helpful? Is it complete? \
-        Respond with ONLY a single integer 1-10, nothing else.
-
-        User asked: "\(query)"
-
-        Assistant responded: "\(response.prefix(500))"
-        """
-
-        do {
-            let result = try await resolvedSession.respond(
-                to: prompt,
-                options: GenerationOptions(
-                    sampling: .greedy,
-                    temperature: 0,
-                    maximumResponseTokens: 5
-                )
-            )
-            let scoreText = result.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Extract the first integer from the response
-            let digits = scoreText.prefix { $0.isNumber }
-            guard let score = Int(digits) else {
-                return .skipped(reason: "FM scorer returned non-numeric: \"\(scoreText)\"")
-            }
-            if score < Self.inadequateThreshold {
-                return .inadequate(reason: "FM score: \(score)/10")
-            }
-            return .adequate
-        } catch {
-            return .skipped(reason: "FM scorer error: \(error.localizedDescription)")
-        }
-    }
-
-    private func resolveSession() -> LanguageModelSession {
-        if let session { return session }
-        let newSession = LanguageModelSession(
-            model: SystemLanguageModel.default,
-            instructions: Instructions("You are a response quality evaluator. Output only a number 1-10.")
-        )
-        session = newSession
-        return newSession
-    }
-}
-
-/// Combined quality checker — runs heuristics first (instant), then
-/// Apple FM scoring if heuristics pass (~200ms). Returns the final
-/// verdict for the caller to act on.
+/// Quality checker for failure modes that can be detected without asking a
+/// second generative model to guess whether the first model was factually
+/// correct. Factual accuracy belongs in planner evaluation, not a runtime
+/// judge that can confidently repeat the same mistake.
 @MainActor
 final class PaceResponseQualityChecker {
-    private let fmScorer: PaceResponseQualityFMScorer?
-
-    init() {
-        if #available(macOS 26.0, *) {
-            let systemModel = SystemLanguageModel.default
-            if case .available = systemModel.availability {
-                self.fmScorer = PaceResponseQualityFMScorer()
-            } else {
-                self.fmScorer = nil
-            }
-        } else {
-            self.fmScorer = nil
-        }
-    }
-
-    /// Check response quality. Heuristics run first (instant). If
-    /// heuristics pass AND FM scoring is available, run FM scoring.
-    /// Returns `.adequate` only if both layers pass.
     func check(query: String, response: String) async -> PaceResponseQualityVerdict {
-        // Layer 1: heuristics (instant)
-        let heuristicVerdict = PaceResponseQualityHeuristics.check(query: query, response: response)
-        if case .inadequate = heuristicVerdict {
-            return heuristicVerdict
-        }
-
-        // Layer 2: Apple FM scoring (~200ms, if available)
-        guard let fmScorer else {
-            return .skipped(reason: "Apple FM unavailable — heuristics only")
-        }
-
-        // Skip FM scoring for very short responses (chitchat) —
-        // heuristics are sufficient there and FM scoring adds latency.
-        let responseWordCount = response.split { $0.isWhitespace }.count
-        if responseWordCount < 20 {
-            return .adequate
-        }
-
-        return await fmScorer.score(query: query, response: response)
+        PaceResponseQualityHeuristics.check(query: query, response: response)
     }
 }

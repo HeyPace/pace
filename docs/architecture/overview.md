@@ -90,7 +90,7 @@ Every box above leans on something Apple already shipped. Pace writes glue, not 
 | Responder | Apple SpeechSynthesizer | TTS, streaming |
 | Responder | NSWindow + NSPanel | HUD overlay |
 | Permissions | Accessibility + Input Monitoring | One-time onboarding; required for AX dispatch |
-| Answer planner | Apple Foundation Models (3B) | Fast in-process pure-knowledge answers when Apple Intelligence is available; larger LM Studio planner still handles harder action/screen turns. |
+| Answer planner | Local Qwen via LM Studio native chat, or bundled MLX when enabled | Pure-knowledge answers run with reasoning disabled; Apple Foundation Models stays scoped to classification and structured extraction rather than world facts. |
 
 ## Models — tinygpt picks the best per role; Pace runs them
 
@@ -103,9 +103,9 @@ Once approved, the artifact (LoRA file + base reference, or external model dir, 
 
 | Baby | Base | Job | Status |
 |---|---|---|---|
-| `pace-planner` (runtime today) | `google/gemma-3-12b` via LM Studio (shipped default; `qwen/qwen3-30b-a3b` MoE is the stronger 48 GB swap) | main screen/action planning | shipped — off-the-shelf LM Studio model via `LocalPlannerModelIdentifier`; qwen3-30b-a3b eval-validated 15/15 on FM fixtures at 925ms mean (`scripts/eval-planners.py`); the v8 LoRA deployment path is superseded by this off-the-shelf choice |
+| `pace-planner` (runtime today) | `qwen/qwen3.5-4b` via LM Studio (shared planner + fallback vision model) | main screen/action planning | current source default — one resident multimodal model avoids missing-model and model-swap stalls; local hidden reasoning disabled; Gemma 3 12B and Qwen 30B remain optional quality tiers |
 | `pace-planner-v9/v10` (LoRA path) | Qwen3-0.6B + LoRA | intent routing, compose body, parameterized actions | parked on the TinyGPT side; resumes if the trained specialist beats the MoE on the eval gate |
-| `pace-vlm` | UI-Venus-1.5-2B / Qwen3-VL | screen understanding beyond OCR | porting (#266) |
+| `pace-vlm` | shared `qwen/qwen3.5-4b` default; UI-Venus / Qwen3-VL optional | screen understanding beyond AX and native OCR | loopback LM Studio fallback shipped; in-process porting remains (#266) |
 | `pace-rag` | JSON-backed BM25-style lexical scaffold now; **Qwen3-Embedding-0.6B** planned for vector retrieval | retrieval over personal corpus | lexical fallback + built-in Project Minimi competitive seed + Settings-selected explicit-root Spotlight files + Calendar/Reminders/Contacts/Notes/Mail sources wired; embedding/vector runtime queued |
 | `pace-edit` | Rule scaffold now; Qwen3-0.6B + LoRA later | selected-text transforms ("more direct", "shorter", "delete that") | deterministic scaffold wired |
 | `pace-dict-postproc` | Rule scaffold now; Whisper-medium + LoRA OR Qwen3-0.6B post-Whisper later | punctuation, capitalization, code-mode, vocab repair | scaffold wired |

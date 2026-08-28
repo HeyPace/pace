@@ -1299,9 +1299,9 @@ struct PaceActionTagParserTests {
     }
 
     @Test func fastActionParserRecognizesKnownApplicationLaunches() async throws {
-        let parseResult = PaceFastActionCommandParser.parse(transcript: "open Raycast")
+        let parseResult = PaceFastActionCommandParser.parse(transcript: "open Calculator")
 
-        #expect(parseResult?.spokenText == "opening Raycast.")
+        #expect(parseResult?.spokenText == "opening Calculator.")
         #expect(parseResult?.executionPlan.steps.count == 1)
 
         guard let firstAction = parseResult?.executionPlan.flattenedActions.first,
@@ -1310,7 +1310,7 @@ struct PaceActionTagParserTests {
             return
         }
 
-        #expect(applicationName == "Raycast")
+        #expect(applicationName == "Calculator")
     }
 
     @Test func fastActionParserRecognizesURLLaunches() async throws {

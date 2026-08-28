@@ -22,18 +22,12 @@ LM_STUDIO_API_BASE="http://localhost:1234/v1"
 
 # Models we want present + loaded. These names are what `lms` resolves
 # against — append `@variant` if you need a specific quantization.
-# Gemma-3-12B-it (qat-4bit MLX, ~8 GB): won the 2026-06-12 tinygpt
-# drilldown — only model ≤14B beating the 4B baseline on all three
-# unhappy-path dims (ambig 22%, oos 82%, destructive 77%).
-PLANNER_MODEL_NAME="google/gemma-3-12b"
+# Qwen 3.5 4B is the default single-model local stack. It supports both chat
+# and vision, fits comfortably on the primary development Mac, and avoids the
+# model-swap stalls caused by loading separate 12B planner and 8B VLM models.
+PLANNER_MODEL_NAME="qwen/qwen3.5-4b"
 PLANNER_CONTEXT_LENGTH=8192
-# UI-Venus-1.5-8B is the GUI specialist this build defaults to. It
-# isn't in LM Studio's curated hub, so we grab it directly from the
-# HuggingFace mlx-community mirror. Fallback is Qwen2.5-VL-7B which
-# IS in the LM Studio hub.
-VLM_HF_REPO_PRIMARY="mlx-community/UI-Venus-1.5-8B-4bit"
-VLM_HF_FOLDER_NAME_PRIMARY="UI-Venus-1.5-8B-4bit"
-VLM_LMS_FALLBACK="qwen/qwen2.5-vl-7b-instruct"
+VLM_MODEL_NAME="$PLANNER_MODEL_NAME"
 
 print_step() {
     printf "\n\033[36m▸ %s\033[0m\n" "$1"
@@ -129,44 +123,10 @@ download_model_if_missing() {
 }
 
 ensure_vlm_available() {
-    if model_is_present_on_disk "ui-venus" \
-        || model_is_present_on_disk "qwen2.5-vl" \
-        || model_is_present_on_disk "qwen2_5-vl" \
-        || model_is_present_on_disk "qwen3-vl"; then
-        print_ok "A VLM is already on disk"
-        return
-    fi
-
-    # UI-Venus-1.5-8B isn't in LM Studio's curated hub; we pull it from
-    # mlx-community directly via the HF CLI. Requires huggingface-cli
-    # or the new `hf` binary on PATH.
-    local hf_cli=""
-    if command -v hf >/dev/null 2>&1; then
-        hf_cli="hf"
-    elif command -v huggingface-cli >/dev/null 2>&1; then
-        hf_cli="huggingface-cli"
-    fi
-
-    if [ -n "$hf_cli" ]; then
-        local target_dir="$HOME/.lmstudio/models/mlx-community/$VLM_HF_FOLDER_NAME_PRIMARY"
-        if [ ! -d "$target_dir" ]; then
-            print_step "Downloading $VLM_HF_REPO_PRIMARY via $hf_cli (~5 GB)..."
-            mkdir -p "$HOME/.lmstudio/models/mlx-community"
-            (cd "$HOME/.lmstudio/models/mlx-community" && "$hf_cli" download "$VLM_HF_REPO_PRIMARY" --local-dir "$VLM_HF_FOLDER_NAME_PRIMARY")
-            print_ok "Downloaded UI-Venus-1.5-8B"
-            return
-        fi
-        print_ok "UI-Venus-1.5-8B already on disk at $target_dir"
-        return
-    fi
-
-    print_warn "No HF CLI found. Falling back to LM Studio hub Qwen2.5-VL."
-    if download_model_if_missing "$VLM_LMS_FALLBACK"; then
-        return
-    fi
-    print_fail "Could not download any VLM automatically."
-    print_warn "Install huggingface_hub ('pip install -U huggingface_hub') and re-run, or download a VLM manually via LM Studio UI."
-    exit 1
+    download_model_if_missing "$VLM_MODEL_NAME" || {
+        print_fail "Vision model $VLM_MODEL_NAME could not be downloaded."
+        exit 1
+    }
 }
 
 ensure_models_loaded() {
@@ -176,8 +136,7 @@ ensure_models_loaded() {
     }
     print_step "Loading planner ($PLANNER_MODEL_NAME) with ${PLANNER_CONTEXT_LENGTH} context..."
     "$LM_STUDIO_BIN" load "$PLANNER_MODEL_NAME" --context-length "$PLANNER_CONTEXT_LENGTH" 2>&1 | tail -2
-    print_step "Loading VLM (ui-venus-1.5-8b)..."
-    "$LM_STUDIO_BIN" load "ui-venus-1.5-8b" 2>&1 | tail -2 || true
+    print_step "Planner and VLM share $VLM_MODEL_NAME; no second model load is required."
 }
 
 print_loaded_models_and_suggested_info_plist_values() {
@@ -192,8 +151,8 @@ print_loaded_models_and_suggested_info_plist_values() {
     printf "\n"
 
     print_step "Info.plist identifiers to confirm match what's loaded:"
-    echo "    LocalPlannerModelIdentifier  → whatever ID appears for your Gemma-3-12B planner in the /v1/models output above (expected: google/gemma-3-12b)"
-    echo "    LocalVLMModelIdentifier      → whatever ID appears for your vision model"
+    echo "    LocalPlannerModelIdentifier  → $PLANNER_MODEL_NAME"
+    echo "    LocalVLMModelIdentifier      → $VLM_MODEL_NAME"
     echo "    (If the IDs in leanring-buddy/Info.plist don't match exactly, update them before Cmd+R.)"
 }
 

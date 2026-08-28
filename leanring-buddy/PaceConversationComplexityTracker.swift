@@ -32,8 +32,9 @@ enum PaceConversationComplexityTracker {
     /// by keyword overlap between consecutive turns.
     nonisolated static let sameTopicTurnThreshold = 4
 
-    /// After this many total turns in a session, the conversation is
-    /// considered "deep" and short follow-ups are escalated.
+    /// After this many total turns in a session, an explicitly contextual
+    /// follow-up may be escalated. Turn count alone is not sufficient: a new
+    /// unrelated question must stay independent of old conversation depth.
     nonisolated static let deepConversationTurnThreshold = 8
 
     /// Minimum keyword overlap ratio to consider two turns "same topic".
@@ -56,11 +57,13 @@ enum PaceConversationComplexityTracker {
 
         let turnCount = conversationHistory.count
 
-        // 1. Deep conversation — after N total turns, the conversation
-        //    has enough context that even short follow-ups benefit from
-        //    a larger model. The user is clearly engaged in a multi-turn
-        //    discussion.
-        if turnCount >= deepConversationTurnThreshold {
+        // 1. Deep conversation — only an explicitly context-dependent
+        //    follow-up inherits the session's depth. Treating every question
+        //    after eight turns as complex made unrelated facts escalate into
+        //    the screen pipeline when no larger model was configured.
+        if turnCount >= deepConversationTurnThreshold,
+            hasContextDependentFollowUpSignal(transcript)
+        {
             return true
         }
 
@@ -92,6 +95,21 @@ enum PaceConversationComplexityTracker {
         return false
     }
 
+    private static func hasContextDependentFollowUpSignal(_ transcript: String) -> Bool {
+        let normalizedTranscript =
+            transcript
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let followUpPrefixes = [
+            "so ", "then ", "and ", "but ", "also ",
+            "what about ", "how about ", "why is that", "what does that",
+            "tell me more", "continue", "go on",
+        ]
+        return followUpPrefixes.contains { prefix in
+            normalizedTranscript.hasPrefix(prefix)
+        }
+    }
+
     /// Extract content words from a transcript — lowercase, no stop
     /// words, no punctuation. Used for topic overlap detection.
     private static func contentWords(from text: String) -> Set<String> {
@@ -109,6 +127,10 @@ enum PaceConversationComplexityTracker {
             "ok", "okay", "yeah", "yes", "no", "not", "just", "like",
             "really", "very", "more", "most", "some", "any", "all",
             "also", "too", "either", "neither", "both", "each",
+            // Response-format instructions recur across unrelated factual
+            // questions and are not topic evidence.
+            "answer", "reply", "respond", "response", "result",
+            "word", "words", "sentence", "number", "only", "one",
         ]
 
         return Set(

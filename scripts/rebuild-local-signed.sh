@@ -32,11 +32,6 @@ APP_NAME="Pace"
 SCHEME="leanring-buddy"
 APP_PATH="$BUILD_DIR/Build/Products/Release/${APP_NAME}.app"
 
-# Local-machine VLM model that actually loads in LM Studio here. The repo
-# default (ui-venus-1.5-2b) is correct for the codebase but doesn't load on
-# this Mac, so the installed app pins the 8b@4bit build instead.
-LOCAL_VLM_MODEL_ID="ui-venus-1.5-8b@4bit"
-
 # The working full Xcode. Probe known locations in order — the beta has been
 # installed under both /Applications (via Xcodes.app) and ~/Downloads, and the
 # plain /Applications/Xcode.app stub is broken on this machine.
@@ -95,10 +90,6 @@ echo "📦 Bundling start-tts-server.sh ..."
 mkdir -p "$APP_PATH/Contents/Resources/scripts"
 cp "$PROJECT_DIR/scripts/start-tts-server.sh" "$APP_PATH/Contents/Resources/scripts/start-tts-server.sh"
 chmod +x "$APP_PATH/Contents/Resources/scripts/start-tts-server.sh"
-
-echo "🧩 Pinning local VLM model id: $LOCAL_VLM_MODEL_ID"
-/usr/libexec/PlistBuddy -c "Set :LocalVLMModelIdentifier $LOCAL_VLM_MODEL_ID" \
-    "$APP_PATH/Contents/Info.plist"
 
 echo "🔐 Signing frameworks + app with the stable cert ..."
 find "$APP_PATH/Contents/Frameworks" -maxdepth 2 -name "*.framework" -type d 2>/dev/null \

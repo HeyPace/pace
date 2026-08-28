@@ -32,3 +32,14 @@ nonisolated enum PaceOpenAIChatMessages {
         return messages
     }
 }
+
+/// Applies latency-sensitive request options that are safe for Pace's
+/// loopback OpenAI-compatible runtime. LM Studio ignores unsupported fields,
+/// while Qwen thinking models honor this option and emit the user-facing
+/// answer immediately instead of spending the turn budget on hidden reasoning.
+nonisolated enum PaceLocalOpenAIRequestTuning {
+    static func apply(to requestBody: inout [String: Any]) {
+        requestBody["reasoning_effort"] = "none"
+        requestBody["chat_template_kwargs"] = ["enable_thinking": false]
+    }
+}

@@ -48,6 +48,25 @@ final class PaceRestraintGateTests: XCTestCase {
         XCTAssertEqual(PaceRestraintGate.decide(context), .queueUntilIdle(reason: "active call"))
     }
 
+    func testOrdinaryBrowserWindowDoesNotPretendToBeAnActiveCall() {
+        for browserBundleIdentifier in ["com.google.Chrome", "com.apple.Safari"] {
+            let context = PaceRestraintContext(
+                now: Date(),
+                lastProactiveUtteranceAt: nil,
+                lastEpisodicRecallAt: nil,
+                lastUserInputAt: nil,
+                frontmostAppBundleIdentifier: browserBundleIdentifier,
+                isOnActiveCall: false,
+                wakeWordConfidence: nil,
+                intent: .pureKnowledge,
+                proactiveSource: .watchNudge,
+                profile: .balanced
+            )
+
+            XCTAssertEqual(PaceRestraintGate.decide(context), .speak)
+        }
+    }
+
     func testWeakWakeWordDoesNotReprompt() {
         let context = PaceRestraintContext(
             now: Date(),

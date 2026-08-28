@@ -283,8 +283,10 @@ final class PaceIntentClassifier {
     ]
 
     private static let knowledgePatterns: [String] = [
-        "what is ", "what's ", "explain ", "tell me about ",
-        "how does ", "remind me what ", "what does ",
+        "what is ", "what's ", "what are ", "what was ", "what were ",
+        "who ", "which ", "where ", "when ", "why ",
+        "how does ", "how many ", "how much ", "how old ",
+        "explain ", "tell me about ", "remind me what ", "what does ",
         "in plain english what is ", "describe ",
     ]
 
@@ -342,6 +344,7 @@ final class PaceIntentClassifier {
     /// describe the screen rather than act on it.
     private static let descriptionHints: [String] = [
         "what's on the screen", "what am i looking at",
+        "describe my screen", "describe the screen",
         "describe what i'm looking at", "describe this",
         "summarise this", "summarize", "what does this show",
         "what does this say", "what's happening on screen",

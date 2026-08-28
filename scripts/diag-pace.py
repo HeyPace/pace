@@ -308,6 +308,7 @@ def call_vlm(base_url: str, model: str) -> tuple[int, str | None, dict | None]:
         ],
         "temperature": 0.1,
         "max_tokens": 800,
+        "reasoning_effort": "none",
     }
     started_at = time.monotonic()
     request = urllib.request.Request(
@@ -383,6 +384,7 @@ def call_planner(base_url: str, model: str) -> tuple[int, str | None]:
         ],
         "temperature": 0,
         "max_tokens": 200,
+        "reasoning_effort": "none",
         "response_format": {
             "type": "json_schema",
             "json_schema": {
@@ -653,6 +655,7 @@ def diagnose_full_turn_simulation(
         ],
         "temperature": 0,
         "max_tokens": 300,
+        "reasoning_effort": "none",
         "response_format": {
             "type": "json_schema",
             "json_schema": {
@@ -970,21 +973,21 @@ def main(argv: list[str]) -> int:
     for result in preflight_results:
         print(result.render())
 
-    # Always ensure both models are resident. The earlier `--no-load`
+    # Always ensure every distinct configured model is resident. The earlier `--no-load`
     # flag was meant for "I know they're loaded already" but turned out
     # to be brittle when LM Studio's TTL auto-unloads a model between
     # runs — the first VLM call would then fail with HTTP 400 and the
     # thrash check would record a transport error. lms_ps_loaded_identifiers
     # makes the load step idempotent (skip if loaded), so always running
     # it is now safe and avoids the cold-load failure mode.
-    print(bold("\n▶ Loading models (both must stay resident)"))
+    print(bold("\n▶ Loading configured model roles"))
     before_load = lms_ps_loaded_identifiers()
     print(f"  before: {before_load or '(none)'}")
-    if vlm_model not in before_load:
-        if not lms_load(vlm_model):
-            return 1
-    if planner_model not in before_load:
-        if not lms_load(planner_model):
+    distinct_model_identifiers = list(dict.fromkeys((vlm_model, planner_model)))
+    for model_identifier in distinct_model_identifiers:
+        if model_identifier in before_load:
+            continue
+        if not lms_load(model_identifier):
             return 1
     after_load = lms_ps_loaded_identifiers()
     print(f"  after:  {after_load or '(none)'}")
@@ -995,7 +998,7 @@ def main(argv: list[str]) -> int:
     # PARALLEL=32 would mean ~8× the memory footprint per model and
     # explains a latency regression at a glance.
     model_configs = lms_ps_model_configs()
-    for model_identifier in (vlm_model, planner_model):
+    for model_identifier in distinct_model_identifiers:
         config = model_configs.get(model_identifier, {})
         if config:
             context_value = config.get("context", "?")

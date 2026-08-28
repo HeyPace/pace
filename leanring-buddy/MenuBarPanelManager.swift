@@ -49,6 +49,7 @@ final class MenuBarPanelManager: NSObject {
     private let panelWidth: CGFloat
     private let panelHeight: CGFloat
     private let onVisibilityChanged: (Bool) -> Void
+    private var integratedPanelIsAvailable: (() -> Bool)?
     private var integratedPanelIsPresented: (() -> Bool)?
     private var showIntegratedPanel: (() -> Void)?
     private var hideIntegratedPanel: (() -> Void)?
@@ -111,9 +112,11 @@ final class MenuBarPanelManager: NSObject {
     }
 
     func togglePanel() {
-        if let integratedPanelIsPresented,
-           let showIntegratedPanel,
-           let hideIntegratedPanel {
+        if shouldUseIntegratedLivingNotch,
+            let integratedPanelIsPresented,
+            let showIntegratedPanel,
+            let hideIntegratedPanel
+        {
             if integratedPanelIsPresented() {
                 hideIntegratedPanel()
             } else {
@@ -139,7 +142,7 @@ final class MenuBarPanelManager: NSObject {
     /// already-open panel mid-turn).
     func showPanel(anchoredTo anchorFrame: NSRect) {
         panelAnchorFrameOverride = anchorFrame
-        if let showIntegratedPanel {
+        if shouldUseIntegratedLivingNotch, let showIntegratedPanel {
             showIntegratedPanel()
             return
         }
@@ -165,10 +168,12 @@ final class MenuBarPanelManager: NSObject {
     }
 
     func useIntegratedLivingNotchPresentation(
+        isAvailable: @escaping () -> Bool,
         isPresented: @escaping () -> Bool,
         show: @escaping () -> Void,
         hide: @escaping () -> Void
     ) {
+        integratedPanelIsAvailable = isAvailable
         integratedPanelIsPresented = isPresented
         showIntegratedPanel = show
         hideIntegratedPanel = hide
@@ -177,7 +182,7 @@ final class MenuBarPanelManager: NSObject {
     // MARK: - Panel Lifecycle
 
     private func showPanel() {
-        if let showIntegratedPanel {
+        if shouldUseIntegratedLivingNotch, let showIntegratedPanel {
             showIntegratedPanel()
             return
         }
@@ -194,7 +199,8 @@ final class MenuBarPanelManager: NSObject {
         onVisibilityChanged(true)
 
         if wasVisible == false,
-           NSWorkspace.shared.accessibilityDisplayShouldReduceMotion == false {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion == false
+        {
             let collapsedPanelFrame = NSRect(
                 x: expandedPanelFrame.minX,
                 y: expandedPanelFrame.maxY - 24,
@@ -222,7 +228,7 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func hidePanel() {
-        if let hideIntegratedPanel {
+        if shouldUseIntegratedLivingNotch, let hideIntegratedPanel {
             hideIntegratedPanel()
             return
         }
@@ -258,14 +264,19 @@ final class MenuBarPanelManager: NSObject {
         } completionHandler: { [weak self, weak panel] in
             Task { @MainActor in
                 guard let self,
-                      let panel,
-                      self.visibilityAnimationGeneration == animationGeneration else {
+                    let panel,
+                    self.visibilityAnimationGeneration == animationGeneration
+                else {
                     return
                 }
                 panel.orderOut(nil)
                 panel.alphaValue = 1
             }
         }
+    }
+
+    private var shouldUseIntegratedLivingNotch: Bool {
+        integratedPanelIsAvailable?() == true
     }
 
     private func createPanel() {

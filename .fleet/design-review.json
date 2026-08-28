@@ -2,106 +2,59 @@
   "$schema": "fleet.design-review.v1",
   "version": 1,
   "project": "pace",
-  "target": "native macOS menu-bar, notch, panel, and management interface",
-  "mode": "overhaul",
+  "target": "Complete Pace Mac daily-use experience",
+  "surfaceMode": "operate",
+  "mode": "preserve",
   "register": "product",
   "context": {
     "product": "PRODUCT.md",
     "design": "leanring-buddy/DESIGN.md"
   },
   "direction": {
-    "references": [
-      "Boring Notch single resizable surface and reserved hardware center",
-      "NotchNook notch-origin expansion",
-      "Apple NSScreen auxiliary safe-area geometry"
-    ],
-    "probes": [
-      {
-        "id": "living-notch",
-        "path": "artifacts/design/native-overhaul/probes/hardware-notch-directions.png"
-      },
-      {
-        "id": "safe-area-sidecar",
-        "path": "artifacts/design/native-overhaul/probes/hardware-notch-directions.png"
-      },
-      {
-        "id": "activity-tray",
-        "path": "artifacts/design/native-overhaul/probes/hardware-notch-directions.png"
-      }
-    ],
-    "selected": "living-notch",
-    "approval": "delegated",
-    "before": ""
+    "references": [],
+    "probes": [],
+    "selected": "existing-design",
+    "approval": "not-required",
+    "before": "artifacts/design/whole-app-quality/conversations-before.jpeg",
+    "contract": {
+      "purpose": "Make Pace's complete daily Mac journey correct, immediate, observable, and visually coherent.",
+      "purposeSource": "PRODUCT.md",
+      "canonicalPurpose": "Pace is a menu-bar voice agent for macOS with an optional iPad companion. It listens, can read the current screen through a local vision model, plans locally, speaks responses, and—with explicit action enablement—executes approved macOS actions. Success means the user can complete useful computer work conversationally while retaining local control of their data and model runtime.",
+      "purposeAlignment": "match",
+      "driftNote": "None; reliability and trust were strengthened without changing the local-first product boundary.",
+      "audience": "Mac users who want to ask, inspect, and safely complete computer work conversationally without sending screen, audio, or context to cloud services.",
+      "job": "Accept a request, show truthful progress, deliver a correct answer or observable action, and provide clear recovery when a local capability is unavailable.",
+      "thesis": "The physical notch is the ambient anchor; the signal language extends into the quick tray, conversation history, onboarding, and Command Center.",
+      "system": "Local Signal Desk: graphite and black native surfaces, one deeper blue for local actions and state, amber only for off-device work, semantic typography, compact motion, and visible receipts.",
+      "signature": "A routed local signal that moves from the Living Notch through conversation and action receipts, with a conventional status-item home on notchless Macs.",
+      "risk": "The product remains broad; advanced workflow controls stay collapsed and residual onboarding adaptivity is tracked as P2 rather than expanded in this pass."
+    }
   },
   "evidence": {
     "screenshots": [
       {
         "width": 390,
-        "path": "artifacts/design/after-390.png"
+        "path": "artifacts/design/whole-app-quality/tray-final.png"
       },
       {
         "width": 768,
-        "path": "artifacts/design/after-768.png"
+        "path": "artifacts/design/whole-app-quality/conversations-final.png"
       },
       {
         "width": 1440,
-        "path": "artifacts/design/after-1440.png"
-      },
-      {
-        "width": 320,
-        "path": "artifacts/design/native-overhaul/panel-live-clean.png"
-      },
-      {
-        "width": 1040,
-        "path": "artifacts/design/native-overhaul/command-center-live-fixed.png"
-      },
-      {
-        "width": 1040,
-        "path": "artifacts/design/native-overhaul/command-center-automations-final.png"
-      },
-      {
-        "width": 185,
-        "path": "artifacts/design/native-overhaul/living-notch-active.png"
-      },
-      {
-        "width": 320,
-        "path": "artifacts/design/native-overhaul/living-notch-panel.png"
-      },
-      {
-        "width": 400,
-        "path": "artifacts/design/native-overhaul/living-notch-panel-wide.png"
-      },
-      {
-        "width": 520,
-        "path": "artifacts/design/native-overhaul/living-notch-connected-wide.png"
-      },
-      {
-        "width": 276,
-        "path": "artifacts/design/native-overhaul/living-notch-default-shelf.png"
-      },
-      {
-        "width": 520,
-        "path": "artifacts/design/native-overhaul/living-notch-connected-silhouette.png"
-      },
-      {
-        "width": 340,
-        "path": "artifacts/design/native-overhaul/boring-notch-adaptation-closed.png"
-      },
-      {
-        "width": 520,
-        "path": "artifacts/design/native-overhaul/boring-notch-adaptation-open-clean.png"
+        "path": "artifacts/design/whole-app-quality/command-center-final.png"
       }
     ],
     "projectCheck": {
-      "command": "bash scripts/test-pace.sh PaceNativeInterfaceModelTests PaceChatSessionTests GlobalChatShortcutMonitorTests",
+      "command": "bash scripts/test-pace.sh LocalPlannerClientThinkingStripperTests LocalServerTTSClientTests PaceActionTagParserTests PaceChatSessionTests PaceChatTranscriptModelTests PaceDeterministicAnswerParserTests PaceFailureNarratorTests PaceIntentClassifierTests PaceNativeInterfaceModelTests PaceResponseQualityHeuristicsTests && bash scripts/validate-docs.sh",
       "status": "pass"
     },
     "critique": {
-      "score": 36,
+      "score": 34,
       "maximum": 40
     },
     "audit": {
-      "score": 18,
+      "score": 16,
       "maximum": 20
     },
     "unresolved": {
@@ -110,13 +63,33 @@
     },
     "detector": {
       "posture": "advisory",
-      "findings": [
-        "The bundled detector returned no findings because Swift files are outside its scannable extensions; the native source audit was used instead."
-      ]
+      "findings": []
+    },
+    "comprehension": {
+      "status": "not-applicable",
+      "reviewer": "",
+      "answers": {
+        "product": "",
+        "audience": "",
+        "value": "",
+        "mechanism": "",
+        "proof": "",
+        "nextAction": ""
+      },
+      "purposeScore": {
+        "product": 0,
+        "audience": 0,
+        "value": 0,
+        "mechanism": 0,
+        "proof": 0,
+        "nextAction": 0,
+        "total": 0
+      },
+      "mismatches": []
     }
   },
   "ownerFeedback": {
-    "decision": "keep",
-    "note": "The owner accepted the final notch treatment with 'Nice now it looks good.' The selected adaptation follows Boring Notch's single resizable clipped surface without copying its GPL code, branding, or assets. Idle remains the exact 185 by 32 point housing; active state is 340 by 32 with the physical center reserved; click resizes the same window to 520 by 352 and embeds the Pace conversation directly inside it. The final Automations capture also verifies the repaired bounded Command Center layout, plain-language creation entry point, and local risk labels. Local state remains blue and off-device activity remains amber."
+    "decision": "delegated",
+    "note": "The owner prioritized usability before beauty and delegated completion of the existing Pace direction."
   }
 }

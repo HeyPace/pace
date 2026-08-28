@@ -40,9 +40,9 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>LocalPlannerBaseURL</key>
-	<string>http://localhost:1234/v1</string>
+	<string>http://127.0.0.1:1234/v1</string>
 	<key>LocalPlannerModelIdentifier</key>
-	<string>google/gemma-3-12b</string>
+	<string>qwen/qwen3.5-4b</string>
 	<key>LocalTTSPitchMultiplier</key>
 	<string>0.88</string>
 	<key>LocalTTSPostUtteranceDelay</key>
@@ -50,7 +50,7 @@
 	<key>LocalTTSPreUtteranceDelay</key>
 	<string>0.0</string>
 	<key>LocalTTSServerBaseURL</key>
-	<string>http://localhost:8880/v1</string>
+	<string>http://127.0.0.1:8880/v1</string>
 	<key>LocalTTSServerModel</key>
 	<string>mlx-community/Kokoro-82M-bf16</string>
 	<key>LocalTTSServerSpeed</key>
@@ -64,9 +64,9 @@
 	<key>LocalTTSVolume</key>
 	<string>0.90</string>
 	<key>LocalVLMBaseURL</key>
-	<string>http://localhost:1234/v1</string>
+	<string>http://127.0.0.1:1234/v1</string>
 	<key>LocalVLMModelIdentifier</key>
-	<string>ui-venus-1.5-2b</string>
+	<string>qwen/qwen3.5-4b</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Pace uses Apple Events only when you ask it to control local Mac apps like Notes, Music, Mail, Things, Shortcuts, or Messages.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
@@ -118,7 +118,7 @@
 	<key>ScreenAnalysisProvider</key>
 	<string>lmStudio</string>
 	<key>TTSProvider</key>
-	<string>localServer</string>
+	<string>apple</string>
 	<key>TranscriptionProvider</key>
 	<string>whisperKit</string>
 	<key>UseLocalVLMForScreenContext</key>

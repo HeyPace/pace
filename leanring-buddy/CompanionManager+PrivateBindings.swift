@@ -43,7 +43,7 @@ extension CompanionManager {
     /// the runtime actually uses.
     func refreshLMStudioReachability() async {
         let baseURLString = AppBundleConfiguration.stringValue(forKey: "LocalPlannerBaseURL")
-            ?? "http://localhost:1234/v1"
+            ?? "http://127.0.0.1:1234/v1"
         let localPlannerBaseURL = PaceLocalEndpointGuard.resolvedLocalOpenAICompatibleBaseURL(
             configuredURLString: baseURLString,
             settingName: "LocalPlannerBaseURL"
@@ -443,8 +443,7 @@ extension CompanionManager {
             }
 
             // Cancel any in-progress response and TTS from a previous utterance
-            currentResponseTask?.cancel()
-            currentResponseTask = nil
+            cancelActiveTurnTasks()
             ttsClient.stopPlayback()
             // Clear the streaming-TTS dispatch state so the new turn
             // starts fresh — without this, the diff tracker would think

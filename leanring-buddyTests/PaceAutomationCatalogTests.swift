@@ -5,6 +5,7 @@
 
 import Foundation
 import Testing
+
 @testable import Pace
 
 struct PaceAutomationDefinitionTests {
@@ -23,17 +24,18 @@ struct PaceAutomationDefinitionTests {
         #expect((10...20).contains(definitions.count))
         #expect(Set(definitions.map(\.identifier)).count == definitions.count)
         let starterLibraryCategories = Set(definitions.map(\.category))
-        #expect(starterLibraryCategories.isSuperset(of: [
-            "calendar",
-            "capture",
-            "files",
-            "focus",
-            "media",
-            "planning",
-            "shutdown",
-            "window",
-            "work",
-        ]))
+        #expect(
+            starterLibraryCategories.isSuperset(of: [
+                "calendar",
+                "capture",
+                "files",
+                "focus",
+                "media",
+                "planning",
+                "shutdown",
+                "window",
+                "work",
+            ]))
         for definition in definitions {
             let executionPlan = try PaceAutomationCompiler.compile(definition)
             #expect(executionPlan.steps.count == definition.steps.count)
@@ -53,7 +55,7 @@ struct PaceAutomationDefinitionTests {
                         tool: "reminder",
                         arguments: ["title": .string("Review tomorrow")]
                     ),
-                ]),
+                ])
             ]
         )
 
@@ -81,11 +83,12 @@ struct PaceAutomationDefinitionTests {
                         arguments: ["name": .string("Opaque workflow")]
                     ),
                     PaceAutomationToolCall(tool: "shell_script", arguments: [:]),
-                ]),
+                ])
             ]
         )
 
-        let validationMessages = PaceAutomationDefinitionValidator
+        let validationMessages =
+            PaceAutomationDefinitionValidator
             .validationIssues(for: definition)
             .map(\.message)
         #expect(validationMessages.contains(where: { $0.contains("forbidden tool shortcuts") }))
@@ -96,15 +99,17 @@ struct PaceAutomationDefinitionTests {
         let definition = makeDefinition(
             steps: [
                 PaceAutomationStep(toolCalls: [
-                    PaceAutomationToolCall(tool: "open_app", arguments: [:]),
-                ]),
+                    PaceAutomationToolCall(tool: "open_app", arguments: [:])
+                ])
             ]
         )
 
-        #expect(throws: PaceAutomationCompilationError.partiallyParsed(
-            expectedStepActionCounts: [1],
-            actualStepActionCounts: []
-        )) {
+        #expect(
+            throws: PaceAutomationCompilationError.partiallyParsed(
+                expectedStepActionCounts: [1],
+                actualStepActionCounts: []
+            )
+        ) {
             _ = try PaceAutomationCompiler.compile(definition)
         }
     }
@@ -124,12 +129,13 @@ struct PaceAutomationDefinitionTests {
                     PaceAutomationToolCall(
                         tool: "open_app",
                         arguments: ["app": .string("Calendar")]
-                    ),
-                ]),
+                    )
+                ])
             ]
         )
 
-        let validationMessages = PaceAutomationDefinitionValidator
+        let validationMessages =
+            PaceAutomationDefinitionValidator
             .validationIssues(for: definition)
             .map(\.message)
         #expect(validationMessages.contains(where: { $0.contains("unsupported schemaVersion 2") }))
@@ -137,8 +143,8 @@ struct PaceAutomationDefinitionTests {
 
     @Test func naturalLanguageStructurerAcceptsOnlyFullyCompiledTypedCalls() throws {
         let rawResponse = #"""
-        {"name":"Open Calendar","description":"Opens Calendar.","category":"custom","invocationPhrases":["show me my calendar"],"steps":[{"toolCalls":[{"tool":"open_app","arguments":{"app":"Calendar"}}]}]}
-        """#
+            {"name":"Open Calendar","description":"Opens Calendar.","category":"custom","invocationPhrases":["show me my calendar"],"steps":[{"toolCalls":[{"tool":"open_app","arguments":{"app":"Calendar"}}]}]}
+            """#
 
         let definition = try #require(
             PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: rawResponse)
@@ -152,8 +158,8 @@ struct PaceAutomationDefinitionTests {
 
     @Test func naturalLanguageStructurerRejectsInputInjectionCalls() {
         let rawResponse = #"""
-        {"name":"Type Secret","description":"Types text.","category":"custom","invocationPhrases":["type it"],"steps":[{"toolCalls":[{"tool":"type","arguments":{"text":"secret"}}]}]}
-        """#
+            {"name":"Type Secret","description":"Types text.","category":"custom","invocationPhrases":["type it"],"steps":[{"toolCalls":[{"tool":"type","arguments":{"text":"secret"}}]}]}
+            """#
 
         #expect(
             PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: rawResponse) == nil
@@ -180,8 +186,8 @@ struct PaceAutomationDefinitionTests {
                     PaceAutomationToolCall(
                         tool: "open_app",
                         arguments: ["app": .string("Calendar")]
-                    ),
-                ]),
+                    )
+                ])
             ]
         )
 
@@ -247,32 +253,37 @@ struct PaceAutomationCatalogTests {
     @Test func catalogLabelsEveryReusableWorkSource() {
         let catalog = PaceAutomationCatalog(
             typedDefinitions: [makeTypedDefinition(name: "Built in")],
-            recordedFlows: [PaceRecordedFlow(
-                name: "Recorded",
-                createdAt: Date(timeIntervalSince1970: 1),
-                steps: [.keyShortcut(key: "cmd+k")]
-            )],
-            skills: [PaceSkillFile(
-                name: "Grounded",
-                slug: "grounded",
-                description: "Planner-grounded fixture.",
-                category: "test",
-                requiredPreferences: [],
-                trigger: nil,
-                steps: [PaceSkillStep(instruction: "Open Notes", toolCall: nil)],
-                notes: nil
-            )],
+            recordedFlows: [
+                PaceRecordedFlow(
+                    name: "Recorded",
+                    createdAt: Date(timeIntervalSince1970: 1),
+                    steps: [.keyShortcut(key: "cmd+k")]
+                )
+            ],
+            skills: [
+                PaceSkillFile(
+                    name: "Grounded",
+                    slug: "grounded",
+                    description: "Planner-grounded fixture.",
+                    category: "test",
+                    requiredPreferences: [],
+                    trigger: nil,
+                    steps: [PaceSkillStep(instruction: "Open Notes", toolCall: nil)],
+                    notes: nil
+                )
+            ],
             shortcutNames: ["Opaque"],
             programs: [makeProgram(name: "Programmed")]
         )
 
-        #expect(Set(catalog.entries.map(\.executionMode)) == [
-            .deterministicLocal,
-            .deterministicProgram,
-            .deterministicReplay,
-            .plannerGrounded,
-            .externalOpaque,
-        ])
+        #expect(
+            Set(catalog.entries.map(\.executionMode)) == [
+                .deterministicLocal,
+                .deterministicProgram,
+                .deterministicReplay,
+                .plannerGrounded,
+                .externalOpaque,
+            ])
         #expect(catalog.spokenListResponse().contains("deterministic local: Built in"))
         #expect(catalog.spokenListResponse().contains("deterministic program: Programmed"))
         #expect(catalog.spokenListResponse().contains("uses the local planner: Grounded"))
@@ -321,11 +332,13 @@ struct PaceAutomationCatalogTests {
     @Test func crossSourceNameCollisionNeverSelectsOneEntry() {
         let catalog = PaceAutomationCatalog(
             typedDefinitions: [makeTypedDefinition(name: "Daily reset")],
-            recordedFlows: [PaceRecordedFlow(
-                name: "daily reset",
-                createdAt: Date(timeIntervalSince1970: 1),
-                steps: [.keyShortcut(key: "escape")]
-            )],
+            recordedFlows: [
+                PaceRecordedFlow(
+                    name: "daily reset",
+                    createdAt: Date(timeIntervalSince1970: 1),
+                    steps: [.keyShortcut(key: "escape")]
+                )
+            ],
             skills: [],
             shortcutNames: []
         )
@@ -341,43 +354,53 @@ struct PaceAutomationCatalogTests {
     @Test func parserRecognizesOnlyExplicitCatalogCommands() {
         #expect(PaceAutomationCatalogCommandParser.parse("list my automations") == .list)
         #expect(PaceAutomationCatalogCommandParser.parse("What automations do I have?") == .list)
-        #expect(PaceAutomationCatalogCommandParser.parse("run automation Weekly Review") == .run(
-            requestedName: "Weekly Review"
-        ))
-        #expect(PaceAutomationCatalogCommandParser.parse("execute the automation named Daily Reset.") == .run(
-            requestedName: "Daily Reset"
-        ))
+        #expect(
+            PaceAutomationCatalogCommandParser.parse("run automation Weekly Review")
+                == .run(
+                    requestedName: "Weekly Review"
+                ))
+        #expect(
+            PaceAutomationCatalogCommandParser.parse("execute the automation named Daily Reset.")
+                == .run(
+                    requestedName: "Daily Reset"
+                ))
         #expect(PaceAutomationCatalogCommandParser.parse("run Weekly Review") == nil)
         #expect(PaceAutomationCatalogCommandParser.parse("automate this") == nil)
     }
 
     @Test func creationParserExtractsNaturalLanguageDescription() {
-        #expect(PaceAutomationCreationCommandParser.parse(
-            "Create an automation that opens Calendar and starts a focus timer"
-        ) == PaceAutomationCreationCommand(
-            rawDescription: "opens Calendar and starts a focus timer"
-        ))
+        #expect(
+            PaceAutomationCreationCommandParser.parse(
+                "Create an automation that opens Calendar and starts a focus timer"
+            )
+                == PaceAutomationCreationCommand(
+                    rawDescription: "opens Calendar and starts a focus timer"
+                ))
         #expect(PaceAutomationCreationCommandParser.parse("create an automation") == nil)
         #expect(PaceAutomationCreationCommandParser.parse("automate this") == nil)
     }
 
     @Test func deterministicSkillFallbackPreservesWordsWhenTypedStructuringFails() throws {
-        #expect(PaceNaturalLanguageAutomationStructurer.definition(
-            fromStructuredJSON: "planner unavailable"
-        ) == nil)
-        let fallbackSkill = try #require(PaceSkillLoader.structureSkillDeterministically(
-            from: "when I say start my day, open Notes then open Slack"
-        ))
+        #expect(
+            PaceNaturalLanguageAutomationStructurer.definition(
+                fromStructuredJSON: "planner unavailable"
+            ) == nil)
+        let fallbackSkill = try #require(
+            PaceSkillLoader.structureSkillDeterministically(
+                from: "when I say start my day, open Notes then open Slack"
+            ))
         #expect(fallbackSkill.trigger == "start my day")
         #expect(fallbackSkill.steps.map(\.instruction) == ["Open Notes", "Open Slack"])
     }
 
     @Test func naturalMatcherSelectsAnExactAuthoredPhraseWithoutEmbeddings() async {
         let catalog = PaceAutomationCatalog(
-            typedDefinitions: [makeTypedDefinition(
-                name: "Daily plan note",
-                invocationPhrases: ["help me plan my day"]
-            )],
+            typedDefinitions: [
+                makeTypedDefinition(
+                    name: "Daily plan note",
+                    invocationPhrases: ["help me plan my day"]
+                )
+            ],
             recordedFlows: [],
             skills: [],
             shortcutNames: []
@@ -515,11 +538,12 @@ struct PaceAutomationCatalogTests {
             Issue.record("expected a bounded local-model shortlist")
             return
         }
-        #expect(candidates.map(\.name) == [
-            "Focus timer",
-            "End of day reset",
-            "Daily plan note",
-        ])
+        #expect(
+            candidates.map(\.name) == [
+                "Focus timer",
+                "End of day reset",
+                "Daily plan note",
+            ])
     }
 
     @Test func naturalMatcherRejectsCloseSemanticCandidatesAsAmbiguous() async {
@@ -576,12 +600,51 @@ struct PaceAutomationCatalogTests {
         #expect(result == .noMatch)
     }
 
+    @Test func naturalMatcherNeverSemanticallyHijacksAFactualQuestion() async {
+        let catalog = PaceAutomationCatalog(
+            typedDefinitions: [
+                makeTypedDefinition(name: "Today schedule"),
+                makeTypedDefinition(name: "Daily plan note"),
+            ],
+            recordedFlows: [],
+            skills: [],
+            shortcutNames: []
+        )
+        // These vectors would otherwise produce a confident automation match.
+        let embedder = FixedAutomationEmbedder(vectors: [
+            [1, 0],
+            [0.99, 0.01],
+            [0, 1],
+        ])
+
+        let result = await PaceAutomationNaturalLanguageMatcher.match(
+            transcript: "What is the largest planet in our solar system?",
+            catalog: catalog,
+            embedder: embedder
+        )
+
+        #expect(result == .noMatch)
+    }
+
+    @Test func implicitCatalogPolicySkipsQuestionsBeforeDiscovery() {
+        #expect(
+            !PaceAutomationNaturalLanguageMatcher.shouldAttemptImplicitCatalogMatch(
+                transcript: "Which element has the chemical symbol O?"
+            ))
+        #expect(
+            PaceAutomationNaturalLanguageMatcher.shouldAttemptImplicitCatalogMatch(
+                transcript: "start my focus session"
+            ))
+    }
+
     @Test func naturalMatcherFallsThroughWhenEmbeddingFails() async {
         let catalog = PaceAutomationCatalog(
-            typedDefinitions: [makeTypedDefinition(
-                name: "Focus timer",
-                invocationPhrases: ["start a focus session"]
-            )],
+            typedDefinitions: [
+                makeTypedDefinition(
+                    name: "Focus timer",
+                    invocationPhrases: ["start a focus session"]
+                )
+            ],
             recordedFlows: [],
             skills: [],
             shortcutNames: []
@@ -615,8 +678,8 @@ struct PaceAutomationCatalogTests {
                     PaceAutomationToolCall(
                         tool: "open_app",
                         arguments: ["app": .string("Calendar")]
-                    ),
-                ]),
+                    )
+                ])
             ]
         )
     }
@@ -631,14 +694,17 @@ struct PaceAutomationCatalogTests {
             invocationPhrases: ["run \(name)"],
             requiredPreferences: [],
             nodes: [
-                .repeatTimes(count: 2, nodes: [
-                    .action(step: PaceAutomationStep(toolCalls: [
-                        PaceAutomationToolCall(
-                            tool: "volume",
-                            arguments: ["direction": .string("down")]
-                        ),
-                    ])),
-                ]),
+                .repeatTimes(
+                    count: 2,
+                    nodes: [
+                        .action(
+                            step: PaceAutomationStep(toolCalls: [
+                                PaceAutomationToolCall(
+                                    tool: "volume",
+                                    arguments: ["direction": .string("down")]
+                                )
+                            ]))
+                    ])
             ]
         )
     }

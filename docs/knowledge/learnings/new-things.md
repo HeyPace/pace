@@ -49,21 +49,21 @@ Novel frameworks and algorithms powering an entirely on-device voice+action Mac 
 - Source: https://developer.apple.com/documentation/appkit/nsaccessibility
 
 ## LM Studio (OpenAI-compatible local server)
-- What: Desktop app that serves local LLMs/VLMs behind an OpenAI-compatible HTTP API on `localhost:1234`; exposes `/v1/chat/completions`, `/v1/embeddings`, `/v1/completions`.
-- Why here: The default local planner/VLM host for users without Apple Intelligence — serves the qwen3-30b-a3b planner and the UI-Venus VLM over a loopback OpenAI-compatible API, and the `/v1/embeddings` route used for memory reranking.
-- Gotcha (from code): `PaceLocalEndpointGuard.resolvedLocalOpenAICompatibleBaseURL` (`PaceLocalEndpointGuard.swift:23`) validates every planner and VLM URL at construction time — a plist value pointing at a LAN or remote host silently falls back to `localhost:1234` with a printed warning. Two models can be loaded simultaneously via LM Studio Settings → max-loaded-models=2 (planner + VLM) to avoid thrashing.
+- What: Desktop app that serves local LLMs/VLMs behind native and OpenAI-compatible HTTP APIs on `127.0.0.1:1234`.
+- Why here: The source-default local planner and optional VLM host. Pure-knowledge turns prefer LM Studio's native `/api/v1/chat` stream so Pace can explicitly disable hidden reasoning; structured action turns keep using `/v1/chat/completions` for JSON-schema decoding. When the bundled MLX planner is enabled, pure-knowledge answers run in-process instead.
+- Gotcha (from code): `PaceLocalEndpointGuard.resolvedLocalOpenAICompatibleBaseURL` validates every planner and VLM URL at construction time — a plist value pointing at a LAN or remote host falls back to `127.0.0.1:1234` with a printed warning. Memory and automation embeddings default to Apple NaturalLanguage (or the explicitly enabled in-process MLX embedder), so background embedding work cannot make LM Studio evict or swap the conversational model.
 - Source: https://lmstudio.ai/docs/api/openai-api
 
 ## LM Studio JIT loading + idle-unload keepalive
 - What: LM Studio loads a configured model on first request (JIT) rather than at server start, and separately auto-unloads a model after an idle period to free RAM — both save memory but cost latency (a cold-load tax) or correctness (mid-session eviction) if the app doesn't account for them.
-- Why here: Pace pays the cold-load tax once, deliberately, at app launch instead of on the user's first real turn — and then fights the idle-unload timer for the rest of the session so a long-idle-then-resume conversation doesn't silently hit a partially-unloaded model.
-- Where: `PaceLMStudioModelLoader.swift` — launch does a throwaway chat-completion per configured model to trigger JIT load and warm it (comment: "the user's first PTT turn doesn't pay the cold-load tax, typically 5-15s on a 14B class model"); `startKeepaliveLoopIfNotRunning()` (line ~242) pings each model every `keepaliveIntervalSeconds = 60` with a `max_tokens: 1` completion, because "eval runs showed the model state degrading turn-over-turn... LM Studio was partial-unloading between calls"; quit unloads explicitly via the `lms unload <model>` CLI so 5-20 GB of weights don't stay resident after Pace exits.
+- Why here: An LM-Studio-backed Pace pays the cold-load tax at app launch instead of on the user's first real turn, then keeps the configured conversational model warm. When the bundled MLX planner is enabled, Pace skips LM Studio's planner warmup and instead runs one real in-process inference through the same shared task that an early user turn awaits.
+- Where: `PaceLMStudioModelLoader.swift` owns LM Studio warmup/keepalive. `CompanionManager+AgentLoop.swift` owns bundled-MLX inference warmup. LM Studio owns unloading because a quit-time `lms unload` raced quick app restarts and pulled the shared model out from under the new Pace process.
 - Source: https://lmstudio.ai/docs/api/ttl-and-auto-evict
 
 ## BM25 (lexical retrieval ranking)
 - What: Probabilistic term-frequency/inverse-document-frequency ranking algorithm (Okapi BM25) — fast, no embeddings needed, interpretable scores; standard baseline for sparse retrieval in RAG systems.
 - Why here: The production ranking path for all local recall ("what did I do today?", notes, calendar, screen-watch/app-usage journals) — instant and embedding-free, with an optional embedding rerank layered on the top-K.
-- Gotcha (from code): `PaceLocalRetrieval.swift` uses a BM25-style in-memory scorer across all retrieval sources (history, notes, calendar, files, screen-watch, app-usage) before optional embedding re-ranking via `PaceEmbeddingReranker` (LM Studio `/v1/embeddings`). Vector/SQLite-vec retrieval is queued but not yet live — BM25 is the only ranking path in production.
+- Gotcha (from code): `PaceLocalRetrieval.swift` uses a BM25-style in-memory scorer across all retrieval sources (history, notes, calendar, files, screen-watch, app-usage) before optional in-process embedding re-ranking via `PaceEmbeddingReranker`. Vector/SQLite-vec retrieval is queued but not yet live — BM25 remains the dependable fallback.
 - Source: https://en.wikipedia.org/wiki/Okapi_BM25
 
 ## @Generable typed outputs (constrained decoding via FoundationModels)

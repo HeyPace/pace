@@ -6,8 +6,8 @@
 //  app start/stop, permission requests/refreshes, and UI entry points (avatar, deeplink, chat submit).
 //
 
-import AppKit
 import AVFoundation
+import AppKit
 import Combine
 import Contacts
 import EventKit
@@ -64,14 +64,15 @@ extension CompanionManager {
     /// one planning + execution path. Doing the snapshot here (not
     /// inside the pipeline) keeps the mute decision tied to the moment
     /// of submission — toggling mute mid-stream affects the NEXT turn.
-    func submitChatTranscriptFromChatSession(_ transcript: String) {
+    func submitChatTranscriptFromChatSession(
+        _ transcript: String,
+        optimisticMessageIdentifier: String
+    ) {
         isChatModeMutedForCurrentTurn = chatSession.isChatTTSMuted
-        if isChatModeMutedForCurrentTurn {
-            // Stop any audio that was already in flight from a prior
-            // turn so flipping mute on feels instant.
-            ttsClient.stopPlayback()
-        }
-        submitChatTranscriptFromDeepLink(transcript)
+        submitChatTranscript(
+            transcript,
+            optimisticMessageIdentifier: optimisticMessageIdentifier
+        )
     }
 
     /// Entry point for the pace://chat deeplink. The transcript is treated
@@ -79,19 +80,43 @@ extension CompanionManager {
     /// retrieval injection, and — critically — the same action-approval
     /// policy, so a deeplink can do nothing the user's own voice couldn't.
     func submitChatTranscriptFromDeepLink(_ transcript: String) {
-        guard voiceState == .idle else {
-            print("🔗 Deeplink chat ignored — turn in flight (\(voiceState))")
+        submitChatTranscript(transcript, optimisticMessageIdentifier: nil)
+    }
+
+    private func submitChatTranscript(
+        _ transcript: String,
+        optimisticMessageIdentifier: String?
+    ) {
+        let queuedTurn = PaceQueuedChatTurn(
+            transcript: transcript,
+            shouldMuteTTS: isChatModeMutedForCurrentTurn,
+            optimisticMessageIdentifier: optimisticMessageIdentifier
+        )
+        isChatModeMutedForCurrentTurn = false
+
+        if voiceState != .idle {
+            let queuePosition = chatTurnQueue.enqueue(queuedTurn)
+            queuedChatTurnCount = chatTurnQueue.count
+            print(
+                "🧾 Typed turn queued at position \(queuePosition) "
+                    + "while Pace is \(voiceState)"
+            )
             return
         }
+
+        startQueuedChatTurn(queuedTurn)
+    }
+
+    private func startQueuedChatTurn(_ queuedTurn: PaceQueuedChatTurn) {
+        let transcript = queuedTurn.transcript
         // The notch chat input lives in the same panel as the turn HUD,
         // so as soon as a turn is committed the input collapses and
         // the HUD takes over. Cheap to flip when this code path was
         // entered from the deeplink (the flag is already false).
         isNotchChatInputFocused = false
-        print("🔗 Deeplink chat transcript: \(transcript)")
+        print("🔗 Typed chat transcript: \(transcript)")
 
-        currentResponseTask?.cancel()
-        currentResponseTask = nil
+        cancelActiveTurnTasks()
         ttsClient.stopPlayback()
         streamingSentenceTTSPipeline.resetForNewTurn()
         // New turn began — hide the reply-replay button so it doesn't
@@ -102,8 +127,7 @@ extension CompanionManager {
         // is hit directly the snapshot is false, matching voice-turn
         // behaviour. Clear the manager-side flag immediately after so
         // subsequent voice turns can never inherit a stale mute.
-        streamingSentenceTTSPipeline.setMutedForCurrentTurn(isChatModeMutedForCurrentTurn)
-        isChatModeMutedForCurrentTurn = false
+        streamingSentenceTTSPipeline.setMutedForCurrentTurn(queuedTurn.shouldMuteTTS)
         clearDetectedElementLocation()
 
         // Transient cursor mode: surface the overlay for the duration of
@@ -130,9 +154,50 @@ extension CompanionManager {
         // from an earlier PTT turn and emit a bogus BUDGET line.
         PaceLatencyBudget.shared.startTurn(trigger: .deeplink)
         PaceLatencyBudget.shared.mark(.sttComplete)
-        screenContextService.prewarmScreenContext(reason: .deepLinkChat)
         voiceState = .processing
         sendTranscriptToPlannerWithScreenshot(transcript: transcript)
+    }
+
+    func clearQueuedChatTurns() {
+        let optimisticMessageIdentifiers = chatTurnQueue.pendingTurns.compactMap(
+            \.optimisticMessageIdentifier
+        )
+        chatTurnQueue.removeAll()
+        queuedChatTurnCount = 0
+        chatSession.removePendingUserMessages(
+            withIdentifiers: optimisticMessageIdentifiers
+        )
+        print("🧾 Cleared queued typed turns")
+    }
+
+    func bindQueuedChatTurnDrainObservation() {
+        queuedChatTurnDrainCancellable =
+            $voiceState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newVoiceState in
+                guard newVoiceState == .idle, let self else { return }
+                queuedChatTurnDrainTask?.cancel()
+                queuedChatTurnDrainTask = Task { @MainActor [weak self] in
+                    await Task.yield()
+                    self?.drainNextQueuedChatTurnIfPossible()
+                }
+            }
+    }
+
+    private func drainNextQueuedChatTurnIfPossible() {
+        guard voiceState == .idle,
+            !buddyDictationManager.isRecordingFromKeyboardShortcut,
+            !buddyDictationManager.isRecordingFromMicrophoneButton,
+            !buddyDictationManager.isPreparingToRecord,
+            !buddyDictationManager.isFinalizingTranscript,
+            let nextQueuedTurn = chatTurnQueue.dequeue()
+        else {
+            return
+        }
+
+        queuedChatTurnCount = chatTurnQueue.count
+        print("🧾 Starting queued typed turn; \(queuedChatTurnCount) remaining")
+        startQueuedChatTurn(nextQueuedTurn)
     }
 
     func start() {
@@ -206,7 +271,9 @@ extension CompanionManager {
         // Sources that populate later in the session get synced via the
         // debounced hook in refreshLocalRetrievalPublishedState().
         syncConnectorsIntoUnifiedMemoryIfDue()
-        print("🔑 Pace start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
+        print(
+            "🔑 Pace start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)"
+        )
         // Wire the timer-scheduler speak callback to the active TTS
         // client and rehydrate any persisted timers. Doing this before
         // anything else means a 3-minute egg timer fired while Pace
@@ -246,6 +313,7 @@ extension CompanionManager {
         startPermissionPolling()
         startLMStudioReachabilityPolling()
         bindVoiceStateObservation()
+        bindQueuedChatTurnDrainObservation()
         bindAudioPowerLevel()
         bindShortcutTransitions()
         bindBargeInGateObservation()
@@ -390,7 +458,8 @@ extension CompanionManager {
                         continuation.resume(returning: concatenated)
                         return
                     }
-                    let summaryPrompt = "Summarize the following research results into a concise, readable summary. Keep key findings and actionable items:\n\n\(concatenated)"
+                    let summaryPrompt =
+                        "Summarize the following research results into a concise, readable summary. Keep key findings and actionable items:\n\n\(concatenated)"
                     self.beginHeadlessOffDeviceIndicatorIfNeeded()
                     defer { self.endHeadlessOffDeviceIndicatorIfNeeded() }
                     do {
@@ -428,7 +497,8 @@ extension CompanionManager {
                     Task { @MainActor in
                         do {
                             let session = LanguageModelSession(
-                                instructions: "Remove filler words (um, uh, like), repeated words, and false starts from the following dictated text. Preserve the original meaning, tone, and language. Output ONLY the cleaned text, no explanation."
+                                instructions:
+                                    "Remove filler words (um, uh, like), repeated words, and false starts from the following dictated text. Preserve the original meaning, tone, and language. Output ONLY the cleaned text, no explanation."
                             )
                             let response = try await session.respond(to: text)
                             continuation.resume(returning: response.content)
@@ -524,7 +594,8 @@ extension CompanionManager {
         //    command fails.
         PaceDynamicToolRegistry.shared.generatePluginFix = { [weak self] plugin, errorMessage in
             guard let self else { return nil }
-            let prompt = "The plugin '\(plugin.name)' failed with error: \(errorMessage). The plugin command template is: \(plugin.command). Generate a corrected shell command that achieves the same goal. Reply with ONLY the command, no explanation."
+            let prompt =
+                "The plugin '\(plugin.name)' failed with error: \(errorMessage). The plugin command template is: \(plugin.command). Generate a corrected shell command that achieves the same goal. Reply with ONLY the command, no explanation."
             let systemPrompt = CompanionSystemPrompt.build(
                 includeAgentMode: false,
                 threadSummaryInjection: nil
@@ -562,7 +633,6 @@ extension CompanionManager {
                 await controller.start()
             }
         }
-
 
         // Daily morning brief — opt-in. The scheduler stays inert
         // (no timer, no fire) until the user enables it in Settings.
@@ -621,11 +691,16 @@ extension CompanionManager {
         overlayWindowManager.hideOverlay()
         transientHideTask?.cancel()
 
-        currentResponseTask?.cancel()
-        currentResponseTask = nil
+        cancelActiveTurnTasks()
         shortcutTransitionCancellable?.cancel()
         chatShortcutCancellable?.cancel()
         voiceStateCancellable?.cancel()
+        queuedChatTurnDrainCancellable?.cancel()
+        queuedChatTurnDrainCancellable = nil
+        queuedChatTurnDrainTask?.cancel()
+        queuedChatTurnDrainTask = nil
+        chatTurnQueue.removeAll()
+        queuedChatTurnCount = 0
         audioPowerCancellable?.cancel()
         bargeInGatePropertyCancellable?.cancel()
         bargeInGatePropertyCancellable = nil
@@ -708,8 +783,11 @@ extension CompanionManager {
         if previouslyHadAccessibility != hasAccessibilityPermission
             || previouslyHadScreenRecording != hasScreenRecordingPermission
             || previouslyHadMicrophone != hasMicrophonePermission
-            || previouslyHadSpeechRecognition != hasSpeechRecognitionPermission {
-            print("🔑 Permissions — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), speech: \(hasSpeechRecognitionPermission), screenContent: \(hasScreenContentPermission)")
+            || previouslyHadSpeechRecognition != hasSpeechRecognitionPermission
+        {
+            print(
+                "🔑 Permissions — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), speech: \(hasSpeechRecognitionPermission), screenContent: \(hasScreenContentPermission)"
+            )
         }
 
         // Track individual permission grants as they happen
@@ -821,7 +899,9 @@ extension CompanionManager {
                 // Verify the capture actually returned real content — a 0x0 or
                 // fully-empty image means the user denied the prompt.
                 let didCapture = image.width > 0 && image.height > 0
-                print("🔑 Screen content capture result — width: \(image.width), height: \(image.height), didCapture: \(didCapture)")
+                print(
+                    "🔑 Screen content capture result — width: \(image.width), height: \(image.height), didCapture: \(didCapture)"
+                )
                 await MainActor.run {
                     isRequestingScreenContent = false
                     guard didCapture else { return }

@@ -22,7 +22,7 @@ import Foundation
 
 /// Pure, testable view of the server TTS settings read from Info.plist.
 nonisolated struct LocalServerTTSConfiguration: Equatable {
-    static let defaultBaseURL = URL(string: "http://localhost:8880/v1")!
+    static let defaultBaseURL = URL(string: "http://127.0.0.1:8880/v1")!
     static let defaultModelIdentifier = "kokoro"
     static let defaultVoiceIdentifier = "af_heart"
     static let defaultSpeed = 1.0
@@ -200,13 +200,10 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
     func speakText(_ text: String) async throws {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
-        // Wave 4: second Kokoro warmup the first time the user actually
-        // speaks. The init-time warmup runs against a sidecar that may
-        // not be reachable yet; this one fires after the user has hit
-        // PTT, by which point the sidecar is almost always up. Empty-
-        // body method that synthesizes a single-space phrase non-blocking
-        // — results are discarded.
-        prewarmIfFirstSessionCall()
+        // Push-to-talk starts the optional prewarm while the user is still
+        // speaking. Do not start it here: typed turns have no speech window,
+        // so a detached warmup request would race the real synthesis request
+        // against a sidecar that handles one request at a time.
         // Fresh sentence → previous stop reason no longer applies.
         lastStopReason = .naturalCompletion
         pendingNextStopReason = nil
@@ -274,6 +271,12 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
                 outputCharacterCount: outputByteCount
             )
         }
+        if let serverUnavailableUntil, serverUnavailableUntil > Date() {
+            auditSynthesis(outcome: "memoized_unavailable")
+            didDetectSidecarOutageDuringCurrentSession = true
+            return nil
+        }
+        serverUnavailableUntil = nil
         do {
             let (audioData, response) = try await sessionSnapshot.data(
                 for: configurationSnapshot.speechRequest(for: text)
@@ -288,10 +291,14 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
             auditSynthesis(outcome: "ok", outputByteCount: audioData.count)
             // Successful synthesis — sidecar reachable again.
             didDetectSidecarOutageDuringCurrentSession = false
+            serverUnavailableUntil = nil
             return audioData
         } catch {
             auditSynthesis(outcome: "transport_error")
             didDetectSidecarOutageDuringCurrentSession = true
+            serverUnavailableUntil = Date().addingTimeInterval(
+                LocalServerTTSConfiguration.unavailabilityMemoInSeconds
+            )
             return nil
         }
     }
@@ -308,17 +315,16 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
         defer { isDrainingPlaybackQueue = false }
         while !pendingUtteranceQueue.isEmpty {
             let utterance = pendingUtteranceQueue.removeFirst()
-            await speakWithKokoroOrSwallow(text: utterance.text)
+            await speakWithKokoroOrSystemFallback(text: utterance.text)
         }
     }
 
-    /// Strict "Kokoro or silent" policy. The Apple voice was rated worse
-    /// than no audio, so we never speak through it: a failed sentence is
-    /// retried (once on the raw text for transients, then by splitting on
-    /// a punctuation boundary to dodge mlx-audio's input-shape bugs), and
-    /// if both halves still fail the response overlay still shows the
-    /// text — only the audio is dropped for that fragment.
-    private func speakWithKokoroOrSwallow(text: String) async {
+    /// Prefer Kokoro, but preserve the basic voice-assistant contract when
+    /// the sidecar is unhealthy. A failed sentence is retried once, then
+    /// split around punctuation for model-specific input-shape failures.
+    /// If those attempts still fail, the always-local system voice speaks
+    /// the same text instead of silently dropping Pace's reply.
+    private func speakWithKokoroOrSystemFallback(text: String) async {
         if let audioData = await synthesizeAudioData(forText: text) {
             await playAudioData(audioData)
             return
@@ -340,11 +346,21 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
             if !secondHalf.isEmpty, let secondHalfAudio = await synthesizeAudioData(forText: secondHalf) {
                 await playAudioData(secondHalfAudio)
             } else {
-                print("🔊 Kokoro: dropping inaudible fragment '\(secondHalf.prefix(60))' — text still in overlay")
+                await speakWithSystemFallback(text: secondHalf)
             }
             return
         }
-        print("🔊 Kokoro: dropping inaudible sentence '\(text.prefix(60))' — text still in overlay")
+        await speakWithSystemFallback(text: text)
+    }
+
+    private func speakWithSystemFallback(text: String) async {
+        guard !text.isEmpty else { return }
+        do {
+            print("🔊 Kokoro unavailable — speaking with the local system voice")
+            try await fallbackClient.speakText(text)
+        } catch {
+            print("🔊 System voice fallback failed: \(error.localizedDescription)")
+        }
     }
 
     /// Splits text near the middle at the LAST punctuation boundary in

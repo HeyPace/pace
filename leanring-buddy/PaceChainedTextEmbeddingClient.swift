@@ -4,17 +4,14 @@
 //
 //  Tries a primary `PaceTextEmbedding` first; on throw, all-empty
 //  vectors, or wrong-cardinality result, falls back to a secondary.
-//  Used to wire LM Studio (preferred, high-quality nomic) primary +
-//  Apple NaturalLanguage (always-available, lower quality) fallback,
-//  so semantic recall works even on a clean Mac with no sidecar
-//  installed.
+//  Used to give an explicitly enabled in-process MLX embedder an
+//  always-available Apple NaturalLanguage fallback.
 //
-//  Picking the "right" client is left implicit per-call rather than
-//  cached, because LM Studio's reachability is genuinely transient —
-//  the user can quit LM Studio mid-session. Re-probing per call is
-//  what makes the system feel honest: when LM Studio is up, every
-//  recall benefits from the better model; when it isn't, recall
-//  still happens just at a lower quality bar.
+//  The default factories deliberately do not use an LM Studio embedding
+//  model. A second sidecar model can evict the conversational model from
+//  a single-model runtime, making an ordinary question pay a cold-load
+//  penalty or fail outright. Reliability of the user-facing turn takes
+//  priority over a small semantic-ranking improvement.
 //
 
 import Foundation
@@ -71,44 +68,26 @@ extension PaceChainedTextEmbeddingClient {
     ///   1. Bundled MLX (when SPM runtime is linked AND the user has
     ///      opted into in-process embeddings) — zero LM Studio
     ///      dependency, runs entirely in-process.
-    ///   2. LM Studio HTTP — the gold-quality nomic embedding when
-    ///      it's reachable; failure tips to the next fallback.
-    ///   3. Apple NL — always-available baseline that ships with
-    ///      every Mac. Lower quality but free.
+    ///   2. Apple NL — always-available baseline that ships with
+    ///      every Mac.
     ///
-    /// Keep this the only place that hard-codes the preference
-    /// order so the choice stays trivially auditable.
-    static func makePaceDefault() -> PaceChainedTextEmbeddingClient {
-        let primaryClient: any PaceTextEmbedding = {
-            if PaceBundledModelsSettings.isUsingMLXInProcessEmbedder() {
-                return PaceMLXEmbeddingClient(
-                    modelIdentifier: PaceBundledModelsSettings.embedderModelIdentifier()
-                )
-            }
-            return LMStudioEmbeddingClient()
-        }()
+    /// Keep the preference order here so background memory work can never
+    /// cause LM Studio to swap away from the conversational model.
+    static func makePaceDefault() -> any PaceTextEmbedding {
+        guard PaceBundledModelsSettings.isUsingMLXInProcessEmbedder() else {
+            return PaceAppleNLEmbeddingClient()
+        }
         return PaceChainedTextEmbeddingClient(
-            primary: primaryClient,
+            primary: PaceMLXEmbeddingClient(
+                modelIdentifier: PaceBundledModelsSettings.embedderModelIdentifier()
+            ),
             fallback: PaceAppleNLEmbeddingClient()
         )
     }
 
-    /// Voice/text routing is latency-sensitive. Keep the same Nomic-first
-    /// preference as semantic memory, but fail over quickly when LM Studio is
-    /// not running so an ordinary utterance never waits on a long sidecar
-    /// timeout before reaching the planner.
-    static func makeAutomationRoutingDefault() -> PaceChainedTextEmbeddingClient {
-        let primaryClient: any PaceTextEmbedding = {
-            if PaceBundledModelsSettings.isUsingMLXInProcessEmbedder() {
-                return PaceMLXEmbeddingClient(
-                    modelIdentifier: PaceBundledModelsSettings.embedderModelIdentifier()
-                )
-            }
-            return LMStudioEmbeddingClient(requestTimeoutInSeconds: 0.75)
-        }()
-        return PaceChainedTextEmbeddingClient(
-            primary: primaryClient,
-            fallback: PaceAppleNLEmbeddingClient()
-        )
+    /// Voice/text routing is latency-sensitive and runs before the planner on
+    /// ordinary utterances. It must therefore use only an in-process embedder.
+    static func makeAutomationRoutingDefault() -> any PaceTextEmbedding {
+        makePaceDefault()
     }
 }

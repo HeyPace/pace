@@ -28,7 +28,8 @@ extension CompanionManager {
                 for candidate in candidateSet.candidates {
                     if let label = candidate.label?
                         .trimmingCharacters(in: .whitespacesAndNewlines),
-                       !label.isEmpty {
+                        !label.isEmpty
+                    {
                         return label
                     }
                 }
@@ -47,7 +48,8 @@ extension CompanionManager {
         guard PaceActionApprovalPolicy.planContainsReversibleMutation(actionExecutionPlan) else {
             return
         }
-        let summary = PaceActionApprovalPolicy.firstReversibleSummary(actionExecutionPlan)
+        let summary =
+            PaceActionApprovalPolicy.firstReversibleSummary(actionExecutionPlan)
             ?? "Last action"
         mostRecentReversibleActionSummary = summary
         mostRecentReversibleActionAt = Date()
@@ -112,9 +114,11 @@ extension CompanionManager {
     /// notch panel's replay button. Reuses the SAME text that already
     /// went through TTS — doesn't re-stream the planner.
     func replayLastSpokenReply() {
-        guard let textToReplay = lastSpokenReplyText?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-              !textToReplay.isEmpty else {
+        guard
+            let textToReplay = lastSpokenReplyText?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !textToReplay.isEmpty
+        else {
             return
         }
         Task { @MainActor in
@@ -135,7 +139,8 @@ extension CompanionManager {
     /// breadcrumb (e.g. "agent loop step 3") — never spoken.
     func speakPlainLanguageFailure(
         _ kind: PaceFailureKind,
-        context: String? = nil
+        context: String? = nil,
+        respondingToUserTranscript userTranscript: String? = nil
     ) {
         let narration = PaceFailureNarrator.compose(kind)
         lastFailureNarration = narration
@@ -179,13 +184,28 @@ extension CompanionManager {
             print("⏳ Skipping queued failure narration (\(reason)): \(narration.spokenText)")
         }
 
-        // Write a paceHistory breadcrumb so "what did you tell me
-        // about earlier?" can recall the failure event later.
-        localRetriever.recordPaceHistory(
-            userTranscript: "(system) failure event",
-            assistantResponse: "Pace surfaced a failure: \(narration.spokenText)"
-        )
-        refreshLocalRetrievalPublishedState()
+        if let userTranscript,
+            !userTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            // A directly requested turn must always receive a visible answer,
+            // even when the planner or a permission boundary fails before the
+            // normal completion chokepoint.
+            recordConversationTurn(
+                userTranscript: userTranscript,
+                assistantResponse: narration.spokenText
+            )
+            responseOverlayManager.updateStreamingText(narration.spokenText)
+            responseOverlayManager.finishStreaming()
+            currentTurnHUDState = .failed(narration.spokenText)
+        } else {
+            // Background failures remain internal breadcrumbs so they do not
+            // masquerade as something the user asked in conversation history.
+            localRetriever.recordPaceHistory(
+                userTranscript: "(system) failure event",
+                assistantResponse: "Pace surfaced a failure: \(narration.spokenText)"
+            )
+            refreshLocalRetrievalPublishedState()
+        }
     }
 
     /// Builds the gate context for a failure narration. Failures
@@ -218,8 +238,11 @@ extension CompanionManager {
     func speakFailureForBlockingPreflightIfApplicable(
         preflightIssues: [PaceToolPreflightIssue]
     ) {
-        guard let blockingKind = PaceToolPreflight
-            .firstBlockingIssueKind(in: preflightIssues) else {
+        guard
+            let blockingKind =
+                PaceToolPreflight
+                .firstBlockingIssueKind(in: preflightIssues)
+        else {
             return
         }
         switch blockingKind {
@@ -284,7 +307,8 @@ extension CompanionManager {
         }
         let sidecarTTSOfflineCooldown: TimeInterval = 30 * 60
         if let lastNarratedAt = lastSidecarTTSOfflineNarratedAt,
-           now.timeIntervalSince(lastNarratedAt) < sidecarTTSOfflineCooldown {
+            now.timeIntervalSince(lastNarratedAt) < sidecarTTSOfflineCooldown
+        {
             return
         }
         lastSidecarTTSOfflineNarratedAt = now

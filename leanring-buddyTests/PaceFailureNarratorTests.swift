@@ -38,6 +38,39 @@ final class PaceFailureNarratorTests: XCTestCase {
         )
     }
 
+    func testMissingScreenRecordingPermissionNamesScreenRecording() {
+        let narration = PaceFailureNarrator.compose(
+            .missingPermission(permission: .screenRecording)
+        )
+
+        XCTAssertTrue(narration.spokenText.contains("Screen Recording access"))
+        XCTAssertEqual(
+            narration.suggestion,
+            .openSpecificPermission(.screenRecording)
+        )
+    }
+
+    func testScreenCaptureDenialMapsToPermissionFailure() {
+        let screenCaptureDenial = NSError(
+            domain: "com.apple.ScreenCaptureKit.SCStreamErrorDomain",
+            code: -3801
+        )
+
+        XCTAssertEqual(
+            PaceFailureNarrator.kindForPlannerPipelineError(screenCaptureDenial),
+            .missingPermission(permission: .screenRecording)
+        )
+    }
+
+    func testOtherPipelineErrorsStillMapToPlannerOffline() {
+        let connectionFailure = NSError(domain: NSURLErrorDomain, code: -1004)
+
+        XCTAssertEqual(
+            PaceFailureNarrator.kindForPlannerPipelineError(connectionFailure),
+            .plannerOffline
+        )
+    }
+
     func testMissingCalendarPermissionNamesCalendar() {
         let narration = PaceFailureNarrator.compose(
             .missingPermission(permission: .calendar)
@@ -173,6 +206,7 @@ final class PaceFailureNarratorTests: XCTestCase {
         let allKinds: [PaceFailureKind] = [
             .plannerOffline,
             .missingPermission(permission: .accessibility),
+            .missingPermission(permission: .screenRecording),
             .missingPermission(permission: .calendar),
             .missingPermission(permission: .reminders),
             .missingPermission(permission: .automation),
