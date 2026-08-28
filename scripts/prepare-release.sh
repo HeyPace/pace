@@ -50,13 +50,26 @@ mkdir -p "$OUTPUT_APP/Contents/Resources/scripts"
 cp "$SCRIPT_DIR/start-tts-server.sh" "$OUTPUT_APP/Contents/Resources/scripts/start-tts-server.sh"
 chmod +x "$OUTPUT_APP/Contents/Resources/scripts/start-tts-server.sh"
 
+if [[ "$SIGNING_IDENTITY" != "-" ]]; then
+security find-identity -v -p codesigning | grep -F "$SIGNING_IDENTITY" >/dev/null || {
+    echo "Developer ID identity is not installed: $SIGNING_IDENTITY" >&2
+    exit 1
+}
+fi
+
+# Sparkle arrives with its upstream Team ID. Re-sign embedded frameworks before
+# the outer app so dyld sees one signing identity throughout the bundle.
+while IFS= read -r framework_path; do
+    if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+        codesign --force --deep --sign - "$framework_path"
+    else
+        codesign --force --deep --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$framework_path"
+    fi
+done < <(find "$OUTPUT_APP/Contents/Frameworks" -maxdepth 2 -name "*.framework" -type d 2>/dev/null)
+
 if [[ "$SIGNING_IDENTITY" == "-" ]]; then
-    codesign --force --deep --options runtime --sign - "$OUTPUT_APP"
+    codesign --force --deep --sign - "$OUTPUT_APP"
 else
-    security find-identity -v -p codesigning | grep -F "$SIGNING_IDENTITY" >/dev/null || {
-        echo "Developer ID identity is not installed: $SIGNING_IDENTITY" >&2
-        exit 1
-    }
     codesign --force --deep --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$OUTPUT_APP"
 fi
 
