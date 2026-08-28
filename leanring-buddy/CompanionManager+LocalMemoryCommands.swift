@@ -31,12 +31,14 @@ extension CompanionManager {
         switch command {
         case .forget(let name):
             let didForget = PaceNamedDestinationStore.shared.forget(displayName: name)
-            spokenText = didForget
+            spokenText =
+                didForget
                 ? "forgotten."
                 : "i don't have a saved site called \(name)."
         case .remember(let requestedName):
             if let captured = PaceBrowserURLReader.currentTab() {
-                let displayName = requestedName
+                let displayName =
+                    requestedName
                     ?? PaceBrowserURLReader.defaultName(forURL: captured.url)
                 PaceNamedDestinationStore.shared.save(
                     displayName: displayName,
@@ -45,7 +47,8 @@ extension CompanionManager {
                 spokenText = "got it — i'll remember \(displayName)."
             } else {
                 // Frontmost app isn't a scriptable browser, or the read failed.
-                spokenText = "i couldn't read this page's address — make sure the site is open in your browser and try again."
+                spokenText =
+                    "i couldn't read this page's address — make sure the site is open in your browser and try again."
             }
         }
 
@@ -58,6 +61,7 @@ extension CompanionManager {
             while ttsClient.isPlaying {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
+            guard !Task.isCancelled else { return }
             responseOverlayManager.finishStreaming()
             voiceState = .idle
             currentTurnHUDState = .done("done")
@@ -86,6 +90,7 @@ extension CompanionManager {
             while ttsClient.isPlaying {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
+            guard !Task.isCancelled else { return }
             responseOverlayManager.finishStreaming()
             voiceState = .idle
         }
@@ -104,12 +109,12 @@ extension CompanionManager {
         handleImmediateLocalModeResponse(transcript: transcript, spokenText: spokenText)
     }
 
-
     func handleAutomationCatalogCommand(
         _ command: PaceAutomationCatalogCommand,
         transcript: String
     ) async {
         let discoveredCatalog = await discoverAutomationCatalog()
+        guard !Task.isCancelled else { return }
         let automationCatalog = discoveredCatalog.catalog
 
         switch command {
@@ -135,7 +140,8 @@ extension CompanionManager {
                     .joined(separator: ", ")
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
-                    spokenText: "\(requestedName) matches multiple entries from \(conflictingSources). say the source-specific command instead.",
+                    spokenText:
+                        "\(requestedName) matches multiple entries from \(conflictingSources). say the source-specific command instead.",
                     shouldRecordConversationTurn: false
                 )
 
@@ -156,14 +162,28 @@ extension CompanionManager {
     /// Returning false means "keep routing"; weak, ambiguous, and failed
     /// matches never consume the user's turn.
     func dispatchNaturalLanguageAutomationIfConfident(transcript: String) async -> Bool {
+        // Information-seeking questions belong to the answer router. Skip
+        // even catalog discovery here: loading Shortcuts and reusable-work
+        // metadata added more than a second before basic factual answers.
+        // Explicit catalog commands are already handled by the parser above.
+        guard
+            PaceAutomationNaturalLanguageMatcher.shouldAttemptImplicitCatalogMatch(
+                transcript: transcript
+            )
+        else {
+            return false
+        }
+
         let discoveredCatalog = await discoverAutomationCatalog(
             refreshShortcutCatalog: false
         )
+        guard !Task.isCancelled else { return false }
         let match = await PaceAutomationNaturalLanguageMatcher.match(
             transcript: transcript,
             catalog: discoveredCatalog.catalog,
             embedder: PaceChainedTextEmbeddingClient.makeAutomationRoutingDefault()
         )
+        guard !Task.isCancelled else { return false }
 
         let matchingEntry: PaceAutomationCatalogEntry
         let evidenceDescription: String
@@ -191,6 +211,7 @@ extension CompanionManager {
                 ambiguousEntries: ambiguousEntries,
                 catalog: discoveredCatalog.catalog
             )
+            guard !Task.isCancelled else { return false }
             switch resolution {
             case .run(let resolvedEntry):
                 matchingEntry = resolvedEntry
@@ -247,7 +268,8 @@ extension CompanionManager {
                 shortcutNames = []
             }
         } else if let cachedShortcutCatalog = PaceShortcutsAutomationProvider.shared
-            .cachedCatalogIfFresh() {
+            .cachedCatalogIfFresh()
+        {
             shortcutNames = cachedShortcutCatalog.shortcutNames
         } else {
             shortcutNames = []
@@ -291,8 +313,10 @@ extension CompanionManager {
                 )
                 return
             }
-            if let missingPreferenceKey = PaceAutomationDefinitionLibrary
-                .missingRequiredPreference(for: definition) {
+            if let missingPreferenceKey =
+                PaceAutomationDefinitionLibrary
+                .missingRequiredPreference(for: definition)
+            {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "i need \(missingPreferenceKey) set first.",
@@ -320,10 +344,12 @@ extension CompanionManager {
             }
 
         case .program(let identifier):
-            guard let program = PaceProgramLibrary.resolve(
-                identifier: identifier,
-                in: programs
-            ) else {
+            guard
+                let program = PaceProgramLibrary.resolve(
+                    identifier: identifier,
+                    in: programs
+                )
+            else {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "that programmed automation is no longer available.",
@@ -413,6 +439,7 @@ extension CompanionManager {
         transcript: String
     ) async {
         let catalogDiscoveryResult = await PaceShortcutsAutomationProvider.shared.catalog()
+        guard !Task.isCancelled else { return }
 
         guard case .success(let shortcutCatalog) = catalogDiscoveryResult else {
             if case .failure(let failureDescription) = catalogDiscoveryResult {
@@ -436,9 +463,11 @@ extension CompanionManager {
             )
 
         case .run(let requestedShortcutName):
-            guard let installedShortcutDisplayName = shortcutCatalog.exactDisplayName(
-                matching: requestedShortcutName
-            ) else {
+            guard
+                let installedShortcutDisplayName = shortcutCatalog.exactDisplayName(
+                    matching: requestedShortcutName
+                )
+            else {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "i don't see a shortcut called \(requestedShortcutName).",
@@ -496,6 +525,7 @@ extension CompanionManager {
             while ttsClient.isPlaying {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
+            guard !Task.isCancelled else { return }
             responseOverlayManager.finishStreaming()
             voiceState = .idle
         }
@@ -512,7 +542,8 @@ extension CompanionManager {
     }
 
     func appendConfiguredMCPContext(to userPrompt: String) -> String {
-        let configuredServerNames = PaceMCPServerRegistry
+        let configuredServerNames =
+            PaceMCPServerRegistry
             .loadConfiguredServers()
             .keys
             .sorted()
@@ -522,12 +553,12 @@ extension CompanionManager {
         }
 
         return """
-        \(userPrompt)
+            \(userPrompt)
 
-        Configured MCP servers:
-        \(configuredServerNames.map { "- \($0)" }.joined(separator: "\n"))
+            Configured MCP servers:
+            \(configuredServerNames.map { "- \($0)" }.joined(separator: "\n"))
 
-        Use MCP only when a task is better handled by one of these configured external servers.
-        """
+            Use MCP only when a task is better handled by one of these configured external servers.
+            """
     }
 }

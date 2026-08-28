@@ -69,9 +69,8 @@ enum BuddyTTSClientFactory {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
 
-        // `localServer` is the default: when no sidecar is running it
-        // degrades to the Apple voice within milliseconds per turn, so the
-        // upgrade is free to opt out of and automatic to opt into.
+        // Apple speech is the dependable zero-setup default. Kokoro remains
+        // available when `TTSProvider=localServer` is chosen explicitly.
         if configuredProvider == "apple" {
             print("🔊 TTS: using local AVSpeechSynthesizer")
             return LocalTTSClient()

@@ -2,14 +2,13 @@
 //  PaceFMIntentClassifier.swift
 //  leanring-buddy
 //
-//  LLM-backed intent classifier using Apple Foundation Models' typed
-//  `@Generable` output. Replaces the 200-line rule-based phrase-list
-//  classifier — language understanding belongs to the language model,
-//  not to a Swift if/contains tree.
+//  Optional LLM-backed intent classifier using Apple Foundation Models'
+//  typed `@Generable` output. Pace's default router remains deterministic
+//  because adding a model call before every turn makes the common path slow.
 //
-//  Latency: greedy-sampled enum classification on a 3B in-process model
-//  is ~80-200ms warm. The session is reused across calls so the system
-//  prompt's KV cache survives, keeping the marginal cost low.
+//  The rule-based classifier handles known routes without a model call.
+//  Ambiguous turns fall back to a fresh, stateless 3B in-process session so
+//  repeated classifications cannot overflow a shared context window.
 //
 //  Availability: when Apple Intelligence isn't enabled / device isn't
 //  eligible, `PaceIntentClassifierFactory` falls back to the rule-based
@@ -133,15 +132,19 @@ final class PaceFMIntentClassifier {
 @MainActor
 enum PaceIntentClassifierFactory {
     static func makeDefault() -> any PaceIntentClassifying {
+        let deterministicClassifier = PaceIntentClassifier()
         if #available(macOS 26.0, *) {
             let systemLanguageModel = SystemLanguageModel.default
             if case .available = systemLanguageModel.availability {
-                print("🧠 PaceIntentClassifier: Apple Foundation Models backend")
-                return PaceFMIntentClassifierAdapter(classifier: PaceFMIntentClassifier())
+                print("🧠 PaceIntentClassifier: deterministic router with Foundation Models fallback")
+                return PaceFMIntentClassifierAdapter(
+                    classifier: PaceFMIntentClassifier(),
+                    deterministicClassifier: deterministicClassifier
+                )
             }
         }
-        print("🧠 PaceIntentClassifier: rule-based fallback (Apple Intelligence unavailable)")
-        return PaceRuleBasedIntentClassifierAdapter(classifier: PaceIntentClassifier())
+        print("🧠 PaceIntentClassifier: deterministic local router")
+        return PaceRuleBasedIntentClassifierAdapter(classifier: deterministicClassifier)
     }
 }
 
@@ -182,19 +185,38 @@ final class PaceRuleBasedIntentClassifierAdapter: PaceIntentClassifying {
 @MainActor
 final class PaceFMIntentClassifierAdapter: PaceIntentClassifying {
     private let classifier: PaceFMIntentClassifier
+    private let deterministicClassifier: PaceIntentClassifier
 
-    init(classifier: PaceFMIntentClassifier) {
+    init(
+        classifier: PaceFMIntentClassifier,
+        deterministicClassifier: PaceIntentClassifier
+    ) {
         self.classifier = classifier
+        self.deterministicClassifier = deterministicClassifier
     }
 
     func classify(_ transcript: String) async -> PaceIntentPrediction {
-        await classifier.classify(transcript)
+        let deterministicPrediction = deterministicClassifier.classify(transcript)
+        guard deterministicPrediction.intent == .unknown else {
+            return deterministicPrediction
+        }
+        return await classifier.classify(transcript)
     }
 
     func classify(
         _ transcript: String,
         conversationHistory: [(userTranscript: String, assistantResponse: String)]
     ) async -> PaceIntentPrediction {
-        await classifier.classify(transcript, conversationHistory: conversationHistory)
+        let deterministicPrediction = deterministicClassifier.classify(
+            transcript,
+            conversationHistory: conversationHistory
+        )
+        guard deterministicPrediction.intent == .unknown else {
+            return deterministicPrediction
+        }
+        return await classifier.classify(
+            transcript,
+            conversationHistory: conversationHistory
+        )
     }
 }

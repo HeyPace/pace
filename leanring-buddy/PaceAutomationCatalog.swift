@@ -283,6 +283,14 @@ nonisolated enum PaceAutomationNaturalLanguageMatcher {
             )
         }
 
+        // Exact authored phrases above remain authoritative. For every other
+        // information-seeking question, skip semantic automation matching:
+        // approximate vector similarity between a factual question and names
+        // such as "today schedule" must never delay or hijack the answer path.
+        guard shouldAttemptImplicitCatalogMatch(transcript: normalizedTranscript) else {
+            return .noMatch
+        }
+
         guard let embedder else { return .noMatch }
 
         do {
@@ -332,6 +340,17 @@ nonisolated enum PaceAutomationNaturalLanguageMatcher {
             .lowercased()
             .split(whereSeparator: { $0.isWhitespace })
             .joined(separator: " ")
+    }
+
+    static func shouldAttemptImplicitCatalogMatch(transcript: String) -> Bool {
+        let normalizedTranscript = normalizedPhrase(transcript)
+        let informationSeekingPrefixes = [
+            "what ", "whats ", "who ", "when ", "where ", "why ",
+            "how ", "which ", "tell me about ", "explain ", "define ",
+        ]
+        return !informationSeekingPrefixes.contains { prefix in
+            normalizedTranscript.hasPrefix(prefix)
+        }
     }
 
     private static func semanticDocument(for entry: PaceAutomationCatalogEntry) -> String {

@@ -288,7 +288,7 @@ final class LocalVLMClient: PaceScreenAnalysisClient, @unchecked Sendable {
     /// `http://localhost:1234/v1`). `modelIdentifier` is the model name
     /// as shown in LM Studio (e.g. `qwen3-vl-8b-instruct`).
     init(
-        baseURL: URL = URL(string: "http://localhost:1234/v1")!,
+        baseURL: URL = URL(string: "http://127.0.0.1:1234/v1")!,
         modelIdentifier: String = "qwen3-vl-8b-instruct"
     ) {
         self.baseURL = PaceLocalEndpointGuard.resolvedLocalOpenAICompatibleBaseURL(
@@ -378,7 +378,7 @@ final class LocalVLMClient: PaceScreenAnalysisClient, @unchecked Sendable {
         // Real screens regularly need 30-50 elements; at ~30 tokens
         // per compact JSON element + 200 for the schema scaffold, 4096
         // comfortably fits.
-        let requestBody: [String: Any] = [
+        var requestBody: [String: Any] = [
             "model": modelIdentifier,
             "messages": [
                 ["role": "system", "content": systemInstruction],
@@ -387,6 +387,7 @@ final class LocalVLMClient: PaceScreenAnalysisClient, @unchecked Sendable {
             "temperature": 0.1,
             "max_tokens": 4096
         ]
+        PaceLocalOpenAIRequestTuning.apply(to: &requestBody)
 
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
@@ -462,7 +463,7 @@ final class LocalVLMClient: PaceScreenAnalysisClient, @unchecked Sendable {
             ["type": "text", "text": "Target to click: \"\(targetDescription)\". Which mark number is on that element?"],
             ["type": "image_url", "image_url": ["url": imageDataURL]]
         ]
-        let requestBody: [String: Any] = [
+        var requestBody: [String: Any] = [
             "model": modelIdentifier,
             "messages": [
                 ["role": "system", "content": systemInstruction],
@@ -471,6 +472,7 @@ final class LocalVLMClient: PaceScreenAnalysisClient, @unchecked Sendable {
             "temperature": 0,
             "max_tokens": 16
         ]
+        PaceLocalOpenAIRequestTuning.apply(to: &requestBody)
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
         let (responseData, urlResponse) = try await urlSession.data(for: request)

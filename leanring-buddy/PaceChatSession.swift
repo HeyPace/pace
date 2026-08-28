@@ -41,7 +41,8 @@ nonisolated struct PaceChatMessage: Identifiable, Equatable {
 
     var isInternalRuntimeEvent: Bool {
         guard role == .user else { return false }
-        let normalizedBody = body
+        let normalizedBody =
+            body
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         return normalizedBody.hasPrefix("(system)")
@@ -51,7 +52,8 @@ nonisolated struct PaceChatMessage: Identifiable, Equatable {
 
     var persistedTurnIdentifier: String? {
         guard id.hasSuffix(":user") || id.hasSuffix(":pace"),
-              let roleSeparatorIndex = id.lastIndex(of: ":") else { return nil }
+            let roleSeparatorIndex = id.lastIndex(of: ":")
+        else { return nil }
         return String(id[..<roleSeparatorIndex])
     }
 }
@@ -71,7 +73,7 @@ protocol PaceChatHistorySource: AnyObject {
 /// Raw turn pair extracted from `paceHistory` storage. Mirrors the
 /// "User: …\nPace: …" body shape `recordPaceHistory` writes; the
 /// session expands each pair into two `PaceChatMessage` rows.
-struct PaceChatHistoryTurn: Equatable {
+struct PaceChatHistoryTurn: Equatable, Sendable {
     let id: String
     let userText: String
     let paceText: String
@@ -85,7 +87,10 @@ struct PaceChatHistoryTurn: Equatable {
 /// dependencies). Production wiring passes a closure that forwards
 /// into `submitChatTranscriptFromChatSession(_:)`.
 protocol PaceChatTranscriptSubmitting: AnyObject {
-    func submitChatTranscript(_ transcript: String)
+    func submitChatTranscript(
+        _ transcript: String,
+        optimisticMessageIdentifier: String
+    )
 }
 
 @MainActor
@@ -99,6 +104,12 @@ final class PaceChatSession: ObservableObject {
     /// out: "Mute is a per-session ephemeral flag — do NOT persist it
     /// across restart."
     @Published var isChatTTSMuted: Bool = false
+
+    /// Keeps an unfinished command alive while the transient notch tray is
+    /// closed and reopened. This remains session-only and is never persisted.
+    @Published var draftMessageText: String = ""
+
+    private var isHistoryLoadInFlight = false
 
     private let historySource: PaceChatHistorySource
     /// Strongly held. The adapter that conforms to this protocol in
@@ -122,6 +133,38 @@ final class PaceChatSession: ObservableObject {
     /// when the user re-opens the window. Safe to call from `.onAppear`.
     func loadHistory() {
         let pastTurns = historySource.loadPastTurnsOldestFirst()
+        applyLoadedHistory(pastTurns)
+    }
+
+    /// The production source reads a JSON index from disk. Keep that work
+    /// away from the main actor so opening a Pace surface never waits on a
+    /// growing retrieval index. Test sources remain synchronous.
+    func loadHistoryWithoutBlockingInterface() {
+        guard !isHistoryLoadInFlight else { return }
+        guard let localHistoryReader = historySource as? PaceLocalChatHistoryReader else {
+            loadHistory()
+            return
+        }
+
+        isHistoryLoadInFlight = true
+        let messageIdentifiersBeforeHistoryLoad = Set(messages.map(\.id))
+        Task { [weak self] in
+            let pastTurns = await localHistoryReader.loadPastTurnsOldestFirstOffMain()
+            guard let self else { return }
+            let messagesAddedDuringHistoryLoad = self.messages.filter { message in
+                !messageIdentifiersBeforeHistoryLoad.contains(message.id)
+            }
+            self.isHistoryLoadInFlight = false
+            self.applyLoadedHistory(pastTurns)
+            let loadedMessageIdentifiers = Set(self.messages.map(\.id))
+            self.messages.append(
+                contentsOf: messagesAddedDuringHistoryLoad.filter { message in
+                    !loadedMessageIdentifiers.contains(message.id)
+                })
+        }
+    }
+
+    private func applyLoadedHistory(_ pastTurns: [PaceChatHistoryTurn]) {
         var rehydratedMessages: [PaceChatMessage] = []
         rehydratedMessages.reserveCapacity(pastTurns.count * 2)
         for pastTurn in pastTurns {
@@ -167,7 +210,8 @@ final class PaceChatSession: ObservableObject {
         let trimmedTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTranscript.isEmpty else { return }
         let now = Date()
-        let pendingMessageId = "chat-pending-\(Int(now.timeIntervalSince1970 * 1000))-\(abs(trimmedTranscript.hashValue))"
+        let pendingMessageId =
+            "chat-pending-\(Int(now.timeIntervalSince1970 * 1000))-\(abs(trimmedTranscript.hashValue))"
         messages.append(
             PaceChatMessage(
                 id: pendingMessageId,
@@ -176,7 +220,10 @@ final class PaceChatSession: ObservableObject {
                 createdAt: now
             )
         )
-        transcriptSubmitter.submitChatTranscript(trimmedTranscript)
+        transcriptSubmitter.submitChatTranscript(
+            trimmedTranscript,
+            optimisticMessageIdentifier: pendingMessageId
+        )
     }
 
     /// `CompanionManager.recordConversationTurn` calls this after every
@@ -192,29 +239,64 @@ final class PaceChatSession: ObservableObject {
         let trimmedAssistantResponse = assistantResponse.trimmingCharacters(in: .whitespacesAndNewlines)
         let stableTurnIdPrefix = "chat-\(Int(recordedAt.timeIntervalSince1970))-\(abs(trimmedUserTranscript.hashValue))"
 
-        let mostRecentMessage = messages.last
-        let alreadyHasMatchingUserRow = mostRecentMessage?.role == .user
-            && mostRecentMessage?.body == trimmedUserTranscript
-        if !trimmedUserTranscript.isEmpty && !alreadyHasMatchingUserRow {
-            messages.append(
-                PaceChatMessage(
+        var completedUserMessageIndex: Int?
+        if !trimmedUserTranscript.isEmpty {
+            if let optimisticMessageIndex = messages.firstIndex(where: { message in
+                message.id.hasPrefix("chat-pending-")
+                    && message.role == .user
+                    && message.body == trimmedUserTranscript
+            }) {
+                messages[optimisticMessageIndex] = PaceChatMessage(
                     id: "\(stableTurnIdPrefix):user",
                     role: .user,
                     body: trimmedUserTranscript,
                     createdAt: recordedAt
                 )
-            )
+                completedUserMessageIndex = optimisticMessageIndex
+            } else if let mostRecentMessageIndex = messages.indices.last,
+                messages[mostRecentMessageIndex].role == .user,
+                messages[mostRecentMessageIndex].body == trimmedUserTranscript
+            {
+                completedUserMessageIndex = mostRecentMessageIndex
+            } else {
+                messages.append(
+                    PaceChatMessage(
+                        id: "\(stableTurnIdPrefix):user",
+                        role: .user,
+                        body: trimmedUserTranscript,
+                        createdAt: recordedAt
+                    )
+                )
+                completedUserMessageIndex = messages.indices.last
+            }
         }
 
         if !trimmedAssistantResponse.isEmpty {
-            messages.append(
-                PaceChatMessage(
-                    id: "\(stableTurnIdPrefix):pace",
-                    role: .pace,
-                    body: trimmedAssistantResponse,
-                    createdAt: recordedAt.addingTimeInterval(0.001)
-                )
+            let assistantMessage = PaceChatMessage(
+                id: "\(stableTurnIdPrefix):pace",
+                role: .pace,
+                body: trimmedAssistantResponse,
+                createdAt: recordedAt.addingTimeInterval(0.001)
             )
+            if let completedUserMessageIndex {
+                messages.insert(
+                    assistantMessage,
+                    at: min(completedUserMessageIndex + 1, messages.count)
+                )
+            } else {
+                messages.append(assistantMessage)
+            }
+        }
+    }
+
+    /// Removes optimistic rows for queue entries the user cleared before
+    /// execution. Active and completed turns have stable non-pending IDs and
+    /// are therefore never affected.
+    func removePendingUserMessages(withIdentifiers messageIdentifiers: [String]) {
+        let messageIdentifierSet = Set(messageIdentifiers)
+        guard !messageIdentifierSet.isEmpty else { return }
+        messages.removeAll { message in
+            messageIdentifierSet.contains(message.id)
         }
     }
 
@@ -243,7 +325,8 @@ final class PaceChatSession: ObservableObject {
     /// behavior is unit-testable and consistent if more surfaces start
     /// rendering the chat transcript.
     func filteredMessages(matching searchQuery: String) -> [PaceChatMessage] {
-        let trimmedQuery = searchQuery
+        let trimmedQuery =
+            searchQuery
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         guard !trimmedQuery.isEmpty else { return userFacingMessages }
@@ -260,11 +343,24 @@ final class PaceChatSession: ObservableObject {
 @MainActor
 final class PaceLocalChatHistoryReader: PaceChatHistorySource {
 
+    private nonisolated static let maximumDisplayedTurnCount = 200
+
     func loadPastTurnsOldestFirst() -> [PaceChatHistoryTurn] {
+        Self.loadPastTurnsOldestFirstFromDisk()
+    }
+
+    nonisolated func loadPastTurnsOldestFirstOffMain() async -> [PaceChatHistoryTurn] {
+        await Task.detached(priority: .userInitiated) {
+            Self.loadPastTurnsOldestFirstFromDisk()
+        }.value
+    }
+
+    private nonisolated static func loadPastTurnsOldestFirstFromDisk() -> [PaceChatHistoryTurn] {
         guard let indexURL = retrievalIndexFileURL(),
-              let indexData = try? Data(contentsOf: indexURL),
-              let indexJSON = try? JSONSerialization.jsonObject(with: indexData) as? [String: Any],
-              let rawDocuments = indexJSON["documents"] as? [[String: Any]] else {
+            let indexData = try? Data(contentsOf: indexURL),
+            let indexJSON = try? JSONSerialization.jsonObject(with: indexData) as? [String: Any],
+            let rawDocuments = indexJSON["documents"] as? [[String: Any]]
+        else {
             return []
         }
 
@@ -274,8 +370,9 @@ final class PaceLocalChatHistoryReader: PaceChatHistorySource {
 
         let pastTurns: [PaceChatHistoryTurn] = rawDocuments.compactMap { documentRaw in
             guard let source = documentRaw["source"] as? String, source == "paceHistory",
-                  let id = documentRaw["id"] as? String,
-                  let bodyText = documentRaw["text"] as? String else {
+                let id = documentRaw["id"] as? String,
+                let bodyText = documentRaw["text"] as? String
+            else {
                 return nil
             }
             let (userText, paceText) = Self.splitUserAndPace(bodyText)
@@ -283,7 +380,8 @@ final class PaceLocalChatHistoryReader: PaceChatHistorySource {
             if let modifiedAt = documentRaw["modifiedAt"] as? Double {
                 recordedAt = Date(timeIntervalSinceReferenceDate: modifiedAt)
             } else if let modifiedAtString = documentRaw["modifiedAt"] as? String {
-                recordedAt = isoDateFormatterWithFractionalSeconds.date(from: modifiedAtString)
+                recordedAt =
+                    isoDateFormatterWithFractionalSeconds.date(from: modifiedAtString)
                     ?? isoDateFormatterPlain.date(from: modifiedAtString)
             } else {
                 recordedAt = nil
@@ -297,10 +395,13 @@ final class PaceLocalChatHistoryReader: PaceChatHistorySource {
         }
         // Oldest-first so the chat transcript renders top-down with the
         // newest message at the bottom — standard chat ordering.
-        return pastTurns.sorted { ($0.recordedAt ?? .distantPast) < ($1.recordedAt ?? .distantPast) }
+        let oldestFirstTurns = pastTurns.sorted {
+            ($0.recordedAt ?? .distantPast) < ($1.recordedAt ?? .distantPast)
+        }
+        return Array(oldestFirstTurns.suffix(maximumDisplayedTurnCount))
     }
 
-    private func retrievalIndexFileURL() -> URL? {
+    private nonisolated static func retrievalIndexFileURL() -> URL? {
         FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first?
@@ -310,7 +411,9 @@ final class PaceLocalChatHistoryReader: PaceChatHistorySource {
     /// Pace history docs are stored as "User: …\nPace: …". Same logic
     /// the legacy static reader used; moved here so the production
     /// conformer and tests share one parser.
-    static func splitUserAndPace(_ documentText: String) -> (userText: String, paceText: String) {
+    nonisolated static func splitUserAndPace(
+        _ documentText: String
+    ) -> (userText: String, paceText: String) {
         let lowercasedDocument = documentText.lowercased()
         guard let userMarkerRange = lowercasedDocument.range(of: "user:") else {
             return (documentText, "")

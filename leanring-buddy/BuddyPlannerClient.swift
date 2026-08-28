@@ -499,18 +499,25 @@ enum BuddyPlannerClientFactory {
         }
     }
 
-    /// Short answer turns are a different latency class from screen/action
-    /// planning. Prefer Apple's in-process on-device model when it is
-    /// available, even if the main planner remains LM Studio for harder
-    /// fixtures. Fall back to the configured local planner when Apple
-    /// Intelligence is unavailable or its model assets are not ready.
+    /// Short answer turns are latency-sensitive but still need dependable
+    /// world knowledge. Use the local Qwen/MLX answer path instead of Apple's
+    /// small Foundation Model, which is intended for tasks such as extraction
+    /// and classification rather than factual recall.
     @MainActor
     static func makeFastTextOnlyPlannerOrFallback() -> any BuddyPlannerClient {
-        // Answer planner: NO structured-output constraint — pure-knowledge
-        // turns produce free prose that must stream sentence-by-sentence.
-        return makeFoundationModelsPlannerOrFallback(
+        if PaceBundledModelsSettings.isUsingMLXInProcessPlanner() {
+            let mlxPlanner = PaceMLXPlannerClient(
+                modelIdentifier: PaceBundledModelsSettings.plannerModelIdentifier()
+            )
+            print("🧠 Answer planner: using \(mlxPlanner.displayName) [bundled MLX]")
+            return mlxPlanner
+        }
+
+        let localPlanner = LocalPlannerClient.makeFromInfoPlist(
             requestsStructuredActionOutput: false
         )
+        print("🧠 Answer planner: using \(localPlanner.displayName) [native non-thinking path]")
+        return localPlanner
     }
 
     /// Construct the Foundation Models planner only if `SystemLanguageModel

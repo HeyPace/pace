@@ -22,8 +22,8 @@ PROJECT_PATH="$REPO_ROOT/leanring-buddy.xcodeproj"
 SCHEME="leanring-buddy"
 DERIVED_DATA="/tmp/pace-build"
 LM_STUDIO_API="http://localhost:1234/v1"
-PLANNER_MODEL="qwen/qwen3-14b"
-VLM_MODEL="ui-venus-1.5-8b"
+PLANNER_MODEL="qwen/qwen3.5-4b"
+VLM_MODEL="$PLANNER_MODEL"
 
 # Counter — incremented by check_pass / check_fail. Exit code returns
 # the failure count so the caller can detect regressions.

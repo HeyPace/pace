@@ -18,7 +18,7 @@ nonisolated struct PaceLocalEndpointGuardError: LocalizedError, Equatable {
 }
 
 nonisolated enum PaceLocalEndpointGuard {
-    static let defaultOpenAICompatibleBaseURL = URL(string: "http://localhost:1234/v1")!
+    static let defaultOpenAICompatibleBaseURL = URL(string: "http://127.0.0.1:1234/v1")!
 
     static func resolvedLocalOpenAICompatibleBaseURL(
         configuredURLString: String?,

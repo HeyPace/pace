@@ -76,8 +76,9 @@ enum DS {
         /// hover backgrounds, and the overlay cursor's gradient stops.
         static let accent = Color(hex: "#2563eb")
 
-        /// Pace's local signal. Blue means the active request remains on this Mac.
-        static let localSignal = Color(hex: "#4F8BFF")
+        /// Pace's local signal. The deeper blue keeps white control labels at
+        /// accessible contrast while preserving the product's single accent.
+        static let localSignal = accent
 
         /// Explicit disclosure for a planner boundary that leaves the Mac.
         static let offDeviceSignal = Color(hex: "#FFB347")
@@ -156,6 +157,53 @@ extension View {
                 PointerCursorView()
             }
         }
+    }
+
+    /// Gives plain SwiftUI controls the same restrained hover signal while
+    /// preserving the system's keyboard focus treatment.
+    func paceControlHoverHighlight(
+        cornerRadius: CGFloat,
+        isEnabled: Bool = true
+    ) -> some View {
+        modifier(
+            PaceControlHoverHighlight(
+                cornerRadius: cornerRadius,
+                isEnabled: isEnabled
+            )
+        )
+    }
+}
+
+private struct PaceControlHoverHighlight: ViewModifier {
+    let cornerRadius: CGFloat
+    let isEnabled: Bool
+
+    @State private var isHovered = false
+    @FocusState private var isKeyboardFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .focusable(isEnabled)
+            .focused($isKeyboardFocused)
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(
+                        DS.Colors.localSignal.opacity(
+                            isEnabled && (isHovered || isKeyboardFocused) ? 0.72 : 0
+                        ),
+                        lineWidth: isKeyboardFocused ? 1.6 : 1
+                    )
+                    .allowsHitTesting(false)
+            }
+            .scaleEffect(reduceMotion || !isEnabled ? 1 : (isHovered ? 1.015 : 1))
+            .animation(
+                reduceMotion ? nil : .easeOut(duration: DS.Motion.micro),
+                value: isHovered
+            )
+            .onHover { hovering in
+                isHovered = isEnabled && hovering
+            }
     }
 }
 

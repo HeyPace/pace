@@ -84,7 +84,7 @@ struct PaceOnboardingView: View {
         .frame(minWidth: 900, minHeight: 620)
         .preferredColorScheme(.dark)
         .onAppear {
-            chatSession.loadHistory()
+            chatSession.loadHistoryWithoutBlockingInterface()
             schedulePermissionAutoAdvanceIfNeeded()
         }
         .onDisappear(perform: cancelDelayedWork)

@@ -11,6 +11,7 @@
 
 import Foundation
 import Testing
+
 @testable import Pace
 
 @MainActor
@@ -30,9 +31,14 @@ struct PaceChatSessionTests {
 
     final class FakeTranscriptSubmitter: PaceChatTranscriptSubmitting {
         var submittedTranscripts: [String] = []
+        var optimisticMessageIdentifiers: [String] = []
 
-        func submitChatTranscript(_ transcript: String) {
+        func submitChatTranscript(
+            _ transcript: String,
+            optimisticMessageIdentifier: String
+        ) {
             submittedTranscripts.append(transcript)
+            optimisticMessageIdentifiers.append(optimisticMessageIdentifier)
         }
     }
 
@@ -76,12 +82,13 @@ struct PaceChatSessionTests {
         // Each turn expands into TWO messages (user + pace).
         #expect(session.messages.count == 4)
         #expect(session.messages.map(\.role) == [.user, .pace, .user, .pace])
-        #expect(session.messages.map(\.body) == [
-            "what's the time",
-            "it's 9 pm",
-            "thanks",
-            "you're welcome",
-        ])
+        #expect(
+            session.messages.map(\.body) == [
+                "what's the time",
+                "it's 9 pm",
+                "thanks",
+                "you're welcome",
+            ])
     }
 
     @Test func loadHistoryDropsEmptyHalves() async throws {
@@ -92,7 +99,7 @@ struct PaceChatSessionTests {
                 userText: "session ended (cause: idleTimeout)",
                 paceText: "",
                 recordedAt: Date()
-            ),
+            )
         ]
         let session = makeSession(
             historySource: historySource,
@@ -113,7 +120,7 @@ struct PaceChatSessionTests {
                 userText: "hi",
                 paceText: "hello",
                 recordedAt: Date()
-            ),
+            )
         ]
         let session = makeSession(
             historySource: historySource,
@@ -150,6 +157,8 @@ struct PaceChatSessionTests {
         session.submitUserMessage("  what's the time  ")
 
         #expect(submitter.submittedTranscripts == ["what's the time"])
+        #expect(submitter.optimisticMessageIdentifiers.count == 1)
+        #expect(submitter.optimisticMessageIdentifiers.first?.hasPrefix("chat-pending-") == true)
         #expect(session.messages.count == 1)
         #expect(session.messages.first?.role == .user)
         #expect(session.messages.first?.body == "what's the time")
@@ -207,6 +216,55 @@ struct PaceChatSessionTests {
         #expect(session.messages.map(\.body) == ["hello", "hi there"])
     }
 
+    @Test func queuedOptimisticRowsReceiveRepliesInTurnOrder() async throws {
+        let session = makeSession(
+            historySource: FakeHistorySource(),
+            submitter: FakeTranscriptSubmitter()
+        )
+        session.submitUserMessage("first")
+        session.submitUserMessage("second")
+        session.submitUserMessage("third")
+
+        session.appendCompletedTurn(userTranscript: "first", assistantResponse: "one")
+        session.appendCompletedTurn(userTranscript: "second", assistantResponse: "two")
+
+        #expect(session.messages.map(\.role) == [.user, .pace, .user, .pace, .user])
+        #expect(session.messages.map(\.body) == ["first", "one", "second", "two", "third"])
+    }
+
+    @Test func duplicateQueuedTranscriptsConsumeOneOptimisticRowPerCompletion() async throws {
+        let session = makeSession(
+            historySource: FakeHistorySource(),
+            submitter: FakeTranscriptSubmitter()
+        )
+        session.submitUserMessage("repeat")
+        session.submitUserMessage("repeat")
+
+        session.appendCompletedTurn(userTranscript: "repeat", assistantResponse: "first reply")
+        session.appendCompletedTurn(userTranscript: "repeat", assistantResponse: "second reply")
+
+        #expect(
+            session.messages.map(\.body) == [
+                "repeat", "first reply", "repeat", "second reply",
+            ])
+    }
+
+    @Test func clearingQueuedIdentifierPreservesOtherPendingRows() async throws {
+        let submitter = FakeTranscriptSubmitter()
+        let session = makeSession(
+            historySource: FakeHistorySource(),
+            submitter: submitter
+        )
+        session.submitUserMessage("active")
+        session.submitUserMessage("queued")
+
+        session.removePendingUserMessages(
+            withIdentifiers: [submitter.optimisticMessageIdentifiers[1]]
+        )
+
+        #expect(session.messages.map(\.body) == ["active"])
+    }
+
     // MARK: - Mute toggle
 
     @Test func muteFlagStartsFalseAndPersistsForSessionInstance() async throws {
@@ -223,6 +281,18 @@ struct PaceChatSessionTests {
         #expect(session.isChatTTSMuted == true)
         session.loadHistory()
         #expect(session.isChatTTSMuted == true)
+    }
+
+    @Test func unfinishedDraftPersistsAcrossHistoryRefresh() async throws {
+        let session = makeSession(
+            historySource: FakeHistorySource(),
+            submitter: FakeTranscriptSubmitter()
+        )
+
+        session.draftMessageText = "finish this later"
+        session.loadHistory()
+
+        #expect(session.draftMessageText == "finish this later")
     }
 
     // MARK: - Filtering
@@ -279,10 +349,11 @@ struct PaceChatSessionTests {
         )
 
         #expect(session.messages.count == 8)
-        #expect(session.userFacingMessages.map(\.body) == [
-            "Show my schedule",
-            "You have two meetings",
-        ])
+        #expect(
+            session.userFacingMessages.map(\.body) == [
+                "Show my schedule",
+                "You have two meetings",
+            ])
         #expect(session.filteredMessages(matching: "nudge").isEmpty)
     }
 

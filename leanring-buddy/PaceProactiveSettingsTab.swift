@@ -20,10 +20,12 @@ struct PaceProactiveSettingsTab: View {
                 Text("Proactivity Profile")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
-                Text("How often Pace can speak up on its own. Affects every proactive surface (focus nudges, calendar lead-time prompts, watch-mode observations, the morning brief).")
-                    .font(.system(size: 12))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(
+                    "How often Pace can speak up on its own. Affects every proactive surface (focus nudges, calendar lead-time prompts, watch-mode observations, the morning brief)."
+                )
+                .font(.system(size: 12))
+                .foregroundColor(DS.Colors.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
 
                 Picker(
                     "Proactivity profile",
@@ -51,13 +53,45 @@ struct PaceProactiveSettingsTab: View {
                 .background(DS.Colors.borderSubtle)
 
             VStack(alignment: .leading, spacing: 10) {
+                Text("Ambient awareness")
+                    .font(DS.Typography.captionStrong)
+                    .foregroundStyle(DS.Colors.textSecondary)
+                Text("These modes stay local and remain off until you enable them.")
+                    .font(DS.Typography.caption)
+                    .foregroundStyle(DS.Colors.textTertiary)
+
+                paceSettingsToggleRow(
+                    title: "Watch mode",
+                    subtitle: companionManager.latestWatchModeSummary
+                        ?? "Watch for meaningful screen changes.",
+                    isOn: Binding(
+                        get: { companionManager.isWatchModeEnabled },
+                        set: { companionManager.setWatchModeEnabled($0) }
+                    )
+                )
+                paceSettingsToggleRow(
+                    title: "Always listening",
+                    subtitle: "Opt-in ambient command mode. Push-to-talk remains available.",
+                    isOn: Binding(
+                        get: { companionManager.isAlwaysListeningEnabled },
+                        set: { companionManager.setAlwaysListeningEnabled($0) }
+                    )
+                )
+            }
+
+            Divider()
+                .background(DS.Colors.borderSubtle)
+
+            VStack(alignment: .leading, spacing: 10) {
                 Text("Nudge surfaces")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
-                Text("Each surface defaults off. Even when on, Pace routes every nudge through the restraint gate — nothing speaks during a Zoom call or while you're typing.")
-                    .font(.system(size: 12))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(
+                    "Each surface defaults off. Even when on, Pace routes every nudge through the restraint gate — nothing speaks during a Zoom call or while you're typing."
+                )
+                .font(.system(size: 12))
+                .foregroundColor(DS.Colors.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
 
                 Toggle(
                     "Focus fatigue nudges",
@@ -95,21 +129,108 @@ struct PaceProactiveSettingsTab: View {
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Toggle(
-                    "Always-Listening (wake word)",
+                paceSettingsToggleRow(
+                    title: "Posture watch (camera)",
+                    subtitle: companionManager.latestPostureStatus
+                        ?? "One camera frame every ten seconds, analyzed on-device and never stored.",
                     isOn: Binding(
-                        get: { companionManager.isAlwaysListeningEnabled },
-                        set: { companionManager.setAlwaysListeningEnabled($0) }
+                        get: { companionManager.isPostureWatchEnabled },
+                        set: { companionManager.setPostureWatchEnabled($0) }
                     )
                 )
-                Text("Audio buffer never persists. Battery impact ~5% per 3-hour session.")
-                    .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if companionManager.isPostureWatchEnabled {
+                    HStack {
+                        Spacer()
+                        paceSettingsButton(
+                            "Recalibrate posture",
+                            systemName: "figure.seated.side"
+                        ) {
+                            companionManager.recalibratePostureWatch()
+                        }
+                    }
+                }
             }
 
-            Spacer()
-            // Wave 2 adds episodic memory access
+            Divider()
+                .background(DS.Colors.borderSubtle)
+
+            morningBriefSection
+        }
+    }
+
+    private var morningBriefSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Morning brief")
+                .font(DS.Typography.captionStrong)
+                .foregroundStyle(DS.Colors.textSecondary)
+                .padding(.bottom, 6)
+
+            paceSettingsToggleRow(
+                title: "Daily morning brief",
+                subtitle:
+                    "A calm spoken brief at the configured weekday time, subject to the same interruption rules as other suggestions.",
+                isOn: Binding(
+                    get: { companionManager.isMorningTriageEnabled },
+                    set: { companionManager.setMorningTriageEnabled($0) }
+                )
+            )
+
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Delivery time")
+                        .font(DS.Typography.calloutStrong)
+                        .foregroundStyle(DS.Colors.textPrimary)
+                    Text("Local time, weekdays only.")
+                        .font(DS.Typography.caption)
+                        .foregroundStyle(DS.Colors.textTertiary)
+                }
+                Spacer()
+                Picker(
+                    "Hour",
+                    selection: Binding(
+                        get: { companionManager.morningTriageHourOfDay },
+                        set: { companionManager.setMorningTriageHourOfDay($0) }
+                    )
+                ) {
+                    ForEach(0..<24, id: \.self) { hourOfDayCandidate in
+                        Text(String(format: "%02d", hourOfDayCandidate))
+                            .tag(hourOfDayCandidate)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 60)
+
+                Text(":")
+                    .font(DS.Typography.calloutStrong)
+                    .foregroundStyle(DS.Colors.textTertiary)
+
+                Picker(
+                    "Minute",
+                    selection: Binding(
+                        get: { companionManager.morningTriageMinuteOfHour },
+                        set: { companionManager.setMorningTriageMinuteOfHour($0) }
+                    )
+                ) {
+                    ForEach(0..<60, id: \.self) { minuteOfHourCandidate in
+                        Text(String(format: "%02d", minuteOfHourCandidate))
+                            .tag(minuteOfHourCandidate)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 60)
+            }
+            .padding(.vertical, 12)
+            .overlay(alignment: .bottom) {
+                Divider().background(DS.Colors.borderSubtle)
+            }
+
+            HStack {
+                Spacer()
+                paceSettingsButton("Preview now", systemName: "paperplane") {
+                    companionManager.deliverMorningBriefPreviewNow()
+                }
+            }
+            .padding(.top, 8)
         }
     }
 
@@ -118,9 +239,11 @@ struct PaceProactiveSettingsTab: View {
         case .talkative:
             return "Talkative: shorter cooldowns (about 5 minutes between proactive utterances)."
         case .balanced:
-            return "Balanced: default cooldowns (about 10 minutes between proactive utterances). Recommended for most users."
+            return
+                "Balanced: default cooldowns (about 10 minutes between proactive utterances). Recommended for most users."
         case .reserved:
-            return "Reserved: longer cooldowns (about 30 minutes between proactive utterances). Pace stays mostly quiet."
+            return
+                "Reserved: longer cooldowns (about 30 minutes between proactive utterances). Pace stays mostly quiet."
         }
     }
 }

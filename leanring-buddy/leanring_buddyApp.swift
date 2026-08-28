@@ -17,9 +17,18 @@ struct leanring_buddyApp: App {
     var body: some Scene {
         // The app lives entirely in the menu bar panel managed by the AppDelegate.
         // This empty Settings scene satisfies SwiftUI's requirement for at least
-        // one scene but is never shown (LSUIElement=true removes the app menu).
+        // one scene. The standard app-menu command is replaced below so macOS
+        // never exposes this placeholder as a blank window.
         Settings {
             EmptyView()
+        }
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    appDelegate.showCommandCenter()
+                }
+                .keyboardShortcut(",", modifiers: [.command])
+            }
         }
     }
 }
@@ -86,25 +95,25 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
         // Auto-load the configured planner + VLM into LM Studio so the
         // user's first push-to-talk doesn't pay the cold-load tax.
-        // Fire-and-forget — app launch is not blocked. Companion
-        // unload happens in `applicationWillTerminate`.
+        // Fire-and-forget — app launch is not blocked.
         // Auto-update: Sparkle starts its background check immediately
         // against the GitHub-hosted appcast. Manual checks live behind
         // PaceAutoUpdateController.shared.checkForUpdatesManually().
         _ = PaceAutoUpdateController.shared
 
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync()
-        // Auto-start the Kokoro TTS sidecar so the user never has to
-        // remember scripts/start-tts-server.sh. Idempotent — does
-        // nothing if the sidecar is already reachable on the configured
-        // port. Detached so it survives Pace quit/restart and stays
-        // warm for the next launch.
+        companionManager.prewarmTextOnlyPlannerInBackgroundIfNeeded()
+        // Start Kokoro only when the user explicitly selected the sidecar
+        // provider. The default Apple voice has no helper process to manage.
         PaceTTSSidecarLauncher.startIfNotRunning()
         prewarmMailForFastDraftsIfNeeded()
 
         let menuBarPanelManager = MenuBarPanelManager(
             companionManager: companionManager,
             onVisibilityChanged: { [weak self] isVisible in
+                guard self?.menuBarOverlayManager?.canPresentLivingNotch == true else {
+                    return
+                }
                 self?.menuBarOverlayManager?.setQuickPanelPresented(isVisible)
             }
         )
@@ -122,6 +131,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         )
         self.menuBarOverlayManager = menuBarOverlayManager
         menuBarPanelManager.useIntegratedLivingNotchPresentation(
+            isAvailable: { [weak menuBarOverlayManager] in
+                menuBarOverlayManager?.canPresentLivingNotch == true
+            },
             isPresented: { [weak menuBarOverlayManager] in
                 menuBarOverlayManager?.isQuickPanelOpen == true
             },
@@ -217,6 +229,15 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Routes the standard macOS Settings command into Pace's real management
+    /// surface instead of SwiftUI's placeholder Settings scene.
+    func showCommandCenter() {
+        PaceSettingsWindowManager.shared.show(
+            companionManager: companionManager,
+            destination: .general
+        )
+    }
+
     private func executeDeepLinkCommand(_ command: PaceDeepLinkCommand) {
         switch command {
         case .showPanel:
@@ -231,23 +252,18 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Tear down every visible surface FIRST: the LM Studio model unload
-        // below is synchronous (100ms–seconds via the lms CLI), and any
-        // panel or settings window still on screen would visibly linger for
-        // that whole time after the user hit quit.
+        // Tear down every visible surface and background task. LM Studio owns
+        // its model lifetime; unloading here races a quick Pace restart and
+        // can pull the model out from under the newly launched process.
         for window in NSApp.windows {
             window.orderOut(nil)
         }
         menuBarOverlayManager?.hide()
         PaceCompanionServer.shared.stop()
         companionManager.stop()
-        // Stop the keepalive heartbeat so it doesn't race with the
-        // unload below and immediately re-trigger a load.
+        // Stop this process's keepalive heartbeat. A future Pace launch starts
+        // its own heartbeat after the normal warmup completes.
         PaceLMStudioModelLoader.stopKeepaliveLoop()
-        // Free the planner + VLM weights so Pace doesn't leave 5-20 GB
-        // of model RAM resident after the user quits. Synchronous via
-        // `lms` CLI; ~100-300ms on the way out.
-        PaceLMStudioModelLoader.unloadConfiguredModelsSynchronously()
     }
 
     /// Kill any other Pace processes that are already running. Called
@@ -266,9 +282,8 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
         for otherInstance in otherPaceInstances {
             print("🧹 Pace: terminating duplicate instance pid=\(otherInstance.processIdentifier)")
-            // Try the polite path first — gives the other instance a
-            // chance to run its applicationWillTerminate (which unloads
-            // its LM Studio models). 1.5s grace then force-kill.
+            // Try the polite path first so the other instance can close its
+            // local surfaces and background tasks. 1.5s grace then force-kill.
             otherInstance.terminate()
         }
         // Give cooperative terminate a moment, then forceTerminate any

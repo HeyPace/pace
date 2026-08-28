@@ -3,7 +3,7 @@
 //  leanring-buddyTests
 //
 //  Tests for the heuristic response quality checker. Verifies that
-//  obvious failure modes (hedging, repetition, too-short, echo) are
+//  obvious failure modes (empty output, hedging, repetition, echo) are
 //  caught and that good responses pass through.
 //
 
@@ -92,19 +92,15 @@ struct PaceResponseQualityHeuristicsTests {
         }
     }
 
-    // MARK: - Too short
+    // MARK: - Concise answers
 
     @Test
-    func tooShortForKnowledgeQuery_fails() {
+    func oneWordFactualAnswer_passes() {
         let verdict = PaceResponseQualityHeuristics.check(
-            query: "what is machine learning",
-            response: "It's a field."
+            query: "what is the largest planet in our solar system",
+            response: "Jupiter"
         )
-        if case .inadequate(let reason) = verdict {
-            #expect(reason.contains("too short"))
-        } else {
-            Issue.record("Expected inadequate for too-short response")
-        }
+        #expect(verdict == .adequate)
     }
 
     // MARK: - Repetition
@@ -146,7 +142,7 @@ struct PaceResponseQualityHeuristicsTests {
             response: ""
         )
         if case .inadequate = verdict {
-            // pass — too short
+            // pass — empty output is always broken
         } else {
             Issue.record("Expected inadequate for empty response")
         }
@@ -161,6 +157,7 @@ struct PaceResponseQualityHeuristicsTests {
         )
         #expect(verdict == .adequate)
     }
+
 }
 
 // MARK: - Conversation complexity tracker tests
@@ -205,6 +202,37 @@ struct PaceConversationComplexityTrackerTests {
             conversationHistory: history.map { (userTranscript: $0.0, assistantResponse: $0.1) }
         )
         #expect(result == true)
+    }
+
+    @Test
+    func manyTurns_doNotEscalateAnIndependentQuestion() {
+        let history: [(String, String)] = (0..<8).map { index in
+            ("question about topic \(index)", "answer about topic \(index)")
+        }
+        let result = PaceConversationComplexityTracker.shouldEscalateBasedOnContext(
+            transcript: "what is the largest planet in our solar system",
+            conversationHistory: history.map {
+                (userTranscript: $0.0, assistantResponse: $0.1)
+            }
+        )
+        #expect(result == false)
+    }
+
+    @Test
+    func repeatedResponseFormattingDoesNotCreateAFakeTopicStreak() {
+        let history: [(String, String)] = [
+            ("What color is snow? Answer in one word.", "White."),
+            ("What is the capital of France? Answer in one word.", "Paris."),
+            ("What animal is the fastest on land? Answer in one word.", "Cheetah."),
+            ("What is the largest ocean? Answer in one word.", "Pacific."),
+        ]
+        let result = PaceConversationComplexityTracker.shouldEscalateBasedOnContext(
+            transcript: "What is the largest planet? Answer in one word.",
+            conversationHistory: history.map {
+                (userTranscript: $0.0, assistantResponse: $0.1)
+            }
+        )
+        #expect(result == false)
     }
 
     // MARK: - Same-topic streak

@@ -645,6 +645,7 @@ nonisolated enum PaceFastActionCommandParser {
         "apple music": "Music",
         "arc": "Arc",
         "calendar": "Calendar",
+        "calculator": "Calculator",
         "chrome": "Google Chrome",
         "cursor": "Cursor",
         "discord": "Discord",

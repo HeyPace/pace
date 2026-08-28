@@ -14,6 +14,21 @@ import ScreenCaptureKit
 @MainActor
 extension CompanionManager {
 
+    /// Cancels both halves of the user-turn pipeline and invalidates the
+    /// active lease. Routing and response tasks are separate because routing
+    /// can suspend before a response task exists.
+    func cancelActiveTurnTasks() {
+        turnLeaseRegistry.invalidateCurrentTurn()
+        currentTurnDispatchTask?.cancel()
+        currentTurnDispatchTask = nil
+        currentResponseTask?.cancel()
+        currentResponseTask = nil
+    }
+
+    func isActiveTurn(_ turnLease: PaceTurnLease) -> Bool {
+        !Task.isCancelled && turnLeaseRegistry.isCurrent(turnLease)
+    }
+
     // MARK: - AI Response Pipeline (plan-act-observe loop)
 
     func routeHUDDetail(for intentPrediction: PaceIntentPrediction) -> String {
@@ -40,14 +55,91 @@ extension CompanionManager {
         handleTextOnlyPlannerFastPath(transcript: transcript)
     }
 
+    func prewarmTextOnlyPlannerInBackgroundIfNeeded() {
+        guard PaceBundledModelsSettings.isUsingMLXInProcessPlanner(),
+            textOnlyPlannerWarmupTask == nil
+        else {
+            return
+        }
+
+        let plannerForWarmup = textOnlyPlannerClient
+        textOnlyPlannerWarmupTask = Task { [weak self] in
+            let warmupStartedAt = Date()
+            print("🔥 In-process MLX inference warmup: starting")
+            do {
+                plannerForWarmup.resetForNewTurn()
+                _ = try await plannerForWarmup.generateResponseStreaming(
+                    images: [],
+                    systemPrompt: "You are Pace. Reply with one word.",
+                    conversationHistory: [],
+                    userPrompt: "Reply with ready.",
+                    onTextChunk: { _ in }
+                )
+                let elapsedMilliseconds = Int(Date().timeIntervalSince(warmupStartedAt) * 1000)
+                print("✅ In-process MLX inference warmup: ready in \(elapsedMilliseconds)ms")
+            } catch {
+                print("⚠️ In-process MLX inference warmup failed: \(error.localizedDescription)")
+            }
+            self?.textOnlyPlannerWarmupTask = nil
+        }
+    }
+
+    /// Exact local response path for narrow computations that should not pay
+    /// planner latency or inherit generative-model correctness risk.
+    func handleDeterministicAnswerPath(
+        transcript: String,
+        parseResult: PaceDeterministicAnswerParseResult
+    ) {
+        let turnStartedAt = Date()
+        let spokenText = parseResult.spokenText
+        currentTurnHUDState = .understanding("calculating on this Mac")
+        responseOverlayManager.showOverlayAndBeginStreaming()
+        responseOverlayManager.updateStreamingText(spokenText)
+        recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
+        recordToolCallDebug(
+            PaceToolCallDebugRecord(
+                transcript: transcript,
+                lane: .fastPath,
+                routingDetail: parseResult.routingDetail,
+                plannerPathDetail: "no planner",
+                rawPlannerOutput: spokenText,
+                spokenText: spokenText,
+                parsedActionsSummary: "no actions parsed",
+                dispatchSummary: "exact local answer",
+                totalTurnLatencyMs: Int(Date().timeIntervalSince(turnStartedAt) * 1000)
+            ))
+
+        currentResponseTask = Task { [weak self] in
+            guard let self else { return }
+            voiceState = .responding
+            await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
+            while ttsClient.isPlaying {
+                try? await Task.sleep(nanoseconds: 80_000_000)
+            }
+            guard !Task.isCancelled else { return }
+            responseOverlayManager.finishStreaming()
+            PaceLatencyBudget.shared.mark(.ttsComplete)
+            PaceLatencyBudget.shared.finishTurn()
+            voiceState = .idle
+            currentTurnHUDState = .done("answered exactly")
+            if isWalkingAvatarEnabled {
+                avatarOverlayManager?.show()
+            }
+            currentDictationTrigger = .keyboard
+            scheduleTransientHideIfNeeded()
+        }
+    }
+
     func handleClarificationTurn(
         transcript: String,
         clarification: PaceIntentClarification
     ) {
-        let optionsText = clarification.options.isEmpty
+        let optionsText =
+            clarification.options.isEmpty
             ? ""
             : " \(clarification.options.joined(separator: " or "))?"
-        let clarificationText = clarification.question.hasSuffix("?")
+        let clarificationText =
+            clarification.question.hasSuffix("?")
             ? clarification.question
             : clarification.question + optionsText
 
@@ -73,6 +165,7 @@ extension CompanionManager {
             while ttsClient.isPlaying {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
+            guard !Task.isCancelled else { return }
             responseOverlayManager.finishStreaming()
             voiceState = .idle
             if isWalkingAvatarEnabled {
@@ -98,17 +191,18 @@ extension CompanionManager {
             return
         }
 
-        guard let clarifiedTranscript = PaceIntentClarificationResolver.clarifiedTranscript(
-            for: pendingIntentClarification,
-            selectedOption: option
-        ) else {
+        guard
+            let clarifiedTranscript = PaceIntentClarificationResolver.clarifiedTranscript(
+                for: pendingIntentClarification,
+                selectedOption: option
+            )
+        else {
             currentTurnHUDState = .failed("Unknown clarification option")
             return
         }
 
         self.pendingIntentClarification = nil
-        currentResponseTask?.cancel()
-        currentResponseTask = nil
+        cancelActiveTurnTasks()
         ttsClient.stopPlayback()
         streamingSentenceTTSPipeline.resetForNewTurn()
         clearLastSpokenReplyState()
@@ -139,15 +233,17 @@ extension CompanionManager {
         // sequence — interrupting it mid-stream would strand the rest.
         let flattenedActions = actionExecutionPlan.flattenedActions
         guard flattenedActions.count == 1,
-              case .clickCandidates(let clickCandidateSet) = flattenedActions[0] else {
+            case .clickCandidates(let clickCandidateSet) = flattenedActions[0]
+        else {
             return false
         }
 
         guard let offeredCandidates = PaceClickCandidateAmbiguity.isAmbiguous(clickCandidateSet),
-              let clarification = PaceClickTargetClarificationBuilder.makeClarification(
-                  offeredCandidates: offeredCandidates,
-                  in: clickCandidateSet
-              ) else {
+            let clarification = PaceClickTargetClarificationBuilder.makeClarification(
+                offeredCandidates: offeredCandidates,
+                in: clickCandidateSet
+            )
+        else {
             return false
         }
 
@@ -162,11 +258,12 @@ extension CompanionManager {
             question: clarification.prompt,
             options: optionLabels
         )
-        appendActionResult(PaceActionRunRecord(
-            status: .skipped,
-            title: "Which target?",
-            detail: optionLabels.joined(separator: " / ")
-        ))
+        appendActionResult(
+            PaceActionRunRecord(
+                status: .skipped,
+                title: "Which target?",
+                detail: optionLabels.joined(separator: " / ")
+            ))
         print("❔ Click-target clarification: \(optionLabels.joined(separator: " / "))")
         return true
     }
@@ -205,10 +302,12 @@ extension CompanionManager {
         observations: [PaceActionExecutionObservation],
         screenCaptures: [CompanionScreenCapture]
     ) async -> [PaceActionExecutionObservation] {
-        guard PaceUserPreferencesStore.boolWithInfoPlistSeed(
-            .enableSetOfMarkClickRecovery,
-            infoPlistKey: "EnableSetOfMarkClickRecovery"
-        ) else {
+        guard
+            PaceUserPreferencesStore.boolWithInfoPlistSeed(
+                .enableSetOfMarkClickRecovery,
+                infoPlistKey: "EnableSetOfMarkClickRecovery"
+            )
+        else {
             return observations
         }
         guard !screenCaptures.isEmpty else { return observations }
@@ -221,7 +320,8 @@ extension CompanionManager {
             // else the cursor screen, else the first capture.
             let targetCapture: CompanionScreenCapture
             if let screenNumber = recoveryRequest.screenNumber,
-               screenNumber >= 1, screenNumber <= screenCaptures.count {
+                screenNumber >= 1, screenNumber <= screenCaptures.count
+            {
                 targetCapture = screenCaptures[screenNumber - 1]
             } else if let cursorCapture = screenCaptures.first(where: { $0.isCursorScreen }) {
                 targetCapture = cursorCapture
@@ -231,13 +331,16 @@ extension CompanionManager {
 
             // Reuse the element map built for the failed click; if it has aged
             // out, skip recovery and let the original failure stand.
-            guard let cachedAnalysis = screenContextService.cachedAnalysisIfFresh(
-                screenLabel: targetCapture.label
-            ) else {
+            guard
+                let cachedAnalysis = screenContextService.cachedAnalysisIfFresh(
+                    screenLabel: targetCapture.label
+                )
+            else {
                 continue
             }
 
-            let targetDescription = recoveryRequest.targetDescription.isEmpty
+            let targetDescription =
+                recoveryRequest.targetDescription.isEmpty
                 ? "the element the user asked to click"
                 : recoveryRequest.targetDescription
 
@@ -290,7 +393,8 @@ extension CompanionManager {
         self.pendingClickTargetClarification = nil
 
         let screenCaptures = pendingClickTargetClarification.screenCaptures
-        let chosenCandidate = pendingClickTargetClarification
+        let chosenCandidate =
+            pendingClickTargetClarification
             .candidate(forSelectedOptionLabel: selectedOptionLabel)
 
         // The chosen candidate becomes the sole candidate of a fresh
@@ -383,6 +487,7 @@ extension CompanionManager {
             while ttsClient.isPlaying {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
+            guard !Task.isCancelled else { return }
             responseOverlayManager.finishStreaming()
             voiceState = .idle
             if isWalkingAvatarEnabled {
@@ -395,9 +500,8 @@ extension CompanionManager {
 
     /// Fast path for pure knowledge questions. Skips screenshot capture,
     /// AX, OCR, VLM, and agent-mode tool docs. Uses the dedicated
-    /// text-only planner so short answers can ride Apple Foundation
-    /// Models when available while action/screen turns stay on the
-    /// larger local planner.
+    /// text-only planner so answers keep the configured local model's
+    /// reliability while action/screen turns retain their richer prompt.
     func handleTextOnlyPlannerFastPath(transcript: String) {
         currentTurnHUDState = .understanding("answering without screen")
         responseOverlayManager.showOverlayAndBeginStreaming()
@@ -409,6 +513,11 @@ extension CompanionManager {
             voiceState = .processing
 
             do {
+                if let textOnlyPlannerWarmupTask {
+                    currentTurnHUDState = .understanding("finishing local model setup")
+                    await textOnlyPlannerWarmupTask.value
+                    guard !Task.isCancelled else { return }
+                }
                 let plannerForTextOnlyTurn = textOnlyPlannerClient
                 plannerForTextOnlyTurn.resetForNewTurn()
                 print("🧠 Text-only planner: using \(plannerForTextOnlyTurn.displayName)")
@@ -463,25 +572,37 @@ extension CompanionManager {
                     response: spokenText
                 )
                 var qualityReRouted = false
+                var qualityReRoutePlannerDisplayName: String?
                 if case .inadequate(let reason) = qualityVerdict {
-                    // Only re-route if the main planner is a DIFFERENT
-                    // model from the text-only planner — otherwise
-                    // we'd just get the same bad response again.
-                    let mainPlanner = plannerClient
+                    // Prefer the user's main planner when it differs, except
+                    // for Apple Foundation Models: its small on-device model
+                    // is useful for classification and extraction, but is not
+                    // a stronger factual-answer fallback.
                     let textOnlyPlanner = plannerForTextOnlyTurn
-                    let plannersDiffer = mainPlanner.displayName != textOnlyPlanner.displayName
+                    let configuredLocalFallback =
+                        BuddyPlannerClientFactory
+                        .makeLocalOnlyTextPlannerForPrivacyPinnedFeatures()
+                    let mainPlannerIsAppleFoundationModels = plannerClient is AppleFoundationModelsPlannerClient
+                    let preferredReRoutePlanner =
+                        !mainPlannerIsAppleFoundationModels
+                            && plannerClient.displayName != textOnlyPlanner.displayName
+                        ? plannerClient
+                        : configuredLocalFallback
+                    let plannersDiffer = preferredReRoutePlanner.displayName != textOnlyPlanner.displayName
                     if plannersDiffer {
-                        print("🔍 Response quality inadequate (\(reason)) — re-routing to \(mainPlanner.displayName)")
+                        print(
+                            "🔍 Response quality inadequate (\(reason)) — re-routing to \(preferredReRoutePlanner.displayName)"
+                        )
                         // Stop any TTS that already started from the
                         // streaming phase and reset the pipeline so the
                         // new response starts fresh.
                         ttsClient.stopPlayback()
                         streamingSentenceTTSPipeline.resetForNewTurn()
                         responseOverlayManager.updateStreamingText("let me try that with a bigger model…")
-                        currentTurnHUDState = .understanding("re-routing to \(mainPlanner.displayName)")
+                        currentTurnHUDState = .understanding("re-routing to \(preferredReRoutePlanner.displayName)")
 
                         do {
-                            let (reRoutedResponseText, _) = try await mainPlanner.generateResponseStreaming(
+                            let (reRoutedResponseText, _) = try await preferredReRoutePlanner.generateResponseStreaming(
                                 images: [],
                                 systemPrompt: CompanionSystemPrompt.buildTextOnly(
                                     threadSummaryInjection: threadSummaryInjectionForTurn,
@@ -498,16 +619,21 @@ extension CompanionManager {
                             )
                             guard !Task.isCancelled else { return }
                             let reRoutedActions = PaceActionTagParser.parseActions(from: reRoutedResponseText)
-                            let (_, reRoutedAfterDone) = PaceTagParsers.parseAndStripDoneSignal(from: reRoutedActions.spokenText)
+                            let (_, reRoutedAfterDone) = PaceTagParsers.parseAndStripDoneSignal(
+                                from: reRoutedActions.spokenText)
                             let reRoutedPointing = PaceTagParsers.parsePointingCoordinates(from: reRoutedAfterDone)
                             spokenText = reRoutedPointing.spokenText
                             qualityReRouted = true
-                            print("✅ Re-routed response received from \(mainPlanner.displayName)")
+                            qualityReRoutePlannerDisplayName = preferredReRoutePlanner.displayName
+                            print("✅ Re-routed response received from \(preferredReRoutePlanner.displayName)")
                         } catch {
-                            print("⚠️ Re-routed planner failed: \(error.localizedDescription) — keeping original response")
+                            print(
+                                "⚠️ Re-routed planner failed: \(error.localizedDescription) — keeping original response")
                         }
                     } else {
-                        print("🔍 Response quality inadequate (\(reason)) — but no stronger planner available, keeping response")
+                        print(
+                            "🔍 Response quality inadequate (\(reason)) — but no stronger planner available, keeping response"
+                        )
                     }
                 }
 
@@ -515,29 +641,31 @@ extension CompanionManager {
                 // screenshot/VLM and never execute actions here — surfaced so
                 // a misrouted action command (answered instead of acted) is
                 // visible as a text-only row.
-                recordToolCallDebug(PaceToolCallDebugRecord(
-                    transcript: transcript,
-                    lane: .textOnly,
-                    routingDetail: qualityReRouted
-                        ? "pureKnowledge · quality re-routed to \(plannerClient.displayName)"
-                        : "pureKnowledge · text-only planner (no screen)",
-                    plannerPathDetail: qualityReRouted
-                        ? "\(plannerForTextOnlyTurn.displayName) → \(plannerClient.displayName)"
-                        : plannerForTextOnlyTurn.displayName,
-                    rawPlannerOutput: fullResponseText,
-                    spokenText: spokenText,
-                    parsedActionsSummary: Self.toolCallDebugSummary(
-                        for: actionParseResult.executionPlan
+                recordToolCallDebug(
+                    PaceToolCallDebugRecord(
+                        transcript: transcript,
+                        lane: .textOnly,
+                        routingDetail: qualityReRouted
+                            ? "pureKnowledge · quality re-routed to \(qualityReRoutePlannerDisplayName ?? "local fallback")"
+                            : "pureKnowledge · text-only planner (no screen)",
+                        plannerPathDetail: qualityReRouted
+                            ? "\(plannerForTextOnlyTurn.displayName) → \(qualityReRoutePlannerDisplayName ?? "local fallback")"
+                            : plannerForTextOnlyTurn.displayName,
+                        rawPlannerOutput: fullResponseText,
+                        spokenText: spokenText,
+                        parsedActionsSummary: Self.toolCallDebugSummary(
+                            for: actionParseResult.executionPlan
+                        ),
+                        dispatchSummary: qualityReRouted
+                            ? "quality re-route — original response was inadequate"
+                            : "spoken-only — the text-only path does not execute actions",
+                        plannerLatencyMs: Int(Date().timeIntervalSince(plannerStartedAt) * 1000),
+                        totalTurnLatencyMs: Int(Date().timeIntervalSince(plannerStartedAt) * 1000),
+                        userPrompt: userPromptForPlanner
                     ),
-                    dispatchSummary: qualityReRouted
-                        ? "quality re-route — original response was inadequate"
-                        : "spoken-only — the text-only path does not execute actions",
-                    plannerLatencyMs: Int(Date().timeIntervalSince(plannerStartedAt) * 1000),
-                    totalTurnLatencyMs: Int(Date().timeIntervalSince(plannerStartedAt) * 1000),
-                    userPrompt: userPromptForPlanner
-                ), systemPromptForExport: CompanionSystemPrompt.buildTextOnly(
-                    threadSummaryInjection: threadSummaryInjectionForTurn
-                ))
+                    systemPromptForExport: CompanionSystemPrompt.buildTextOnly(
+                        threadSummaryInjection: threadSummaryInjectionForTurn
+                    ))
 
                 recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
 
@@ -550,6 +678,7 @@ extension CompanionManager {
                 while ttsClient.isPlaying {
                     try? await Task.sleep(nanoseconds: 80_000_000)
                 }
+                guard !Task.isCancelled else { return }
 
                 responseOverlayManager.finishStreaming()
                 PaceLatencyBudget.shared.mark(.ttsComplete)
@@ -559,7 +688,10 @@ extension CompanionManager {
                 if isWalkingAvatarEnabled {
                     avatarOverlayManager?.show()
                 }
+            } catch is CancellationError {
+                return
             } catch {
+                guard !Task.isCancelled else { return }
                 print("⚠️ Text-only planner fast path failed: \(error.localizedDescription)")
                 responseOverlayManager.updateStreamingText("i hit a local planner issue.")
                 responseOverlayManager.finishStreaming()
@@ -593,13 +725,16 @@ extension CompanionManager {
             var mergedResult: String?
             for _ in 0..<120 {
                 if let batch = PaceSubagentCoordinator.shared.batches.first(where: { $0.id == batchId }),
-                   batch.completedAt != nil {
+                    batch.completedAt != nil
+                {
                     mergedResult = batch.mergedResult
                     break
                 }
                 try? await Task.sleep(for: .milliseconds(500))
                 if Task.isCancelled { break }
             }
+
+            guard !Task.isCancelled else { return }
 
             guard let result = mergedResult, !result.isEmpty else {
                 // Timed out or produced nothing — tell the user instead
@@ -681,13 +816,15 @@ extension CompanionManager {
         currentResponseTask = Task {
             let turnStartedAt = Date()
             voiceState = .responding
-            let shouldSpeakInitialFastActionText = !actionExecutor.actionsAreEnabled
+            let shouldSpeakInitialFastActionText =
+                !actionExecutor.actionsAreEnabled
                 || !PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
                     for: fastActionParseResult.executionPlan
                 )
 
             if shouldSpeakInitialFastActionText,
-               !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            {
                 await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
             }
 
@@ -695,10 +832,11 @@ extension CompanionManager {
                 actionExecutionPlan: fastActionParseResult.executionPlan,
                 environment: currentToolPreflightEnvironment()
             )
-            appendActionResult(.planned(
-                actionExecutionPlan: fastActionParseResult.executionPlan,
-                preflightIssues: preflightIssues
-            ))
+            appendActionResult(
+                .planned(
+                    actionExecutionPlan: fastActionParseResult.executionPlan,
+                    preflightIssues: preflightIssues
+                ))
 
             var fastPathDispatchSummaryForDebug = "executed"
             if actionExecutor.actionsAreEnabled {
@@ -710,7 +848,8 @@ extension CompanionManager {
                         fastActionParseResult.executionPlan,
                         screenCaptures: []
                     )
-                    fastPathDispatchSummaryForDebug = toolObservations.isEmpty
+                    fastPathDispatchSummaryForDebug =
+                        toolObservations.isEmpty
                         ? "executed — no observations returned"
                         : PaceActionExecutionObservation.formatForPlanner(toolObservations)
                     if !toolObservations.isEmpty {
@@ -728,50 +867,56 @@ extension CompanionManager {
                     speakFailureForBlockingPreflightIfApplicable(
                         preflightIssues: preflightIssues
                     )
-                    if let userFeedbackText = PaceActionExecutionObservation
-                        .formatForUserFeedback(toolObservations) {
+                    if let userFeedbackText =
+                        PaceActionExecutionObservation
+                        .formatForUserFeedback(toolObservations)
+                    {
                         responseOverlayManager.updateStreamingText(userFeedbackText)
                         await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: userFeedbackText)
                     }
                 } else {
                     fastPathDispatchSummaryForDebug = "denied by user"
-                    appendActionResult(PaceActionRunRecord(
-                        status: .denied,
-                        title: "Action denied",
-                        detail: fastActionParseResult.executionPlan.approvalSummary
-                    ))
+                    appendActionResult(
+                        PaceActionRunRecord(
+                            status: .denied,
+                            title: "Action denied",
+                            detail: fastActionParseResult.executionPlan.approvalSummary
+                        ))
                     print("🛑 Fast local action approval denied")
                 }
             } else {
                 fastPathDispatchSummaryForDebug = "EnableActions=false — not executed"
-                appendActionResult(PaceActionRunRecord(
-                    status: .skipped,
-                    title: "Actions disabled",
-                    detail: "Parsed local fast action, but EnableActions is false."
-                ))
+                appendActionResult(
+                    PaceActionRunRecord(
+                        status: .skipped,
+                        title: "Actions disabled",
+                        detail: "Parsed local fast action, but EnableActions is false."
+                    ))
                 print("🤖 Fast local action parsed but EnableActions is false")
             }
 
             // Settings → Debug capture: the fast path matched before any
             // planner ran, so this row proves a command stayed local and
             // shows exactly what it parsed to.
-            recordToolCallDebug(PaceToolCallDebugRecord(
-                transcript: transcript,
-                lane: .fastPath,
-                routingDetail: "fast local parser matched (no screenshot, VLM, or planner)",
-                rawPlannerOutput: "",
-                spokenText: spokenText,
-                parsedActionsSummary: Self.toolCallDebugSummary(
-                    for: fastActionParseResult.executionPlan
-                ),
-                dispatchSummary: fastPathDispatchSummaryForDebug,
-                totalTurnLatencyMs: Int(Date().timeIntervalSince(turnStartedAt) * 1000),
-                userPrompt: transcript
-            ))
+            recordToolCallDebug(
+                PaceToolCallDebugRecord(
+                    transcript: transcript,
+                    lane: .fastPath,
+                    routingDetail: "fast local parser matched (no screenshot, VLM, or planner)",
+                    rawPlannerOutput: "",
+                    spokenText: spokenText,
+                    parsedActionsSummary: Self.toolCallDebugSummary(
+                        for: fastActionParseResult.executionPlan
+                    ),
+                    dispatchSummary: fastPathDispatchSummaryForDebug,
+                    totalTurnLatencyMs: Int(Date().timeIntervalSince(turnStartedAt) * 1000),
+                    userPrompt: transcript
+                ))
 
             while ttsClient.isPlaying {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
+            guard !Task.isCancelled else { return }
 
             responseOverlayManager.finishStreaming()
             voiceState = .idle
@@ -815,6 +960,7 @@ extension CompanionManager {
             while ttsClient.isPlaying {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
+            guard !Task.isCancelled else { return }
             responseOverlayManager.finishStreaming()
             voiceState = .idle
             if isWalkingAvatarEnabled {
@@ -848,10 +994,15 @@ extension CompanionManager {
                     totalMatches: outcome.totalMatches,
                     renderedMatches: outcome.renderedMatches
                 )
+            } catch is CancellationError {
+                return
             } catch {
+                guard !Task.isCancelled else { return }
                 print("⚠️ Visual-find capture failed: \(error.localizedDescription)")
                 spokenText = "i couldn't read your screen to search for \(searchQuery)."
             }
+
+            guard !Task.isCancelled else { return }
 
             self.currentTurnHUDState = .done(spokenText)
             self.recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
@@ -861,6 +1012,7 @@ extension CompanionManager {
             while self.ttsClient.isPlaying {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
+            guard !Task.isCancelled else { return }
             self.responseOverlayManager.finishStreaming()
             self.voiceState = .idle
             if self.isWalkingAvatarEnabled {
@@ -881,8 +1033,14 @@ extension CompanionManager {
     /// planner re-anchors on the conversation history rather than a
     /// repeated user statement.
     func sendTranscriptToPlannerWithScreenshot(transcript: String) {
-        Task { @MainActor in
-            await sendTranscriptToPlannerWithScreenshotAsync(transcript: transcript)
+        cancelActiveTurnTasks()
+        let turnLease = turnLeaseRegistry.beginTurn()
+        currentTurnDispatchTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.sendTranscriptToPlannerWithScreenshotAsync(
+                transcript: transcript,
+                turnLease: turnLease
+            )
         }
     }
 
@@ -890,8 +1048,7 @@ extension CompanionManager {
     /// completed system action is never rolled back; cancellation only prevents
     /// the remaining planner, speech, and follow-up steps from continuing.
     func cancelCurrentTurnFromPanel() {
-        currentResponseTask?.cancel()
-        currentResponseTask = nil
+        cancelActiveTurnTasks()
         ttsClient.stopPlayback()
         streamingSentenceTTSPipeline.resetForNewTurn()
         clearLastSpokenReplyState()
@@ -900,8 +1057,11 @@ extension CompanionManager {
         currentTurnHUDState = .idle
     }
 
-    func sendTranscriptToPlannerWithScreenshotAsync(transcript: String) async {
-        currentResponseTask?.cancel()
+    func sendTranscriptToPlannerWithScreenshotAsync(
+        transcript: String,
+        turnLease: PaceTurnLease
+    ) async {
+        guard isActiveTurn(turnLease) else { return }
         ttsClient.stopPlayback()
         pendingIntentClarification = nil
         // A new turn supersedes any unanswered click-target question —
@@ -928,6 +1088,15 @@ extension CompanionManager {
         // and bust the 4K context window. Stateless conformers (LocalPlanner)
         // no-op.
         plannerClient.resetForNewTurn()
+
+        if let deterministicAnswer = PaceDeterministicAnswerParser.parse(transcript: transcript) {
+            print("🧮 Deterministic answer: \(deterministicAnswer.routingDetail)")
+            handleDeterministicAnswerPath(
+                transcript: transcript,
+                parseResult: deterministicAnswer
+            )
+            return
+        }
 
         if let watchModeCommand = PaceWatchModeCommandParser.parse(transcript) {
             print("👀 Watch mode voice command: \(watchModeCommand)")
@@ -957,8 +1126,7 @@ extension CompanionManager {
         // safe no-op — same shape as the clear-annotations fast path.
         if PaceResearchCancelCommandParser.parse(transcript) != nil {
             print("🛑 Research-cancel voice command")
-            currentResponseTask?.cancel()
-            currentResponseTask = nil
+            cancelActiveTurnTasks()
             isOffDeviceTurnInFlight = false
             voiceState = .idle
             currentTurnHUDState = .done("stopped researching")
@@ -1009,7 +1177,8 @@ extension CompanionManager {
         // before catalog matching so "teach a skill that ..." can never be
         // mistaken for a request to run an existing skill.
         if let skillCreationCommand = PaceSkillCommandParser.parse(transcript),
-           case .create = skillCreationCommand {
+            case .create = skillCreationCommand
+        {
             print("📋 Skill creation command")
             handleSkillCommand(skillCreationCommand, transcript: transcript)
             return
@@ -1020,9 +1189,11 @@ extension CompanionManager {
         // Weak/ambiguous outcomes return false and preserve every existing
         // parser/classifier/planner fallback below.
         if activeSkillRun == nil,
-           await dispatchNaturalLanguageAutomationIfConfident(transcript: transcript) {
+            await dispatchNaturalLanguageAutomationIfConfident(transcript: transcript)
+        {
             return
         }
+        guard isActiveTurn(turnLease) else { return }
 
         if let flowCommand = PaceFlowCommandParser.parse(transcript) {
             print("🔁 Flow voice command: \(flowCommand)")
@@ -1088,7 +1259,8 @@ extension CompanionManager {
         // dispatch before this call, so the skill-execution prompt flows
         // straight into the normal planner pipeline.
         if activeSkillRun == nil,
-           let skillCommand = PaceSkillCommandParser.parse(transcript) {
+            let skillCommand = PaceSkillCommandParser.parse(transcript)
+        {
             print("📋 Skill voice command: \(skillCommand)")
             handleSkillCommand(skillCommand, transcript: transcript)
             return
@@ -1118,6 +1290,7 @@ extension CompanionManager {
                 (userTranscript: entry.userTranscript, assistantResponse: entry.assistantResponse)
             }
         )
+        guard isActiveTurn(turnLease) else { return }
         PaceLatencyBudget.shared.mark(.intentClassified)
         lastIntentRouteForEpisodicExtraction = intentPrediction.intent
         currentTurnHUDState = .understanding(routeHUDDetail(for: intentPrediction))
@@ -1174,7 +1347,9 @@ extension CompanionManager {
                         upstream: directSpawnUpstream,
                         modelIdentifier: loadedResearchConfiguration.cliBridgeModel
                     )
-                    print("🔬 Routing research turn to local CLI (\(directSpawnUpstream.displayLabel)/\(loadedResearchConfiguration.cliBridgeModel))")
+                    print(
+                        "🔬 Routing research turn to local CLI (\(directSpawnUpstream.displayLabel)/\(loadedResearchConfiguration.cliBridgeModel))"
+                    )
                 } else {
                     // Legacy bridge fallback for gemini-cli only.
                     let bridgeConfiguration = PaceCloudBridgeConsent.loadConfiguration()
@@ -1194,7 +1369,8 @@ extension CompanionManager {
                 // model suffix to the HUD when one was actually configured.
                 let trimmedResearchModel = loadedResearchConfiguration.cliBridgeModel
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                let researchModelSuffix = trimmedResearchModel.isEmpty
+                let researchModelSuffix =
+                    trimmedResearchModel.isEmpty
                     ? ""
                     : " \(trimmedResearchModel.lowercased())"
                 currentTurnHUDState = .understanding("researching with \(upstreamLabel)\(researchModelSuffix)…")
@@ -1204,10 +1380,12 @@ extension CompanionManager {
                     )
                 }
             case .directAPI:
-                let resolvedEndpointURLString = PaceResearchTierStore
+                let resolvedEndpointURLString =
+                    PaceResearchTierStore
                     .resolvedDirectAPIEndpointURLString(for: loadedResearchConfiguration)
                 if let resolvedEndpointURL = URL(string: resolvedEndpointURLString),
-                   !resolvedEndpointURLString.isEmpty {
+                    !resolvedEndpointURLString.isEmpty
+                {
                     researchTurnPlannerOverride = DirectAPIPlannerClient(
                         provider: loadedResearchConfiguration.directAPIProvider,
                         endpointURL: resolvedEndpointURL,
@@ -1216,8 +1394,11 @@ extension CompanionManager {
                     researchTurnMaxAgentSteps = loadedResearchConfiguration.maximumAgentSteps
                     isOffDeviceTurnInFlight = true
                     let providerLabel = loadedResearchConfiguration.directAPIProvider.displayLabel.lowercased()
-                    currentTurnHUDState = .understanding("researching with \(providerLabel) \(loadedResearchConfiguration.directAPIModelIdentifier)…")
-                    print("🔬 Routing research turn to Direct API (\(providerLabel)/\(loadedResearchConfiguration.directAPIModelIdentifier))")
+                    currentTurnHUDState = .understanding(
+                        "researching with \(providerLabel) \(loadedResearchConfiguration.directAPIModelIdentifier)…")
+                    print(
+                        "🔬 Routing research turn to Direct API (\(providerLabel)/\(loadedResearchConfiguration.directAPIModelIdentifier))"
+                    )
                     Task { [weak self] in
                         try? await self?.ttsClient.speakText(
                             "Researching that — give me a minute."
@@ -1240,15 +1421,19 @@ extension CompanionManager {
         // instead of refusing it or running a potentially-wrong action.
         // This is the one intentional break of the no-cloud-LLM
         // principle — consent-gated.
-        let isEscalationRoute = mutableIntentPrediction.route == .phoneLargeModel
+        let isEscalationRoute =
+            mutableIntentPrediction.route == .phoneLargeModel
             || mutableIntentPrediction.route == .escalateToLargeModel
+        var escalationUsesLargeModelForThisTurn = false
         if isEscalationRoute {
             let currentBridgeConfiguration = PaceCloudBridgeConsent.loadConfiguration()
-            let bridgeIsActiveForThisTurn = currentBridgeConfiguration.hasUserAcceptedConsent
+            let bridgeIsActiveForThisTurn =
+                currentBridgeConfiguration.hasUserAcceptedConsent
                 && (currentBridgeConfiguration.mode == .hybrid
                     || currentBridgeConfiguration.mode == .alwaysBridge)
 
             if bridgeIsActiveForThisTurn {
+                escalationUsesLargeModelForThisTurn = true
                 // Signal HybridPlannerClient (or CloudBridgePlannerClient directly in
                 // alwaysBridge mode) to use the large-model path for this turn.
                 if let hybridPlanner = plannerClient as? HybridPlannerClient {
@@ -1265,9 +1450,11 @@ extension CompanionManager {
                 let escalationReason: String
                 if mutableIntentPrediction.route == .escalateToLargeModel {
                     if mutableIntentPrediction.confidence < PaceIntentPrediction.confidenceEscalationThreshold {
-                        escalationReason = "low confidence (\(String(format: "%.2f", mutableIntentPrediction.confidence)))"
+                        escalationReason =
+                            "low confidence (\(String(format: "%.2f", mutableIntentPrediction.confidence)))"
                     } else {
-                        escalationReason = "complex query (\(mutableIntentPrediction.complexity.rawValue), intent: \(mutableIntentPrediction.intent.rawValue))"
+                        escalationReason =
+                            "complex query (\(mutableIntentPrediction.complexity.rawValue), intent: \(mutableIntentPrediction.intent.rawValue))"
                     }
                 } else {
                     escalationReason = "explicit request"
@@ -1297,9 +1484,7 @@ extension CompanionManager {
                 }
             }
             // For .escalateToLargeModel with bridge off: fall through to
-            // the full pipeline — we tried to escalate but no large model
-            // is available, so do the best we can locally instead of
-            // refusing the turn.
+            // the best matching local lane below.
         } else if let unsupportedResponse = PaceIntentUnsupportedDetector.unsupportedResponse(
             for: transcript,
             prediction: mutableIntentPrediction
@@ -1308,16 +1493,35 @@ extension CompanionManager {
             handleUnsupportedTurn(transcript: transcript, unsupportedResponse: unsupportedResponse)
             return
         }
+        // A complex or context-dependent knowledge turn may request a larger
+        // model, but an unavailable bridge must never turn it into a screen
+        // request. The local text-only planner is a lower-quality answerer,
+        // not a reason to capture the user's display or require permission.
+        if mutableIntentPrediction.route == .escalateToLargeModel,
+            !escalationUsesLargeModelForThisTurn,
+            mutableIntentPrediction.intent == .pureKnowledge
+                || mutableIntentPrediction.intent == .chitchat
+        {
+            print(
+                "🎯 Intent: \(mutableIntentPrediction.intent.rawValue) (complexity \(mutableIntentPrediction.complexity.rawValue)) — local text-only fallback; larger model unavailable"
+            )
+            handleTextOnlyPlannerFastPath(transcript: transcript)
+            return
+        }
         // Fast paths use .route (not .intent) so a low-confidence
         // prediction whose intent happens to be .chitchat but whose
         // route is .escalateToLargeModel does NOT bypass escalation.
         if mutableIntentPrediction.route == .chitchatFastPath {
-            print("🎯 Intent: chitchat (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — fast-path")
+            print(
+                "🎯 Intent: chitchat (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — fast-path"
+            )
             handleChitchatFastPath(transcript: transcript)
             return
         }
         if mutableIntentPrediction.route == .answerDirectly {
-            print("🎯 Intent: pureKnowledge (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — text-only planner")
+            print(
+                "🎯 Intent: pureKnowledge (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — text-only planner"
+            )
             handleTextOnlyPlannerFastPath(transcript: transcript)
             return
         }
@@ -1325,7 +1529,8 @@ extension CompanionManager {
         // research wants the heavyweight planner, not a deterministic
         // "open Music" shortcut.
         if researchTurnPlannerOverride == nil,
-           let fastActionParseResult = PaceFastActionCommandParser.parse(transcript: transcript) {
+            let fastActionParseResult = PaceFastActionCommandParser.parse(transcript: transcript)
+        {
             print("🎯 Intent: fastLocalAction — skipping screenshot, VLM, and planner")
             handleFastLocalActionPath(
                 transcript: transcript,
@@ -1337,7 +1542,8 @@ extension CompanionManager {
         // subagents. Routed before the planner so it doesn't burn a
         // single-agent round-trip first.
         if researchTurnPlannerOverride == nil,
-           let subagentCommand = PaceSubagentCommandParser.parse(transcript) {
+            let subagentCommand = PaceSubagentCommandParser.parse(transcript)
+        {
             print("🎯 Intent: subagentDecomposition — \(subagentCommand.subtasks.count) parallel subagents")
             handleSubagentDecomposition(command: subagentCommand)
             return
@@ -1345,12 +1551,14 @@ extension CompanionManager {
         // Dictation fast path: "type ..." / "dictate ..." → STT cleanup
         // → paste, no planner. Zero-latency text input.
         if researchTurnPlannerOverride == nil,
-           let dictationText = PaceDictationFastPath.extractDictationText(from: transcript) {
+            let dictationText = PaceDictationFastPath.extractDictationText(from: transcript)
+        {
             print("🎯 Intent: dictationFastPath — skipping planner, typing directly")
             currentTurnHUDState = .understanding("typing")
             currentResponseTask = Task { @MainActor [weak self] in
                 guard let self else { return }
                 let result = await PaceDictationFastPath.shared.dictate(transcript: dictationText)
+                guard !Task.isCancelled else { return }
                 if let typedText = result {
                     self.recordConversationTurn(
                         userTranscript: transcript,
@@ -1367,7 +1575,9 @@ extension CompanionManager {
             }
             return
         }
-        print("🎯 Intent: \(mutableIntentPrediction.intent.rawValue) (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — \(mutableIntentPrediction.route.rawValue)")
+        print(
+            "🎯 Intent: \(mutableIntentPrediction.intent.rawValue) (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — \(mutableIntentPrediction.route.rawValue)"
+        )
         currentTurnHUDState = .understanding(routeHUDDetail(for: mutableIntentPrediction))
 
         // Capture for the Task closure: a Sendable bundle of the
@@ -1381,6 +1591,7 @@ extension CompanionManager {
         // Pace's agent-mode tool docs.
         let isResearchTurn: Bool = (researchTurnPlannerOverride != nil)
 
+        guard isActiveTurn(turnLease) else { return }
         currentResponseTask = Task {
             voiceState = .processing
 
@@ -1389,7 +1600,8 @@ extension CompanionManager {
             // PaceResearchTierStore so the planner can fetch + read +
             // synthesize across multiple MCP calls. Other turns use
             // the existing Info.plist AgentMaxSteps default.
-            let maxAgentStepCount = researchTurnMaxAgentSteps
+            let maxAgentStepCount =
+                researchTurnMaxAgentSteps
                 ?? PaceTagParsers.readMaxAgentStepCount()
             // Cumulative coarse output-token estimate across the turn.
             // When non-nil, the loop bails once it crosses the
@@ -1429,11 +1641,13 @@ extension CompanionManager {
                     var prewarmedContextForStep: PaceScreenContextPrewarmedSnapshot?
                     let screenCaptures: [CompanionScreenCapture]
                     if isFirstStep,
-                       screenContextService.hasInFlightPrewarmedTask {
+                        screenContextService.hasInFlightPrewarmedTask
+                    {
                         print("👁️  Awaiting pre-warm capture for first agent step…")
                         let prewarmedContext = await screenContextService.consumeInFlightPrewarmedSnapshot()
                         if let prewarmedContext,
-                           !prewarmedContext.screenCaptures.isEmpty {
+                            !prewarmedContext.screenCaptures.isEmpty
+                        {
                             prewarmedContextForStep = prewarmedContext
                             screenCaptures = prewarmedContext.screenCaptures
                             print("👁️  First step using pre-warmed capture(s): \(screenCaptures.count)")
@@ -1457,7 +1671,8 @@ extension CompanionManager {
                     // screen analysis actually happens). Subsequent
                     // steps in the same agent loop re-use the capture.
                     if isFirstStep {
-                        let elementCount = prewarmedContextForStep?.enrichedAnalysesByScreenLabel
+                        let elementCount =
+                            prewarmedContextForStep?.enrichedAnalysesByScreenLabel
                             .values.flatMap(\.elements).count ?? screenCaptures.count
                         PaceTelemetryLog.recordVLMLatency(
                             milliseconds: screenCaptureElapsedMs,
@@ -1469,7 +1684,8 @@ extension CompanionManager {
                     // (no VLM call) so they're computed BEFORE the planner
                     // branch below. The agent-mode block is omitted when
                     // EnableActions is off — pure prefill savings.
-                    let isAgentModeEnabled = AppBundleConfiguration
+                    let isAgentModeEnabled =
+                        AppBundleConfiguration
                         .stringValue(forKey: "EnableActions")?
                         .lowercased() == "true"
                     let threadSummaryInjectionForTurn = threadMemory.injectionPrefix()
@@ -1506,7 +1722,8 @@ extension CompanionManager {
                     // override — both must light the amber capsule.
                     if plannerClientForThisTurn is DirectAPIPlannerClient
                         || plannerClientForThisTurn is CloudBridgePlannerClient
-                        || plannerClientForThisTurn is PaceLocalCLIPlannerClient {
+                        || plannerClientForThisTurn is PaceLocalCLIPlannerClient
+                    {
                         isOffDeviceTurnInFlight = true
                     }
 
@@ -1531,7 +1748,8 @@ extension CompanionManager {
                     let thermalAllowsSpeculativeRace = PaceThermalStateAdvisor.shouldRunSpeculativeRace(
                         underRecommendation: thermalStateAdvisor.currentRecommendation
                     )
-                    let useSpeculativeRace = isFirstStep
+                    let useSpeculativeRace =
+                        isFirstStep
                         && thermalAllowsSpeculativeRace
                         && speculativeRaceShouldFire(
                             intent: intentPrediction.intent,
@@ -1550,7 +1768,8 @@ extension CompanionManager {
                     let fullResponseText: String
                     var raceLiteWonSpokenText: String? = nil
                     if useSpeculativeRace {
-                        userPromptForPlannerForDebug = "(speculative race — full-path prompt assembled inside the race; lite path is transcript-only)"
+                        userPromptForPlannerForDebug =
+                            "(speculative race — full-path prompt assembled inside the race; lite path is transcript-only)"
                         let raceWiringResult = await performFirstStepSpeculativePlannerRace(
                             transcript: currentTurnUserPrompt,
                             systemPrompt: systemPromptForTurn,
@@ -1576,7 +1795,8 @@ extension CompanionManager {
                         //    dimensions so the planner's coordinate space matches
                         //    the image it sees.
                         let labeledImages = screenCaptures.map { capture in
-                            let dimensionInfo = " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
+                            let dimensionInfo =
+                                " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
                             return (data: capture.imageData, label: capture.label + dimensionInfo)
                         }
 
@@ -1585,11 +1805,12 @@ extension CompanionManager {
                         //    planner side and is essential when the planner is text-only.
                         let screenContextStartedAt = Date()
                         PaceLatencyBudget.shared.mark(.vlmStart)
-                        let screenContextPrompt = await screenContextService.buildUserPromptWithLocalVLMContextIfEnabled(
-                            transcript: currentTurnUserPrompt,
-                            screenCaptures: screenCaptures,
-                            prewarmedContext: prewarmedContextForStep
-                        )
+                        let screenContextPrompt =
+                            await screenContextService.buildUserPromptWithLocalVLMContextIfEnabled(
+                                transcript: currentTurnUserPrompt,
+                                screenCaptures: screenCaptures,
+                                prewarmedContext: prewarmedContextForStep
+                            )
                         PaceLatencyBudget.shared.mark(.vlmComplete)
                         let userPromptForPlanner = await appendLocalRetrievalContext(
                             to: appendConfiguredMCPContext(to: screenContextPrompt),
@@ -1624,64 +1845,73 @@ extension CompanionManager {
                         let imagesForPlanner: [(data: Data, label: String)] =
                             plannerClientForThisTurn.supportsImageInput ? labeledImages : []
 
-                        let (singlePlannerResponseText, _) = try await plannerClientForThisTurn.generateResponseStreaming(
-                            images: imagesForPlanner,
-                            systemPrompt: systemPromptForTurn,
-                            conversationHistory: historyForPlanner,
-                            userPrompt: userPromptForPlanner,
-                            onTextChunk: { [weak self] accumulatedPlannerText in
-                                // Mark planner first-token on the first chunk.
-                                PaceLatencyBudget.shared.mark(.plannerFirstToken)
-                                // 1. Mirror raw text into the bubble so the user
-                                //    sees tags, thinking blocks, everything live.
-                                //    The end-of-turn step replaces this with the
-                                //    cleaned spoken text once parsing completes.
-                                //    EXCEPT a structured (v10 JSON) stream —
-                                //    show a thinking ellipsis, not raw JSON.
-                                self?.responseOverlayManager.updateStreamingText(
-                                    Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText)
-                                        ? "…" : accumulatedPlannerText
-                                )
-                                // 2. Hand the chunk to the streaming TTS so any
-                                //    newly-completed sentences get spoken before
-                                //    the planner has finished generating the rest.
-                                //    This is the dominant perceived-latency win.
-                                Task { @MainActor [weak self] in
-                                    guard let self else { return }
-                                    let shouldSuppressStreamingNarration = Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText)
-                                        || (self.actionExecutor.actionsAreEnabled
-                                            && PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
-                                                forPlannerResponseText: accumulatedPlannerText
-                                            ))
-                                    guard !shouldSuppressStreamingNarration else { return }
-                                    await self.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedPlannerText)
-                                }
-                                if let streamingMailDraftSnapshot = streamingMailDraftDetector
-                                    .detectChange(in: accumulatedPlannerText) {
+                        let (singlePlannerResponseText, _) =
+                            try await plannerClientForThisTurn.generateResponseStreaming(
+                                images: imagesForPlanner,
+                                systemPrompt: systemPromptForTurn,
+                                conversationHistory: historyForPlanner,
+                                userPrompt: userPromptForPlanner,
+                                onTextChunk: { [weak self] accumulatedPlannerText in
+                                    // Mark planner first-token on the first chunk.
+                                    PaceLatencyBudget.shared.mark(.plannerFirstToken)
+                                    // 1. Mirror raw text into the bubble so the user
+                                    //    sees tags, thinking blocks, everything live.
+                                    //    The end-of-turn step replaces this with the
+                                    //    cleaned spoken text once parsing completes.
+                                    //    EXCEPT a structured (v10 JSON) stream —
+                                    //    show a thinking ellipsis, not raw JSON.
+                                    self?.responseOverlayManager.updateStreamingText(
+                                        Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText)
+                                            ? "…" : accumulatedPlannerText
+                                    )
+                                    // 2. Hand the chunk to the streaming TTS so any
+                                    //    newly-completed sentences get spoken before
+                                    //    the planner has finished generating the rest.
+                                    //    This is the dominant perceived-latency win.
                                     Task { @MainActor [weak self] in
-                                        guard let self,
-                                              self.actionExecutor.actionsAreEnabled,
-                                              !self.requiresActionApproval else {
-                                            return
+                                        guard let self else { return }
+                                        let shouldSuppressStreamingNarration =
+                                            Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText)
+                                            || (self.actionExecutor.actionsAreEnabled
+                                                && PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
+                                                    forPlannerResponseText: accumulatedPlannerText
+                                                ))
+                                        guard !shouldSuppressStreamingNarration else { return }
+                                        await self.streamingSentenceTTSPipeline.acceptStreamedText(
+                                            accumulatedPlannerText)
+                                    }
+                                    if let streamingMailDraftSnapshot =
+                                        streamingMailDraftDetector
+                                        .detectChange(in: accumulatedPlannerText)
+                                    {
+                                        Task { @MainActor [weak self] in
+                                            guard let self,
+                                                self.actionExecutor.actionsAreEnabled,
+                                                !self.requiresActionApproval
+                                            else {
+                                                return
+                                            }
+                                            _ = await self.actionExecutor.beginOrUpdateStreamingMailDraft(
+                                                streamingMailDraftSnapshot
+                                            )
                                         }
-                                        _ = await self.actionExecutor.beginOrUpdateStreamingMailDraft(
-                                            streamingMailDraftSnapshot
-                                        )
+                                    }
+                                    if let streamingFieldChange =
+                                        streamingPlannerFieldDetector
+                                        .detectChange(in: accumulatedPlannerText)
+                                    {
+                                        Task { @MainActor [weak self] in
+                                            guard let self,
+                                                self.actionExecutor.actionsAreEnabled,
+                                                !self.requiresActionApproval
+                                            else {
+                                                return
+                                            }
+                                            await self.applyStreamingPlannerFieldChange(streamingFieldChange)
+                                        }
                                     }
                                 }
-                                if let streamingFieldChange = streamingPlannerFieldDetector
-                                    .detectChange(in: accumulatedPlannerText) {
-                                    Task { @MainActor [weak self] in
-                                        guard let self,
-                                              self.actionExecutor.actionsAreEnabled,
-                                              !self.requiresActionApproval else {
-                                            return
-                                        }
-                                        await self.applyStreamingPlannerFieldChange(streamingFieldChange)
-                                    }
-                                }
-                            }
-                        )
+                            )
                         fullResponseText = singlePlannerResponseText
                     }
                     PaceLatencyBudget.shared.mark(.plannerComplete)
@@ -1725,10 +1955,12 @@ extension CompanionManager {
                         screenCaptures: screenCaptures
                     )
                     let actionParseResult = annotationDrainOutcome.drainedParseResult
-                    let streamedMailDraftForFinalization = PaceStreamingMailDraftDetector
+                    let streamedMailDraftForFinalization =
+                        PaceStreamingMailDraftDetector
                         .firstMailDraft(in: actionParseResult.executionPlan)
                     if actionExecutor.hasActiveStreamingMailDraft,
-                       streamedMailDraftForFinalization == nil {
+                        streamedMailDraftForFinalization == nil
+                    {
                         actionExecutor.cancelActiveStreamingMailDraftTracking()
                     }
                     let (plannerSignaledDone, textAfterDoneStrip) =
@@ -1766,7 +1998,8 @@ extension CompanionManager {
                     // diffing a different string against the already-spoken
                     // lite prefix. nil in every non-race / full-won case.
                     let spokenText = raceLiteWonSpokenText ?? parseResult.spokenText
-                    let plannerProvidedFinalFeedback = actionParseResult.actions.isEmpty
+                    let plannerProvidedFinalFeedback =
+                        actionParseResult.actions.isEmpty
                         && !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     if plannerProvidedFinalFeedback {
                         pendingPostActionFeedbackText = nil
@@ -1801,19 +2034,22 @@ extension CompanionManager {
 
                     let targetScreenCapture: CompanionScreenCapture? = {
                         if let screenNumber = parseResult.screenNumber,
-                           screenNumber >= 1 && screenNumber <= screenCaptures.count {
+                            screenNumber >= 1 && screenNumber <= screenCaptures.count
+                        {
                             return screenCaptures[screenNumber - 1]
                         }
                         return screenCaptures.first(where: { $0.isCursorScreen })
                     }()
 
                     if let pointCoordinate = parseResult.coordinate,
-                       let targetScreenCapture {
+                        let targetScreenCapture
+                    {
                         // Same screenshot-pixel → AppKit-global helper
                         // used by the annotation drainer, so the cursor
                         // path and the tuition-mode draw layer can't
                         // drift apart.
-                        let globalLocation = PaceAnnotationCoordinateMapper
+                        let globalLocation =
+                            PaceAnnotationCoordinateMapper
                             .convertScreenshotPixelToAppKitGlobal(
                                 screenshotPixelPoint: pointCoordinate,
                                 on: targetScreenCapture
@@ -1822,7 +2058,9 @@ extension CompanionManager {
                         detectedElementScreenLocation = globalLocation
                         detectedElementDisplayFrame = targetScreenCapture.displayFrame
                         PaceAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
-                        print("🎯 Step \(stepIndex) pointing: (\(Int(pointCoordinate.x)), \(Int(pointCoordinate.y))) → \"\(parseResult.elementLabel ?? "element")\"")
+                        print(
+                            "🎯 Step \(stepIndex) pointing: (\(Int(pointCoordinate.x)), \(Int(pointCoordinate.y))) → \"\(parseResult.elementLabel ?? "element")\""
+                        )
                     } else {
                         print("🎯 Step \(stepIndex) pointing: \(parseResult.elementLabel ?? "no element")")
                     }
@@ -1852,12 +2090,14 @@ extension CompanionManager {
                     //    using the fully-cleaned spokenText as the
                     //    source of truth (the streamer used a coarser
                     //    in-flight strip).
-                    let shouldSpeakInitialPlannerText = !actionExecutor.actionsAreEnabled
+                    let shouldSpeakInitialPlannerText =
+                        !actionExecutor.actionsAreEnabled
                         || !PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
                             for: actionParseResult.executionPlan
                         )
                     if shouldSpeakInitialPlannerText,
-                       !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    {
                         await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
                         voiceState = .responding
                     }
@@ -1871,10 +2111,11 @@ extension CompanionManager {
                             actionExecutionPlan: actionParseResult.executionPlan,
                             environment: currentToolPreflightEnvironment()
                         )
-                        appendActionResult(.planned(
-                            actionExecutionPlan: actionParseResult.executionPlan,
-                            preflightIssues: preflightIssues
-                        ))
+                        appendActionResult(
+                            .planned(
+                                actionExecutionPlan: actionParseResult.executionPlan,
+                                preflightIssues: preflightIssues
+                            ))
 
                         // Visual-target ambiguity: if the executor's click
                         // candidates have near-tied, distinguishable labels,
@@ -1885,10 +2126,11 @@ extension CompanionManager {
                         // of the agent loop here. See PRD
                         // docs/prds/hud-intent-disambiguator.md.
                         if actionExecutor.actionsAreEnabled,
-                           raiseClickTargetClarificationIfAmbiguous(
-                               actionExecutionPlan: actionParseResult.executionPlan,
-                               screenCaptures: screenCaptures
-                           ) {
+                            raiseClickTargetClarificationIfAmbiguous(
+                                actionExecutionPlan: actionParseResult.executionPlan,
+                                screenCaptures: screenCaptures
+                            )
+                        {
                             break agentStepLoop
                         }
 
@@ -1904,9 +2146,12 @@ extension CompanionManager {
                                 preActionObservationBaseline = PaceClickStateSnapshot.captureLightweight()
                                 PaceLatencyBudget.shared.mark(.toolExecStart)
                                 if actionExecutor.hasActiveStreamingMailDraft,
-                                   let finalMailDraft = streamedMailDraftForFinalization {
-                                    if let streamingMailObservation = await actionExecutor
-                                        .finishActiveStreamingMailDraft(finalMailDraft: finalMailDraft) {
+                                    let finalMailDraft = streamedMailDraftForFinalization
+                                {
+                                    if let streamingMailObservation =
+                                        await actionExecutor
+                                        .finishActiveStreamingMailDraft(finalMailDraft: finalMailDraft)
+                                    {
                                         toolObservations.append(streamingMailObservation)
                                     }
 
@@ -1932,9 +2177,12 @@ extension CompanionManager {
                                 )
                                 PaceLatencyBudget.shared.mark(.toolExecComplete)
                                 if !toolObservations.isEmpty {
-                                    print("🧰 Tool observations:\n\(PaceActionExecutionObservation.formatForPlanner(toolObservations))")
+                                    print(
+                                        "🧰 Tool observations:\n\(PaceActionExecutionObservation.formatForPlanner(toolObservations))"
+                                    )
                                     appendActionResult(.completed(observations: toolObservations))
-                                    pendingPostActionFeedbackText = PaceActionExecutionObservation
+                                    pendingPostActionFeedbackText =
+                                        PaceActionExecutionObservation
                                         .formatForUserFeedback(toolObservations)
                                     // After every reversible mutation, raise the
                                     // visible undo banner (PRD trust-and-failures).
@@ -1952,20 +2200,25 @@ extension CompanionManager {
                                 }
                             } else {
                                 userDeniedActionApproval = true
-                                appendActionResult(PaceActionRunRecord(
-                                    status: .denied,
-                                    title: "Action denied",
-                                    detail: actionParseResult.executionPlan.approvalSummary
-                                ))
+                                appendActionResult(
+                                    PaceActionRunRecord(
+                                        status: .denied,
+                                        title: "Action denied",
+                                        detail: actionParseResult.executionPlan.approvalSummary
+                                    ))
                                 print("🛑 Pace action approval denied — stopping agent loop")
                             }
                         } else {
-                            appendActionResult(PaceActionRunRecord(
-                                status: .skipped,
-                                title: "Actions disabled",
-                                detail: "Parsed \(actionParseResult.actions.count) action(s), but EnableActions is false."
-                            ))
-                            print("🤖 \(actionParseResult.actions.count) action(s) parsed but EnableActions is false — exiting loop after this step")
+                            appendActionResult(
+                                PaceActionRunRecord(
+                                    status: .skipped,
+                                    title: "Actions disabled",
+                                    detail:
+                                        "Parsed \(actionParseResult.actions.count) action(s), but EnableActions is false."
+                                ))
+                            print(
+                                "🤖 \(actionParseResult.actions.count) action(s) parsed but EnableActions is false — exiting loop after this step"
+                            )
                         }
 
                         // Narrate any blocking preflight issue regardless of
@@ -1995,29 +2248,31 @@ extension CompanionManager {
                         }
                         return PaceActionExecutionObservation.formatForPlanner(toolObservations)
                     }()
-                    recordToolCallDebug(PaceToolCallDebugRecord(
-                        transcript: isFirstStep ? transcript : "(agent step \(stepIndex))",
-                        lane: .planner,
-                        routingDetail: "\(intentPrediction.intent.rawValue) · conf \(String(format: "%.2f", intentPrediction.confidence)) · \(intentPrediction.route.rawValue)",
-                        plannerPathDetail: useSpeculativeRace
-                            ? (raceLiteWonSpokenText != nil
-                                ? "speculative race · lite (Apple FM, no screen) won audio"
-                                : "speculative race · full planner won")
-                            : "single planner",
-                        userHeardScreenlessAnswer: raceLiteWonSpokenText,
-                        screenElementCount: lastPlannerElementLineCountForDebug,
-                        rawPlannerOutput: fullResponseText,
-                        spokenText: spokenText,
-                        parsedActionsSummary: Self.toolCallDebugSummary(
-                            for: actionParseResult.executionPlan
-                        ),
-                        dispatchSummary: dispatchSummaryForDebug,
-                        plannerLatencyMs: plannerSectionElapsedMs,
-                        totalTurnLatencyMs: Int(
-                            Date().timeIntervalSince(turnStartedAt) * 1000
-                        ),
-                        userPrompt: userPromptForPlannerForDebug
-                    ), systemPromptForExport: isResearchTurn ? nil : systemPromptForTurn)
+                    recordToolCallDebug(
+                        PaceToolCallDebugRecord(
+                            transcript: isFirstStep ? transcript : "(agent step \(stepIndex))",
+                            lane: .planner,
+                            routingDetail:
+                                "\(intentPrediction.intent.rawValue) · conf \(String(format: "%.2f", intentPrediction.confidence)) · \(intentPrediction.route.rawValue)",
+                            plannerPathDetail: useSpeculativeRace
+                                ? (raceLiteWonSpokenText != nil
+                                    ? "speculative race · lite (Apple FM, no screen) won audio"
+                                    : "speculative race · full planner won")
+                                : "single planner",
+                            userHeardScreenlessAnswer: raceLiteWonSpokenText,
+                            screenElementCount: lastPlannerElementLineCountForDebug,
+                            rawPlannerOutput: fullResponseText,
+                            spokenText: spokenText,
+                            parsedActionsSummary: Self.toolCallDebugSummary(
+                                for: actionParseResult.executionPlan
+                            ),
+                            dispatchSummary: dispatchSummaryForDebug,
+                            plannerLatencyMs: plannerSectionElapsedMs,
+                            totalTurnLatencyMs: Int(
+                                Date().timeIntervalSince(turnStartedAt) * 1000
+                            ),
+                            userPrompt: userPromptForPlannerForDebug
+                        ), systemPromptForExport: isResearchTurn ? nil : systemPromptForTurn)
 
                     // 11. Exit conditions for the agent loop:
                     //     - planner emitted [DONE]
@@ -2037,14 +2292,17 @@ extension CompanionManager {
                     if let researchConfiguration = capturedResearchConfiguration {
                         cumulativeOutputTokenEstimate += fullResponseText.count / 4
                         if cumulativeOutputTokenEstimate >= researchConfiguration.perTurnTokenBudgetCap {
-                            print("⛔ Research turn hit token budget cap (~\(cumulativeOutputTokenEstimate) tokens / ceiling \(researchConfiguration.perTurnTokenBudgetCap)) — bailing")
+                            print(
+                                "⛔ Research turn hit token budget cap (~\(cumulativeOutputTokenEstimate) tokens / ceiling \(researchConfiguration.perTurnTokenBudgetCap)) — bailing"
+                            )
                             await MainActor.run {
                                 self.currentTurnHUDState = .done("hit token budget")
                             }
                             break agentStepLoop
                         }
                     }
-                    let exitLoop = plannerSignaledDone
+                    let exitLoop =
+                        plannerSignaledDone
                         || actionParseResult.actions.isEmpty
                         || !actionExecutor.actionsAreEnabled
                         || userDeniedActionApproval
@@ -2053,7 +2311,9 @@ extension CompanionManager {
                         if plannerSignaledDone {
                             print("✅ Agent loop: planner signaled [DONE] at step \(stepIndex)")
                         } else if plannerClientForThisTurn.usesStructuredActionOutput {
-                            print("✅ Agent loop: structured-output turn is single-shot — stopping after step \(stepIndex)")
+                            print(
+                                "✅ Agent loop: structured-output turn is single-shot — stopping after step \(stepIndex)"
+                            )
                         }
                         break agentStepLoop
                     }
@@ -2081,14 +2341,15 @@ extension CompanionManager {
                     // Set up the next iteration.
                     let toolObservationPromptText = PaceActionExecutionObservation.formatForPlanner(toolObservations)
                     if toolObservationPromptText.isEmpty {
-                        currentTurnUserPrompt = "continue the task. look at the current screen, then either emit the next step's action tags or emit [DONE] if the task is complete."
+                        currentTurnUserPrompt =
+                            "continue the task. look at the current screen, then either emit the next step's action tags or emit [DONE] if the task is complete."
                     } else {
                         currentTurnUserPrompt = """
-                        tool results:
-                        \(toolObservationPromptText)
+                            tool results:
+                            \(toolObservationPromptText)
 
-                        continue the task. use the tool results and current screen, then either emit the next step's tool calls/action tags or emit [DONE] if the task is complete.
-                        """
+                            continue the task. use the tool results and current screen, then either emit the next step's tool calls/action tags or emit [DONE] if the task is complete.
+                            """
                     }
                     voiceState = .processing
                 }
@@ -2098,14 +2359,16 @@ extension CompanionManager {
                 }
 
                 if let pendingPostActionFeedbackText,
-                   !pendingPostActionFeedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                   !Task.isCancelled {
+                    !pendingPostActionFeedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    !Task.isCancelled
+                {
                     responseOverlayManager.updateStreamingText(pendingPostActionFeedbackText)
                     await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: pendingPostActionFeedbackText)
                     voiceState = .responding
                 }
                 if currentTurnHUDState.status == .understanding
-                    || currentTurnHUDState.status == .acting {
+                    || currentTurnHUDState.status == .acting
+                {
                     currentTurnHUDState = .done("turn finished")
                 }
             } catch is CancellationError {
@@ -2149,7 +2412,8 @@ extension CompanionManager {
                         .cloudBridgeUpstreamError(
                             provider: cloudBridgeUpstream.displayLabel
                         ),
-                        context: "planner-catch"
+                        context: "planner-catch",
+                        respondingToUserTranscript: transcript
                     )
                 } else if plannerClient is PaceLocalCLIPlannerClient {
                     // `.cliDirect` tier: the direct-spawned CLI errored /
@@ -2160,10 +2424,15 @@ extension CompanionManager {
                         .cloudBridgeUpstreamError(
                             provider: activePlannerTierCLIDirectUpstream.displayLabel
                         ),
-                        context: "planner-catch-cliDirect"
+                        context: "planner-catch-cliDirect",
+                        respondingToUserTranscript: transcript
                     )
                 } else {
-                    speakPlainLanguageFailure(.plannerOffline, context: "planner-catch")
+                    speakPlainLanguageFailure(
+                        PaceFailureNarrator.kindForPlannerPipelineError(error as NSError),
+                        context: "planner-catch",
+                        respondingToUserTranscript: transcript
+                    )
                 }
             }
 
@@ -2178,7 +2447,8 @@ extension CompanionManager {
                 // best-effort recorder that fires-and-persists inline like the
                 // sibling journals, so it cannot throw back into the loop.
                 if isResearchTurn,
-                   !latestSpokenTextForResearchJournal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    !latestSpokenTextForResearchJournal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                {
                     localRetriever.recordResearchTurn(
                         question: transcript,
                         answer: latestSpokenTextForResearchJournal
@@ -2280,7 +2550,8 @@ extension CompanionManager {
                 )
             }
             let labeledImages = screenCaptures.map { capture -> (data: Data, label: String) in
-                let dimensionInfo = " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
+                let dimensionInfo =
+                    " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
                 return (data: capture.imageData, label: capture.label + dimensionInfo)
             }
             let screenContextStartedAt = Date()
@@ -2295,7 +2566,9 @@ extension CompanionManager {
                 route: route,
                 isFirstPlannerStep: true
             )
-            print("⏱  Race full-path screen context (VLM + OCR + AX): \(Int(Date().timeIntervalSince(screenContextStartedAt) * 1000))ms")
+            print(
+                "⏱  Race full-path screen context (VLM + OCR + AX): \(Int(Date().timeIntervalSince(screenContextStartedAt) * 1000))ms"
+            )
             self.logFirstElementsOfPromptForDiagnostics(
                 userPromptForPlanner: userPromptForPlanner,
                 stepIndex: 1
@@ -2350,7 +2623,8 @@ extension CompanionManager {
                 // JSON envelope, so its stream is raw JSON — never speak it;
                 // the parsed spokenText is flushed at turn end instead. The
                 // lite path stays free prose and streams normally.
-                let shouldSuppressStreamingNarration = Self.streamedPlannerTextIsStructuredEnvelope(accumulatedText)
+                let shouldSuppressStreamingNarration =
+                    Self.streamedPlannerTextIsStructuredEnvelope(accumulatedText)
                     || (self.actionExecutor.actionsAreEnabled
                         && PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
                             forPlannerResponseText: accumulatedText
@@ -2419,7 +2693,8 @@ extension CompanionManager {
         userPromptForPlanner: String,
         stepIndex: Int
     ) {
-        let allElementLines = userPromptForPlanner
+        let allElementLines =
+            userPromptForPlanner
             .split(separator: "\n")
             .filter { $0.contains("|") && !$0.hasPrefix("===") }
         // Stash the full count for the Settings → Debug post-execution
@@ -2504,22 +2779,37 @@ extension CompanionManager {
             }
         case .list:
             if scheduler.tasks.isEmpty {
-                Task { try? await ttsClient.speakText("No recurring tasks scheduled."); voiceState = .idle }
+                Task {
+                    try? await ttsClient.speakText("No recurring tasks scheduled.")
+                    voiceState = .idle
+                }
             } else {
                 let names = scheduler.tasks.map(\.displayName).joined(separator: ", ")
-                Task { try? await ttsClient.speakText("You have \(scheduler.tasks.count) recurring tasks: \(names)."); voiceState = .idle }
+                Task {
+                    try? await ttsClient.speakText("You have \(scheduler.tasks.count) recurring tasks: \(names).")
+                    voiceState = .idle
+                }
             }
         case .remove(let name):
             if let taskToRemove = scheduler.tasks.first(where: { $0.displayName.contains(name) }) {
                 scheduler.removeTask(id: taskToRemove.id)
             }
-            Task { try? await ttsClient.speakText("Removed."); voiceState = .idle }
+            Task {
+                try? await ttsClient.speakText("Removed.")
+                voiceState = .idle
+            }
         case .enable:
             scheduler.setEnabled(true)
-            Task { try? await ttsClient.speakText("Scheduling enabled."); voiceState = .idle }
+            Task {
+                try? await ttsClient.speakText("Scheduling enabled.")
+                voiceState = .idle
+            }
         case .disable:
             scheduler.setEnabled(false)
-            Task { try? await ttsClient.speakText("Scheduling disabled."); voiceState = .idle }
+            Task {
+                try? await ttsClient.speakText("Scheduling disabled.")
+                voiceState = .idle
+            }
         }
     }
 
@@ -2535,17 +2825,26 @@ extension CompanionManager {
             print("🔄 Background agent \(id) enqueued: \(displayName)")
         case .list:
             if runner.tasks.isEmpty {
-                Task { try? await ttsClient.speakText("No background tasks."); voiceState = .idle }
+                Task {
+                    try? await ttsClient.speakText("No background tasks.")
+                    voiceState = .idle
+                }
             } else {
                 let running = runner.tasks.filter { $0.state == .running }.count
                 let completed = runner.tasks.filter { $0.state == .completed }.count
-                Task { try? await ttsClient.speakText("\(running) running, \(completed) completed."); voiceState = .idle }
+                Task {
+                    try? await ttsClient.speakText("\(running) running, \(completed) completed.")
+                    voiceState = .idle
+                }
             }
         case .cancel(let name):
             if let taskToCancel = runner.tasks.first(where: { $0.displayName.contains(name) }) {
                 runner.cancel(taskId: taskToCancel.id)
             }
-            Task { try? await ttsClient.speakText("Cancelled."); voiceState = .idle }
+            Task {
+                try? await ttsClient.speakText("Cancelled.")
+                voiceState = .idle
+            }
         }
     }
 
@@ -2569,7 +2868,9 @@ extension CompanionManager {
                 // explicit profile AFTER start.
                 if let namedProfile {
                     controller.selectedProfileSlug = namedProfile.slug
-                    try? await ttsClient.speakText("Recording your \(namedProfile.name) — I'll write \(namedProfile.name)-style notes when you stop.")
+                    try? await ttsClient.speakText(
+                        "Recording your \(namedProfile.name) — I'll write \(namedProfile.name)-style notes when you stop."
+                    )
                 } else {
                     try? await ttsClient.speakText("Meeting mode on. Recording — I'll generate notes when you stop.")
                 }
@@ -2581,7 +2882,8 @@ extension CompanionManager {
             Task {
                 await controller.stop()
                 if let notes = controller.lastMeetingNotes, !notes.summary.isEmpty {
-                    let brief = notes.synthesisFailed
+                    let brief =
+                        notes.synthesisFailed
                         ? "Meeting stopped. Notes synthesis failed, but the transcript is saved."
                         : "Meeting stopped. \(notes.summary)"
                     try? await ttsClient.speakText(brief)
@@ -2592,7 +2894,10 @@ extension CompanionManager {
             }
         case .status:
             let status = controller.state == .active ? "active" : "inactive"
-            Task { try? await ttsClient.speakText("Meeting mode is \(status)."); voiceState = .idle }
+            Task {
+                try? await ttsClient.speakText("Meeting mode is \(status).")
+                voiceState = .idle
+            }
         }
     }
 
@@ -2602,10 +2907,16 @@ extension CompanionManager {
             let skills = PaceSkillLoader.loadAllSkills()
             let programs = PaceUserProgramStore().listValidPrograms()
             if skills.isEmpty && programs.isEmpty {
-                Task { try? await ttsClient.speakText("No skills installed."); voiceState = .idle }
+                Task {
+                    try? await ttsClient.speakText("No skills installed.")
+                    voiceState = .idle
+                }
             } else {
                 let names = (programs.map(\.name) + skills.map(\.name)).joined(separator: ", ")
-                Task { try? await ttsClient.speakText("Available skills: \(names)."); voiceState = .idle }
+                Task {
+                    try? await ttsClient.speakText("Available skills: \(names).")
+                    voiceState = .idle
+                }
             }
         case .run(let slug, let name):
             let skills = PaceSkillLoader.loadAllSkills()
@@ -2650,21 +2961,30 @@ extension CompanionManager {
                         stepsPlanned: skill.steps.count
                     )
                     let prompt = PaceSkillLoader.toPlannerPrompt(skill)
-                    Task { try? await ttsClient.speakText("Running the \(skill.name) skill."); }
+                    Task { try? await ttsClient.speakText("Running the \(skill.name) skill.") }
                     // Route through the normal planner pipeline.
                     sendTranscriptToPlannerWithScreenshot(transcript: prompt)
                 }
             } else {
-                Task { try? await ttsClient.speakText("I couldn't find a skill called \(name)."); voiceState = .idle }
+                Task {
+                    try? await ttsClient.speakText("I couldn't find a skill called \(name).")
+                    voiceState = .idle
+                }
             }
         case .install(let slug, let name):
             // Skills are auto-discovered from the skills directory; no
             // explicit install needed. Just confirm availability.
             let skills = PaceSkillLoader.loadAllSkills()
             if skills.contains(where: { $0.slug == slug || $0.name.lowercased() == name.lowercased() }) {
-                Task { try? await ttsClient.speakText("The \(name) skill is available."); voiceState = .idle }
+                Task {
+                    try? await ttsClient.speakText("The \(name) skill is available.")
+                    voiceState = .idle
+                }
             } else {
-                Task { try? await ttsClient.speakText("No skill called \(name) was found."); voiceState = .idle }
+                Task {
+                    try? await ttsClient.speakText("No skill called \(name) was found.")
+                    voiceState = .idle
+                }
             }
         case .create(let rawDescription):
             handleTeachSkillCommand(rawDescription: rawDescription, transcript: transcript)
@@ -2702,7 +3022,8 @@ extension CompanionManager {
         Task { @MainActor in
             try? await ttsClient.speakText(setupSpokenText)
 
-            let privacyPinnedLocalPlanner = BuddyPlannerClientFactory
+            let privacyPinnedLocalPlanner =
+                BuddyPlannerClientFactory
                 .makeLocalOnlyTextPlannerForPrivacyPinnedFeatures()
 
             var structuredDefinition: PaceAutomationDefinition?
@@ -2714,7 +3035,8 @@ extension CompanionManager {
                     userPrompt: rawDescription,
                     onTextChunk: { _ in }
                 )
-                structuredDefinition = PaceNaturalLanguageAutomationStructurer
+                structuredDefinition =
+                    PaceNaturalLanguageAutomationStructurer
                     .definition(fromStructuredJSON: plannerResult.text)
             } catch {
                 structuredDefinition = nil
@@ -2722,9 +3044,10 @@ extension CompanionManager {
 
             if let structuredDefinition {
                 let discoveredCatalog = await discoverAutomationCatalog()
-                let existingNormalizedNames = Set(discoveredCatalog.catalog.entries.map {
-                    PaceAutomationCatalog.normalizedName($0.name)
-                })
+                let existingNormalizedNames = Set(
+                    discoveredCatalog.catalog.entries.map {
+                        PaceAutomationCatalog.normalizedName($0.name)
+                    })
                 let existingIdentifiers = Set(
                     discoveredCatalog.typedDefinitions.map(\.identifier)
                         + discoveredCatalog.programs.map(\.identifier)
@@ -2740,7 +3063,8 @@ extension CompanionManager {
                     )
                     handleImmediateLocalModeResponse(
                         transcript: transcript,
-                        spokenText: "saved \(structuredDefinition.name) as a deterministic local automation. you can ask for it naturally now.",
+                        spokenText:
+                            "saved \(structuredDefinition.name) as a deterministic local automation. you can ask for it naturally now.",
                         shouldRecordConversationTurn: false
                     )
                     return
@@ -2772,7 +3096,8 @@ extension CompanionManager {
                     userPrompt: rawDescription,
                     onTextChunk: { _ in }
                 )
-                structuredProgram = PaceNaturalLanguageProgramStructurer
+                structuredProgram =
+                    PaceNaturalLanguageProgramStructurer
                     .program(fromStructuredJSON: plannerResult.text)
             } catch {
                 structuredProgram = nil
@@ -2780,9 +3105,10 @@ extension CompanionManager {
 
             if let structuredProgram {
                 let discoveredCatalog = await discoverAutomationCatalog()
-                let existingNormalizedNames = Set(discoveredCatalog.catalog.entries.map {
-                    PaceAutomationCatalog.normalizedName($0.name)
-                })
+                let existingNormalizedNames = Set(
+                    discoveredCatalog.catalog.entries.map {
+                        PaceAutomationCatalog.normalizedName($0.name)
+                    })
                 let existingIdentifiers = Set(
                     discoveredCatalog.typedDefinitions.map(\.identifier)
                         + discoveredCatalog.programs.map(\.identifier)
@@ -2798,7 +3124,8 @@ extension CompanionManager {
                     )
                     handleImmediateLocalModeResponse(
                         transcript: transcript,
-                        spokenText: "saved \(structuredProgram.name) as a deterministic Pace Program. it will run locally without a model.",
+                        spokenText:
+                            "saved \(structuredProgram.name) as a deterministic Pace Program. it will run locally without a model.",
                         shouldRecordConversationTurn: false
                     )
                     return
@@ -2846,7 +3173,8 @@ extension CompanionManager {
             guard let fallbackSkill, !fallbackSkill.steps.isEmpty else {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
-                    spokenText: "i couldn't represent that safely. describe the steps and any trigger phrase more explicitly.",
+                    spokenText:
+                        "i couldn't represent that safely. describe the steps and any trigger phrase more explicitly.",
                     shouldRecordConversationTurn: false
                 )
                 return
@@ -2872,7 +3200,8 @@ extension CompanionManager {
                 try PaceSkillLoader.save(fallbackSkill)
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
-                    spokenText: "saved \(fallbackSkill.name) as a flexible skill. it will use the local planner when it runs.",
+                    spokenText:
+                        "saved \(fallbackSkill.name) as a flexible skill. it will use the local planner when it runs.",
                     shouldRecordConversationTurn: false
                 )
             } catch {

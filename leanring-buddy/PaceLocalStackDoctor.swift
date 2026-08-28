@@ -458,7 +458,7 @@ final class PaceLocalStackDoctor {
 
     func runChecks() async -> [PaceDoctorCheck] {
         // Read config once so all checks use the same values.
-        let plannerBaseURL = Self.configString("LocalPlannerBaseURL", fallback: "http://localhost:1234/v1")
+        let plannerBaseURL = Self.configString("LocalPlannerBaseURL", fallback: "http://127.0.0.1:1234/v1")
         let plannerModelIdentifier = Self.configString("LocalPlannerModelIdentifier", fallback: "google/gemma-3-12b")
 
         // Embedding base URL: prefer RetrievalEmbeddingBaseURL, fall back to
@@ -470,21 +470,21 @@ final class PaceLocalStackDoctor {
             if let vlmBase = AppBundleConfiguration.stringValue(forKey: "LocalVLMBaseURL") {
                 return vlmBase
             }
-            return "http://localhost:1234/v1"
+            return "http://127.0.0.1:1234/v1"
         }()
         let embeddingModelIdentifier = Self.configString(
             "RetrievalEmbeddingModel",
             fallback: "text-embedding-nomic-embed-text-v1.5"
         )
 
-        let vlmBaseURL = Self.configString("LocalVLMBaseURL", fallback: "http://localhost:1234/v1")
+        let vlmBaseURL = Self.configString("LocalVLMBaseURL", fallback: "http://127.0.0.1:1234/v1")
         let vlmModelIdentifier = Self.configString("LocalVLMModelIdentifier", fallback: "ui-venus-1.5-2b")
 
         // UseLocalVLMForScreenContext defaults to true when absent — matches Info.plist default.
         let useLocalVLMForScreenContext = Self.configBool("UseLocalVLMForScreenContext") ?? true
 
-        let ttsServerBaseURL = Self.configString("LocalTTSServerBaseURL", fallback: "http://localhost:8880/v1")
-        let ttsProvider = Self.configString("TTSProvider", fallback: "localServer")
+        let ttsServerBaseURL = Self.configString("LocalTTSServerBaseURL", fallback: "http://127.0.0.1:8880/v1")
+        let ttsProvider = Self.configString("TTSProvider", fallback: "apple")
 
         let urlSession = Self.makeShortTimeoutSession()
 

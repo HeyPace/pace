@@ -53,7 +53,7 @@ final class LMStudioEmbeddingClient: PaceTextEmbedding {
     ) {
         let configuredBase = AppBundleConfiguration.stringValue(forKey: "RetrievalEmbeddingBaseURL")
             ?? AppBundleConfiguration.stringValue(forKey: "LocalVLMBaseURL")
-            ?? "http://localhost:1234/v1"
+            ?? "http://127.0.0.1:1234/v1"
         self.baseURL = baseURL ?? URL(string: configuredBase) ?? URL(fileURLWithPath: "/dev/null")
         self.modelIdentifier = modelIdentifier
             ?? AppBundleConfiguration.stringValue(forKey: "RetrievalEmbeddingModel")

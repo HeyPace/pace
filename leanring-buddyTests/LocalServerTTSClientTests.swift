@@ -141,12 +141,8 @@ struct LocalServerTTSClientIntegrationTests {
         }
     }
 
-    @Test func unreachableServerDropsUtteranceSilentlyInsteadOfFallingBack() async throws {
-        // Policy: NEVER speak through the Apple voice — it was rated worse
-        // than no audio. Failed synth retries once on the same text, then
-        // splits on punctuation. If every attempt fails, the fragment is
-        // dropped (the visible response overlay still shows the text).
-        let mustNeverSpeakFallback = SilentRecordingTTSClient()
+    @Test func unreachableServerUsesSystemVoiceFallback() async throws {
+        let recordingFallback = SilentRecordingTTSClient()
         let client = LocalServerTTSClient(
             configuration: LocalServerTTSConfiguration(
                 configuredBaseURLString: "http://127.0.0.1:59997/v1",
@@ -154,7 +150,7 @@ struct LocalServerTTSClientIntegrationTests {
                 configuredVoiceIdentifier: nil,
                 configuredSpeedString: nil
             ),
-            fallbackClient: mustNeverSpeakFallback
+            fallbackClient: recordingFallback
         )
         try await client.speakText("fallback check")
 
@@ -164,7 +160,7 @@ struct LocalServerTTSClientIntegrationTests {
             try await Task.sleep(nanoseconds: 100_000_000)
         }
 
-        #expect(mustNeverSpeakFallback.spokenTexts.isEmpty)
+        #expect(recordingFallback.spokenTexts == ["fallback check"])
         #expect(!client.isPlaying)
     }
 }

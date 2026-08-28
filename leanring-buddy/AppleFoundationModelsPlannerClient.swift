@@ -29,6 +29,13 @@ import Foundation
 import FoundationModels
 
 @available(macOS 26.0, *)
+@Generable
+private struct PaceFoundationModelsWarmUpResponse {
+    @Guide(description: "Set to true when the warmup request is complete.")
+    let isReady: Bool
+}
+
+@available(macOS 26.0, *)
 @MainActor
 final class AppleFoundationModelsPlannerClient: BuddyPlannerClient {
     let displayName = "Apple Foundation Models (on-device 3B)"
@@ -70,12 +77,11 @@ final class AppleFoundationModelsPlannerClient: BuddyPlannerClient {
 
     /// Wave 4: tiny "ping" prompt fired at app launch so the system
     /// model's weights are paged in before the user's first push-to-talk.
-    /// Uses the same @Generable typed-output path the real planner uses
-    /// (`PaceFMTurnResponse`) so the warmup exercises the exact runtime
-    /// surface area — anything that would block the first real call is
-    /// blocked here instead. RAM impact: zero new model weights (FM is
-    /// in-process and bundled with macOS); the work is purely lighting
-    /// up the existing system model.
+    /// Uses a minimal typed response so the warmup exercises Foundation
+    /// Models generation without asking an eight-token request to populate
+    /// the planner's much larger required action schema. RAM impact: zero new
+    /// model weights (FM is in-process and bundled with macOS); the work is
+    /// purely lighting up the existing system model.
     ///
     /// Bails silently when Apple Intelligence isn't available — the
     /// caller at app launch is fire-and-forget and there's no UX value
@@ -87,7 +93,7 @@ final class AppleFoundationModelsPlannerClient: BuddyPlannerClient {
         let startedAt = Date()
         let warmUpSession = LanguageModelSession(
             model: SystemLanguageModel.default,
-            instructions: { "respond with a single short word." }
+            instructions: { "Complete the warmup by setting isReady to true." }
         )
         let warmUpGenerationOptions = GenerationOptions(
             sampling: .greedy,
@@ -96,8 +102,8 @@ final class AppleFoundationModelsPlannerClient: BuddyPlannerClient {
         )
         do {
             _ = try await warmUpSession.respond(
-                to: "ping",
-                generating: PaceFMTurnResponse.self,
+                to: "Warm up now.",
+                generating: PaceFoundationModelsWarmUpResponse.self,
                 options: warmUpGenerationOptions
             )
             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)

@@ -639,6 +639,7 @@ def _run_lm_studio_call_once(model_identifier: str, fixture: Fixture) -> ModelRe
         "temperature": 0.4 if fixture.v10_mode else 0,
         "max_tokens": max_tokens_budget,
         "stream": False,
+        "reasoning_effort": "none",
     }
     # V10 fixtures pin the REAL v10 envelope response_format (the exact
     # schema LocalPlannerClient sends). Typed fixtures use the older

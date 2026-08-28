@@ -13,6 +13,11 @@
 
 import Foundation
 
+private enum PaceLMStudioNativeChatFailure: Error {
+    case beforeFirstText(underlyingError: Error)
+    case afterFirstText(underlyingError: Error)
+}
+
 final class LocalPlannerClient: BuddyPlannerClient {
     let displayName: String
 
@@ -62,7 +67,7 @@ final class LocalPlannerClient: BuddyPlannerClient {
         self.urlSession = URLSession(configuration: urlSessionConfiguration)
     }
 
-    /// Construct from Info.plist values. Falls back to localhost:1234
+    /// Construct from Info.plist values. Falls back to 127.0.0.1:1234
     /// (LM Studio default) + a small Qwen reasoner when unset.
     /// Consults `PacePlannerModelResolver.resolvedIdentifier` first so
     /// that if the warmup step picked a different model (because the
@@ -72,10 +77,12 @@ final class LocalPlannerClient: BuddyPlannerClient {
     static func makeFromInfoPlist(
         requestsStructuredActionOutput: Bool = false
     ) -> LocalPlannerClient {
-        let configuredBaseURL = AppBundleConfiguration
+        let configuredBaseURL =
+            AppBundleConfiguration
             .stringValue(forKey: "LocalPlannerBaseURL")
-            ?? "http://localhost:1234/v1"
-        let configuredModelIdentifier = AppBundleConfiguration
+            ?? "http://127.0.0.1:1234/v1"
+        let configuredModelIdentifier =
+            AppBundleConfiguration
             .stringValue(forKey: "LocalPlannerModelIdentifier")
             ?? "qwen3-4b-instruct"
 
@@ -84,7 +91,8 @@ final class LocalPlannerClient: BuddyPlannerClient {
             settingName: "LocalPlannerBaseURL"
         )
 
-        let effectiveModelIdentifier = PacePlannerModelResolver.resolvedIdentifier
+        let effectiveModelIdentifier =
+            PacePlannerModelResolver.resolvedIdentifier
             ?? configuredModelIdentifier
 
         return LocalPlannerClient(
@@ -111,9 +119,9 @@ final class LocalPlannerClient: BuddyPlannerClient {
         "type": "object",
         "properties": [
             "name": ["type": "string"],
-            "args": ["type": "object", "additionalProperties": true]
+            "args": ["type": "object", "additionalProperties": true],
         ],
-        "required": ["name"]
+        "required": ["name"],
     ]
 
     /// JSON-schema response format pinning the v10 envelope. Matches the
@@ -139,7 +147,7 @@ final class LocalPlannerClient: BuddyPlannerClient {
                     "spokenText": ["type": "string"],
                     "intent": [
                         "type": "string",
-                        "enum": ["answer", "action", "dictate", "edit", "clarify", "refuse"]
+                        "enum": ["answer", "action", "dictate", "edit", "clarify", "refuse"],
                     ],
                     "payload": [
                         "type": "object",
@@ -147,12 +155,12 @@ final class LocalPlannerClient: BuddyPlannerClient {
                         "properties": [
                             "name": ["type": "string"],
                             "args": ["type": "object", "additionalProperties": true],
-                            "calls": ["type": "array", "items": v10CallSchema]
-                        ]
-                    ]
-                ]
-            ]
-        ]
+                            "calls": ["type": "array", "items": v10CallSchema],
+                        ],
+                    ],
+                ],
+            ],
+        ],
     ]
 
     func generateResponseStreaming(
@@ -168,6 +176,33 @@ final class LocalPlannerClient: BuddyPlannerClient {
         // in so the user notices the mismatched config.
         if !images.isEmpty {
             print("ℹ️ LocalPlannerClient: received \(images.count) image(s) but model is text-only — ignoring")
+        }
+
+        // LM Studio's OpenAI-compatible endpoint currently ignores the
+        // non-thinking controls for Qwen 3.5. Its native API exposes the
+        // explicit `reasoning: off` contract, so use that faster path for
+        // ordinary spoken answers. Structured action turns stay on Chat
+        // Completions because they need `response_format: json_schema`.
+        if !requestsStructuredActionOutput {
+            do {
+                return try await generateLMStudioNativeStreamingResponse(
+                    systemPrompt: systemPrompt,
+                    conversationHistory: conversationHistory,
+                    userPrompt: userPrompt,
+                    onTextChunk: onTextChunk
+                )
+            } catch let nativeChatFailure as PaceLMStudioNativeChatFailure {
+                switch nativeChatFailure {
+                case .beforeFirstText(let underlyingError):
+                    print(
+                        "ℹ️ LocalPlannerClient: LM Studio native chat unavailable (\(underlyingError.localizedDescription)); using OpenAI-compatible fallback"
+                    )
+                case .afterFirstText(let underlyingError):
+                    // Do not restart the response after the user has already
+                    // seen or heard part of it; that would duplicate speech.
+                    throw underlyingError
+                }
+            }
         }
 
         let chatCompletionsURL = baseURL.appendingPathComponent("chat/completions")
@@ -199,8 +234,9 @@ final class LocalPlannerClient: BuddyPlannerClient {
             "max_tokens": 1024,
             "temperature": 0.4,
             "stream": true,
-            "cache_prompt": true
+            "cache_prompt": true,
         ]
+        PaceLocalOpenAIRequestTuning.apply(to: &requestBody)
         // Decode-constrain the MAIN planner to the v10 envelope so it can't
         // emit prose-only (the "opening chrome" narration with no action).
         // The answer planner leaves this off so its prose still streams.
@@ -268,10 +304,11 @@ final class LocalPlannerClient: BuddyPlannerClient {
                 guard jsonString != "[DONE]" else { break }
 
                 guard let jsonData = jsonString.data(using: .utf8),
-                      let eventPayload = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                      let choices = eventPayload["choices"] as? [[String: Any]],
-                      let firstChoice = choices.first,
-                      let delta = firstChoice["delta"] as? [String: Any] else {
+                    let eventPayload = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                    let choices = eventPayload["choices"] as? [[String: Any]],
+                    let firstChoice = choices.first,
+                    let delta = firstChoice["delta"] as? [String: Any]
+                else {
                     continue
                 }
 
@@ -280,7 +317,9 @@ final class LocalPlannerClient: BuddyPlannerClient {
                 if let textChunk = delta["content"] as? String, !textChunk.isEmpty {
                     if !hasLoggedTimeToFirstToken {
                         let timeToFirstTokenMs = Int(Date().timeIntervalSince(startTime) * 1000)
-                        print("⚡ Planner TTFT: \(timeToFirstTokenMs)ms (model=\(modelIdentifier), \(messages.count) msgs)")
+                        print(
+                            "⚡ Planner TTFT: \(timeToFirstTokenMs)ms (model=\(modelIdentifier), \(messages.count) msgs)"
+                        )
                         PaceTelemetryLog.recordPlannerTimeToFirstToken(
                             milliseconds: timeToFirstTokenMs,
                             modelIdentifier: modelIdentifier,
@@ -320,7 +359,9 @@ final class LocalPlannerClient: BuddyPlannerClient {
                     return (try? JSONSerialization.jsonObject(with: finalTextData)) == nil
                 }()
                 if structuredOutputIsInvalidJSON {
-                    print("⚠️ LocalPlannerClient: structured stream returned invalid JSON (attempt \(plannerAttemptNumber)); retrying without prompt cache")
+                    print(
+                        "⚠️ LocalPlannerClient: structured stream returned invalid JSON (attempt \(plannerAttemptNumber)); retrying without prompt cache"
+                    )
                     PaceAPIAuditLog.shared.record(
                         subsystem: "planner",
                         operation: "chat.completions.stream",
@@ -356,6 +397,182 @@ final class LocalPlannerClient: BuddyPlannerClient {
         )
     }
 
+    private func generateLMStudioNativeStreamingResponse(
+        systemPrompt: String,
+        conversationHistory: [(userPlaceholder: String, assistantResponse: String)],
+        userPrompt: String,
+        onTextChunk: @MainActor @Sendable (String) -> Void
+    ) async throws -> (text: String, duration: TimeInterval) {
+        let startTime = Date()
+        var hasEmittedUserFacingText = false
+
+        do {
+            let nativeChatURL = Self.lmStudioNativeChatURL(
+                openAICompatibleBaseURL: baseURL
+            )
+            let requestBody = Self.lmStudioNativeChatRequestBody(
+                modelIdentifier: modelIdentifier,
+                systemPrompt: systemPrompt,
+                conversationHistory: conversationHistory,
+                userPrompt: userPrompt
+            )
+
+            var request = URLRequest(url: nativeChatURL)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 45
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+            let (byteStream, response) = try await urlSession.bytes(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw NSError(
+                    domain: "LocalPlannerClient",
+                    code: -10,
+                    userInfo: [NSLocalizedDescriptionKey: "LM Studio native chat returned a non-HTTP response."]
+                )
+            }
+            guard (200...299).contains(httpResponse.statusCode) else {
+                var errorBodyLines: [String] = []
+                for try await line in byteStream.lines {
+                    errorBodyLines.append(line)
+                }
+                throw NSError(
+                    domain: "LocalPlannerClient",
+                    code: httpResponse.statusCode,
+                    userInfo: [
+                        NSLocalizedDescriptionKey:
+                            "LM Studio native chat HTTP \(httpResponse.statusCode): \(errorBodyLines.joined(separator: "\n"))"
+                    ]
+                )
+            }
+
+            var accumulatedResponseText = ""
+            var hasLoggedTimeToFirstToken = false
+            for try await line in byteStream.lines {
+                guard let textDelta = Self.lmStudioNativeMessageDelta(fromSSELine: line),
+                    !textDelta.isEmpty
+                else {
+                    continue
+                }
+
+                if !hasLoggedTimeToFirstToken {
+                    let timeToFirstTokenMilliseconds = Int(
+                        Date().timeIntervalSince(startTime) * 1000
+                    )
+                    print("⚡ Planner native TTFT: \(timeToFirstTokenMilliseconds)ms (model=\(modelIdentifier))")
+                    PaceTelemetryLog.recordPlannerTimeToFirstToken(
+                        milliseconds: timeToFirstTokenMilliseconds,
+                        modelIdentifier: modelIdentifier,
+                        messageCount: (conversationHistory.count * 2) + 2
+                    )
+                    hasLoggedTimeToFirstToken = true
+                }
+
+                hasEmittedUserFacingText = true
+                accumulatedResponseText += textDelta
+                onTextChunk(Self.stripThinkingBlocks(from: accumulatedResponseText))
+            }
+
+            let finalResponseText = Self.stripThinkingBlocks(
+                from: accumulatedResponseText
+            )
+            guard !finalResponseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw NSError(
+                    domain: "LocalPlannerClient",
+                    code: -11,
+                    userInfo: [NSLocalizedDescriptionKey: "LM Studio native chat returned no user-facing text."]
+                )
+            }
+
+            let duration = Date().timeIntervalSince(startTime)
+            PaceAPIAuditLog.shared.record(
+                subsystem: "planner",
+                operation: "chat.native.stream",
+                target: modelIdentifier,
+                durationMilliseconds: Int(duration * 1000),
+                outcome: "ok",
+                outputCharacterCount: finalResponseText.count,
+                detail: "reasoning off"
+            )
+            return (text: finalResponseText, duration: duration)
+        } catch let cancellationError as CancellationError {
+            throw cancellationError
+        } catch {
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+            if hasEmittedUserFacingText {
+                throw PaceLMStudioNativeChatFailure.afterFirstText(
+                    underlyingError: error
+                )
+            }
+            throw PaceLMStudioNativeChatFailure.beforeFirstText(
+                underlyingError: error
+            )
+        }
+    }
+
+    nonisolated static func lmStudioNativeChatURL(
+        openAICompatibleBaseURL: URL
+    ) -> URL {
+        var serverRootURL = openAICompatibleBaseURL
+        if serverRootURL.lastPathComponent.lowercased() == "v1" {
+            serverRootURL.deleteLastPathComponent()
+        }
+        return
+            serverRootURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("v1")
+            .appendingPathComponent("chat")
+    }
+
+    nonisolated static func lmStudioNativeChatRequestBody(
+        modelIdentifier: String,
+        systemPrompt: String,
+        conversationHistory: [(userPlaceholder: String, assistantResponse: String)],
+        userPrompt: String
+    ) -> [String: Any] {
+        let inputText: String
+        if conversationHistory.isEmpty {
+            inputText = userPrompt
+        } else {
+            let priorTurns = conversationHistory.map { conversationTurn in
+                "User: \(conversationTurn.userPlaceholder)\nAssistant: \(conversationTurn.assistantResponse)"
+            }.joined(separator: "\n\n")
+            inputText = "\(priorTurns)\n\nUser: \(userPrompt)\nAssistant:"
+        }
+
+        return [
+            "model": modelIdentifier,
+            "input": inputText,
+            "system_prompt": systemPrompt,
+            "reasoning": "off",
+            "store": false,
+            "stream": true,
+            "max_output_tokens": 384,
+            "temperature": 0.2,
+            "top_p": 0.8,
+        ]
+    }
+
+    nonisolated static func lmStudioNativeMessageDelta(
+        fromSSELine line: String
+    ) -> String? {
+        guard line.hasPrefix("data:") else { return nil }
+        let jsonString =
+            line
+            .dropFirst(5)
+            .trimmingCharacters(in: .whitespaces)
+        guard let jsonData = jsonString.data(using: .utf8),
+            let eventPayload = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+            eventPayload["type"] as? String == "message.delta"
+        else {
+            return nil
+        }
+        return eventPayload["content"] as? String
+    }
+
     private func generateNonStreamingFallbackResponse(
         chatCompletionsURL: URL,
         requestBody: [String: Any],
@@ -386,15 +603,18 @@ final class LocalPlannerClient: BuddyPlannerClient {
             throw NSError(
                 domain: "LocalPlannerClient",
                 code: httpResponse.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: "Local planner fallback HTTP \(httpResponse.statusCode): \(errorBody)"]
+                userInfo: [
+                    NSLocalizedDescriptionKey: "Local planner fallback HTTP \(httpResponse.statusCode): \(errorBody)"
+                ]
             )
         }
 
         guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let choices = payload["choices"] as? [[String: Any]],
-              let firstChoice = choices.first,
-              let message = firstChoice["message"] as? [String: Any],
-              let rawContent = message["content"] as? String else {
+            let choices = payload["choices"] as? [[String: Any]],
+            let firstChoice = choices.first,
+            let message = firstChoice["message"] as? [String: Any],
+            let rawContent = message["content"] as? String
+        else {
             throw NSError(
                 domain: "LocalPlannerClient",
                 code: -2,

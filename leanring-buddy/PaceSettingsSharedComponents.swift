@@ -30,15 +30,17 @@ func paceSettingsToggleRow(
     HStack(spacing: 12) {
         VStack(alignment: .leading, spacing: 3) {
             Text(title)
-                .font(.system(size: 13, weight: .medium))
+                .font(DS.Typography.calloutStrong)
                 .foregroundColor(DS.Colors.textPrimary)
             Text(subtitle)
-                .font(.system(size: 12))
+                .font(DS.Typography.caption)
                 .foregroundColor(DS.Colors.textTertiary)
         }
         Spacer()
-        Toggle("", isOn: isOn)
+        Toggle(title, isOn: isOn)
             .labelsHidden()
+            .accessibilityLabel(title)
+            .accessibilityHint(subtitle)
     }
     .padding(.vertical, 12)
     .overlay(alignment: .bottom) {
@@ -54,11 +56,11 @@ func paceSettingsToggleRow(
 func paceSettingsInfoRow(title: String, value: String) -> some View {
     HStack {
         Text(title)
-            .font(.system(size: 13, weight: .medium))
+            .font(DS.Typography.calloutStrong)
             .foregroundColor(DS.Colors.textSecondary)
         Spacer()
         Text(value)
-            .font(.system(size: 12, weight: .medium))
+            .font(DS.Typography.captionStrong)
             .foregroundColor(DS.Colors.textPrimary)
     }
     .padding(.vertical, 10)
@@ -82,7 +84,7 @@ func paceSettingsButton(
             Image(systemName: systemName)
                 .font(.system(size: 11, weight: .medium))
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(DS.Typography.captionStrong)
         }
         .foregroundColor(DS.Colors.textPrimary)
         .padding(.horizontal, 10)

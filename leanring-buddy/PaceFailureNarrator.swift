@@ -25,6 +25,7 @@ import Foundation
 /// without inventing new categories.
 nonisolated enum PaceMissingPermissionKind: Equatable {
     case accessibility
+    case screenRecording
     case calendar
     case reminders
     case automation
@@ -34,6 +35,7 @@ nonisolated enum PaceMissingPermissionKind: Equatable {
     var spokenNoun: String {
         switch self {
         case .accessibility: return "Accessibility"
+        case .screenRecording: return "Screen Recording"
         case .calendar: return "Calendar"
         case .reminders: return "Reminders"
         case .automation: return "Automation"
@@ -132,6 +134,15 @@ nonisolated struct PaceFailureNarration: Equatable {
 }
 
 nonisolated enum PaceFailureNarrator {
+    static func kindForPlannerPipelineError(_ error: NSError) -> PaceFailureKind {
+        if error.domain == "com.apple.ScreenCaptureKit.SCStreamErrorDomain",
+            error.code == -3801
+        {
+            return .missingPermission(permission: .screenRecording)
+        }
+        return .plannerOffline
+    }
+
     /// Composes a deterministic failure narration. Pure — no I/O, no
     /// model call, no global state.
     static func compose(_ kind: PaceFailureKind) -> PaceFailureNarration {
@@ -165,7 +176,8 @@ nonisolated enum PaceFailureNarrator {
 
         case .sidecarTTSOffline:
             return PaceFailureNarration(
-                spokenText: "Switched to the system voice — the Kokoro sidecar isn't reachable. Run scripts/start-tts-server.sh to get it back.",
+                spokenText:
+                    "Switched to the system voice — the Kokoro sidecar isn't reachable. Run scripts/start-tts-server.sh to get it back.",
                 suggestion: .runTTSSidecarScript
             )
 
@@ -173,7 +185,8 @@ nonisolated enum PaceFailureNarrator {
             let trimmedServerName = serverName.trimmingCharacters(in: .whitespacesAndNewlines)
             let renderedServerName = trimmedServerName.isEmpty ? "that" : trimmedServerName
             return PaceFailureNarration(
-                spokenText: "I'd use the \(renderedServerName) MCP server for that, but it isn't configured — want to add it?",
+                spokenText:
+                    "I'd use the \(renderedServerName) MCP server for that, but it isn't configured — want to add it?",
                 suggestion: .configureMCPServer(name: renderedServerName)
             )
 

@@ -13,6 +13,15 @@ nonisolated enum PaceQuickPanelMetrics {
     static let height: CGFloat = 320
 }
 
+nonisolated enum PaceAmbientHomePresentation: Equatable {
+    case livingNotch
+    case menuBarItem
+
+    static func resolve(hasReliablePhysicalNotchGeometry: Bool) -> PaceAmbientHomePresentation {
+        hasReliablePhysicalNotchGeometry ? .livingNotch : .menuBarItem
+    }
+}
+
 nonisolated enum PaceSignalState: String, CaseIterable, Equatable {
     case ready
     case listening

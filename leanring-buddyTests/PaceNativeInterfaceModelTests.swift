@@ -561,6 +561,17 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         XCTAssertEqual(PaceCommandCenterDestination.doctor.group, .diagnostics)
     }
 
+    func testAmbientHomeUsesMenuBarFallbackWithoutPhysicalNotchGeometry() {
+        XCTAssertEqual(
+            PaceAmbientHomePresentation.resolve(hasReliablePhysicalNotchGeometry: true),
+            .livingNotch
+        )
+        XCTAssertEqual(
+            PaceAmbientHomePresentation.resolve(hasReliablePhysicalNotchGeometry: false),
+            .menuBarItem
+        )
+    }
+
     func testCommandCenterPrimaryGroupsExposeAtMostFourChoices() {
         for group in PaceCommandCenterGroup.allCases {
             let primaryDestinations = PaceCommandCenterDestination.primaryDestinations(in: group)

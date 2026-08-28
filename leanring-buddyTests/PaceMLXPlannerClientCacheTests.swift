@@ -19,6 +19,7 @@
 
 import Foundation
 import Testing
+
 @testable import Pace
 
 @MainActor
@@ -41,9 +42,9 @@ struct PaceMLXPlannerClientCacheTests {
         // a no-op and the production code falls back to the
         // not-linked error path.
         #if canImport(MLXLLM)
-        #expect(PaceMLXPlannerClient.isRuntimeAvailable == true)
+            #expect(PaceMLXPlannerClient.isRuntimeAvailable == true)
         #else
-        #expect(PaceMLXPlannerClient.isRuntimeAvailable == false)
+            #expect(PaceMLXPlannerClient.isRuntimeAvailable == false)
         #endif
     }
 
@@ -60,5 +61,16 @@ struct PaceMLXPlannerClientCacheTests {
         )
         #expect(bf16Label.contains("Qwen3-4B"))
         #expect(fourBitLabel.contains("Qwen3-4B"))
+    }
+
+    @Test func standardHuggingFaceCachePathMatchesTheCLIConvention() async throws {
+        let repositoryDirectory = PaceMLXPlannerClient.standardHuggingFaceRepositoryCacheDirectory(
+            modelIdentifier: "mlx-community/Qwen3-4B-Instruct-2507-4bit",
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/example", isDirectory: true)
+        )
+
+        #expect(
+            repositoryDirectory.path
+                == "/Users/example/.cache/huggingface/hub/models--mlx-community--Qwen3-4B-Instruct-2507-4bit")
     }
 }

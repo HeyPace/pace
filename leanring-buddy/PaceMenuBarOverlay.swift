@@ -35,7 +35,8 @@ private enum PaceLivingNotchMetrics {
 enum PaceLivingNotchScreenGeometryResolver {
     static func targetScreen() -> NSScreen? {
         if let mainScreen = NSScreen.main,
-           geometry(for: mainScreen, displayMode: .hardwareIdle) != nil {
+            geometry(for: mainScreen, displayMode: .hardwareIdle) != nil
+        {
             return mainScreen
         }
 
@@ -124,10 +125,35 @@ private final class PaceLivingNotchSurfaceModel: ObservableObject {
     @Published var physicalHousingHeight: CGFloat = 0
 }
 
+private struct PaceLivingNotchAccessibilityModifier: ViewModifier {
+    let isPanelOpen: Bool
+    let accessibilityValue: String
+    let openPanel: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isPanelOpen {
+            content
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Pace conversation panel")
+        } else {
+            content
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Pace")
+                .accessibilityValue(accessibilityValue)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction {
+                    openPanel()
+                }
+        }
+    }
+}
+
 @MainActor
 final class PaceMenuBarOverlayManager {
     private weak var companionManager: CompanionManager?
     private var overlayPanel: PaceMenuBarOverlayPanel?
+    private var fallbackMenuBarStatusItem: NSStatusItem?
     private var companionManagerObservation: AnyCancellable?
     private var companionControlCenterObservation: AnyCancellable?
     private var overlayPanelResignKeyObserver: NSObjectProtocol?
@@ -137,6 +163,8 @@ final class PaceMenuBarOverlayManager {
     private var isHovering = false
     private var isQuickPanelPresented = false
     private var isVisible = false
+    private var lastAppliedDisplayMode: PaceLivingNotchDisplayMode?
+    private var lastAppliedGeometry: PaceLivingNotchGeometry?
     private let surfaceModel = PaceLivingNotchSurfaceModel()
     private let onTap: (NSRect) -> Void
 
@@ -144,7 +172,14 @@ final class PaceMenuBarOverlayManager {
         isQuickPanelPresented
     }
 
-    init(companionManager: CompanionManager, onTap: @escaping (NSRect) -> Void) {
+    var canPresentLivingNotch: Bool {
+        PaceLivingNotchScreenGeometryResolver.targetScreen() != nil
+    }
+
+    init(
+        companionManager: CompanionManager,
+        onTap: @escaping (NSRect) -> Void
+    ) {
         self.companionManager = companionManager
         self.onTap = onTap
 
@@ -177,6 +212,9 @@ final class PaceMenuBarOverlayManager {
     deinit {
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
+        if let fallbackMenuBarStatusItem {
+            NSStatusBar.system.removeStatusItem(fallbackMenuBarStatusItem)
+        }
         if let clickOutsideMonitor {
             NSEvent.removeMonitor(clickOutsideMonitor)
         }
@@ -198,6 +236,7 @@ final class PaceMenuBarOverlayManager {
         isVisible = false
         removeClickOutsideMonitors()
         overlayPanel?.orderOut(nil)
+        removeFallbackMenuBarStatusItem()
     }
 
     func setQuickPanelPresented(_ isQuickPanelPresented: Bool) {
@@ -275,8 +314,9 @@ final class PaceMenuBarOverlayManager {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self,
-                      self.isQuickPanelPresented,
-                      Date().timeIntervalSince(self.panelPresentedAt ?? .distantPast) >= 0.45 else {
+                    self.isQuickPanelPresented,
+                    Date().timeIntervalSince(self.panelPresentedAt ?? .distantPast) >= 0.45
+                else {
                     return
                 }
                 self.setQuickPanelPresented(false)
@@ -298,9 +338,23 @@ final class PaceMenuBarOverlayManager {
             isPanelOpen: isQuickPanelPresented
         )
 
-        guard let geometry = PaceLivingNotchScreenGeometryResolver.geometry(
+        let geometry = PaceLivingNotchScreenGeometryResolver.geometry(
             displayMode: displayMode
-        ) else {
+        )
+        let ambientHomePresentation = PaceAmbientHomePresentation.resolve(
+            hasReliablePhysicalNotchGeometry: geometry != nil
+        )
+        updateFallbackMenuBarStatusItem(for: ambientHomePresentation)
+
+        let presentationIsAlreadyApplied =
+            lastAppliedDisplayMode == displayMode
+            && lastAppliedGeometry == geometry
+            && (geometry == nil || overlayPanel?.isVisible == true)
+        guard !presentationIsAlreadyApplied else { return }
+        lastAppliedDisplayMode = displayMode
+        lastAppliedGeometry = geometry
+
+        guard let geometry else {
             overlayPanel?.orderOut(nil)
             return
         }
@@ -317,7 +371,8 @@ final class PaceMenuBarOverlayManager {
         surfaceModel.physicalHousingHeight = geometry.physicalHousingFrame.height
         guard let overlayPanel else { return }
 
-        let shouldAnimate = animated
+        let shouldAnimate =
+            animated
             && overlayPanel.isVisible
             && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if shouldAnimate {
@@ -333,6 +388,53 @@ final class PaceMenuBarOverlayManager {
         }
 
         overlayPanel.orderFrontRegardless()
+    }
+
+    private func updateFallbackMenuBarStatusItem(
+        for ambientHomePresentation: PaceAmbientHomePresentation
+    ) {
+        switch ambientHomePresentation {
+        case .livingNotch:
+            removeFallbackMenuBarStatusItem()
+        case .menuBarItem:
+            createFallbackMenuBarStatusItemIfNeeded()
+        }
+    }
+
+    private func createFallbackMenuBarStatusItemIfNeeded() {
+        guard fallbackMenuBarStatusItem == nil else { return }
+
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        guard let button = statusItem.button else {
+            NSStatusBar.system.removeStatusItem(statusItem)
+            return
+        }
+        let statusImage = NSImage(
+            systemSymbolName: "waveform.path",
+            accessibilityDescription: "Pace"
+        )
+        statusImage?.isTemplate = true
+        button.image = statusImage
+        button.toolTip = "Open Pace conversations"
+        button.target = self
+        button.action = #selector(fallbackMenuBarStatusItemTapped)
+        fallbackMenuBarStatusItem = statusItem
+    }
+
+    private func removeFallbackMenuBarStatusItem() {
+        guard let fallbackMenuBarStatusItem else { return }
+        NSStatusBar.system.removeStatusItem(fallbackMenuBarStatusItem)
+        self.fallbackMenuBarStatusItem = nil
+    }
+
+    @objc private func fallbackMenuBarStatusItemTapped() {
+        guard let button = fallbackMenuBarStatusItem?.button,
+            let buttonWindow = button.window
+        else {
+            return
+        }
+        let buttonFrameInWindow = button.convert(button.bounds, to: nil)
+        onTap(buttonWindow.convertToScreen(buttonFrameInWindow))
     }
 
     private func handleTap() {
@@ -359,7 +461,8 @@ final class PaceMenuBarOverlayManager {
     private func dismissPanelIfClickIsOutside() {
         guard isQuickPanelPresented, let overlayPanel else { return }
         if let panelPresentedAt,
-           Date().timeIntervalSince(panelPresentedAt) < 0.45 {
+            Date().timeIntervalSince(panelPresentedAt) < 0.45
+        {
             return
         }
         guard overlayPanel.frame.contains(NSEvent.mouseLocation) == false else { return }
@@ -436,8 +539,6 @@ private struct PaceMenuBarOverlayView: View {
                     companionManager: companionManager,
                     isEmbeddedInLivingNotch: true
                 )
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
                 .transition(
                     reduceMotion
                         ? .opacity
@@ -459,20 +560,23 @@ private struct PaceMenuBarOverlayView: View {
             x: 0,
             y: 8
         )
-        .help(companionControlCenter.preferences.isCompanionModeEnabled
-            ? companionControlCenter.runtimeStatusText
-            : statusText)
-        .accessibilityElement(
-            children: surfaceModel.displayMode == .panelOpen ? .contain : .ignore
+        .help(
+            companionControlCenter.preferences.isCompanionModeEnabled
+                ? companionControlCenter.runtimeStatusText
+                : statusText
         )
-        .accessibilityLabel("Pace")
-        .accessibilityValue(
-            "\(signalPresentation.accessibilityValue)\(captureAccessibilityDescription) Press \(PaceNotchChatShortcut.currentShortcutAccessibilityLabel) to open Pace."
+        .modifier(
+            PaceLivingNotchAccessibilityModifier(
+                isPanelOpen: surfaceModel.displayMode == .panelOpen,
+                accessibilityValue:
+                    "\(signalPresentation.accessibilityValue)"
+                    + "\(captureAccessibilityDescription) Press "
+                    + "\(PaceNotchChatShortcut.currentShortcutAccessibilityLabel) to open Pace.",
+                openPanel: {
+                    NotificationCenter.default.post(name: .paceShowPanel, object: nil)
+                }
+            )
         )
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction {
-            NotificationCenter.default.post(name: .paceShowPanel, object: nil)
-        }
         .animation(
             reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.82),
             value: surfaceModel.displayMode
@@ -549,38 +653,10 @@ private struct PaceMenuBarOverlayView: View {
             return "Pace"
         }
 
-        let currentTurnHUDState = companionManager.currentTurnHUDState
-        switch currentTurnHUDState.status {
-        case .idle:
+        guard companionManager.currentTurnHUDState.status != .idle else {
             return "Pace"
-        case .listening:
-            return currentTurnHUDState.title
-        case .understanding, .acting:
-            return preferredLiveStatusText(
-                detail: currentTurnHUDState.detail,
-                fallback: currentTurnHUDState.title
-            )
-        case .needsClarification:
-            return currentTurnHUDState.title
-        case .done:
-            return preferredLiveStatusText(
-                detail: currentTurnHUDState.detail,
-                fallback: companionManager.recentActionResults.first?.title ?? currentTurnHUDState.title
-            )
-        case .failed, .unsupported:
-            return preferredLiveStatusText(
-                detail: currentTurnHUDState.detail,
-                fallback: currentTurnHUDState.title
-            )
         }
-    }
-
-    private func preferredLiveStatusText(detail: String?, fallback: String) -> String {
-        guard let detail,
-              !detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return fallback
-        }
-        return detail
+        return signalPresentation.compactLabel
     }
 
     private func notchControlButton(
@@ -596,6 +672,7 @@ private struct PaceMenuBarOverlayView: View {
                 .background(Circle().fill(Color.white.opacity(0.08)))
         }
         .buttonStyle(.plain)
+        .paceControlHoverHighlight(cornerRadius: 12)
         .pointerCursor()
         .help(help)
         .accessibilityLabel(help)
@@ -662,7 +739,8 @@ private struct PaceMenuBarOverlayView: View {
             activeCaptureDescriptions.append("Screen active")
         }
         if companionControlCenter.preferences.isCompanionModeEnabled,
-           activeCaptureDescriptions.isEmpty {
+            activeCaptureDescriptions.isEmpty
+        {
             activeCaptureDescriptions.append(
                 "Companion mode \(companionControlCenter.runtimeStatusText.lowercased())"
             )
@@ -673,10 +751,12 @@ private struct PaceMenuBarOverlayView: View {
     }
 
     private func announceAccessibilityState(_ signalState: PaceSignalState) {
-        guard let announcement = PaceSignalPresentation.accessibilityAnnouncement(
-            for: signalState,
-            isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight
-        ) else { return }
+        guard
+            let announcement = PaceSignalPresentation.accessibilityAnnouncement(
+                for: signalState,
+                isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight
+            )
+        else { return }
 
         NSAccessibility.post(
             element: NSApplication.shared,
@@ -774,8 +854,9 @@ private struct PaceCompanionCaptureIndicators: View {
                 indicator(color: .cyan, label: "Screen active")
             }
             if controlCenter.preferences.isCompanionModeEnabled,
-               controlCenter.activeSources.contains(.camera) == false,
-               controlCenter.activeSources.contains(.screen) == false {
+                controlCenter.activeSources.contains(.camera) == false,
+                controlCenter.activeSources.contains(.screen) == false
+            {
                 indicator(color: runtimeColor, label: controlCenter.runtimeStatusText)
             }
         }
