@@ -8,6 +8,48 @@ import Testing
 
 @testable import Pace
 
+@MainActor
+struct LocalTTSPlaybackStateTests {
+    @Test func pendingUtteranceKeepsPlaybackActiveDuringStartupGracePeriod() {
+        let submittedAt = Date()
+
+        let isPlaying = LocalTTSClient.shouldReportPlaybackActive(
+            synthesizerIsSpeaking: false,
+            isUtterancePending: true,
+            mostRecentUtteranceSubmittedAt: submittedAt,
+            now: submittedAt.addingTimeInterval(0.5)
+        )
+
+        #expect(isPlaying)
+    }
+
+    @Test func stalePendingUtteranceCannotKeepPlaybackActiveForever() {
+        let submittedAt = Date()
+
+        let isPlaying = LocalTTSClient.shouldReportPlaybackActive(
+            synthesizerIsSpeaking: false,
+            isUtterancePending: true,
+            mostRecentUtteranceSubmittedAt: submittedAt,
+            now: submittedAt.addingTimeInterval(
+                LocalTTSClient.pendingPlaybackStartGraceInterval + 0.1
+            )
+        )
+
+        #expect(!isPlaying)
+    }
+
+    @Test func activeSynthesizerAlwaysReportsPlayback() {
+        let isPlaying = LocalTTSClient.shouldReportPlaybackActive(
+            synthesizerIsSpeaking: true,
+            isUtterancePending: false,
+            mostRecentUtteranceSubmittedAt: nil,
+            now: Date()
+        )
+
+        #expect(isPlaying)
+    }
+}
+
 struct LocalServerTTSConfigurationTests {
     @Test func defaultsApplyWhenNothingConfigured() async throws {
         let configuration = LocalServerTTSConfiguration(

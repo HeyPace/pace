@@ -22,6 +22,13 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
     // isSpeaking returns false but playback is imminent. Without our own flag,
     // CompanionManager's `while ttsClient.isPlaying` poll would exit early.
     private var isCurrentlySpeakingOrPending = false
+    private var mostRecentUtteranceSubmittedAt: Date?
+
+    /// AVSpeechSynthesizer can briefly report neither speaking nor finished
+    /// immediately after `speak(_:)`. Keep the pending flag alive through that
+    /// startup gap, but do not let a missed delegate callback strand Pace in a
+    /// responding state forever.
+    static let pendingPlaybackStartGraceInterval: TimeInterval = 1
 
     /// The voice identifier to use. Defaults to the system "enhanced" or
     /// "premium" English voice when available, which is markedly better
@@ -99,6 +106,7 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
         // Mark pending immediately so isPlaying returns true between this
         // call and the synthesizer actually starting audio output.
         isCurrentlySpeakingOrPending = true
+        mostRecentUtteranceSubmittedAt = Date()
 
         let utterance = AVSpeechUtterance(string: trimmedText)
         utterance.rate = speechProsody.rate
@@ -128,7 +136,35 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
     }
 
     var isPlaying: Bool {
-        isCurrentlySpeakingOrPending || speechSynthesizer.isSpeaking
+        let shouldReportPlaybackActive = Self.shouldReportPlaybackActive(
+            synthesizerIsSpeaking: speechSynthesizer.isSpeaking,
+            isUtterancePending: isCurrentlySpeakingOrPending,
+            mostRecentUtteranceSubmittedAt: mostRecentUtteranceSubmittedAt,
+            now: Date()
+        )
+        if !shouldReportPlaybackActive {
+            isCurrentlySpeakingOrPending = false
+        }
+        return shouldReportPlaybackActive
+    }
+
+    static func shouldReportPlaybackActive(
+        synthesizerIsSpeaking: Bool,
+        isUtterancePending: Bool,
+        mostRecentUtteranceSubmittedAt: Date?,
+        now: Date
+    ) -> Bool {
+        if synthesizerIsSpeaking {
+            return true
+        }
+        guard
+            isUtterancePending,
+            let mostRecentUtteranceSubmittedAt
+        else {
+            return false
+        }
+        return now.timeIntervalSince(mostRecentUtteranceSubmittedAt)
+            < pendingPlaybackStartGraceInterval
     }
 
     func stopPlayback() {
@@ -139,6 +175,7 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
         pendingNextStopReason = nil
         speechSynthesizer.stopSpeaking(at: .immediate)
         isCurrentlySpeakingOrPending = false
+        mostRecentUtteranceSubmittedAt = nil
     }
 
     private func bestAvailableVoice() -> AVSpeechSynthesisVoice? {
