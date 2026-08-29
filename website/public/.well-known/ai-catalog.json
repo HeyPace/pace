@@ -1,0 +1,31 @@
+{
+  "specVersion": "1.0",
+  "host": {
+    "displayName": "Pace",
+    "identifier": "did:web:heypace.app",
+    "documentationUrl": "https://heypace.app/docs/"
+  },
+  "entries": [
+    {
+      "identifier": "urn:air:heypace.app:skill:mac-assistant",
+      "displayName": "Pace Mac assistant",
+      "type": "text/markdown",
+      "url": "https://heypace.app/.well-known/agent-skills/pace-mac-assistant/SKILL.md",
+      "description": "Instructions for evaluating Pace against a user's Mac, privacy expectations, current release evidence, and commercial state."
+    },
+    {
+      "identifier": "urn:air:heypace.app:catalog:public-surfaces",
+      "displayName": "Pace public surface catalog",
+      "type": "application/json",
+      "url": "https://heypace.app/api-ai.json",
+      "description": "Machine-readable catalog of Pace's public pages and Markdown alternates."
+    },
+    {
+      "identifier": "urn:air:heypace.app:document:pricing",
+      "displayName": "Pace pricing",
+      "type": "text/markdown",
+      "url": "https://heypace.app/pricing.md",
+      "description": "Current free preview, $29 one-time purchase path, planned Studio option, features, and limits."
+    }
+  ]
+}

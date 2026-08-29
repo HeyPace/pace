@@ -1,3 +1,10 @@
+---
+title: Pace
+description: Local-first macOS voice agent that listens, reads the screen, and takes approved actions.
+canonical: https://heypace.app/
+last-updated: 2026-08-27
+---
+
 # Pace
 
 Pace is an on-device macOS voice agent that listens, reads the screen, and acts
@@ -8,8 +15,8 @@ with local models by default.
 - Push-to-talk voice interaction with local speech recognition and speech output.
 - Optional screen understanding and Mac actions with explicit permissions.
 - Local meeting transcription, notes, journals, memory, and teachable recipes.
-- A free Apple Foundation Models tier, a $29 one-time bundled local-model tier,
-  and an optional hosted routing add-on.
+- A free Apple Foundation Models preview and a $29 one-time purchase. The
+  proposed $5/month Studio routing option is not live.
 
 ## Product evidence
 
@@ -24,6 +31,8 @@ with local models by default.
 ## Agent entrypoints
 
 - [Agent catalog](https://heypace.app/api/ai)
+- [AI catalog](https://heypace.app/.well-known/ai-catalog.json)
+- [Agent skill index](https://heypace.app/.well-known/agent-skills/index.json)
 - [Short agent index](https://heypace.app/llms.txt)
 - [Full agent brief](https://heypace.app/llms-full.txt)
 - [Canonical sitemap](https://heypace.app/sitemap.xml)

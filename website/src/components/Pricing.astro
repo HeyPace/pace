@@ -21,10 +21,10 @@ import { paceCheckoutURL, paceCheckoutIsMailto } from "../config/commerce";
           on an ongoing basis, so there's nothing to charge you for monthly.
         </p>
         <p>
-          When the first Pace-tuned model ships (sometime in the next two
-          quarters, no exact date) the price for new buyers goes to $49.
-          If you bought at $29 you keep getting the new models free, by way
-          of the same Sparkle updater every other Mac app uses.
+          The current manual purchase covers the current release and bundled
+          local models. Payment, delivery, included updates, and support are
+          confirmed in writing before money changes hands; this page does not
+          promise a future model, delivery date, or price.
         </p>
       </div>
 
@@ -36,13 +36,14 @@ import { paceCheckoutURL, paceCheckoutIsMailto } from "../config/commerce";
           bundled stack is worth the $29.
         </p>
         <p>
-          <strong>Studio, $5/month, optional.</strong> Only useful if you
-          want me to host the Composio routing instead of running it
-          yourself. Most people skip it. Add it later or never.
+          <strong>Studio is planned at $5/month.</strong> It would add managed
+          Composio routing. It is not live today; the current app lets you
+          connect Composio with your own API key instead.
         </p>
         <p>
-          <strong>30-day refund.</strong> No questions. The license
-          deactivates, your card gets the money back.
+          <strong>Manual terms.</strong> The current release has no in-app
+          activation or deactivation system. The payment method, delivery,
+          support, and any refund terms are confirmed before purchase.
         </p>
       </div>
     </div>
@@ -56,12 +57,13 @@ import { paceCheckoutURL, paceCheckoutIsMailto } from "../config/commerce";
       </a>
       {paceCheckoutIsMailto && (
         <p class="text-sm text-[var(--color-text-muted)] max-w-lg">
-          Stripe checkout lands soon — today purchases go through email and
-          I'll send a license key manually within a day.
+          This is a paid product with a manual purchase path today. Email opens
+          with the price and Mac details pre-filled; payment and delivery are
+          confirmed before you pay.
         </p>
       )}
       <p class="pace-margin-note max-w-lg">
-        macOS 14+, Apple Silicon, 16 GB RAM minimum.<br />
+        Current preview: macOS 26, Apple Silicon, 16 GB RAM minimum.<br />
         32 GB if you want the bigger bf16 model loaded all the time —
         otherwise the 4-bit variant is one Settings toggle away.
       </p>

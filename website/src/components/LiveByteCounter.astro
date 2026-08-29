@@ -1,67 +1,36 @@
 ---
-// The closing punchline reworked as a live counter. Tracks the
-// user's seconds-on-page, multiplies by a plausible cloud-voice-
-// assistant upload rate, and renders the running total Pace would
-// have sent if it were cloud-backed. Pace's actual number stays
-// at zero — that's the joke.
-//
-// Cloud rate estimate: 16 kbit/s for compressed Opus audio + a
-// few KB/s for screen-context uploads + telemetry. Industry
-// average for voice-screen assistants is somewhere in the 30-60
-// KB/s range; I'm rounding down to 32 KB/s to keep the claim
-// defensible — actual products in this category are typically
-// worse than the number we're going to show.
-//
-// Math:
-//   bytes_per_sec = 32_000   (conservative for a voice+vision agent)
-//   seconds_on_page = Date.now()/1000 - load_time
-//   total = bytes_per_sec × seconds_on_page
-//
-// Renders both as raw bytes and KB so the comparison is concrete.
+// Mirror the in-app privacy audit without inventing a competitor traffic
+// estimate. The number is explicitly scoped to inference during a local-mode
+// turn; downloads, update checks, and enabled remote tiers are separate.
 ---
 
 <footer class="px-6 pt-32 pb-16 border-t border-[var(--color-border-subtle)] mt-20">
   <div class="max-w-5xl mx-auto">
-    <!-- ───── Live counter section ───── -->
+    <!-- ───── Local-turn privacy status ───── -->
     <div class="mb-28 md:mb-36">
-      <p
-        class="text-center text-sm font-mono uppercase tracking-[0.3em] text-[var(--color-text-muted)] mb-12"
-      >
-        While you've been here · <span data-pace-seconds-elapsed>0</span>s
-      </p>
-
-      <div class="grid md:grid-cols-2 gap-10 md:gap-16 items-center">
-        <!-- Left: the comparison number — what a cloud-backed
-             assistant WOULD have shipped in this time -->
-        <div class="text-center md:text-right">
-          <p class="text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] mb-4">
-            A cloud voice assistant uploads
+      <div class="grid md:grid-cols-[1fr_1.2fr] gap-10 md:gap-20 items-end">
+        <div>
+          <p class="text-sm font-mono uppercase tracking-[0.25em] text-[var(--color-text-muted)] mb-5">
+            Local-turn network audit
           </p>
-          <div
-            class="pace-display text-[var(--color-text-secondary)] tabular-nums"
-            style="font-size: clamp(3.5rem, 9vw, 6.5rem); line-height: 0.9;"
-          >
-            <span data-pace-cloud-bytes>0</span>
-            <span class="text-[var(--color-text-muted)] text-3xl md:text-5xl ml-2">KB</span>
-          </div>
-          <p class="pace-margin-note text-sm mt-3">
-            estimated at ~32 KB/s · audio + screen + telemetry
-          </p>
+          <h2 class="pace-display text-4xl md:text-6xl text-white">
+            The privacy claim is a <em>number inside the app.</em>
+          </h2>
         </div>
-
-        <!-- Right: Pace's number (always zero, big and green) -->
-        <div class="text-center md:text-left">
+        <div class="md:border-l md:border-[var(--color-border-subtle)] md:pl-12">
           <p class="text-xs font-mono uppercase tracking-widest text-[var(--color-text-muted)] mb-4">
-            Pace in local mode uploaded
+            Voice · screen · planner · speech-out
           </p>
           <div
             class="pace-display text-[var(--color-positive)] tabular-nums"
-            style="font-size: clamp(6rem, 16vw, 13rem); line-height: 0.85;"
+            style="font-size: clamp(6rem, 16vw, 11rem); line-height: 0.85;"
           >
             0
+            <span class="text-2xl md:text-4xl text-[var(--color-text-muted)]">bytes</span>
           </div>
           <p class="pace-margin-note text-sm mt-3">
-            same number tomorrow · and the day after that
+            For a local-mode turn. Model downloads, Sparkle update checks, and
+            any remote planner you explicitly enable are counted separately.
           </p>
         </div>
       </div>
@@ -82,8 +51,8 @@
       </p>
       <p>
         If you try it and the third turn feels worse than I promised, email
-        me directly. I'll refund you. That's the whole quality bar — if it's
-        not working for you, you shouldn't be paying for it.
+        me directly. I want to know where it failed and make the purchase
+        terms clear before you pay. That's the whole quality bar.
       </p>
       <p class="pace-display text-2xl text-white mt-8 not-italic">
         — <em>Sarthak</em>
@@ -130,37 +99,3 @@
     </div>
   </div>
 </footer>
-
-<script is:inline>
-  (function attachPaceLiveCounters() {
-    const cloudBytesEl = document.querySelector("[data-pace-cloud-bytes]");
-    const secondsElapsedEl = document.querySelector("[data-pace-seconds-elapsed]");
-    if (!cloudBytesEl || !secondsElapsedEl) return;
-
-    const cloudBytesPerSecond = 32000;
-    const pageLoadTimestamp = performance.now();
-    let lastRenderedSeconds = -1;
-
-    function formatKBFromBytes(bytes) {
-      const kilobytes = bytes / 1024;
-      if (kilobytes < 10) return kilobytes.toFixed(2);
-      if (kilobytes < 1000) return kilobytes.toFixed(1);
-      // Use locale-aware grouping over 1000 — feels more legible
-      // than 19483.7 KB
-      return Math.round(kilobytes).toLocaleString("en-US");
-    }
-
-    function renderCounter() {
-      const elapsedSeconds = Math.floor((performance.now() - pageLoadTimestamp) / 1000);
-      if (elapsedSeconds !== lastRenderedSeconds) {
-        lastRenderedSeconds = elapsedSeconds;
-        secondsElapsedEl.textContent = String(elapsedSeconds);
-        const cloudUploadedBytes = elapsedSeconds * cloudBytesPerSecond;
-        cloudBytesEl.textContent = formatKBFromBytes(cloudUploadedBytes);
-      }
-    }
-
-    renderCounter();
-    window.setInterval(renderCounter, 1000);
-  })();
-</script>

@@ -30,11 +30,12 @@
           cached, or analyzed off your machine.
         </p>
         <p>
-          Your memory — conversation history, durable facts, journals —
-          is one JSON file at
+          Conversation memory, durable facts, journals, flows, and taught
+          skills are ordinary local files under
           <code class="font-mono text-sm bg-[var(--color-surface)] px-1.5 py-0.5 rounded">~/Library/Application Support/Pace/</code>.
-          You can <code class="font-mono">cat</code> it. It's not encrypted
-          because it doesn't need to be — nobody but you has a copy.
+          You can inspect or remove them yourself. Their at-rest protection is
+          the protection configured for your macOS account and disk; Pace does
+          not pretend that local storage is automatically encrypted by the app.
         </p>
       </div>
 
@@ -57,8 +58,8 @@
           <div class="mt-2 text-[var(--color-text-muted)]">$ <span class="text-white"><span class="pace-cursor-caret"></span></span></div>
         </div>
         <p class="pace-margin-note mt-5">
-          Same output tomorrow.<br />
-          And the week after that.
+          Inference traffic in local mode.<br />
+          Downloads and update checks are reported separately.
         </p>
       </div>
     </div>

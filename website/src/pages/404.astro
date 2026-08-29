@@ -1,0 +1,35 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+---
+
+<BaseLayout
+  title="Page not found — Pace"
+  description="This Pace page does not exist. Return to the private Mac voice assistant homepage, download the app, or browse the documentation."
+  pathname="/404"
+>
+  <Nav />
+  <main class="px-6 py-28 md:py-40">
+    <section class="max-w-5xl mx-auto">
+      <p class="font-mono text-xs uppercase tracking-[0.25em] text-[var(--color-text-muted)]">
+        404 · outside the local map
+      </p>
+      <h1 class="pace-headline-display text-white mt-8 max-w-4xl">
+        Pace can read your screen.<br />
+        <span class="accent">Not this missing page.</span>
+      </h1>
+      <p class="pace-prose text-lg mt-10 max-w-2xl">
+        The address may have moved or never existed. Pace itself is a private
+        Mac voice assistant that can understand what is on your screen and take
+        actions with local context.
+      </p>
+      <div class="flex flex-col sm:flex-row gap-3 mt-10">
+        <a href="/" class="pace-cta-primary">Return home <span aria-hidden="true">→</span></a>
+        <a href="/download" class="pace-cta-secondary">Download Pace</a>
+        <a href="/docs/" class="pace-cta-secondary">Read the docs</a>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</BaseLayout>

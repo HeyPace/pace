@@ -1,0 +1,46 @@
+---
+import currentCommandCenter from "../../../artifacts/design/native-overhaul/command-center-automations-final.png";
+---
+
+<section class="px-6 py-24 md:py-32 border-t border-[var(--color-border-subtle)]">
+  <div class="max-w-6xl mx-auto">
+    <div class="grid gap-10 lg:grid-cols-[0.72fr_1.28fr] lg:items-end">
+      <div>
+        <p class="font-mono text-xs uppercase tracking-[0.25em] text-[var(--color-text-muted)]">
+          Current product proof
+        </p>
+        <h2 class="pace-display mt-5 text-3xl md:text-5xl text-white">
+          The native app, <em>not a landing-page mockup.</em>
+        </h2>
+        <p class="mt-7 text-[var(--color-text-secondary)] leading-relaxed">
+          This capture comes from the current macOS development build. It shows
+          the Command Center where you inspect taught automations and the local
+          actions Pace can run on this Mac.
+        </p>
+        <p class="pace-margin-note mt-6">
+          The public download is the 0.3.19 preview and may differ from this
+          development capture. It is ad-hoc signed, not notarized, and requires
+          right-click → Open on macOS 26.
+        </p>
+        <a class="pace-cta-secondary mt-8" href="/download">
+          Read the release boundary <span aria-hidden="true">→</span>
+        </a>
+      </div>
+
+      <figure class="overflow-hidden rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-surface)] shadow-2xl shadow-blue-950/20">
+        <img
+          src={currentCommandCenter.src}
+          width={currentCommandCenter.width}
+          height={currentCommandCenter.height}
+          loading="lazy"
+          decoding="async"
+          alt="Pace Command Center showing a taught automation and the built-in local action list"
+          class="block h-auto w-full"
+        />
+        <figcaption class="border-t border-[var(--color-border-subtle)] px-5 py-4 font-mono text-xs uppercase tracking-wider text-[var(--color-text-muted)]">
+          Current development capture · Pace Command Center · Automations
+        </figcaption>
+      </figure>
+    </div>
+  </div>
+</section>

@@ -7,6 +7,7 @@ import CursorFollower from "../components/CursorFollower.astro";
 import SpecMarquee from "../components/SpecMarquee.astro";
 import PageEnhancements from "../components/PageEnhancements.astro";
 import Hero from "../components/Hero.astro";
+import ProductProof from "../components/ProductProof.astro";
 import OnDevice from "../components/OnDevice.astro";
 import Features from "../components/Features.astro";
 import Automation from "../components/Automation.astro";
@@ -19,7 +20,7 @@ import SocialProof from "../components/SocialProof.astro";
 import FAQ from "../components/FAQ.astro";
 import LiveByteCounter from "../components/LiveByteCounter.astro";
 
-const description = "Private on-device Mac voice agent: listen, read the screen, take actions. Local models by default, no subscription. Compare the field at /compared. One-time $29.";
+const description = "Pace is a private Mac voice agent that listens, reads the current screen, and takes approved actions with local models by default.";
 ---
 
 <BaseLayout title="Pace — private Mac voice agent that sees your screen" description={description}>
@@ -27,15 +28,16 @@ const description = "Private on-device Mac voice agent: listen, read the screen,
   <SpecMarquee />
   <main>
     <Hero />
-    <OnDevice />
-    <Features />
-    <Automation />
-    <Reach />
-    <MeetingNotes />
-    <Trust />
-    <Comparison />
-    <SocialProof />
-    <section class="px-6 py-24 border-y border-[var(--color-border-subtle)]">
+    <div class="pace-below-fold"><ProductProof /></div>
+    <div class="pace-below-fold"><OnDevice /></div>
+    <div class="pace-below-fold"><Features /></div>
+    <div class="pace-below-fold"><Automation /></div>
+    <div class="pace-below-fold"><Reach /></div>
+    <div class="pace-below-fold"><MeetingNotes /></div>
+    <div class="pace-below-fold"><Trust /></div>
+    <div class="pace-below-fold"><Comparison /></div>
+    <div class="pace-below-fold"><SocialProof /></div>
+    <section class="pace-below-fold px-6 py-24 border-y border-[var(--color-border-subtle)]">
       <div class="max-w-5xl mx-auto">
         <p class="font-mono text-xs uppercase tracking-widest text-[var(--color-text-muted)]">Field guides</p>
         <h2 class="pace-display text-3xl md:text-5xl text-white mt-5 max-w-2xl">Understand the <em>local stack</em>, not just the pitch.</h2>
@@ -48,8 +50,8 @@ const description = "Private on-device Mac voice agent: listen, read the screen,
         </div>
       </div>
     </section>
-    <Pricing />
-    <FAQ />
+    <div class="pace-below-fold"><Pricing /></div>
+    <div class="pace-below-fold"><FAQ /></div>
   </main>
   <LiveByteCounter />
 

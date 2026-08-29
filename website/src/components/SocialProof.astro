@@ -5,18 +5,18 @@ import { paceCheckoutURL, paceCheckoutIsMailto } from "../config/commerce";
 // attributed quotes when real public testimonials exist.
 const voices = [
   {
-    quote:
-      "The screen reader plus click path is the thing. Dictation tools type text; Pace actually finds the button and presses it — locally.",
+    summary:
+      "Screen reading matters most when it leads to an action: finding the right control and using it locally, not merely dictating text.",
     theme: "Screen + click",
   },
   {
-    quote:
-      "I stopped juggling Raycast for shortcuts, a dictation app for typing, and Siri for questions. One menu-bar stack, zero cloud round trips on my turns.",
+    summary:
+      "A single menu-bar workflow can replace the context switching between shortcuts, dictation, and question-answering tools.",
     theme: "One stack",
   },
   {
-    quote:
-      "The plan-then-execute loop is what sold me. It shows what it's about to do before doing it — other agents just act and you guess what happened.",
+    summary:
+      "Showing the plan before execution makes computer actions easier to understand and trust.",
     theme: "Trust",
   },
 ];
@@ -33,19 +33,19 @@ const showSocialProofSection = true;
 const showDummyAttributedTestimonials = false;
 const dummyAttributedVoices = [
   {
-    quote:
+    summary:
       "Pace reads my screen and clicks the button locally — I stopped copy-pasting between a dictation app and Siri.",
     name: "Placeholder Person",
     role: "PLACEHOLDER — replace before launch",
   },
   {
-    quote:
+    summary:
       "The plan-then-execute step means I see what it's about to do. Nothing leaves my Mac and it's genuinely fast.",
     name: "Sample Reviewer",
     role: "PLACEHOLDER — replace before launch",
   },
   {
-    quote:
+    summary:
       "One menu-bar stack replaced three tools. Zero cloud round trips on my turns is the whole point.",
     name: "Demo Tester",
     role: "PLACEHOLDER — replace before launch",
@@ -64,10 +64,10 @@ const displayedVoices = showDummyAttributedTestimonials
     <section class="px-6 py-24 md:py-36 border-t border-[var(--color-border-subtle)]">
       <div class="max-w-6xl mx-auto">
         <p class="text-sm uppercase tracking-widest text-[var(--color-text-muted)] font-mono mb-6">
-          What people say
+          Early-access feedback
         </p>
         <h2 class="pace-display text-4xl md:text-6xl text-white mb-16 max-w-3xl">
-          What early access <em>sounds like.</em>
+          What private beta feedback <em>emphasized.</em>
         </h2>
 
         <div class="grid md:grid-cols-3 gap-5">
@@ -76,15 +76,15 @@ const displayedVoices = showDummyAttributedTestimonials
               class="pace-testimonial-card pace-fade-up"
               style={`animation-delay: ${index * 60}ms`}
             >
-              <blockquote class="text-[15px] text-white leading-relaxed mb-6">
-                "{voice.quote}"
-              </blockquote>
+              <p class="text-[15px] text-white leading-relaxed mb-6">
+                {voice.summary}
+              </p>
               <figcaption class="pt-5 border-t border-[var(--color-border-subtle)]">
                 <div class="text-xs font-mono uppercase tracking-wider text-[var(--color-text-muted)]">
                   {voice.name ?? voice.theme}
                 </div>
                 <div class="text-xs text-[var(--color-text-muted)] mt-1">
-                  {voice.role ?? "Private beta feedback"}
+                  {voice.role ?? "Anonymized feedback theme · paraphrased"}
                 </div>
               </figcaption>
             </figure>
@@ -92,7 +92,7 @@ const displayedVoices = showDummyAttributedTestimonials
         </div>
 
         <p class="pace-margin-note mt-10 max-w-lg">
-          Bought it and want to be quoted here?{" "}
+          Tried Pace and willing to be quoted by name?{" "}
           <a href="mailto:hi@sarthakagrawal.dev" class="underline hover:text-white">
             Email me
           </a>{" "}

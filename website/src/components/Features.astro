@@ -5,7 +5,7 @@
 const features = [
   {
     verb: "Listens",
-    body: "Hold ctrl+option, say something, let go. Or press ctrl three times for always-on mode. Push-to-talk via a system-wide CGEvent tap. The first spoken word back arrives in about 420 milliseconds.",
+    body: "Hold ctrl+option, say something, let go. Or explicitly enable Always listening in Settings for wake-word use. Push-to-talk uses a system-wide CGEvent tap, and Pace measures time to first spoken response on every turn.",
     margin: "Apple Speech by default. WhisperKit-Large if you put the model on disk — Pace picks it up automatically.",
   },
   {
@@ -39,11 +39,6 @@ const features = [
     margin: "Flows replay pixels. Skills replay intent. \"Teach a skill\" is structured into a file on-device — by voice or a typed form.",
   },
   {
-    verb: "Schedules",
-    body: "\"Every weekday at nine, draft my standup.\" Pace runs recurring tasks on a cron schedule and lists them in the Tasks tab with their last run and a delete button. Past research turns are browsable too — ask what you looked into last week and it answers from history.",
-    margin: "New in 0.3.20. Recurring background fires stay on the local planner unless you've explicitly consented to a cloud brain — an unattended fire never silently goes off-device.",
-  },
-  {
     verb: "Connects",
     body: "Calendar, Reminders, Notes, Mail, Things, Shortcuts, Messages — first-class, through EventKit and AppleScript. Broad external integrations run through open Model Context Protocol servers; anything beyond Apple's native data goes through Composio's OAuth gateway when you choose to enable it.",
     margin: "Apple-native stays local. External SaaS is your choice, off by default. MCP servers install one-tap in Settings.",
@@ -63,7 +58,7 @@ const features = [
     </p>
 
     <h2 class="pace-display text-4xl md:text-6xl text-white mb-16 max-w-3xl">
-      Ten verbs. <em>That's the whole product.</em>
+      Nine verbs. <em>That's the current preview.</em>
     </h2>
 
     <div class="space-y-16 md:space-y-20">
@@ -93,7 +88,7 @@ const features = [
 
     <details class="pace-capability-details mt-16 md:mt-20">
       <summary class="pace-cta-secondary inline-flex cursor-pointer select-none">
-        View six more capabilities
+        View five more capabilities
         <span aria-hidden="true" class="pace-details-arrow">↓</span>
       </summary>
 
