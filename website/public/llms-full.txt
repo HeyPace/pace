@@ -35,6 +35,8 @@ derive from the same source registry as the rendered comparison pages.
 - https://heypace.app/index.md
 - https://heypace.app/sitemap.xml
 - https://heypace.app/docs/llms.txt
+- https://heypace.app/.well-known/ai-catalog.json
+- https://heypace.app/.well-known/agent-skills/index.json
 
 ## Product links
 
@@ -49,6 +51,8 @@ derive from the same source registry as the rendered comparison pages.
 - https://heypace.app/index.md
 - https://heypace.app/sitemap.xml
 - https://heypace.app/robots.txt
+- https://heypace.app/.well-known/ai-catalog.json
+- https://heypace.app/.well-known/agent-skills/index.json
 
 ## Contact / fleet
 

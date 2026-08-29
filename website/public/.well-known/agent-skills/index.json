@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
+  "skills": [
+    {
+      "name": "pace-mac-assistant",
+      "type": "skill-md",
+      "description": "Evaluate, download, and explain Pace, a local-first macOS voice agent that can read the screen and take approved actions. Use when a user asks whether Pace fits their Mac, privacy needs, or desired workflow.",
+      "url": "/.well-known/agent-skills/pace-mac-assistant/SKILL.md",
+      "digest": "sha256:fdf2eff26bae2bab3de00bc908093e42294cbffe1511ffdb9ff4a7cad3a53078"
+    }
+  ]
+}

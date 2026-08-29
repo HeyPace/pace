@@ -13,6 +13,7 @@ import {
 // `Astro.site` from astro.config.mjs. We fall back to the known Pages
 // origin so the sitemap is never emitted with relative URLs.
 const PRODUCTION_ORIGIN = "https://heypace.app";
+const LAST_MATERIAL_UPDATE = "2026-08-27";
 
 export const GET: APIRoute = ({ site }) => {
   const origin = (site ?? new URL(PRODUCTION_ORIGIN)).origin;
@@ -20,7 +21,7 @@ export const GET: APIRoute = ({ site }) => {
   const urlEntries = publicSurfaces
     .map(
       ({ path, priority }) =>
-        `  <url>\n    <loc>${origin}${canonicalPublicPagePath(path)}</loc>\n    <priority>${priority}</priority>\n  </url>`,
+        `  <url>\n    <loc>${origin}${canonicalPublicPagePath(path)}</loc>\n    <lastmod>${LAST_MATERIAL_UPDATE}</lastmod>\n    <priority>${priority}</priority>\n  </url>`,
     )
     .join("\n");
 

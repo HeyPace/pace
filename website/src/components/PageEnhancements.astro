@@ -49,6 +49,17 @@
       revealableElements.forEach((element) => {
         revealObserver.observe(element);
       });
+
+      // Content visibility must never depend on a scroll event arriving at
+      // exactly the right moment. Reveal anything still pending after the
+      // initial page settles so fast scrolling, print, screenshots, and
+      // automation cannot produce an apparently empty page.
+      window.setTimeout(() => {
+        revealableElements.forEach((element) => {
+          element.classList.add("pace-revealed");
+          revealObserver.unobserve(element);
+        });
+      }, 1_500);
     }
 
     // ── 2. Magnetic CTAs ────────────────────────────────────────

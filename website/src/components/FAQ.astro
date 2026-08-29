@@ -17,7 +17,7 @@ const qas = [
   },
   {
     q: "What Macs?",
-    a: "Apple Silicon, M1 or later, macOS 14+. Intel Macs aren't supported and there's no plan to add them — MLX is Metal-backed, and the on-device story is what the whole product is. Tested on M1 Air, M2 Pro, M3 Max, M4 Pro.",
+    a: "The current 0.3.19 preview requires macOS 26 on an Apple Silicon Mac. Intel Macs aren't supported and there's no plan to add them — MLX is Metal-backed, and the on-device story is the product boundary. The shipped archive's Info.plist is the source of truth for this requirement.",
   },
   {
     q: "iPhone? Windows?",
@@ -25,15 +25,15 @@ const qas = [
   },
   {
     q: "What happens when you ship your own model?",
-    a: "Free upgrade for everyone who already owns Pace. The .app updates through Sparkle; the new model identifier is just a string in Info.plist. Your existing license keeps working. The price for new buyers goes to $49 at that point — you're grandfathered in at $29.",
+    a: "There is no promised delivery date or future price today. The current manual purchase covers the current release and bundled local models; included updates are confirmed before payment. Sparkle can deliver app updates, but its presence is not a commercial promise.",
   },
   {
     q: "Do I need LM Studio installed?",
     a: "No. The bundled MLX path covers planning, vision, embeddings, and TTS in-process. LM Studio is still supported as the power-user option if you'd rather run the larger Qwen3-30B model, but it's not required for a fresh install to be useful.",
   },
   {
-    q: "Refund policy?",
-    a: "30 days, no questions. The .app deactivates and your card gets refunded. I don't ask why because I already know — the model wasn't a fit, or the bf16 download hurt more than you wanted. Both are valid.",
+    q: "How are purchase terms handled?",
+    a: "The current checkout is a manual email path. Payment, delivery, support, included updates, and any refund terms are confirmed before payment. The current release has no in-app licence activation or deactivation system.",
   },
   {
     q: "What if I don't like the voice?",
@@ -45,7 +45,7 @@ const qas = [
   },
   {
     q: "Can I leave it always-on?",
-    a: "Yes. Press ctrl three times to toggle wake-word mode — Pace listens passively and only reacts when it hears its name. Most users keep push-to-talk (ctrl+option) because it's clearer about when you're talking to it, but always-on is one shortcut away.",
+    a: "Yes, as an explicit opt-in. Enable Always listening in Settings and Pace opens a bounded listening window after its wake phrase. It is off by default; push-to-talk (ctrl+option) remains the clearest way to control when Pace can hear you.",
   },
   {
     q: "Can it tell me what I did today?",

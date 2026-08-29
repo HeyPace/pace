@@ -19,6 +19,9 @@
 //     making the on-device claim visual.
 //
 import HeroArchitectureDiagram from "./HeroArchitectureDiagram.astro";
+import releaseInfo from "../config/release-info.json";
+
+const currentVersion = releaseInfo.latest?.version;
 ---
 
 <section class="pace-no-reveal relative px-6 pt-16 md:pt-24 pb-10 overflow-hidden">
@@ -31,7 +34,7 @@ import HeroArchitectureDiagram from "./HeroArchitectureDiagram.astro";
     <!-- ───── Top status row ───── -->
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-12 md:mb-16">
       <p class="text-xs font-mono uppercase tracking-[0.25em] text-[var(--color-text-muted)]">
-        Pace · v1 · for macOS
+        Pace{currentVersion ? ` ${currentVersion}` : ""} preview · for macOS
       </p>
       <div class="flex items-center gap-2.5 text-xs font-mono uppercase tracking-wider text-[var(--color-text-secondary)]">
         <span class="relative inline-flex">
@@ -45,18 +48,16 @@ import HeroArchitectureDiagram from "./HeroArchitectureDiagram.astro";
     <!-- ───── Editorial headline ───── -->
     <div class="max-w-5xl">
       <h1 class="pace-headline-display text-white">
-        I got tired of <span class="accent">Siri.</span>
-        <br />
-        So I made <span class="accent">Pace</span> — one that <span class="accent">stays on my Mac.</span>
+        A voice assistant that <span class="accent">sees your Mac</span> —
+        and keeps the work <span class="accent">there.</span>
       </h1>
 
       <div class="mt-10 md:mt-12 grid md:grid-cols-3 gap-6 md:gap-10 items-end">
         <p class="pace-prose md:col-span-2 text-base md:text-lg">
-          Pace is a voice assistant for macOS. Hold ctrl+option, say something,
-          let go. It listens with your Mac's mic, reads your screen with a
-          vision model on the same Apple Silicon chip, and clicks things
-          for you. First answer in <strong>420 ms</strong>. Local by default.
-          No account required. <strong>$29 once.</strong>
+          Pace is a private voice agent for Apple Silicon Macs. Hold
+          ctrl+option, ask about the screen in front of you, and Pace can
+          answer or take an approved action. Voice, screen understanding, and
+          planning stay local by default. <strong>No account required.</strong>
         </p>
         <p class="pace-margin-note text-right md:text-left md:pl-2 md:border-l md:border-[var(--color-border-subtle)]">
           Local models keep voice and screen context on your Mac.<br />
@@ -71,15 +72,15 @@ import HeroArchitectureDiagram from "./HeroArchitectureDiagram.astro";
     <div class="mt-10 md:mt-12 flex flex-col items-start gap-3 pace-fade-up" style="animation-delay: 280ms">
       <div class="flex flex-col sm:flex-row gap-3">
         <a href="/download" class="pace-cta-primary pace-magnetic text-base">
-          Download Pace — free
+          Download the free preview
           <span aria-hidden="true">↓</span>
         </a>
         <a href="#pricing" class="pace-cta-secondary pace-magnetic text-base">
-          Buy Pace — $29
+          See the $29 local stack
         </a>
       </div>
       <p class="text-sm text-[var(--color-text-muted)]">
-        Free with Apple Intelligence · One-time payment · No subscription
+        Free with Apple Foundation Models on macOS 26 · bundled local models are $29 once
       </p>
     </div>
 

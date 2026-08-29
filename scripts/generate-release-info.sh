@@ -27,7 +27,7 @@ fi
 # is unavailable (e.g. a fresh tarball checkout) — the website still
 # builds, the receipt just records "unknown" per the evidence matrix.
 SOURCE_REVISION=""
-if command -v git >/dev/null 2>&1 && [ -d "$PROJECT_DIR/.git" ]; then
+if command -v git >/dev/null 2>&1 && git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   SOURCE_REVISION="$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || true)"
 fi
 export SOURCE_REVISION

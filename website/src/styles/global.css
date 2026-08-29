@@ -352,8 +352,13 @@ h3 {
    than typical Tailwind heroes because the serif carries weight
    differently than Inter does. */
 .pace-hero-deferred {
-  content-visibility: auto;
-  contain-intrinsic-size: 1px 480px;
+  content-visibility: visible;
+}
+
+/* Keep the complete document available to search engines and assistive
+   technology while letting browsers defer below-the-fold rendering work. */
+.pace-below-fold {
+  content-visibility: visible;
 }
 
 .pace-headline-display {

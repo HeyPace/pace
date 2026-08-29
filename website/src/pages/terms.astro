@@ -4,7 +4,7 @@ import Nav from "../components/Nav.astro";
 import Footer from "../components/Footer.astro";
 
 const description =
-  "Pace's terms: MIT-licensed software, provided as-is, one-time purchase handled by the payment processor.";
+  "Pace's terms: MIT-licensed software, provided as-is, with a $29 one-time purchase and a manual checkout path when needed.";
 ---
 
 <BaseLayout
@@ -29,9 +29,11 @@ const description =
       <h2 class="pace-display pt-4 text-2xl text-white">Purchases</h2>
       <p>
         The paid tier is a one-time purchase that supports development.
-        Payment is handled entirely by the payment processor — Pace never
-        sees or stores payment details. If something's wrong with your
-        purchase, <a class="underline" href="mailto:sarthakagrawal927@gmail.com">email me</a>
+        A hosted checkout may be used when configured; otherwise the site opens
+        a manual purchase email and confirms the payment method before payment.
+        There is no in-app licence activation system in the current release. If
+        something's wrong with your purchase,
+        <a class="underline" href="mailto:sarthakagrawal927@gmail.com">email me</a>
         and I'll make it right.
       </p>
 
