@@ -28,7 +28,8 @@ typed — fully on-device. Example:
 
 Modality chosen: **teach-by-telling** (lowest risk, on-device). Teach-by-
 demonstration (generalize `record_flow` AX steps → NL skill) is a deferred
-fast-follow on the same foundation.
+fast-follow on the same foundation; see *Spatial teach mode* below for its
+current state.
 
 ## Design
 
@@ -80,7 +81,10 @@ on-device moat.
 
 - **Teach by demonstration → generalize** — reuse `record_flow` AX capture, convert
   steps to NL intent, save as a skill. Builds on `PaceSkillLoader.save` + the
-  Skills-tab section shipped here.
+  Skills-tab section shipped here. Still deferred, but no longer unplanned: the
+  design now lives in OpenSpec change `2026-08-30-add-spatial-teach-mode` and
+  moves out of this list when that change's evidence-rich compilation slice
+  ships.
 - `requiredPreferences` on *taught* skills — default `[]`; bundled-skill preference
   gating via `PaceLocalMemoryKey` is unchanged.
 
@@ -95,6 +99,28 @@ not Lua or JavaScript: raw scripts, shell, network, arbitrary files, imports,
 and direct Accessibility authority remain outside the format. The active design
 and verification state live in OpenSpec change
 `add-programmable-teachable-skills`.
+
+## Spatial teach mode (2026-08-30, proposed)
+
+Teach-by-demonstration is being taken on directly rather than by generalizing
+recorded steps into prose. The proposed direction keeps a demonstration
+deterministic and adds redundant target evidence instead of re-grounding through
+a planner on every run: a versioned flow v2 carrying app/window identity, a
+structural AX locator, risk class, bounded pre/postconditions and provenance; a
+fail-closed resolver that refuses on ambiguity rather than descending to weaker
+evidence; typed action facts kept separate from postconditions; a bounded
+on-device spatial context packet from a hold-to-highlight gesture; repair
+candidates that never mutate an active flow before a passing regression replay;
+and a guide mode that points and narrates without acting.
+
+The first slice is narrower than any of that: `PaceFlowReplayer.performAXPress`
+currently re-resolves its target from the current physical cursor position, so a
+replay can press whatever is under the pointer. Carrying the resolved element
+through dispatch is worth shipping on its own.
+
+Nothing here is implemented. The design, the eight-slice sequence, the open
+owner decisions, and the ambiguities found in the source issue live in OpenSpec
+change `2026-08-30-add-spatial-teach-mode`.
 
 ## Tests
 
