@@ -1,0 +1,83 @@
+{
+  "$schema": "fleet.landing-audit.scorecard.v1",
+  "project": "pace",
+  "priority": "P1",
+  "candidate": "http://127.0.0.1:4404/",
+  "productionChanged": false,
+  "checkedAt": "2026-08-28",
+  "purpose": {
+    "score": 94,
+    "minimum": 85,
+    "p0": 0,
+    "p1": 0
+  },
+  "design": {
+    "score": 93,
+    "minimum": 90,
+    "p0": 0,
+    "p1": 0
+  },
+  "seo": {
+    "score": 100,
+    "pages": 31,
+    "failed": 0,
+    "warnings": 0,
+    "note": "Every canonical route in the local sitemap passes the Fleet on-page audit. The docs build additionally fails on broken internal documentation routes. Ahrefs still reflects the previously deployed site until a later authorized publish and recrawl."
+  },
+  "geo": {
+    "score": 100,
+    "tier": "S",
+    "note": "The canonical public origin passes every Fleet agent-index surface check."
+  },
+  "performance": {
+    "score": 99,
+    "runs": 20,
+    "successfulRuns": 20,
+    "weightedLcpMs": 609,
+    "weightedCls": 0,
+    "weightedTbtMs": 0,
+    "cwvLcpP75Ms": 839,
+    "profiles": {
+      "mobileSlowLcpP75Ms": 1628,
+      "mobileMidLcpP75Ms": 839,
+      "mobileFastLcpP75Ms": 419,
+      "desktopLcpP75Ms": 223
+    },
+    "report": "/Users/sarthak/.psi-swarm/reports/psi-swarm-127.0.0.1_4404_-2026-08-28T13-54-42.html",
+    "note": "All 20 Lighthouse runs passed with no actionable opportunities. The local reasoning backend was unavailable because no compatible provider key was configured, but deterministic trace findings and percentile evidence completed."
+  },
+  "verification": {
+    "astroBuild": "pass",
+    "docsInternalLinks": "pass",
+    "liveAgentIndex": "S-tier 100%",
+    "responsiveBrowser": "pass",
+    "axeWcagAAndAA": {
+      "violations": 0
+    },
+    "layoutHeightDeltaAfterScroll": 0,
+    "footer": {
+      "askAi": "pass",
+      "projectStrip": "pass"
+    },
+    "internalHomepageLinks": "18/18",
+    "runtimeErrors": 0,
+    "analyticsPrivacyParity": "pass",
+    "responsiveScreenshots": [
+      "../../../website/artifacts/design/landing-audit/final-p1-390.png",
+      "../../../website/artifacts/design/landing-audit/final-p1-768.png",
+      "../../../website/artifacts/design/landing-audit/final-p1-1440.png"
+    ]
+  },
+  "ahrefs": {
+    "observedHealth": 47,
+    "observedUrlsWithErrors": 115,
+    "observed404Pages": 61,
+    "candidateRemediation": "The shared Blume rewrite bug that generated the docs 404 set is fixed and guarded by a build-time internal-link assertion; Cloudflare email obfuscation is disabled around rendered page content to avoid the remaining /cdn-cgi/email-protection crawl URL.",
+    "recrawlRequiredAfterPublish": true
+  },
+  "limitations": [
+    "The current public 0.3.19 archive is ad-hoc signed, not notarized, and rejected by Gatekeeper's normal-open path; the candidate states this and does not change the binary.",
+    "The product capture is from the current development build and is explicitly distinguished from the public 0.3.19 preview.",
+    "Production and Ahrefs remain unchanged until an explicit deployment is authorized."
+  ]
+}

@@ -1,0 +1,149 @@
+{
+  "$schema": "fleet.design-review.v1",
+  "version": 1,
+  "project": "pace",
+  "target": "Pace P1 product-purpose landing page",
+  "surfaceMode": "persuade",
+  "mode": "overhaul",
+  "register": "product",
+  "context": {
+    "product": "PRODUCT.md",
+    "design": "DESIGN.md"
+  },
+  "direction": {
+    "references": [
+      "existing Pace editorial system",
+      "current macOS Command Center capture",
+      "Apple-native release and privacy boundaries"
+    ],
+    "probes": [
+      {
+        "id": "initial-candidate",
+        "path": "website/artifacts/design/landing-audit/initial-1440.png"
+      },
+      {
+        "id": "purpose-proof-and-truth-revision",
+        "path": "website/artifacts/design/landing-audit/final-p1-1440.png"
+      }
+    ],
+    "selected": "purpose-proof-and-truth-revision",
+    "approval": "delegated",
+    "before": "website/artifacts/design/landing-audit/initial-1440.png",
+    "library": {
+      "strategy": "upstream-first",
+      "primary": "existing-project-system",
+      "sources": [],
+      "runtime": "existing",
+      "customReplacement": {
+        "used": false,
+        "authorization": "not-required",
+        "reason": ""
+      }
+    },
+    "contract": {
+      "purpose": "Pace is a private Mac voice agent that listens, reads the current screen, and takes approved actions with local models by default.",
+      "purposeSource": "Site Health dossier, PRODUCT.md, DESIGN.md, PROJECT_STATUS.md, current source, and the public 0.3.19 archive",
+      "canonicalPurpose": "A private Apple Silicon voice assistant that can understand the current Mac screen and execute approved actions while keeping the default interaction path local.",
+      "purposeAlignment": "match",
+      "driftNote": "The public 0.3.19 archive is ad-hoc signed, not notarized, and requires macOS 26; the page now states those limits rather than inheriting stale macOS 14 or ordinary-open claims.",
+      "audience": "Apple Silicon Mac owners who want a voice assistant with screen context, local models, explicit action approval, and no required account.",
+      "job": "Understand what Pace can see and do, inspect a real current native interface capture and the local/off-device boundary, then try the public preview or confirm the manual purchase terms.",
+      "thesis": "A useful private Mac assistant should join voice, screen context, planning, and approved actions while making every network exception and release limitation visible.",
+      "system": "The existing Pace black, electric-blue, editorial-serif system with technical monospace labels, restrained native proof, responsive document flow, and no new runtime UI dependency.",
+      "signature": "The sees-your-Mac hero, on-device pipeline, current Command Center capture, and explicit release boundary connect the promise to a real product surface.",
+      "risk": "A polished privacy claim could outrun the release and commercial evidence, so analytics was removed, future pricing and refund promises were removed, and the development capture is explicitly distinguished from the public 0.3.19 archive."
+    }
+  },
+  "evidence": {
+    "screenshots": [
+      {
+        "width": 390,
+        "path": "website/artifacts/design/landing-audit/final-p1-390.png"
+      },
+      {
+        "width": 768,
+        "path": "website/artifacts/design/landing-audit/final-p1-768.png"
+      },
+      {
+        "width": 1440,
+        "path": "website/artifacts/design/landing-audit/final-p1-1440.png"
+      }
+    ],
+    "projectCheck": {
+      "command": "cd website && pnpm run build; Playwright responsive/footer/link/runtime/Axe acceptance against local Astro preview; full-sitemap SEO audit; Fleet GEO audit; psi-swarm coverage profile",
+      "status": "pass"
+    },
+    "critique": {
+      "score": 37,
+      "maximum": 40
+    },
+    "audit": {
+      "score": 20,
+      "maximum": 20
+    },
+    "unresolved": {
+      "p0": 0,
+      "p1": 0
+    },
+    "detector": {
+      "posture": "advisory",
+      "findings": []
+    },
+    "comprehension": {
+      "status": "pass",
+      "reviewer": "independent strict P1 source and local-render review with blocker remediation",
+      "answers": {
+        "product": "Pace is a private native Mac voice agent that can hear a request, understand the current screen, answer, and execute an approved action.",
+        "audience": "Apple Silicon Mac owners who value screen-aware assistance, local processing, and explicit control over off-device routes.",
+        "value": "It reduces the gap between asking about work on screen and safely doing the next Mac action without requiring an account or default cloud planner.",
+        "mechanism": "Push-to-talk or an explicit always-listening mode feeds local speech, screen, planner, and action layers; optional remote planners are opt-in, amber, and locally audited.",
+        "proof": "The page shows the current development Command Center capture, the exact on-device pipeline, current supported actions, release version, macOS requirement, signing state, and manual purchase boundary.",
+        "nextAction": "Download the free 0.3.19 preview with the stated Gatekeeper limitation, or inspect and confirm the $29 manual purchase terms before paying."
+      },
+      "purposeScore": {
+        "product": 25,
+        "audience": 15,
+        "value": 14,
+        "mechanism": 14,
+        "proof": 13,
+        "nextAction": 13,
+        "total": 94
+      },
+      "mismatches": []
+    },
+    "performance": {
+      "report": "/Users/sarthak/.psi-swarm/reports/psi-swarm-127.0.0.1_4404_-2026-08-28T13-54-42.html",
+      "runs": 20,
+      "successfulRuns": 20,
+      "weightedLcpMs": 609,
+      "cls": 0,
+      "tbtMs": 0
+    },
+    "visualQuality": {
+      "priority": "P1",
+      "score": 93,
+      "minimum": 90
+    },
+    "browserReview": {
+      "tool": "Google Chrome, Playwright, and Axe",
+      "viewports": [390, 768, 1440],
+      "horizontalOverflow": false,
+      "consoleErrors": 0,
+      "axeViolations": 0,
+      "layoutHeightDeltaAfterScroll": 0,
+      "internalLinks": {
+        "checked": 18,
+        "broken": 0
+      },
+      "footer": {
+        "askAi": "pass",
+        "projectStrip": "pass"
+      },
+      "analytics": "No analytics script loads; this matches the public privacy policy."
+    }
+  },
+  "ownerFeedback": {
+    "decision": "delegated",
+    "note": "The owner delegated the Fleet landing-page overhaul and required P1 projects to meet the highest truth, design, code, SEO, GEO, and performance tier without repeated feedback loops."
+  }
+}
