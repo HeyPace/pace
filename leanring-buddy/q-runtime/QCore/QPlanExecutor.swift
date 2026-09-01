@@ -250,7 +250,7 @@ public final class QPlanExecutor: Sendable {
             observer?.planDidUpdate(plan: plan)
 
             // F. Empirical Closed-Loop Verification
-            let verificationStrategy = determineVerificationStrategy(for: step.action)
+            let verificationStrategy = determineVerificationStrategy(for: step.action, result: actionResult)
             let verificationOutcome = await verifier.verify(action: actionReq, result: actionResult, strategy: verificationStrategy)
 
             guard verificationOutcome.isVerified else {
@@ -393,7 +393,7 @@ public final class QPlanExecutor: Sendable {
         }
     }
 
-    private func determineVerificationStrategy(for action: QPlannedAction) -> QVerificationStrategy {
+    private func determineVerificationStrategy(for action: QPlannedAction, result: QActionResult) -> QVerificationStrategy {
         if action.actionName == "ui.open_app", let appName = action.arguments["appName"] ?? action.targetResources.first {
             return .windowOrAppActive(appName: appName)
         } else if action.actionName == "fs.write_sandbox", let path = action.arguments["path"] {
@@ -406,6 +406,28 @@ public final class QPlanExecutor: Sendable {
             return .customCheck(description: "Clipboard content matches written text") {
                 NSPasteboard.general.string(forType: .string) == text
             }
+        } else if action.actionName == "ui.click_element",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"] {
+            // Reconstructed from the exact arguments used to dispatch, plus the pre-click AX
+            // snapshot QExecutionService captured at press time (threaded through outputData) —
+            // verification must diff the precise element that was clicked, never a re-derived guess.
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            let matchIdentifier = nonEmpty(action.arguments["identifier"])
+            let matchTitle = nonEmpty(action.arguments["title"])
+            let beforeSnapshot = QAXElementSnapshot(
+                role: role,
+                identifier: nonEmpty(result.outputData["preClickIdentifier"]),
+                titleOrDescription: nonEmpty(result.outputData["preClickTitleOrDescription"]),
+                isEnabled: result.outputData["preClickEnabled"] == "true"
+            )
+            return .axElementStateChanged(
+                applicationName: applicationName,
+                role: role,
+                matchIdentifier: matchIdentifier,
+                matchTitle: matchTitle,
+                beforeSnapshot: beforeSnapshot
+            )
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

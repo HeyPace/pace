@@ -87,7 +87,13 @@ public struct QModelPlanParser: Sendable {
         "test.noop": ("test", .level0ReadOnly),
         "accessibility.read": ("accessibility", .level0ReadOnly),
         "system.clipboard.write": ("system", .level2UserApproval),
-        "app.quit": ("app", .level3HighRisk)
+        "app.quit": ("app", .level3HighRisk),
+        // Phase 2H: semantic AXUIElement click — Level 2 (reversible local action). The target
+        // MUST identify an Accessibility element semantically (role + identifier or title/
+        // description); raw screen coordinates are never an accepted parameter for this tool. See
+        // QBridgeAccessibility.clickElement and docs/PHASE_2H_SEMANTIC_CLICK.md for the full
+        // resolution / observation-binding / verification contract.
+        "ui.click_element": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

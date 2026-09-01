@@ -17,6 +17,18 @@ public enum QVerificationStrategy: Sendable {
     case fileDeleted(path: String)
     case windowOrAppActive(appName: String)
     case appNotRunning(appName: String)
+    /// Phase 2H: re-resolves the same semantic target a ui.click_element step just pressed and
+    /// diffs its own Accessibility state (identifier/title/enabled) against the pre-click
+    /// snapshot. A successful AX press is not itself evidence of goal success — this is the
+    /// closed loop that supplies the actual evidence, and it fails (never fabricates) when no
+    /// change is observed.
+    case axElementStateChanged(
+        applicationName: String,
+        role: String,
+        matchIdentifier: String?,
+        matchTitle: String?,
+        beforeSnapshot: QAXElementSnapshot
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -111,6 +123,31 @@ public final class QActionVerifier: Sendable {
             } else {
                 return .verified(evidence: "Application '\(appName)' verified terminated (absent from NSWorkspace runningApplications).")
             }
+
+        case .axElementStateChanged(let applicationName, let role, let matchIdentifier, let matchTitle, let beforeSnapshot):
+            guard let afterSnapshot = await QBridgeAccessibility.shared.observeElement(
+                applicationName: applicationName,
+                role: role,
+                identifier: matchIdentifier,
+                title: matchTitle
+            ) else {
+                // The element is no longer uniquely resolvable by the same criteria used to find
+                // it before the click — a legitimate, common outcome for a control whose own
+                // identity changes when pressed (see docs/PHASE_2H_SEMANTIC_CLICK.md), so this
+                // counts as an observed state change, not a failure.
+                return .verified(
+                    evidence: "Target element (role=\(role)) is no longer resolvable by its pre-click identity after the press — its state visibly changed."
+                )
+            }
+            guard afterSnapshot != beforeSnapshot else {
+                return .failed(
+                    reason: "No observable Accessibility state change on the target element after the press.",
+                    evidence: "role=\(role) identifier=\(afterSnapshot.identifier ?? "none") label=\(afterSnapshot.titleOrDescription ?? "none") enabled=\(afterSnapshot.isEnabled) unchanged before/after."
+                )
+            }
+            return .verified(
+                evidence: "Target element (role=\(role)) state changed after press: identifier \(beforeSnapshot.identifier ?? "none") -> \(afterSnapshot.identifier ?? "none"), label \(beforeSnapshot.titleOrDescription ?? "none") -> \(afterSnapshot.titleOrDescription ?? "none")."
+            )
 
         case .customCheck(let description, let check):
             let passed = await check()

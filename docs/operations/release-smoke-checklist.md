@@ -55,6 +55,24 @@ cannot be assumed there. This is the one place that gap is closed.
       confirm via Settings → Memory / the local audit log that the persisted
       record shows `[REDACTED_SECRET]`, not the plaintext.
 
+## Q semantic click (any release touching QBridgeAccessibility/ui.click_element)
+
+Real AXUIElement resolution/press cannot be exercised deterministically inside the
+isolated-DerivedData unit suite unless Accessibility TCC permission happens to be
+granted there — see docs/PHASE_2H_SEMANTIC_CLICK.md for what was empirically true on
+the development machine at the time this landed. Confirm on real hardware regardless.
+
+- [ ] With Accessibility permission granted to Pace, ask Q to click a real, harmless,
+      semantically-identifiable button in a running app (e.g. Calculator's Clear
+      button) — the click lands on the correct element and the spoken/HUD response
+      reflects a real, evidence-backed state change, not a placeholder.
+- [ ] Revoke Accessibility permission (System Settings → Privacy & Security →
+      Accessibility → toggle Pace off), relaunch, and ask Q to click the same kind
+      of target again — it fails closed with a clear permission-related message; it
+      does not fabricate success, fall back to coordinates, or crash.
+- [ ] Ask Q to click a button whose label doesn't exist in the current app — it
+      reports it cannot find the target rather than clicking the wrong element.
+
 ## Off-device tiers (any release touching planner tiers)
 
 - [ ] With Direct API tier active, run one turn — menu-bar capsule

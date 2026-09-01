@@ -129,6 +129,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "app.quit":
             result = await executeAppQuit(request: request)
 
+        case "ui.click_element":
+            result = await executeClickElement(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -421,5 +424,80 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 : "Termination request for '\(app)' was not accepted by the process (it may have already quit or blocked termination).",
             outputData: ["appName": app, "terminateDispatched": "\(dispatched)"]
         )
+    }
+
+    // MARK: - Phase 2H: Semantic AXUIElement Click (Level 2)
+
+    /// Level 2 (reversible local action): presses one semantically-identified Accessibility
+    /// element. Every QAXInteractionError failure mode — missing criteria, permission denied,
+    /// application unavailable, zero/ambiguous matches, disabled/stale target, unsupported
+    /// action, press failure — is caught here and converted into a deterministic, non-throwing
+    /// QActionResult; this method never falls back to coordinates or a CGEvent click, and never
+    /// fabricates success. The pre-click AX snapshot is threaded through outputData so
+    /// QPlanExecutor's closed-loop verification step can diff it against the post-click state.
+    private func executeClickElement(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let (evidence, preClickSnapshot) = try await QBridgeAccessibility.shared.clickElement(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: evidence,
+                outputData: [
+                    "applicationName": applicationName,
+                    "role": role,
+                    "matchIdentifier": identifier ?? "",
+                    "matchTitle": title ?? "",
+                    "preClickIdentifier": preClickSnapshot.identifier ?? "",
+                    "preClickTitleOrDescription": preClickSnapshot.titleOrDescription ?? "",
+                    "preClickEnabled": "\(preClickSnapshot.isEnabled)"
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while clicking element: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
     }
 }

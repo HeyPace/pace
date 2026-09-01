@@ -13,6 +13,7 @@ import AppKit
 import Vision
 import AVFoundation
 import ScreenCaptureKit
+import ApplicationServices
 
 // MARK: - Screen Capture / OCR Deterministic Failure Classification
 //
@@ -283,6 +284,283 @@ public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecke
         let frontmost = NSWorkspace.shared.frontmostApplication
         let appName = frontmost?.localizedName ?? "Active App"
         return QAccessibilityElementInfo(role: "AXWindow", title: appName, isFocused: true)
+    }
+}
+
+// MARK: - Semantic AX Element Interaction (Phase 2H)
+//
+// ui.click_element — a Level 2, reversible, semantic click. Every element is identified by
+// role + (identifier or title/description), NEVER by screen coordinates. Resolution walks a
+// bounded Accessibility subtree, binds to a single unambiguous element, re-verifies that exact
+// element's state immediately before dispatch (failing closed on any drift or ambiguity), and
+// only then presses it via AXUIElementPerformAction. This is a fresh, narrowly-scoped, Q-owned
+// walker — it does not reuse or extend Pace's own coordinate-anchored PaceAXTargeter /
+// PaceAXScreenReader, which serve a different (coordinate hit-testing) pipeline entirely.
+
+public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvertible {
+    case accessibilityPermissionDenied
+    case applicationNotAvailable(String)
+    case missingMatchCriteria
+    case noMatchingElement
+    case ambiguousTarget(count: Int)
+    case targetDisabled
+    case staleTarget(String)
+    case actionUnsupported
+    case pressFailed(String)
+
+    public var description: String {
+        switch self {
+        case .accessibilityPermissionDenied:
+            return "Accessibility permission is not granted."
+        case .applicationNotAvailable(let name):
+            return "Application '\(name)' is not currently running."
+        case .missingMatchCriteria:
+            return "Target must specify an identifier or title to match semantically."
+        case .noMatchingElement:
+            return "No Accessibility element matched the requested target."
+        case .ambiguousTarget(let count):
+            return "Target is ambiguous: \(count) elements matched the requested criteria."
+        case .targetDisabled:
+            return "Target element is disabled and cannot be pressed."
+        case .staleTarget(let reason):
+            return "Target element changed before it could be safely clicked: \(reason)"
+        case .actionUnsupported:
+            return "Target element does not support the press action."
+        case .pressFailed(let reason):
+            return "Failed to press target element: \(reason)"
+        }
+    }
+
+    /// A short, stable machine-readable code — mirrors QScreenCaptureError's convention.
+    public var errorCode: String {
+        switch self {
+        case .accessibilityPermissionDenied: return "AX_PERMISSION_DENIED"
+        case .applicationNotAvailable: return "AX_APPLICATION_NOT_AVAILABLE"
+        case .missingMatchCriteria: return "AX_MISSING_MATCH_CRITERIA"
+        case .noMatchingElement: return "AX_NO_MATCHING_ELEMENT"
+        case .ambiguousTarget: return "AX_AMBIGUOUS_TARGET"
+        case .targetDisabled: return "AX_TARGET_DISABLED"
+        case .staleTarget: return "AX_STALE_TARGET"
+        case .actionUnsupported: return "AX_ACTION_UNSUPPORTED"
+        case .pressFailed: return "AX_PRESS_FAILED"
+        }
+    }
+}
+
+/// A point-in-time snapshot of an Accessibility element's own identifying state — captured both
+/// as the observation-binding record (matched-at-search vs. re-read-at-dispatch) and as the
+/// before/after pair a later verification pass diffs. Deliberately carries no coordinates: this
+/// capability never reasons about, or acts on, screen position.
+public struct QAXElementSnapshot: Sendable, Equatable {
+    public let role: String
+    public let identifier: String?
+    public let titleOrDescription: String?
+    public let isEnabled: Bool
+
+    public init(role: String, identifier: String?, titleOrDescription: String?, isEnabled: Bool) {
+        self.role = role
+        self.identifier = identifier
+        self.titleOrDescription = titleOrDescription
+        self.isEnabled = isEnabled
+    }
+}
+
+extension QBridgeAccessibility {
+    private static let maxTraversalDepth = 12
+    private static let maxTraversalNodes = 3_000
+    private static let traversalTimeBudgetSeconds: CFAbsoluteTime = 1.5
+    /// No `kAX...` Swift constant exists for this attribute; confirmed via direct empirical
+    /// probing against real macOS apps that it is the stable, populated, raw-string identifier
+    /// key (populated even where kAXTitleAttribute is empty — see docs/PHASE_2H_SEMANTIC_CLICK.md).
+    private static let axIdentifierAttributeName = "AXIdentifier"
+
+    /// Resolves exactly one semantic target, re-verifies it hasn't drifted since resolution, and
+    /// presses it. Fails closed (throws QAXInteractionError) on every ambiguous, stale, disabled,
+    /// unauthorized, or unsupported outcome — never falls back to coordinates or a CGEvent click.
+    /// Returns human-readable evidence plus the pre-click snapshot, which the caller threads
+    /// through to the later, separate closed-loop verification step (QVerificationStrategy).
+    public func clickElement(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> (evidence: String, preClickSnapshot: QAXElementSnapshot) {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+
+        // Read-only status check — matches QBridgeScreenCapture's CGPreflightScreenCaptureAccess
+        // pattern exactly. Never triggers a system prompt, never requests access.
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+
+        let processIdentifier = runningApp.processIdentifier
+
+        // AXUIElement calls are synchronous, blocking IPC and a bounded tree walk over a complex
+        // app's window can take real time — run off the calling actor, mirroring QBridgeVision's
+        // Task.detached pattern for the same reason (this module defaults to MainActor isolation).
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference's live attributes
+            // immediately before dispatch and compare against what the search just observed.
+            // Any mismatch — or the element having become entirely unreadable — fails closed
+            // rather than pressing a target that may no longer be the one identified.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element state changed between observation and dispatch")
+            }
+            guard observedAtVerify.isEnabled else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            let pressResult = AXUIElementPerformAction(targetElement, kAXPressAction as CFString)
+            switch pressResult {
+            case .success:
+                break
+            case .actionUnsupported:
+                throw QAXInteractionError.actionUnsupported
+            default:
+                throw QAXInteractionError.pressFailed("AXError(\(pressResult.rawValue))")
+            }
+
+            let evidence = "Pressed \(role) element (identifier=\(observedAtVerify.identifier ?? "none"), label=\(observedAtVerify.titleOrDescription ?? "none")) in \(applicationName)."
+            return (evidence, observedAtVerify)
+        }.value
+    }
+
+    /// Best-effort, read-only re-resolution of the same match criteria used by `clickElement`,
+    /// used only for post-click verification (QVerificationStrategy.axElementStateChanged).
+    /// Returns nil if the target is no longer uniquely resolvable — a common, legitimate outcome
+    /// for a control whose own identity changes as a result of the click it just received, not
+    /// an error at this layer (the caller decides what that means for verification evidence).
+    public func observeElement(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async -> QAXElementSnapshot? {
+        guard AXIsProcessTrusted() else { return nil }
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else { return nil }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard matches.count == 1 else { return nil }
+            return matches[0].snapshot
+        }.value
+    }
+
+    // MARK: - Bounded traversal (nonisolated: pure over AXUIElement/CFTypeRef, safe from any thread)
+
+    fileprivate nonisolated static func collectMatches(
+        root: AXUIElement,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) -> [(element: AXUIElement, snapshot: QAXElementSnapshot)] {
+        var matches: [(AXUIElement, QAXElementSnapshot)] = []
+        var visitedCount = 0
+        let deadline = CFAbsoluteTimeGetCurrent() + traversalTimeBudgetSeconds
+
+        func withinBounds() -> Bool {
+            visitedCount < maxTraversalNodes && CFAbsoluteTimeGetCurrent() < deadline
+        }
+
+        func visit(_ element: AXUIElement, depth: Int) {
+            guard depth <= maxTraversalDepth, withinBounds(), matches.count <= 4 else { return }
+            visitedCount += 1
+
+            if let snapshot = snapshotIfMatches(element, role: role, identifier: identifier, title: title) {
+                matches.append((element, snapshot))
+                if matches.count > 4 { return }
+            }
+
+            guard let children = childrenAttribute(of: element) else { return }
+            for child in children {
+                if !withinBounds() || matches.count > 4 { break }
+                visit(child, depth: depth + 1)
+            }
+        }
+
+        visit(root, depth: 0)
+        return matches
+    }
+
+    fileprivate nonisolated static func snapshotIfMatches(
+        _ element: AXUIElement,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) -> QAXElementSnapshot? {
+        guard let elementRole = axStringAttribute(kAXRoleAttribute, of: element), elementRole == role else {
+            return nil
+        }
+
+        let elementIdentifier = axStringAttribute(axIdentifierAttributeName, of: element)
+        // AXTitle is frequently empty on real controls (e.g. every stock Calculator button);
+        // AXDescription reliably carries the same human-readable label in that case, exactly the
+        // fallback Pace's own PaceAXTargeter already uses.
+        let rawTitle = axStringAttribute(kAXTitleAttribute, of: element)
+        let elementTitleOrDescription = (rawTitle?.isEmpty == false ? rawTitle : nil)
+            ?? axStringAttribute(kAXDescriptionAttribute, of: element)
+        let elementEnabled = axBoolAttribute(kAXEnabledAttribute, of: element) ?? true
+
+        if let identifier {
+            guard elementIdentifier == identifier else { return nil }
+        } else if let title {
+            guard elementTitleOrDescription == title else { return nil }
+        } else {
+            return nil
+        }
+
+        return QAXElementSnapshot(
+            role: elementRole,
+            identifier: elementIdentifier,
+            titleOrDescription: elementTitleOrDescription,
+            isEnabled: elementEnabled
+        )
+    }
+
+    fileprivate nonisolated static func childrenAttribute(of element: AXUIElement) -> [AXUIElement]? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value)
+        guard result == .success, let array = value as? [AXUIElement] else { return nil }
+        return array
+    }
+
+    fileprivate nonisolated static func axStringAttribute(_ attribute: String, of element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+        guard result == .success else { return nil }
+        return value as? String
+    }
+
+    fileprivate nonisolated static func axBoolAttribute(_ attribute: String, of element: AXUIElement) -> Bool? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+        guard result == .success else { return nil }
+        return value as? Bool
     }
 }
 
