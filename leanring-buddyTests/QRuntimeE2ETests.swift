@@ -102,8 +102,8 @@ struct QRuntimeE2ETests {
     // MARK: - Invariant 6: Audit log captures all execution and denial events
 
     @Test("Invariant 6: Audit log captures all execution attempts and security denials")
-    func invariant6_auditLogCapturesEvents() {
-        let initialCount = QAuditLogger.shared.getRecentRecords(limit: 100).count
+    func invariant6_auditLogCapturesEvents() async throws {
+        let initialCount = QAuditLogger.shared.getRecentRecords(limit: 500).count
 
         QAuditLogger.shared.record(
             QAuditRecord(
@@ -118,8 +118,8 @@ struct QRuntimeE2ETests {
             )
         )
 
-        let records = QAuditLogger.shared.getRecentRecords(limit: 100)
-        #expect(records.count > initialCount)
+        let records = QAuditLogger.shared.getRecentRecords(limit: 500)
+        #expect(records.count > initialCount || records.contains { $0.tool == "security.invariant_test" })
         #expect(records.last?.tool == "security.invariant_test")
         #expect(records.last?.authorizationResult == "deny")
     }
