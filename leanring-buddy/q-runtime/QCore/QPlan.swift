@@ -154,8 +154,18 @@ public struct QPlanStep: Codable, Sendable, Identifiable, Equatable {
         self.result = result
     }
 
+    public var isComplete: Bool {
+        if case .completed = state { return true }
+        return false
+    }
+
     public var isBlocked: Bool {
         if case .blocked = state { return true }
+        return false
+    }
+
+    public var isFailed: Bool {
+        if case .failed = state { return true }
         return false
     }
 }

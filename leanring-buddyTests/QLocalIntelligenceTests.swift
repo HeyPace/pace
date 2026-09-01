@@ -262,7 +262,7 @@ struct QLocalIntelligenceTests {
         if case .completed = task.state {
             #expect(true)
         } else {
-            #expect(Bool(false), "Task should complete")
+            #expect(Bool(false), "Task should complete, got: \(task.state)")
         }
     }
 

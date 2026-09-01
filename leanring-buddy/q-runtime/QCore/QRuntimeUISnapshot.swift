@@ -103,11 +103,21 @@ public struct QRuntimeUISnapshot: Sendable, Equatable, Codable {
     public let currentStepDescription: String?
     public let currentStepState: QPlanStepState?
     public let statusMessage: String?
+    public let replanAttempt: Int?
+    public let maxReplanAttempts: Int?
+    public let goalEvaluationState: QGoalEvaluationState?
     public let steps: [QRuntimeStepSnapshot]
     public let timestamp: Date
 
     public var isTerminal: Bool {
         planState?.isTerminal ?? true
+    }
+
+    public var isReplanning: Bool {
+        if let attempt = replanAttempt, attempt > 0 {
+            return true
+        }
+        return false
     }
 
     public init(
@@ -120,6 +130,9 @@ public struct QRuntimeUISnapshot: Sendable, Equatable, Codable {
         currentStepDescription: String? = nil,
         currentStepState: QPlanStepState? = nil,
         statusMessage: String? = nil,
+        replanAttempt: Int? = nil,
+        maxReplanAttempts: Int? = nil,
+        goalEvaluationState: QGoalEvaluationState? = nil,
         steps: [QRuntimeStepSnapshot] = [],
         timestamp: Date = Date()
     ) {
@@ -132,6 +145,9 @@ public struct QRuntimeUISnapshot: Sendable, Equatable, Codable {
         self.currentStepDescription = currentStepDescription
         self.currentStepState = currentStepState
         self.statusMessage = statusMessage
+        self.replanAttempt = replanAttempt
+        self.maxReplanAttempts = maxReplanAttempts
+        self.goalEvaluationState = goalEvaluationState
         self.steps = steps
         self.timestamp = timestamp
     }

@@ -71,7 +71,13 @@ public protocol QAgentStateObserver: AnyObject, Sendable {
 public final class QAgent: Sendable {
     public static let shared = QAgent()
 
-    public init() {}
+    private let customCore: QCoreRuntime?
+    private let customMemory: (any QMemoryProvider)?
+
+    public init(coreRuntime: QCoreRuntime? = nil, memoryStore: (any QMemoryProvider)? = nil) {
+        self.customCore = coreRuntime
+        self.customMemory = memoryStore
+    }
 
     /// Runs a real local agent task end-to-end through the verified Q security pipeline.
     public func run(
@@ -85,11 +91,11 @@ public final class QAgent: Sendable {
 
         // 1. Ensure runtime is bootstrapped
         let bootstrap = QRuntimeBootstrap.shared
-        if bootstrap.getCoreRuntime() == nil {
+        if customCore == nil && bootstrap.getCoreRuntime() == nil {
             await bootstrap.bootstrap()
         }
 
-        guard let core = bootstrap.getCoreRuntime() else {
+        guard let core = customCore ?? bootstrap.getCoreRuntime() else {
             observer?.agentDidTransition(state: .blocked, message: "Runtime not bootstrapped")
             throw QAgentError.runtimeNotBootstrapped("Q Runtime failed to initialize core orchestrator.")
         }

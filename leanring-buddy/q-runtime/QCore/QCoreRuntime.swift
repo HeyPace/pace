@@ -2,9 +2,10 @@
 //  QCoreRuntime.swift
 //  leanring-buddy
 //
-//  Q Security Architecture — Core Runtime Orchestrator (Phase 1D.4 & Phase 2B).
+//  Q Security Architecture — Core Runtime Orchestrator (Phase 1D.4, 2B & Phase 2C).
 //  Orchestrates memory retrieval, structured multi-step planning, sequential QPlanExecutor
-//  execution, controlled replanning on failure, and grounded local summary generation.
+//  execution, empirical closed-loop goal evaluation (QGoalEvaluator), loop-detecting controlled
+//  replanning (QReplanController), and grounded local summary generation.
 //
 
 import Foundation
@@ -71,7 +72,7 @@ public final class QCoreRuntime: @unchecked Sendable {
         }
     }
 
-    // MARK: - Task Orchestration Lifecycle (Phase 2B)
+    // MARK: - Autonomous Closed-Loop Task Lifecycle (Phase 2C)
 
     public func submitIntent(
         prompt: String,
@@ -96,7 +97,7 @@ public final class QCoreRuntime: @unchecked Sendable {
                 rawArguments: prompt,
                 authorizationResult: "allow",
                 provenance: "trusted:user",
-                executionSummary: "Accepted user intent"
+                executionSummary: "Accepted user intent: \(prompt)"
             )
         )
 
@@ -105,6 +106,12 @@ public final class QCoreRuntime: @unchecked Sendable {
 
         guard let model = modelProvider else {
             task.state = .failed(reason: "No active Model Provider configured in QCoreRuntime.")
+            updateTask(task)
+            return task
+        }
+
+        guard let exec = executionProvider else {
+            task.state = .failed(reason: "No Execution Provider configured.")
             updateTask(task)
             return task
         }
@@ -118,7 +125,7 @@ public final class QCoreRuntime: @unchecked Sendable {
             memoryContext = contexts.joined(separator: "\n")
         }
 
-        // 5. Generate Structured Plan (Phase 2B.A & 2B.B)
+        // 5. Generate Initial Structured Plan
         var currentPlan: QPlan
         do {
             if let structuredModel = model as? QStructuredModelProvider {
@@ -151,33 +158,45 @@ public final class QCoreRuntime: @unchecked Sendable {
             return task
         }
 
-        guard let exec = executionProvider else {
-            task.state = .failed(reason: "No Execution Provider configured.")
-            updateTask(task)
-            return task
-        }
+        QAuditLogger.shared.record(
+            QAuditRecord(
+                sessionId: sessionId,
+                taskId: task.taskId,
+                tool: "plan.created",
+                riskLevel: .level0ReadOnly,
+                rawArguments: "steps=\(currentPlan.steps.count)",
+                authorizationResult: "allow",
+                provenance: "trusted:system",
+                executionSummary: "Generated initial plan with \(currentPlan.steps.count) steps."
+            )
+        )
 
-        // 6. Sequential Plan Execution with Controlled Replanning (Phase 2B.F)
+        // 6. Autonomous Closed-Loop Execution, Goal Evaluation & Controlled Replanning (Phase 2C)
         let executor = QPlanExecutor(executionProvider: exec)
-        var replanCount = 0
-        let maxReplans = 2
-        var executedPlan: QPlan
+        let goalEvaluator = QGoalEvaluator.shared
+        let replanController = QReplanController(maxReplans: 2)
 
         while true {
-            executedPlan = try await executor.execute(
+            QAuditLogger.shared.record(
+                QAuditRecord(
+                    sessionId: sessionId,
+                    taskId: task.taskId,
+                    tool: "plan.execution.started",
+                    riskLevel: .level0ReadOnly,
+                    rawArguments: "planId=\(currentPlan.id.uuidString)",
+                    authorizationResult: "allow",
+                    provenance: "trusted:system",
+                    executionSummary: "Started plan execution iteration."
+                )
+            )
+
+            let executedPlan = try await executor.execute(
                 plan: currentPlan,
                 context: task.context,
                 observer: observer
             )
 
-            if executedPlan.isComplete {
-                break
-            }
-
-            if executedPlan.state.isBlocked {
-                break
-            }
-
+            // Handle Permission Approval Halts
             if case .waitingForPermission(let idx, let reason) = executedPlan.state {
                 let step = executedPlan.steps[idx]
                 let approvalReq = QApprovalRequest(
@@ -195,60 +214,190 @@ public final class QCoreRuntime: @unchecked Sendable {
                 return task
             }
 
-            // Controlled Replanning on Failure
-            if case .failed(let failureReason, let failedIdx) = executedPlan.state {
-                if replanCount < maxReplans, let structuredModel = model as? QStructuredModelProvider {
-                    replanCount += 1
-                    let failedStepDesc = (failedIdx != nil && failedIdx! < executedPlan.steps.count) ? executedPlan.steps[failedIdx!].description : "Step \(failedIdx ?? 0)"
-                    let failurePrompt = "Prior step failed: '\(failedStepDesc)' - Reason: \(failureReason). Attempting replan \(replanCount)/\(maxReplans)."
+            // 7. Evidence-First Goal Evaluation
+            let goalEvaluation = goalEvaluator.evaluate(
+                goal: prompt,
+                plan: executedPlan,
+                context: task.context
+            )
 
-                    do {
-                        currentPlan = try await structuredModel.generateStructuredPlan(
-                            for: task,
-                            memoryContext: memoryContext,
-                            failureContext: failurePrompt
-                        )
-                        continue
-                    } catch {
-                        break
-                    }
+            QAuditLogger.shared.record(
+                QAuditRecord(
+                    sessionId: sessionId,
+                    taskId: task.taskId,
+                    tool: "goal.evaluated",
+                    riskLevel: .level0ReadOnly,
+                    rawArguments: "state=\(goalEvaluation.state.rawValue), confidence=\(String(format: "%.2f", goalEvaluation.confidence))",
+                    authorizationResult: "allow",
+                    provenance: goalEvaluation.provenance,
+                    executionSummary: goalEvaluation.explanation
+                )
+            )
+
+            // Case A: Goal Satisfied -> Synthesize grounded success summary
+            if goalEvaluation.isSatisfied {
+                QAuditLogger.shared.record(
+                    QAuditRecord(
+                        sessionId: sessionId,
+                        taskId: task.taskId,
+                        tool: "goal.satisfied",
+                        riskLevel: .level0ReadOnly,
+                        rawArguments: "conditions=\(goalEvaluation.completedConditions.count)",
+                        authorizationResult: "allow",
+                        provenance: goalEvaluation.provenance,
+                        executionSummary: "User goal successfully satisfied."
+                    )
+                )
+
+                replanController.recordIteration(plan: executedPlan, evaluation: goalEvaluation)
+
+                let finalSummary: String
+                if let structuredModel = model as? QStructuredModelProvider {
+                    finalSummary = (try? await structuredModel.generateGroundedSummary(
+                        for: task,
+                        verifiedEvidence: goalEvaluation.evidence,
+                        isSuccess: true
+                    )) ?? (goalEvaluation.evidence.isEmpty ? "Successfully executed \(task.intent)." : "Successfully executed \(task.intent). \(goalEvaluation.evidence.joined(separator: "; "))")
                 } else {
-                    break
+                    finalSummary = goalEvaluation.evidence.isEmpty ? "Successfully executed \(task.intent)." : "Successfully executed \(task.intent). \(goalEvaluation.evidence.joined(separator: "; "))"
                 }
-            }
-            break
-        }
 
-        // 7. Grounded Natural Language Response Generation (Phase 2B.G)
-        if executedPlan.isComplete {
-            let evidence = executedPlan.steps.compactMap { $0.result?.verifiedEvidence }
-            let finalSummary: String
-            if let structuredModel = model as? QStructuredModelProvider {
-                finalSummary = (try? await structuredModel.generateGroundedSummary(
-                    for: task,
-                    verifiedEvidence: evidence,
-                    isSuccess: true
-                )) ?? (evidence.isEmpty ? "Successfully executed \(task.intent)." : "Successfully executed \(task.intent). \(evidence.joined(separator: "; "))")
-            } else {
-                finalSummary = evidence.isEmpty ? "Successfully executed \(task.intent)." : "Successfully executed \(task.intent). \(evidence.joined(separator: "; "))"
+                task.state = .completed(summary: finalSummary)
+                updateTask(task)
+                try? await memoryProvider?.recordTaskCompletion(task, result: finalSummary)
+
+                QAuditLogger.shared.record(
+                    QAuditRecord(
+                        sessionId: sessionId,
+                        taskId: task.taskId,
+                        tool: "agent.completed",
+                        riskLevel: .level0ReadOnly,
+                        rawArguments: "taskId=\(task.taskId)",
+                        authorizationResult: "complete",
+                        provenance: goalEvaluation.provenance,
+                        executionSummary: finalSummary
+                    )
+                )
+
+                return task
             }
 
-            task.state = .completed(summary: finalSummary)
-            updateTask(task)
-            try? await memoryProvider?.recordTaskCompletion(task, result: finalSummary)
-            return task
-        } else if case .blocked(let reason, _) = executedPlan.state {
-            task.state = .failed(reason: "Security Guard blocked action: \(reason)")
-            updateTask(task)
-            return task
-        } else if case .failed(let reason, _) = executedPlan.state {
-            task.state = .failed(reason: "Execution halted: \(reason)")
-            updateTask(task)
-            return task
-        } else {
-            task.state = .failed(reason: "Task execution halted unexpectedly")
-            updateTask(task)
-            return task
+            // Case B: Security Blocked -> Fail immediately without replan
+            if goalEvaluation.isBlocked || executedPlan.state.isBlocked {
+                let blockReason: String
+                if case .blocked(let r, _) = executedPlan.state {
+                    blockReason = r
+                } else {
+                    blockReason = goalEvaluation.explanation
+                }
+                QAuditLogger.shared.record(
+                    QAuditRecord(
+                        sessionId: sessionId,
+                        taskId: task.taskId,
+                        tool: "agent.blocked",
+                        riskLevel: .level4Blocked,
+                        rawArguments: "goal=\(prompt)",
+                        authorizationResult: "deny",
+                        provenance: goalEvaluation.provenance,
+                        executionSummary: "Task blocked by security boundary: \(blockReason)"
+                    )
+                )
+
+                task.state = .failed(reason: "Security Guard Denied: \(blockReason)")
+                updateTask(task)
+                return task
+            }
+
+            // Case C: Goal Unsatisfied / Partial -> Consult Replan Controller
+            let replanDecision = replanController.evaluateReplan(
+                goal: prompt,
+                currentPlan: executedPlan,
+                evaluation: goalEvaluation
+            )
+
+            replanController.recordIteration(
+                plan: executedPlan,
+                evaluation: goalEvaluation,
+                replanReason: goalEvaluation.explanation
+            )
+
+            switch replanDecision {
+            case .allow(let replanReq):
+                QAuditLogger.shared.record(
+                    QAuditRecord(
+                        sessionId: sessionId,
+                        taskId: task.taskId,
+                        tool: "replan.created",
+                        riskLevel: .level0ReadOnly,
+                        rawArguments: "attempt=\(replanReq.attemptNumber)/\(replanReq.maxAttempts)",
+                        authorizationResult: "allow",
+                        provenance: "trusted:system",
+                        executionSummary: "Requesting replan from local model."
+                    )
+                )
+
+                guard let structuredModel = model as? QStructuredModelProvider else {
+                    task.state = .failed(reason: "Execution halted: Goal not satisfied and model provider cannot generate structured replans.")
+                    updateTask(task)
+                    return task
+                }
+
+                do {
+                    currentPlan = try await structuredModel.generateStructuredPlan(
+                        for: task,
+                        memoryContext: memoryContext,
+                        failureContext: replanReq.sanitizedPrompt
+                    )
+                    continue
+                } catch {
+                    task.state = .failed(reason: "Replanning failed: \(error.localizedDescription)")
+                    updateTask(task)
+                    return task
+                }
+
+            case .denied(let denialReason):
+                QAuditLogger.shared.record(
+                    QAuditRecord(
+                        sessionId: sessionId,
+                        taskId: task.taskId,
+                        tool: "goal.unsatisfied",
+                        riskLevel: .level0ReadOnly,
+                        rawArguments: "denial=\(denialReason)",
+                        authorizationResult: "halt",
+                        provenance: goalEvaluation.provenance,
+                        executionSummary: "Goal unsatisfied and replanning halted: \(denialReason)"
+                    )
+                )
+
+                QAuditLogger.shared.record(
+                    QAuditRecord(
+                        sessionId: sessionId,
+                        taskId: task.taskId,
+                        tool: "agent.failed",
+                        riskLevel: .level0ReadOnly,
+                        rawArguments: "taskId=\(task.taskId)",
+                        authorizationResult: "halt",
+                        provenance: goalEvaluation.provenance,
+                        executionSummary: "Agent execution terminated unsatisfied: \(denialReason)"
+                    )
+                )
+
+                let finalFailureSummary: String
+                if let structuredModel = model as? QStructuredModelProvider {
+                    finalFailureSummary = (try? await structuredModel.generateGroundedSummary(
+                        for: task,
+                        verifiedEvidence: goalEvaluation.evidence,
+                        isSuccess: false
+                    )) ?? "Task halted: \(goalEvaluation.explanation) (Replan stopped: \(denialReason))"
+                } else {
+                    finalFailureSummary = "Task halted: \(goalEvaluation.explanation) (Replan stopped: \(denialReason))"
+                }
+
+                task.state = .failed(reason: finalFailureSummary)
+                updateTask(task)
+                try? await memoryProvider?.recordTaskCompletion(task, result: "Failed: \(denialReason)")
+                return task
+            }
         }
     }
 
