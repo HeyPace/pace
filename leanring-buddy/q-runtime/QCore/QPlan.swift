@@ -30,6 +30,16 @@ public enum QPlanState: Codable, Sendable, Equatable {
             return false
         }
     }
+
+    public var isBlocked: Bool {
+        if case .blocked = self { return true }
+        return false
+    }
+
+    public var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
 }
 
 public enum QPlanStepState: Codable, Sendable, Equatable {
@@ -142,6 +152,11 @@ public struct QPlanStep: Codable, Sendable, Identifiable, Equatable {
         self.description = description
         self.state = state
         self.result = result
+    }
+
+    public var isBlocked: Bool {
+        if case .blocked = state { return true }
+        return false
     }
 }
 

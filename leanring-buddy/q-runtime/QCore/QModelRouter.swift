@@ -2,8 +2,9 @@
 //  QModelRouter.swift
 //  leanring-buddy
 //
-//  Q Security Architecture — Local Model Router (Phase 1E.4).
+//  Q Security Architecture — Local Model Router (Phase 1E.4 & Phase 2B).
 //  Routes inference requests strictly to on-device engines (Apple FM, MLX, Ollama, llama.cpp).
+//  Generates structured multi-step plans with strict schema validation and grounded summaries.
 //  Default: LOCAL_ONLY = true, enforcing QEgressBroker air-gap policy.
 //
 
@@ -106,85 +107,109 @@ public protocol QLocalModelBackend: Sendable {
 
 // MARK: - Local Model Router
 
-public final class QModelRouter: QModelProvider, @unchecked Sendable {
+public final class QModelRouter: QStructuredModelProvider, @unchecked Sendable {
     public static let shared = QModelRouter()
 
     private let lock = NSRecursiveLock()
-    private var backends: [QModelBackendType: QLocalModelBackend] = [:]
+    private var registeredBackends: [QModelBackendType: QLocalModelBackend] = [:]
+    private var priorityOrder: [QModelBackendType] = [
+        .appleFoundation,
+        .mlx,
+        .ollama,
+        .llamaCpp
+    ]
     public var localOnly: Bool = true
 
     public init(localOnly: Bool = true) {
         self.localOnly = localOnly
-        registerDefaultLocalBackends()
+        registerDefaultBackends()
     }
 
-    private func registerDefaultLocalBackends() {
-        // Priority 1: Apple Foundation Models (on-device macOS 26+)
-        let afmCaps = QModelCapabilities(
+    private func registerDefaultBackends() {
+        // 1. Apple Foundation Models
+        let appleCap = QModelCapabilities(
             backend: .appleFoundation,
             modelIdentifier: "apple/on-device-3b",
+            contextWindowTokens: 4096,
+            supportsVision: true,
+            supportsAudio: true,
+            isLocalOnDevice: true
+        )
+        registeredBackends[.appleFoundation] = QAppleFoundationModelBackend(capabilities: appleCap)
+
+        // 2. MLX Local
+        let mlxCap = QModelCapabilities(
+            backend: .mlx,
+            modelIdentifier: "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit",
+            contextWindowTokens: 8192,
+            supportsVision: false,
+            isLocalOnDevice: true
+        )
+        registeredBackends[.mlx] = QMLXModelBackend(capabilities: mlxCap)
+
+        // 3. Ollama Localhost
+        let ollamaCap = QModelCapabilities(
+            backend: .ollama,
+            modelIdentifier: "llama3.2:3b",
             contextWindowTokens: 4096,
             supportsVision: false,
             isLocalOnDevice: true
         )
-        register(backend: QAppleFoundationModelBackend(capabilities: afmCaps))
+        registeredBackends[.ollama] = QLocalhostHTTPBackend(
+            capabilities: ollamaCap,
+            baseURL: URL(string: "http://127.0.0.1:11434")!
+        )
 
-        // Priority 2: In-Process MLX
-        let mlxCaps = QModelCapabilities(
-            backend: .mlx,
-            modelIdentifier: "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit",
-            contextWindowTokens: 8192,
+        // 4. llama.cpp / LM Studio Localhost
+        let llamaCap = QModelCapabilities(
+            backend: .llamaCpp,
+            modelIdentifier: "qwen/qwen3.5-4b",
+            contextWindowTokens: 4096,
             supportsVision: true,
             isLocalOnDevice: true
         )
-        register(backend: QMLXModelBackend(capabilities: mlxCaps))
-
-        // Priority 3: Ollama Localhost
-        let ollamaCaps = QModelCapabilities(
-            backend: .ollama,
-            modelIdentifier: "ollama/qwen2.5:7b",
-            contextWindowTokens: 8192,
-            supportsVision: false,
-            isLocalOnDevice: true
+        registeredBackends[.llamaCpp] = QLocalhostHTTPBackend(
+            capabilities: llamaCap,
+            baseURL: URL(string: "http://127.0.0.1:1234")!
         )
-        register(backend: QLocalhostHTTPBackend(capabilities: ollamaCaps, baseURL: URL(string: "http://127.0.0.1:11434")!))
+    }
 
-        // Priority 4: llama.cpp / LM Studio Localhost
-        let llamaCaps = QModelCapabilities(
-            backend: .llamaCpp,
-            modelIdentifier: "lmstudio/qwen2.5-coder-7b",
-            contextWindowTokens: 8192,
-            supportsVision: false,
-            isLocalOnDevice: true
-        )
-        register(backend: QLocalhostHTTPBackend(capabilities: llamaCaps, baseURL: URL(string: "http://127.0.0.1:1234")!))
+    public func registerBackend(_ backend: QLocalModelBackend) {
+        lock.lock()
+        defer { lock.unlock() }
+        registeredBackends[backend.capabilities.backend] = backend
     }
 
     public func register(backend: QLocalModelBackend) {
-        lock.lock()
-        defer { lock.unlock() }
-        backends[backend.capabilities.backend] = backend
+        registerBackend(backend)
     }
 
     public func clearBackends() {
         lock.lock()
         defer { lock.unlock() }
-        backends.removeAll()
+        registeredBackends.removeAll()
+    }
+
+    public func setPriorityOrder(_ order: [QModelBackendType]) {
+        lock.lock()
+        defer { lock.unlock() }
+        self.priorityOrder = order
     }
 
     public func getBackend(type: QModelBackendType) -> QLocalModelBackend? {
         lock.lock()
         defer { lock.unlock() }
-        return backends[type]
+        return registeredBackends[type]
     }
 
-    /// Selects the highest-priority available local engine
     public func selectBestBackend(needsVision: Bool = false) async -> QLocalModelBackend? {
-        // Priority order: 1. Apple Foundation Models, 2. MLX, 3. Ollama, 4. llama.cpp
-        let priorityOrder: [QModelBackendType] = [.appleFoundation, .mlx, .ollama, .llamaCpp]
+        lock.lock()
+        let order = priorityOrder
+        let backends = registeredBackends
+        lock.unlock()
 
-        for type in priorityOrder {
-            guard let backend = getBackend(type: type) else { continue }
+        for type in order {
+            guard let backend = backends[type] else { continue }
             if needsVision && !backend.capabilities.supportsVision {
                 continue
             }
@@ -246,81 +271,255 @@ public final class QModelRouter: QModelProvider, @unchecked Sendable {
         return response
     }
 
-    // MARK: - QModelProvider Implementation (Planner)
+    // MARK: - Structured Multi-Step Plan Generation (Phase 2B)
 
-    public func generatePlan(for task: QTask) async throws -> [QActionRequest] {
+    public func generateStructuredPlan(
+        for task: QTask,
+        memoryContext: String? = nil,
+        failureContext: String? = nil
+    ) async throws -> QPlan {
+        var systemPrompt = """
+        You are the Q autonomous task planner for macOS.
+        Output ONLY valid JSON matching this schema:
+        {
+          "taskPrompt": "user intent",
+          "summary": "short plan summary",
+          "steps": [
+            {
+              "actionName": "system.running_apps" | "system.clipboard.read" | "ui.open_app" | "fs.read" | "fs.write_sandbox" | "screen.ocr" | "test.noop" | "accessibility.read",
+              "toolFamily": "system" | "perception" | "app" | "fs" | "test" | "accessibility",
+              "riskLevel": "level0ReadOnly" | "level1SafeLocalAction" | "level2UserApproval",
+              "description": "step description",
+              "targetResources": ["resource_path_or_name"],
+              "parameters": {"key": "val"}
+            }
+          ]
+        }
+        Do not output markdown text or explanation outside the JSON.
+        """
+
+        var userPrompt = "Task: \(task.intent)"
+        if let memory = memoryContext, !memory.isEmpty {
+            userPrompt += "\nRelevant Memory Context:\n\(memory)"
+        }
+        if let failure = failureContext, !failure.isEmpty {
+            userPrompt += "\nPrior Execution Failure:\n\(failure)\nProvide a corrected multi-step plan."
+        }
+
         let infReq = QModelInferenceRequest(
-            prompt: "Plan for user task: \(task.intent)",
-            systemPrompt: "You are the Q autonomous task planner. Output safe execution actions."
+            prompt: userPrompt,
+            systemPrompt: systemPrompt,
+            temperature: 0.1,
+            maxTokens: 1024
         )
 
-        // Route inference through verified local backend
         let res = try await routeInference(request: infReq)
 
-        let intentLower = task.intent.lowercased()
+        // Try parsing JSON model response
+        do {
+            let plan = try QModelPlanParser.parse(
+                rawText: res.text,
+                taskId: task.taskId,
+                taskPrompt: task.intent,
+                sessionId: task.sessionId
+            )
+            return plan
+        } catch {
+            // If model returned plain text or mock format, use deterministic structured generator
+            return generateDeterministicPlan(for: task, rawModelOutput: res.text)
+        }
+    }
 
-        // 1. Process / Running Applications Query
-        if intentLower.contains("running") || intentLower.contains("applications") || intentLower.contains("processes") {
-            return [
-                QActionRequest(
-                    toolName: "system.running_apps",
-                    toolFamily: "system",
-                    riskLevel: .level0ReadOnly,
-                    literalAction: "Query running applications",
-                    parameters: [:]
-                )
-            ]
+    /// Grounded Natural Language Summary Generation (Phase 2B.G)
+    public func generateGroundedSummary(
+        for task: QTask,
+        verifiedEvidence: [String],
+        isSuccess: Bool
+    ) async throws -> String {
+        let prompt = """
+        Task: \(task.intent)
+        Verified Evidence:
+        \(verifiedEvidence.isEmpty ? "Action completed" : verifiedEvidence.joined(separator: "\n"))
+        Status: \(isSuccess ? "Success" : "Failed")
+
+        Provide a concise 1-2 sentence response grounded strictly in the verified facts above.
+        """
+
+        let req = QModelInferenceRequest(
+            prompt: prompt,
+            systemPrompt: "You are the Q macOS agent. State only verified facts from execution evidence.",
+            temperature: 0.2,
+            maxTokens: 256
+        )
+
+        do {
+            let res = try await routeInference(request: req)
+            let trimmed = res.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && !trimmed.hasPrefix("Apple Foundation Models reasoning for:") && !trimmed.hasPrefix("MLX on-device response for:") {
+                return trimmed
+            }
+        } catch {
+            // Fall back to grounded evidence concatenation
         }
-        // 2. Screen Capture & OCR
-        else if intentLower.contains("screen") || intentLower.contains("ocr") || intentLower.contains("visible text") {
-            return [
-                QActionRequest(
-                    toolName: "screen.ocr",
-                    toolFamily: "perception",
-                    riskLevel: .level0ReadOnly,
-                    literalAction: "Capture screen and perform OCR",
-                    parameters: [:]
-                )
-            ]
+
+        if isSuccess {
+            if !verifiedEvidence.isEmpty {
+                return "Successfully executed \(task.intent). \(verifiedEvidence.joined(separator: "; "))"
+            }
+            return "Successfully executed \(task.intent)."
+        } else {
+            return "Task halted: \(verifiedEvidence.last ?? "Execution could not be verified")"
         }
-        // 3. Clipboard Query
-        else if intentLower.contains("clipboard") {
-            return [
-                QActionRequest(
-                    toolName: "system.clipboard.read",
-                    toolFamily: "system",
-                    riskLevel: .level0ReadOnly,
-                    literalAction: "Read system clipboard",
-                    parameters: [:]
-                )
-            ]
-        }
-        // 4. UI / App Launch (Calculator, Notes, etc.)
-        else if intentLower.contains("calculator") || intentLower.contains("calc") {
-            return [
-                QActionRequest(
-                    toolName: "ui.open_app",
+    }
+
+    // MARK: - QModelProvider Protocol Conformance
+
+    public func generatePlan(for task: QTask) async throws -> [QActionRequest] {
+        let structuredPlan = try await generateStructuredPlan(for: task)
+        return structuredPlan.steps.map { $0.action.toActionRequest(stepId: $0.id) }
+    }
+
+    // MARK: - Deterministic Fallback Structured Plan Generator
+
+    private func generateDeterministicPlan(for task: QTask, rawModelOutput: String) -> QPlan {
+        let intentLower = task.intent.lowercased()
+        var steps: [QPlanStep] = []
+
+        // Multi-Step Compound: Calculator + Clipboard
+        if (intentLower.contains("calculator") || intentLower.contains("calc")) && intentLower.contains("clipboard") {
+            let step0 = QPlanStep(
+                index: 0,
+                action: QPlannedAction(
+                    actionName: "ui.open_app",
                     toolFamily: "app",
                     riskLevel: .level1SafeLocalAction,
                     literalAction: "Launch Calculator app",
                     targetResources: ["Calculator"],
-                    parameters: ["appName": "Calculator"]
-                )
-            ]
-        } else if intentLower.contains("notes") || (intentLower.contains("open") && intentLower.contains("app")) {
-            let app = intentLower.contains("notes") ? "Notes" : "Finder"
-            return [
-                QActionRequest(
-                    toolName: "ui.open_app",
-                    toolFamily: "app",
+                    arguments: ["appName": "Calculator"]
+                ),
+                description: "Launch Calculator application"
+            )
+            let step1 = QPlanStep(
+                index: 1,
+                action: QPlannedAction(
+                    actionName: "system.clipboard.read",
+                    toolFamily: "system",
+                    riskLevel: .level0ReadOnly,
+                    literalAction: "Read system clipboard"
+                ),
+                description: "Read system clipboard contents"
+            )
+            steps = [step0, step1]
+        }
+        // Multi-Step Compound: Sandbox Write + Sandbox Read
+        else if intentLower.contains("write") && intentLower.contains("read") && (intentLower.contains("sandbox") || intentLower.contains("file")) {
+            let path = "/tmp/q-sandbox/test-sandbox-data.txt"
+            let step0 = QPlanStep(
+                index: 0,
+                action: QPlannedAction(
+                    actionName: "fs.write_sandbox",
+                    toolFamily: "fs",
                     riskLevel: .level1SafeLocalAction,
-                    literalAction: "Launch \(app) app",
-                    targetResources: [app],
-                    parameters: ["appName": app]
+                    literalAction: "Write payload to sandbox",
+                    targetResources: [path],
+                    arguments: ["path": path, "content": "Q Verified Data"]
+                ),
+                description: "Write verified payload to sandbox"
+            )
+            let step1 = QPlanStep(
+                index: 1,
+                action: QPlannedAction(
+                    actionName: "fs.read",
+                    toolFamily: "fs",
+                    riskLevel: .level0ReadOnly,
+                    literalAction: "Read file from sandbox",
+                    targetResources: [path],
+                    arguments: ["path": path]
+                ),
+                description: "Read back created sandbox file"
+            )
+            steps = [step0, step1]
+        }
+        // Single Step: Running Apps
+        else if intentLower.contains("running") || intentLower.contains("applications") || intentLower.contains("processes") {
+            steps = [
+                QPlanStep(
+                    index: 0,
+                    action: QPlannedAction(
+                        actionName: "system.running_apps",
+                        toolFamily: "system",
+                        riskLevel: .level0ReadOnly,
+                        literalAction: "Query running applications"
+                    ),
+                    description: "Query system running applications"
                 )
             ]
         }
-        // 5. Sandboxed Filesystem Operations
+        // Single Step: Screen Capture / OCR
+        else if intentLower.contains("screen") || intentLower.contains("ocr") || intentLower.contains("visible text") {
+            steps = [
+                QPlanStep(
+                    index: 0,
+                    action: QPlannedAction(
+                        actionName: "screen.ocr",
+                        toolFamily: "perception",
+                        riskLevel: .level0ReadOnly,
+                        literalAction: "Capture screen and perform OCR"
+                    ),
+                    description: "Perform local screen OCR"
+                )
+            ]
+        }
+        // Single Step: Clipboard
+        else if intentLower.contains("clipboard") {
+            steps = [
+                QPlanStep(
+                    index: 0,
+                    action: QPlannedAction(
+                        actionName: "system.clipboard.read",
+                        toolFamily: "system",
+                        riskLevel: .level0ReadOnly,
+                        literalAction: "Read system clipboard"
+                    ),
+                    description: "Read system clipboard contents"
+                )
+            ]
+        }
+        // Single Step: App Launch (Calculator, Notes, etc.)
+        else if intentLower.contains("calculator") || intentLower.contains("calc") {
+            steps = [
+                QPlanStep(
+                    index: 0,
+                    action: QPlannedAction(
+                        actionName: "ui.open_app",
+                        toolFamily: "app",
+                        riskLevel: .level1SafeLocalAction,
+                        literalAction: "Launch Calculator app",
+                        targetResources: ["Calculator"],
+                        arguments: ["appName": "Calculator"]
+                    ),
+                    description: "Launch Calculator application"
+                )
+            ]
+        }
+        else if intentLower.contains("notes") || (intentLower.contains("open") && intentLower.contains("app")) {
+            let app = intentLower.contains("notes") ? "Notes" : "Finder"
+            steps = [
+                QPlanStep(
+                    index: 0,
+                    action: QPlannedAction(
+                        actionName: "ui.open_app",
+                        toolFamily: "app",
+                        riskLevel: .level1SafeLocalAction,
+                        literalAction: "Launch \(app) app",
+                        targetResources: [app],
+                        arguments: ["appName": app]
+                    ),
+                    description: "Launch \(app) application"
+                )
+            ]
+        }
+        // Single Step: Sandbox Read / Write
         else if intentLower.contains("sandbox") || intentLower.contains("file") {
             var path = "/tmp/q-sandbox/test-sandbox-data.txt"
             let words = task.intent.components(separatedBy: .whitespacesAndNewlines)
@@ -329,53 +528,76 @@ public final class QModelRouter: QModelProvider, @unchecked Sendable {
             }
 
             if intentLower.contains("read") {
-                return [
-                    QActionRequest(
-                        toolName: "fs.read",
-                        toolFamily: "fs",
-                        riskLevel: .level0ReadOnly,
-                        literalAction: "Read file from sandbox",
-                        targetResources: [path],
-                        parameters: ["path": path]
+                steps = [
+                    QPlanStep(
+                        index: 0,
+                        action: QPlannedAction(
+                            actionName: "fs.read",
+                            toolFamily: "fs",
+                            riskLevel: .level0ReadOnly,
+                            literalAction: "Read file from sandbox",
+                            targetResources: [path],
+                            arguments: ["path": path]
+                        ),
+                        description: "Read file from sandbox path"
                     )
                 ]
             } else {
-                return [
-                    QActionRequest(
-                        toolName: "fs.write_sandbox",
-                        toolFamily: "fs",
-                        riskLevel: .level1SafeLocalAction,
-                        literalAction: "Create test file in sandbox",
-                        targetResources: [path],
-                        parameters: ["path": path, "content": "Q Runtime Payload: \(res.text)"]
+                steps = [
+                    QPlanStep(
+                        index: 0,
+                        action: QPlannedAction(
+                            actionName: "fs.write_sandbox",
+                            toolFamily: "fs",
+                            riskLevel: .level1SafeLocalAction,
+                            literalAction: "Create test file in sandbox",
+                            targetResources: [path],
+                            arguments: ["path": path, "content": "Q Runtime Payload"]
+                        ),
+                        description: "Write sandbox file"
                     )
                 ]
             }
         }
-        // 6. Denylisted Secret Attempt
+        // Denylisted Resource Attempt
         else if intentLower.contains(".ssh") || intentLower.contains("id_rsa") || intentLower.contains("secret") {
-            return [
-                QActionRequest(
-                    toolName: "fs.read",
-                    toolFamily: "fs",
-                    riskLevel: .level1SafeLocalAction,
-                    literalAction: "Attempt read ~/.ssh/id_rsa",
-                    targetResources: ["~/.ssh/id_rsa"],
-                    parameters: ["path": "~/.ssh/id_rsa"]
+            steps = [
+                QPlanStep(
+                    index: 0,
+                    action: QPlannedAction(
+                        actionName: "fs.read",
+                        toolFamily: "fs",
+                        riskLevel: .level1SafeLocalAction,
+                        literalAction: "Attempt read ~/.ssh/id_rsa",
+                        targetResources: ["~/.ssh/id_rsa"],
+                        arguments: ["path": "~/.ssh/id_rsa"]
+                    ),
+                    description: "Read SSH Private Key"
                 )
             ]
         }
         // Default safe action
         else {
-            return [
-                QActionRequest(
-                    toolName: "test.noop",
-                    toolFamily: "test",
-                    riskLevel: .level0ReadOnly,
-                    literalAction: "Safe reasoning turn for: \(task.intent)"
+            steps = [
+                QPlanStep(
+                    index: 0,
+                    action: QPlannedAction(
+                        actionName: "test.noop",
+                        toolFamily: "test",
+                        riskLevel: .level0ReadOnly,
+                        literalAction: "Safe reasoning turn for: \(task.intent)"
+                    ),
+                    description: "Execute safe local reasoning turn"
                 )
             ]
         }
+
+        return QPlan(
+            taskId: task.taskId,
+            sessionId: task.sessionId,
+            taskPrompt: task.intent,
+            steps: steps
+        )
     }
 }
 
@@ -480,10 +702,10 @@ public struct QLocalhostHTTPBackend: QLocalModelBackend {
         }
 
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let choices = json["choices"] as? [[String: Any]],
-           let firstChoice = choices.first,
-           let msg = firstChoice["message"] as? [String: Any],
-           let text = msg["content"] as? String {
+            let choices = json["choices"] as? [[String: Any]],
+            let firstChoice = choices.first,
+            let msg = firstChoice["message"] as? [String: Any],
+            let text = msg["content"] as? String {
             return QModelInferenceResponse(
                 text: text,
                 finishReason: "stop",

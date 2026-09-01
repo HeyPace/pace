@@ -16,6 +16,20 @@ public enum QTaskState: Equatable, Sendable {
     case awaitingApproval(QApprovalRequest)
     case completed(summary: String)
     case failed(reason: String)
+
+    public var isTerminal: Bool {
+        switch self {
+        case .completed, .failed:
+            return true
+        case .pending, .running, .awaitingApproval:
+            return false
+        }
+    }
+
+    public var isCompleted: Bool {
+        if case .completed = self { return true }
+        return false
+    }
 }
 
 public struct QTask: Sendable {
@@ -102,6 +116,11 @@ public struct QActionResult: Sendable {
 
 public protocol QModelProvider: Sendable {
     func generatePlan(for task: QTask) async throws -> [QActionRequest]
+}
+
+public protocol QStructuredModelProvider: QModelProvider {
+    func generateStructuredPlan(for task: QTask, memoryContext: String?, failureContext: String?) async throws -> QPlan
+    func generateGroundedSummary(for task: QTask, verifiedEvidence: [String], isSuccess: Bool) async throws -> String
 }
 
 public protocol QToolProvider: Sendable {

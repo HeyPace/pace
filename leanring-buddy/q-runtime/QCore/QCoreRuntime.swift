@@ -2,9 +2,9 @@
 //  QCoreRuntime.swift
 //  leanring-buddy
 //
-//  Q Security Architecture — Core Runtime Orchestrator (Phase 1D.4).
-//  Orchestrates tasks, evaluates permissions, and coordinates providers without
-//  ever executing raw macOS actions directly.
+//  Q Security Architecture — Core Runtime Orchestrator (Phase 1D.4 & Phase 2B).
+//  Orchestrates memory retrieval, structured multi-step planning, sequential QPlanExecutor
+//  execution, controlled replanning on failure, and grounded local summary generation.
 //
 
 import Foundation
@@ -71,9 +71,13 @@ public final class QCoreRuntime: @unchecked Sendable {
         }
     }
 
-    // MARK: - Task Orchestration Lifecycle
+    // MARK: - Task Orchestration Lifecycle (Phase 2B)
 
-    public func submitIntent(prompt: String, sessionId: String = UUID().uuidString) async throws -> QTask {
+    public func submitIntent(
+        prompt: String,
+        sessionId: String = UUID().uuidString,
+        observer: (any QPlanExecutionObserver)? = nil
+    ) async throws -> QTask {
         // 1. Create task and initialize trusted context
         var task = QTask(sessionId: sessionId, intent: prompt)
         task.context.append(content: prompt, provenance: .trustedUser(channel: "direct"), sourceId: "user_prompt")
@@ -99,7 +103,6 @@ public final class QCoreRuntime: @unchecked Sendable {
         // 3. Memory store task start
         try? await memoryProvider?.recordTaskStart(task)
 
-        // 4. Generate plan via Model Provider
         guard let model = modelProvider else {
             task.state = .failed(reason: "No active Model Provider configured in QCoreRuntime.")
             updateTask(task)
@@ -109,127 +112,144 @@ public final class QCoreRuntime: @unchecked Sendable {
         task.state = .running
         updateTask(task)
 
-        let plan: [QActionRequest]
+        // 4. Memory-Aware Context Retrieval (Phase 2B.E)
+        var memoryContext: String? = nil
+        if let mem = memoryProvider, let contexts = try? await mem.queryContext(for: prompt, limit: 5), !contexts.isEmpty {
+            memoryContext = contexts.joined(separator: "\n")
+        }
+
+        // 5. Generate Structured Plan (Phase 2B.A & 2B.B)
+        var currentPlan: QPlan
         do {
-            plan = try await model.generatePlan(for: task)
+            if let structuredModel = model as? QStructuredModelProvider {
+                currentPlan = try await structuredModel.generateStructuredPlan(
+                    for: task,
+                    memoryContext: memoryContext,
+                    failureContext: nil
+                )
+            } else {
+                let actions = try await model.generatePlan(for: task)
+                let steps = actions.enumerated().map { idx, act in
+                    QPlanStep(
+                        index: idx,
+                        action: QPlannedAction(
+                            actionName: act.toolName,
+                            toolFamily: act.toolFamily,
+                            riskLevel: act.riskLevel,
+                            literalAction: act.literalAction,
+                            targetResources: act.targetResources,
+                            arguments: act.parameters
+                        ),
+                        description: act.literalAction
+                    )
+                }
+                currentPlan = QPlan(taskId: task.taskId, sessionId: sessionId, taskPrompt: prompt, steps: steps)
+            }
         } catch {
             task.state = .failed(reason: "Planning failed: \(error.localizedDescription)")
             updateTask(task)
             return task
         }
 
-        var actionSummaries: [String] = []
-        for action in plan {
-            // Resource guard check for filesystem targets
-            for res in action.targetResources {
-                let guardResult = QResourceGuard.validate(path: res)
-                if case .denied(let reason, _) = guardResult {
-                    task.state = .failed(reason: "Security Guard Denied Resource '\(res)': \(reason)")
-                    updateTask(task)
-                    QAuditLogger.shared.record(
-                        QAuditRecord(
-                            sessionId: sessionId,
-                            taskId: task.taskId,
-                            tool: action.toolName,
-                            riskLevel: .level4Blocked,
-                            rawArguments: action.literalAction,
-                            authorizationResult: "deny",
-                            provenance: task.context.isTainted ? "untrusted" : "trusted:system",
-                            error: reason
-                        )
-                    )
-                    return task
-                }
-            }
-
-            // Centralized Permission Gate evaluation
-            let authReq = QToolAuthorizationRequest(
-                taskId: task.taskId,
-                toolName: action.toolName,
-                toolFamily: action.toolFamily,
-                baseRisk: action.riskLevel,
-                literalAction: action.literalAction,
-                affectedResources: action.targetResources,
-                isContextTainted: task.context.isTainted
-            )
-
-            let decision = QPermissionGate.shared.evaluate(request: authReq)
-            if case .deny(let reason, _) = decision {
-                task.state = .failed(reason: "Authorization Denied: \(reason)")
-                updateTask(task)
-                QAuditLogger.shared.record(
-                    QAuditRecord(
-                        sessionId: sessionId,
-                        taskId: task.taskId,
-                        tool: action.toolName,
-                        riskLevel: action.riskLevel,
-                        rawArguments: action.literalAction,
-                        authorizationResult: "deny",
-                        provenance: task.context.isTainted ? "untrusted" : "trusted:system",
-                        error: reason
-                    )
-                )
-                return task
-            }
-
-            if case .requireApproval(let approvalReq) = decision {
-                task.state = .awaitingApproval(approvalReq)
-                updateTask(task)
-                // In Phase 1D headless tests, unapproved high-risk actions halt safely
-                return task
-            }
-
-            // 6. Delegate execution strictly to QExecutionProvider (never executed directly in core)
-            guard let exec = executionProvider else {
-                task.state = .failed(reason: "No Execution Provider configured.")
-                updateTask(task)
-                return task
-            }
-
-            do {
-                let result = try await exec.executeAction(action, context: task.context)
-                if !result.success {
-                    task.state = .failed(reason: result.error ?? "Action failed")
-                    updateTask(task)
-                    return task
-                }
-
-                // 6b. Empirical Closed-Loop Verification
-                let verifier = QActionVerifier.shared
-                let strategy: QVerificationStrategy
-                if action.toolName == "ui.open_app", let appName = action.parameters["appName"] ?? action.targetResources.first {
-                    strategy = .windowOrAppActive(appName: appName)
-                } else if action.toolName == "fs.write_sandbox", let path = action.parameters["path"] {
-                    strategy = .fileExists(path: path, expectedContent: action.parameters["content"])
-                } else if action.toolName == "fs.read", let path = action.parameters["path"] {
-                    strategy = .fileExists(path: path)
-                } else {
-                    strategy = .customCheck(description: "Default action verification") { true }
-                }
-
-                let outcome = await verifier.verify(action: action, result: result, strategy: strategy)
-                guard outcome.isVerified else {
-                    task.state = .failed(reason: "Closed-loop verification failed for '\(action.toolName)'")
-                    updateTask(task)
-                    return task
-                }
-
-                actionSummaries.append(result.summary)
-            } catch {
-                task.state = .failed(reason: "Execution error: \(error.localizedDescription)")
-                updateTask(task)
-                return task
-            }
+        guard let exec = executionProvider else {
+            task.state = .failed(reason: "No Execution Provider configured.")
+            updateTask(task)
+            return task
         }
 
-        // 7. Complete task
-        let details = actionSummaries.joined(separator: " ")
-        let finalSummary = "Successfully executed \(plan.count) action(s). \(details)".trimmingCharacters(in: .whitespaces)
-        task.state = .completed(summary: finalSummary)
-        updateTask(task)
-        try? await memoryProvider?.recordTaskCompletion(task, result: "Success")
+        // 6. Sequential Plan Execution with Controlled Replanning (Phase 2B.F)
+        let executor = QPlanExecutor(executionProvider: exec)
+        var replanCount = 0
+        let maxReplans = 2
+        var executedPlan: QPlan
 
-        return task
+        while true {
+            executedPlan = try await executor.execute(
+                plan: currentPlan,
+                context: task.context,
+                observer: observer
+            )
+
+            if executedPlan.isComplete {
+                break
+            }
+
+            if executedPlan.state.isBlocked {
+                break
+            }
+
+            if case .waitingForPermission(let idx, let reason) = executedPlan.state {
+                let step = executedPlan.steps[idx]
+                let approvalReq = QApprovalRequest(
+                    taskId: task.taskId,
+                    toolName: step.action.actionName,
+                    riskLevel: step.action.riskLevel,
+                    literalAction: step.description,
+                    affectedResources: step.action.targetResources,
+                    scope: .global,
+                    reason: reason,
+                    isContextTainted: task.context.isTainted
+                )
+                task.state = .awaitingApproval(approvalReq)
+                updateTask(task)
+                return task
+            }
+
+            // Controlled Replanning on Failure
+            if case .failed(let failureReason, let failedIdx) = executedPlan.state {
+                if replanCount < maxReplans, let structuredModel = model as? QStructuredModelProvider {
+                    replanCount += 1
+                    let failedStepDesc = (failedIdx != nil && failedIdx! < executedPlan.steps.count) ? executedPlan.steps[failedIdx!].description : "Step \(failedIdx ?? 0)"
+                    let failurePrompt = "Prior step failed: '\(failedStepDesc)' - Reason: \(failureReason). Attempting replan \(replanCount)/\(maxReplans)."
+
+                    do {
+                        currentPlan = try await structuredModel.generateStructuredPlan(
+                            for: task,
+                            memoryContext: memoryContext,
+                            failureContext: failurePrompt
+                        )
+                        continue
+                    } catch {
+                        break
+                    }
+                } else {
+                    break
+                }
+            }
+            break
+        }
+
+        // 7. Grounded Natural Language Response Generation (Phase 2B.G)
+        if executedPlan.isComplete {
+            let evidence = executedPlan.steps.compactMap { $0.result?.verifiedEvidence }
+            let finalSummary: String
+            if let structuredModel = model as? QStructuredModelProvider {
+                finalSummary = (try? await structuredModel.generateGroundedSummary(
+                    for: task,
+                    verifiedEvidence: evidence,
+                    isSuccess: true
+                )) ?? (evidence.isEmpty ? "Successfully executed \(task.intent)." : "Successfully executed \(task.intent). \(evidence.joined(separator: "; "))")
+            } else {
+                finalSummary = evidence.isEmpty ? "Successfully executed \(task.intent)." : "Successfully executed \(task.intent). \(evidence.joined(separator: "; "))"
+            }
+
+            task.state = .completed(summary: finalSummary)
+            updateTask(task)
+            try? await memoryProvider?.recordTaskCompletion(task, result: finalSummary)
+            return task
+        } else if case .blocked(let reason, _) = executedPlan.state {
+            task.state = .failed(reason: "Security Guard blocked action: \(reason)")
+            updateTask(task)
+            return task
+        } else if case .failed(let reason, _) = executedPlan.state {
+            task.state = .failed(reason: "Execution halted: \(reason)")
+            updateTask(task)
+            return task
+        } else {
+            task.state = .failed(reason: "Task execution halted unexpectedly")
+            updateTask(task)
+            return task
+        }
     }
 
     private func updateTask(_ task: QTask) {

@@ -65,8 +65,8 @@ public final class QSQLiteMemoryStore: QMemoryStore, QMemoryProvider, @unchecked
     private let dbPath: String
     private let lock = NSRecursiveLock()
 
-    public init(databasePath: String = ":memory:") throws {
-        self.dbPath = databasePath
+    public init(databasePath: String = ":memory:", inMemory: Bool = false) throws {
+        self.dbPath = inMemory ? ":memory:" : databasePath
         try openDatabase()
         try applyMigrations()
     }

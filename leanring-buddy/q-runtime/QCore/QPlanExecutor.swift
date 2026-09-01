@@ -18,7 +18,11 @@ public protocol QPlanExecutionObserver: AnyObject, Sendable {
 public final class QPlanExecutor: Sendable {
     public static let shared = QPlanExecutor()
 
-    public init() {}
+    private let executionService: any QExecutionProvider
+
+    public init(executionProvider: (any QExecutionProvider)? = nil) {
+        self.executionService = executionProvider ?? QExecutionService.shared
+    }
 
     /// Executes a multi-step plan sequentially with strict verification gating at each step.
     public func execute(
@@ -50,7 +54,6 @@ public final class QPlanExecutor: Sendable {
             )
         )
 
-        let executionService = QExecutionService.shared
         let verifier = QActionVerifier.shared
         var completedStepsEvidence: [String] = []
 

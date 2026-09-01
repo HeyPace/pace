@@ -116,8 +116,8 @@ public final class QAgent: Sendable {
         // 3. Submit intent to Core Runtime
         let executedTask: QTask
         do {
-            observer?.agentDidTransition(state: .executing, message: "Dispatching safe execution plan")
-            executedTask = try await core.submitIntent(prompt: task, sessionId: sessionId)
+            let planObserver = observer as? (any QPlanExecutionObserver)
+            executedTask = try await core.submitIntent(prompt: task, sessionId: sessionId, observer: planObserver)
         } catch {
             let duration = Date().timeIntervalSince(start)
             observer?.agentDidTransition(state: .error, message: error.localizedDescription)

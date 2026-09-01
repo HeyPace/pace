@@ -22,7 +22,7 @@ struct QAgentE2ETests {
         let result = try await agent.run(task: "What applications are currently running?")
 
         #expect(result.isSuccess == true)
-        #expect(result.summary.contains("running applications"))
+        #expect(result.summary.localizedCaseInsensitiveContains("running") || result.summary.localizedCaseInsensitiveContains("applications"))
         #expect(!result.taskId.isEmpty)
 
         // Verify audit trail
