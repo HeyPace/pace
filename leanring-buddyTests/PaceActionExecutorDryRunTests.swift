@@ -18,7 +18,7 @@ struct PaceActionExecutorDryRunTests {
         ])
         let executionTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_000_000_000)
-            return await executor.executeActionPlan(actionPlan, screenCaptures: [])
+            return await executor.executeActionPlan(actionPlan, screenCaptures: [], approvalAlreadyObtained: false)
         }
 
         executionTask.cancel()
@@ -71,7 +71,8 @@ struct PaceActionExecutorDryRunTests {
 
         let observations = await executor.executeActionPlan(
             actionPlan,
-            screenCaptures: []
+            screenCaptures: [],
+            approvalAlreadyObtained: false
         )
         let formattedObservations = PaceActionExecutionObservation.formatForPlanner(observations)
 
@@ -371,7 +372,8 @@ struct PaceActionExecutorDryRunTests {
 
         let observations = await executor.executeActionPlan(
             PaceActionExecutionPlan.serial(actions: [.clickCandidates(candidateSet)]),
-            screenCaptures: []
+            screenCaptures: [],
+            approvalAlreadyObtained: false
         )
 
         #expect(observations.count == 1)

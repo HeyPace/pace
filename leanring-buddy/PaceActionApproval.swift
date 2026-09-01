@@ -100,16 +100,24 @@ nonisolated enum PaceActionApprovalPolicy {
         )
     }
 
+    /// Phase 2H remediation: keyboard-input actions (`.type`, `.setTextValue`, `.editSelectedText`,
+    /// `.pressKey`) require explicit approval, unlike `.click`/`.openURL`/etc., which
+    /// `docs/architecture/systems.md` explicitly documents as an intentional, shipped "routine
+    /// local actions... can execute without the popup" product decision. Keyboard input has no
+    /// such documented carve-out and is meaningfully different in kind: the SAME action type can
+    /// type into a search box or into a password field, a send box, or a payment form — the
+    /// action alone can't distinguish these, unlike a click landing on a known, described target.
     private static func requiresExplicitApproval(_ action: PaceParsedAction) -> Bool {
         switch action {
         case .createCalendarEvent, .createReminder, .createNote, .appendNote,
              .composeMail, .createThingsToDo, .runShortcut, .downloadFile,
-             .recordFlow, .runFlow, .mcp:
+             .recordFlow, .runFlow, .mcp,
+             .type, .setTextValue, .editSelectedText, .pressKey:
             return true
         case .openMessages(let messageRequest):
             return messageRequest.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        case .click, .doubleClick, .clickCandidates, .type, .setTextValue, .editSelectedText,
-             .undoLastMutation, .pressKey, .readClipboard, .snapWindow, .scroll, .openApplication,
+        case .click, .doubleClick, .clickCandidates,
+             .undoLastMutation, .readClipboard, .snapWindow, .scroll, .openApplication,
              .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
              .drawAnnotation, .clearAnnotations:

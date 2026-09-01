@@ -19,10 +19,20 @@ extension PaceActionExecutor {
     /// step are a parallel group at the planner contract level. UI-mutating
     /// actions still run in source order because macOS focus/cursor state is
     /// global and not safe to mutate concurrently.
+    /// - Parameter approvalAlreadyObtained: Phase 2H remediation. Whether a real, explicit human
+    ///   decision has already been obtained for the actions in this plan — either through
+    ///   `requestUserApprovalForActionPlan`'s real, blocking NSAlert (the normal case), or through
+    ///   some other genuinely explicit, real-time user action (e.g. the user just selected a
+    ///   specific option in a click-target clarification, or physically pressed the undo button).
+    ///   No default value: every call site must consciously declare this rather than silently
+    ///   inheriting an "approved" assumption. `executeSingleAction` uses this as a fail-closed
+    ///   backstop for any action Q's `QActionAuthorizationBridge` classifies as requiring
+    ///   approval — see that function's doc comment for why this can't simply always block.
     @discardableResult
     func executeActionPlan(
         _ actionExecutionPlan: PaceActionExecutionPlan,
-        screenCaptures: [CompanionScreenCapture]
+        screenCaptures: [CompanionScreenCapture],
+        approvalAlreadyObtained: Bool
     ) async -> [PaceActionExecutionObservation] {
         guard !actionExecutionPlan.steps.isEmpty else { return [] }
 
@@ -35,7 +45,7 @@ extension PaceActionExecutor {
             for (actionIndex, action) in step.actions.enumerated() {
                 guard !Task.isCancelled else { return observations }
 
-                if let observation = await executeSingleAction(action, screenCaptures: screenCaptures) {
+                if let observation = await executeSingleAction(action, screenCaptures: screenCaptures, approvalAlreadyObtained: approvalAlreadyObtained) {
                     observations.append(observation)
                 }
                 guard !Task.isCancelled else { return observations }
@@ -107,9 +117,31 @@ extension PaceActionExecutor {
         activeStreamingMailDraftState = nil
     }
 
+    /// Phase 2H remediation.
+    ///
+    /// Why `.requireApproval` can't simply always block: `QActionAuthorizationBridge
+    /// .preflightAuthorize` runs Q's `QPermissionGate` classification on every dispatch, but
+    /// `QPermissionGate` is stateless — it has no notion of "the user already approved this plan a
+    /// moment ago." Pace's REAL, working, blocking human-approval gate is a separate, earlier,
+    /// plan-level mechanism (`requestUserApprovalForActionPlan`'s NSAlert, driven by
+    /// `PaceActionApprovalPolicy.requiresExplicitApproval`), not this per-action Q check. Every
+    /// action Q classifies as Level 2/3 that Pace's product design has already decided to
+    /// auto-permit without a popup (click, openURL, etc. — see
+    /// `docs/architecture/systems.md`'s "routine local actions... can execute without the popup")
+    /// would ALWAYS see `.requireApproval` here, on every single dispatch, forever — so
+    /// unconditionally blocking on it would break that entire, intentional, already-shipped
+    /// behavior, not just close a gap.
+    ///
+    /// `approvalAlreadyObtained` is therefore how the caller tells this function whether a real
+    /// human decision already covers what's about to run. When it's `false` and Q says
+    /// `.requireApproval`, execution is refused — this is the fail-closed backstop for any action
+    /// that reaches here WITHOUT having gone through a real approval gate (today, that's
+    /// specifically the keyboard-input actions this remediation added to
+    /// `requiresExplicitApproval` — see that function's doc comment).
     func executeSingleAction(
         _ action: PaceParsedAction,
-        screenCaptures: [CompanionScreenCapture]
+        screenCaptures: [CompanionScreenCapture],
+        approvalAlreadyObtained: Bool
     ) async -> PaceActionExecutionObservation? {
         // Q Security Preflight Authorization
         let decision = QActionAuthorizationBridge.preflightAuthorize(action: action)
@@ -133,6 +165,31 @@ extension PaceActionExecutor {
             return denialObservation
         }
 
+        // Gated on actionsAreEnabled: dry-run mode (actionsAreEnabled == false) never causes a
+        // real side effect regardless — each dispatch handler independently checks
+        // actionsAreEnabled before doing anything mutating — so simulated "would do X" dry-run
+        // observations are never blocked by this backstop, matching how every other mutation gate
+        // in this executor already works.
+        if case .requireApproval(let req) = decision, actionsAreEnabled, !approvalAlreadyObtained {
+            let blockedObservation = PaceActionExecutionObservation(
+                toolName: action.auditOperationName,
+                summary: "Action requires explicit approval that was not obtained: \(req.reason)"
+            )
+            QAuditLogger.shared.record(
+                QAuditRecord(
+                    sessionId: "active-session",
+                    taskId: "task",
+                    tool: action.auditOperationName,
+                    riskLevel: req.riskLevel,
+                    rawArguments: action.approvalDescription,
+                    authorizationResult: "blocked_no_approval",
+                    provenance: "trusted:system",
+                    error: "Action requires approval; none was obtained prior to dispatch."
+                )
+            )
+            return blockedObservation
+        }
+
         let observation = await dispatchSingleAction(action, screenCaptures: screenCaptures)
         let outcomeText: String
         if let observation, observation.summary.lowercased().contains("fail")
@@ -152,6 +209,21 @@ extension PaceActionExecutor {
             detail: observation?.summary.prefix(160).description
         )
         let meta = QActionAuthorizationBridge.mapActionToQMetadata(action)
+        // Honest audit labeling (Phase 2H remediation): a `.requireApproval` decision that reached
+        // execution here was NEVER actually approved by Q's own gate — it was either covered by
+        // Pace's separate plan-level approval (`approvalAlreadyObtained == true`, verified above)
+        // or is one of the actions Pace's product policy intentionally auto-permits without a
+        // per-action approval step. Neither of those is "allow" in Q's sense, so this no longer
+        // claims the false label "approved" for a decision Q itself never rendered as allowed.
+        let authorizationResultLabel: String
+        switch decision {
+        case .allow:
+            authorizationResultLabel = "allow"
+        case .requireApproval:
+            authorizationResultLabel = "plan_level_approval_or_policy_exempt"
+        case .deny:
+            authorizationResultLabel = "deny" // unreachable here — handled above
+        }
         QAuditLogger.shared.record(
             QAuditRecord(
                 sessionId: "active-session",
@@ -159,7 +231,7 @@ extension PaceActionExecutor {
                 tool: meta.toolName,
                 riskLevel: meta.risk,
                 rawArguments: action.approvalDescription,
-                authorizationResult: decision.isAllowed ? "allow" : "approved",
+                authorizationResult: authorizationResultLabel,
                 provenance: "trusted:system",
                 executionSummary: observation?.summary
             )

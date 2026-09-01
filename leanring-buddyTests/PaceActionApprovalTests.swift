@@ -89,14 +89,32 @@ struct PaceActionApprovalTests {
     }
 
     @Test func routineLocalActionsSuppressInitialSpokenFeedback() async throws {
+        // Phase 2H remediation: .pressKey moved out of this plan — it now requires explicit
+        // approval (see PaceActionApprovalPolicy's keyboard-input fix), so it's no longer
+        // "routine" in this sense either. A blocking approval dialog is about to interrupt the
+        // flow regardless of whether Pace spoke first, so — consistent with every OTHER
+        // approval-required action (composeMail, createNote, ...) — it correctly no longer
+        // suppresses initial spoken feedback; see keyboardInputActionsRequiringApprovalDoNotSuppressInitialSpokenFeedback below.
         let actionPlan = PaceActionExecutionPlan.serial(actions: [
             .openApplication("Raycast"),
-            .pressKey(name: "s", modifiers: [.command]),
             .snapWindow(PaceWindowSnapRequest(position: .left)),
             .readClipboard
         ])
 
         #expect(PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(for: actionPlan))
+    }
+
+    @Test func keyboardInputActionsRequiringApprovalDoNotSuppressInitialSpokenFeedback() async throws {
+        // Phase 2H remediation: .pressKey/.type/.setTextValue/.editSelectedText now require
+        // explicit approval (a blocking dialog), so — like composeMail/createNote/etc. below —
+        // they must not suppress the initial spoken acknowledgment either.
+        let pressKeyPlan = PaceActionExecutionPlan.serial(actions: [
+            .pressKey(name: "s", modifiers: [.command])
+        ])
+        #expect(PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(for: pressKeyPlan) == false)
+
+        let typePlan = PaceActionExecutionPlan.serial(actions: [.type("hello")])
+        #expect(PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(for: typePlan) == false)
     }
 
     @Test func emptyOrRiskyPlansDoNotSuppressInitialSpokenFeedback() async throws {

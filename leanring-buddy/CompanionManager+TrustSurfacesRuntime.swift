@@ -70,9 +70,12 @@ extension CompanionManager {
         clearReversibleActionUndoState()
         Task { @MainActor in
             let undoPlan = PaceActionExecutionPlan.serial(actions: [.undoLastMutation])
+            // approvalAlreadyObtained: true — the user just physically tapped the undo button
+            // (the explicit human decision for this specific, single, Level 1 action).
             let observations = await actionExecutor.executeActionPlan(
                 undoPlan,
-                screenCaptures: []
+                screenCaptures: [],
+                approvalAlreadyObtained: true
             )
             if !observations.isEmpty {
                 appendActionResult(.completed(observations: observations))

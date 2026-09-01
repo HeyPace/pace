@@ -436,9 +436,14 @@ extension CompanionManager {
         )
 
         currentResponseTask = Task { @MainActor in
+            // approvalAlreadyObtained: true — the user just made an explicit, real-time choice
+            // (selecting this specific clarification option), and .clickCandidates is itself one
+            // of the documented "routine local actions... can execute without the popup" (see
+            // docs/architecture/systems.md) regardless of this specific dispatch path.
             let toolObservations = await actionExecutor.executeActionPlan(
                 clickPlan,
-                screenCaptures: screenCaptures
+                screenCaptures: screenCaptures,
+                approvalAlreadyObtained: true
             )
             guard !Task.isCancelled else { return }
             if !toolObservations.isEmpty {
@@ -471,9 +476,14 @@ extension CompanionManager {
             actions: [.clickCandidates(originalCandidateSet)]
         )
         currentResponseTask = Task { @MainActor in
+            // approvalAlreadyObtained: true — the user just made an explicit, real-time choice
+            // (selecting this specific clarification option), and .clickCandidates is itself one
+            // of the documented "routine local actions... can execute without the popup" (see
+            // docs/architecture/systems.md) regardless of this specific dispatch path.
             let toolObservations = await actionExecutor.executeActionPlan(
                 clickPlan,
-                screenCaptures: screenCaptures
+                screenCaptures: screenCaptures,
+                approvalAlreadyObtained: true
             )
             guard !Task.isCancelled else { return }
             if !toolObservations.isEmpty {
@@ -863,9 +873,13 @@ extension CompanionManager {
                     fastActionParseResult.executionPlan,
                     preflightIssues: preflightIssues
                 ) {
+                    // approvalAlreadyObtained: true — reached only inside the
+                    // requestUserApprovalForActionPlan(...) branch above, which just returned
+                    // true (no approval was needed, or the user explicitly clicked Allow Once).
                     let toolObservations = await actionExecutor.executeActionPlan(
                         fastActionParseResult.executionPlan,
-                        screenCaptures: []
+                        screenCaptures: [],
+                        approvalAlreadyObtained: true
                     )
                     fastPathDispatchSummaryForDebug =
                         toolObservations.isEmpty
@@ -2177,14 +2191,19 @@ extension CompanionManager {
                                     let remainingActionPlan = actionParseResult
                                         .executionPlan
                                         .removingFirstMailDraftAction()
+                                    // approvalAlreadyObtained: true — both branches below are
+                                    // reached only inside the requestUserApprovalForActionPlan(...)
+                                    // branch above, which just returned true.
                                     toolObservations += await actionExecutor.executeActionPlan(
                                         remainingActionPlan,
-                                        screenCaptures: screenCaptures
+                                        screenCaptures: screenCaptures,
+                                        approvalAlreadyObtained: true
                                     )
                                 } else {
                                     toolObservations = await actionExecutor.executeActionPlan(
                                         actionParseResult.executionPlan,
-                                        screenCaptures: screenCaptures
+                                        screenCaptures: screenCaptures,
+                                        approvalAlreadyObtained: true
                                     )
                                 }
                                 // Set-of-Mark recovery: if any click missed,

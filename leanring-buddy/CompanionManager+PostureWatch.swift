@@ -255,9 +255,12 @@ extension CompanionManager {
             ],
             clickCount: 1
         )
+        // Smoke-test-only synthetic simulation (PACE_ENABLE_SMOKE_HOOKS), never reachable from a
+        // real voice turn; .clickCandidates is also documented-exempt product policy regardless.
         let observations = await actionExecutor.executeActionPlan(
             PaceActionExecutionPlan.serial(actions: [.clickCandidates(candidateSet)]),
-            screenCaptures: []
+            screenCaptures: [],
+            approvalAlreadyObtained: true
         )
         if let summary = observations.first?.summary {
             return summary
