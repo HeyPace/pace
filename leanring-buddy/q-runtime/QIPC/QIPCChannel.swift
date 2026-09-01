@@ -34,20 +34,24 @@ public final class QIPCHub: @unchecked Sendable {
 
     public func register(endpoint: String, channel: QIPCChannel) {
         lock.lock()
-        defer { lock.unlock() }
+        let old = channels.removeValue(forKey: endpoint)
         channels[endpoint] = channel
+        lock.unlock()
+        _ = old
     }
 
     public func unregister(endpoint: String, channel: QIPCChannel? = nil) {
         lock.lock()
-        defer { lock.unlock() }
+        var old: QIPCChannel? = nil
         if let channel {
             if channels[endpoint] === channel {
-                channels.removeValue(forKey: endpoint)
+                old = channels.removeValue(forKey: endpoint)
             }
         } else {
-            channels.removeValue(forKey: endpoint)
+            old = channels.removeValue(forKey: endpoint)
         }
+        lock.unlock()
+        _ = old
     }
 
     public func getChannel(for endpoint: String) -> QIPCChannel? {

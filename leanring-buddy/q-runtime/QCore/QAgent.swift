@@ -193,6 +193,74 @@ public final class QAgent: Sendable {
             )
         }
     }
+
+    /// Resumes an interrupted or incomplete task from durable storage after crash or restart.
+    public func resume(
+        taskId: String,
+        observer: (any QAgentStateObserver)? = nil
+    ) async throws -> QAgentResult {
+        let start = Date()
+        observer?.agentDidTransition(state: .starting, message: "Resuming durable task \(taskId)")
+
+        let bootstrap = QRuntimeBootstrap.shared
+        if customCore == nil && bootstrap.getCoreRuntime() == nil {
+            await bootstrap.bootstrap()
+        }
+
+        guard let core = customCore ?? bootstrap.getCoreRuntime() else {
+            observer?.agentDidTransition(state: .blocked, message: "Runtime not bootstrapped")
+            throw QAgentError.runtimeNotBootstrapped("Q Runtime failed to initialize core orchestrator.")
+        }
+
+        let planObserver = observer as? (any QPlanExecutionObserver)
+        let resumedTask = try await core.resumeTask(taskId: taskId, observer: planObserver)
+        let duration = Date().timeIntervalSince(start)
+
+        switch resumedTask.state {
+        case .completed(let summary):
+            observer?.agentDidTransition(state: .completed, message: summary)
+            return QAgentResult(
+                taskId: resumedTask.taskId,
+                sessionId: resumedTask.sessionId,
+                intent: resumedTask.intent,
+                status: .completed,
+                summary: summary,
+                provenanceTag: resumedTask.context.isTainted ? "untrusted" : "trusted:user",
+                durationSeconds: duration
+            )
+        case .failed(let reason):
+            observer?.agentDidTransition(state: .blocked, message: reason)
+            return QAgentResult(
+                taskId: resumedTask.taskId,
+                sessionId: resumedTask.sessionId,
+                intent: resumedTask.intent,
+                status: .failed(reason: reason),
+                summary: reason,
+                provenanceTag: resumedTask.context.isTainted ? "untrusted" : "trusted:user",
+                durationSeconds: duration
+            )
+        case .awaitingApproval(let req):
+            observer?.agentDidTransition(state: .requestingPermission, message: req.reason)
+            return QAgentResult(
+                taskId: resumedTask.taskId,
+                sessionId: resumedTask.sessionId,
+                intent: resumedTask.intent,
+                status: .awaitingApproval(toolName: req.toolName, riskLevel: req.riskLevel.description),
+                summary: req.reason,
+                provenanceTag: resumedTask.context.isTainted ? "untrusted" : "trusted:user",
+                durationSeconds: duration
+            )
+        case .pending, .running:
+            return QAgentResult(
+                taskId: resumedTask.taskId,
+                sessionId: resumedTask.sessionId,
+                intent: resumedTask.intent,
+                status: .failed(reason: "Resumed task did not terminate"),
+                summary: "Incomplete task resume",
+                durationSeconds: duration
+            )
+        }
+    }
 }
 
 public enum QAgentError: Error, Equatable, Sendable {

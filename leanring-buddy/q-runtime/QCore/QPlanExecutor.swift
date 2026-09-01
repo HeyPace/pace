@@ -69,6 +69,14 @@ public final class QPlanExecutor: Sendable {
                 throw err
             }
 
+            // Phase 2D: If step is already completed (e.g. during recovery / resume), skip execution
+            if step.isComplete || step.state == .completed {
+                if let ev = step.result?.verifiedEvidence {
+                    completedStepsEvidence.append(ev)
+                }
+                continue
+            }
+
             // A. Resource Guard Validation
             for resource in step.action.targetResources {
                 let guardDecision = QResourceGuard.validate(path: resource)
