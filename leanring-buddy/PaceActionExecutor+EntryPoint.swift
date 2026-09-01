@@ -111,6 +111,28 @@ extension PaceActionExecutor {
         _ action: PaceParsedAction,
         screenCaptures: [CompanionScreenCapture]
     ) async -> PaceActionExecutionObservation? {
+        // Q Security Preflight Authorization
+        let decision = QActionAuthorizationBridge.preflightAuthorize(action: action)
+        if case .deny(let reason, _) = decision {
+            let denialObservation = PaceActionExecutionObservation(
+                toolName: action.auditOperationName,
+                summary: "Security Authorization Denied: \(reason)"
+            )
+            QAuditLogger.shared.record(
+                QAuditRecord(
+                    sessionId: "active-session",
+                    taskId: "task",
+                    tool: action.auditOperationName,
+                    riskLevel: .level4Blocked,
+                    rawArguments: action.approvalDescription,
+                    authorizationResult: "deny",
+                    provenance: "trusted:system",
+                    error: reason
+                )
+            )
+            return denialObservation
+        }
+
         let observation = await dispatchSingleAction(action, screenCaptures: screenCaptures)
         let outcomeText: String
         if let observation, observation.summary.lowercased().contains("fail")
@@ -128,6 +150,19 @@ extension PaceActionExecutor {
             outcome: outcomeText,
             outputCharacterCount: observation?.summary.count,
             detail: observation?.summary.prefix(160).description
+        )
+        let meta = QActionAuthorizationBridge.mapActionToQMetadata(action)
+        QAuditLogger.shared.record(
+            QAuditRecord(
+                sessionId: "active-session",
+                taskId: "task",
+                tool: meta.toolName,
+                riskLevel: meta.risk,
+                rawArguments: action.approvalDescription,
+                authorizationResult: decision.isAllowed ? "allow" : "approved",
+                provenance: "trusted:system",
+                executionSummary: observation?.summary
+            )
         )
         return observation
     }
