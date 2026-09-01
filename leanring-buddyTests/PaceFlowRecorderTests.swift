@@ -221,6 +221,8 @@ final class PaceFlowRecorderTests: XCTestCase {
                 keyDown: true
             )
         )
+        var utf16S: [UniChar] = [0x0073]
+        cmdSEvent.keyboardSetUnicodeString(stringLength: 1, unicodeString: &utf16S)
         cmdSEvent.flags = .maskCommand
         recorder.recordEventForTesting(cmdSEvent, eventType: .keyDown, at: Date())
 
