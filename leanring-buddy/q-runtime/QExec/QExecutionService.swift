@@ -123,6 +123,12 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.open_app":
             result = executeOpenApp(request: request)
 
+        case "system.clipboard.write":
+            result = executeClipboardWrite(request: request)
+
+        case "app.quit":
+            result = await executeAppQuit(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -290,6 +296,84 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
             success: true,
             summary: "Dispatched launch request for application '\(app)'.",
             outputData: ["appName": app]
+        )
+    }
+
+    // MARK: - Phase 2E: Controlled Mutating Actions (Level 2 / Level 3)
+
+    /// Level 2 (reversible local action): overwrites the system pasteboard with the given text.
+    /// Trivially reversible by the user (copy something else); no persistent file/system mutation.
+    private func executeClipboardWrite(request: QActionRequest) -> QActionResult {
+        guard let text = request.parameters["text"] else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'text' parameter for clipboard write.",
+                error: "text missing"
+            )
+        }
+
+        NSPasteboard.general.clearContents()
+        let wrote = NSPasteboard.general.setString(text, forType: .string)
+
+        return QActionResult(
+            actionId: request.actionId,
+            success: wrote,
+            summary: wrote
+                ? "Wrote \(text.count) character(s) to the system clipboard."
+                : "Failed to write to the system clipboard.",
+            outputData: ["length": "\(text.count)"],
+            error: wrote ? nil : "NSPasteboard.setString returned false"
+        )
+    }
+
+    /// Level 3 (mutating action with meaningful user impact): terminates a running application.
+    /// Polls briefly for the process to actually leave NSWorkspace.runningApplications so the
+    /// immediately-following closed-loop verification (QVerificationStrategy.appNotRunning)
+    /// observes a stable, non-flaky result rather than racing app teardown.
+    private func executeAppQuit(request: QActionRequest) async -> QActionResult {
+        let app = request.parameters["appName"] ?? request.targetResources.first ?? ""
+        guard !app.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'appName' parameter for app quit.",
+                error: "appName missing"
+            )
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(app) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(app) == .orderedSame)
+        }) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Application '\(app)' is not running; nothing to terminate.",
+                outputData: ["appName": app, "wasRunning": "false"]
+            )
+        }
+
+        let dispatched = runningApp.terminate()
+
+        // Bounded poll (~1s) for the process to actually disappear before returning, so
+        // downstream empirical verification does not race normal app teardown latency.
+        for _ in 0..<10 {
+            let stillRunning = NSWorkspace.shared.runningApplications.contains { candidate in
+                (candidate.localizedName?.caseInsensitiveCompare(app) == .orderedSame) ||
+                (candidate.bundleIdentifier?.caseInsensitiveCompare(app) == .orderedSame)
+            }
+            if !stillRunning { break }
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+        }
+
+        return QActionResult(
+            actionId: request.actionId,
+            success: true,
+            summary: dispatched
+                ? "Dispatched termination request for application '\(app)'."
+                : "Termination request for '\(app)' was not accepted by the process (it may have already quit or blocked termination).",
+            outputData: ["appName": app, "terminateDispatched": "\(dispatched)"]
         )
     }
 }

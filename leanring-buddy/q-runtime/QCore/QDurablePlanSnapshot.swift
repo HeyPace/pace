@@ -178,17 +178,11 @@ public struct QDurablePlanSnapshot: Codable, Sendable, Equatable {
     }
 
     /// Validates the persisted plan snapshot against schema rules, capability allowlists, and step ordering.
+    /// Defaults to the same single-source-of-truth allowlist `QModelPlanParser` enforces at plan-parse
+    /// time, so a capability added there (e.g. Phase 2E's Level 2/3 tools) is automatically honored here
+    /// too — a durable plan can never carry a capability that live planning could not have produced.
     public func validate(
-        allowedCapabilities: Set<String> = [
-            "system.running_apps",
-            "system.clipboard.read",
-            "screen.ocr",
-            "ui.open_app",
-            "fs.read",
-            "fs.write_sandbox",
-            "accessibility.read",
-            "test.noop"
-        ]
+        allowedCapabilities: Set<String> = Set(QModelPlanParser.registeredCapabilities.keys)
     ) throws -> QPlan {
         guard schemaVersion == 1 else {
             throw QDurablePlanError.unsupportedSchemaVersion(schemaVersion)

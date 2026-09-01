@@ -69,7 +69,14 @@ public enum QModelPlanParseError: Error, Equatable, Sendable {
 public struct QModelPlanParser: Sendable {
     public static let maxAllowedSteps = 10
 
-    /// Allowed tool families and their corresponding registered action names
+    /// Allowed tool families and their corresponding registered action names.
+    ///
+    /// Phase 2E adds the first two controlled mutating capabilities above Level 1:
+    /// `system.clipboard.write` (Level 2 — reversible local action; overwrites the pasteboard,
+    /// trivially undone by copying something else) and `app.quit` (Level 3 — mutating action
+    /// with meaningful user impact; terminates a running application). Both flow through the
+    /// same QResourceGuard -> QPermissionGate -> approval -> QPlanExecutor -> QExecutionService
+    /// pipeline as every other capability; the model never gains direct execution authority.
     public static let registeredCapabilities: [String: (toolFamily: String, defaultRisk: QCapabilityLevel)] = [
         "system.running_apps": ("system", .level0ReadOnly),
         "system.clipboard.read": ("system", .level0ReadOnly),
@@ -78,7 +85,9 @@ public struct QModelPlanParser: Sendable {
         "fs.read": ("fs", .level0ReadOnly),
         "fs.write_sandbox": ("fs", .level1SafeLocalAction),
         "test.noop": ("test", .level0ReadOnly),
-        "accessibility.read": ("accessibility", .level0ReadOnly)
+        "accessibility.read": ("accessibility", .level0ReadOnly),
+        "system.clipboard.write": ("system", .level2UserApproval),
+        "app.quit": ("app", .level3HighRisk)
     ]
 
     /// Parses raw model text into a validated QPlan data model.
@@ -123,26 +132,23 @@ public struct QModelPlanParser: Sendable {
                 throw QModelPlanParseError.unknownCapability(toolName: actionSchema.actionName)
             }
 
-            // Derive or validate risk level
-            let riskLevel: QCapabilityLevel
+            // Risk classification is strictly authoritative from the registered capability
+            // allowlist — model-declared risk text is untrusted data and is NEVER used to set
+            // or downgrade the enforced risk level. A declared value is optional (the common
+            // case: trust the registry outright), but if the model DOES declare one, it must
+            // exactly match this tool's registered risk level; any mismatch — an unrecognized
+            // string, an attempt to claim Level 4, or simply the wrong level for this tool
+            // (e.g. claiming Level 0 for a Level 3 tool to try to dodge the approval gate) —
+            // is rejected outright rather than silently coerced to the registered value.
             if let declaredRisk = actionSchema.riskLevel {
-                switch declaredRisk.lowercased() {
-                case "level0", "level0readonly", "0":
-                    riskLevel = .level0ReadOnly
-                case "level1", "level1safelocalaction", "1":
-                    riskLevel = .level1SafeLocalAction
-                case "level2", "level2userapproval", "2":
-                    riskLevel = .level2UserApproval
-                case "level3", "level3highrisk", "3":
-                    riskLevel = .level3HighRisk
-                case "level4", "level4blocked", "4":
-                    throw QModelPlanParseError.unauthorizedRiskLevel(toolName: actionSchema.actionName, risk: "Level 4 (Blocked)")
-                default:
-                    riskLevel = regCap.defaultRisk
+                guard let parsedDeclaredRisk = QCapabilityLevel.parse(declaredRisk) else {
+                    throw QModelPlanParseError.unauthorizedRiskLevel(toolName: actionSchema.actionName, risk: declaredRisk)
                 }
-            } else {
-                riskLevel = regCap.defaultRisk
+                guard parsedDeclaredRisk == regCap.defaultRisk else {
+                    throw QModelPlanParseError.unauthorizedRiskLevel(toolName: actionSchema.actionName, risk: declaredRisk)
+                }
             }
+            let riskLevel = regCap.defaultRisk
 
             let plannedAction = QPlannedAction(
                 actionName: actionSchema.actionName,

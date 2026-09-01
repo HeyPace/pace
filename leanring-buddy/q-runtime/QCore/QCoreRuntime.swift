@@ -320,19 +320,30 @@ public final class QCoreRuntime: @unchecked Sendable {
                     affectedResources: step.action.targetResources,
                     scope: .global,
                     reason: reason,
-                    isContextTainted: task.context.isTainted
+                    isContextTainted: task.context.isTainted,
+                    expectedEffect: step.description,
+                    isReversible: step.action.riskLevel.isConsideredReversible,
+                    executionIdentity: QExecutionIdentity(
+                        taskId: task.taskId,
+                        planId: executedPlan.id.uuidString,
+                        stepId: step.id.uuidString,
+                        actionName: step.action.actionName,
+                        targetResources: step.action.targetResources
+                    )
                 )
                 task.state = .awaitingApproval(approvalReq)
                 updateTask(task)
                 durableState.lifecycleState = .awaitingApproval
                 durableState.securityBlockReason = reason
+                // Note: the plan snapshot (with this step's .waitingForPermission state) was
+                // already persisted above under the same durableState.currentPlanId.
                 try? durableStore?.saveTask(durableState)
                 try? durableStore?.recordEvent(
                     QTaskLifecycleEvent(
                         taskId: task.taskId,
                         sessionId: sessionId,
                         eventType: .permissionRequested,
-                        payload: ["tool": step.action.actionName, "reason": reason]
+                        payload: ["tool": step.action.actionName, "reason": reason, "approvalId": approvalReq.id.uuidString]
                     )
                 )
                 return task
@@ -671,6 +682,101 @@ public final class QCoreRuntime: @unchecked Sendable {
         }
     }
 
+    // MARK: - Controlled Approval Resolution (Phase 2E)
+
+    /// Resolves a pending Level 2/3 approval request and, if approved, resumes execution of the
+    /// exact step it was bound to. Fail-closed at every stage:
+    ///  - the task must currently be `.awaitingApproval` in durable storage (no resolving a
+    ///    request for a task that has moved on, crashed into another state, or never asked);
+    ///  - `QApprovalCoordinator` re-validates the approval id itself (unknown/expired/already
+    ///    resolved ids are rejected, never silently treated as approved);
+    ///  - a denial never mints an execution grant and always terminates the task;
+    ///  - an approval mints a single-use grant scoped to the approval's own execution identity —
+    ///    it can resume ONLY the step it was requested for, never a different action, and is
+    ///    consumed on first use inside `QPlanExecutor`.
+    /// Persisted `awaiting_approval` state is never itself treated as authorization — this method
+    /// is the only path that can move a task out of that state, and it always re-validates through
+    /// `QApprovalCoordinator` rather than trusting what was written to disk.
+    public func resolveApproval(
+        taskId: String,
+        approvalId: UUID,
+        decision: QApprovalDecision,
+        observer: (any QPlanExecutionObserver)? = nil
+    ) async throws -> QTask {
+        guard let durableStore else {
+            var task = QTask(taskId: taskId, sessionId: "approval", intent: "Unknown Task")
+            task.state = .failed(reason: "Cannot resolve approval: no durable store configured.")
+            return task
+        }
+
+        guard var durableState = try? durableStore.getTask(taskId: taskId) else {
+            var task = QTask(taskId: taskId, sessionId: "approval", intent: "Unknown Task")
+            task.state = .failed(reason: "Cannot resolve approval: task \(taskId) not found in durable storage.")
+            return task
+        }
+
+        // Fail closed unless the task is genuinely, currently awaiting approval. This alone
+        // prevents a stale/replayed approval call from acting on a task that has since crashed,
+        // completed, failed, or been blocked through an entirely different path.
+        guard durableState.lifecycleState == .awaitingApproval else {
+            var task = durableState.toTask()
+            let reasonText = "Cannot resolve approval: task \(taskId) is not currently awaiting approval (state: \(durableState.lifecycleState.rawValue))."
+            task.state = .failed(reason: reasonText)
+            return task
+        }
+
+        let resolution = QApprovalCoordinator.shared.resolve(approvalId: approvalId, decision: decision)
+
+        switch resolution {
+        case .notFound, .expired:
+            let reasonText = resolution == .expired
+                ? "Approval request \(approvalId) expired before it was resolved."
+                : "Approval request \(approvalId) is not pending for task \(taskId) (unknown, already resolved, or from a prior process)."
+            durableState.lifecycleState = .failed
+            durableState.lastKnownError = reasonText
+            try? durableStore.saveTask(durableState)
+            try? durableStore.recordEvent(
+                QTaskLifecycleEvent(taskId: taskId, sessionId: durableState.sessionId, eventType: .permissionDenied, payload: ["approvalId": approvalId.uuidString, "reason": reasonText])
+            )
+            var task = durableState.toTask()
+            task.state = .failed(reason: reasonText)
+            return task
+
+        case .rejected(let reason):
+            let reasonText = "Approval denied: \(reason)"
+            durableState.lifecycleState = .failed
+            durableState.lastKnownError = reasonText
+            try? durableStore.saveTask(durableState)
+            try? durableStore.recordEvent(
+                QTaskLifecycleEvent(taskId: taskId, sessionId: durableState.sessionId, eventType: .permissionDenied, payload: ["approvalId": approvalId.uuidString, "reason": reason])
+            )
+            var task = durableState.toTask()
+            task.state = .failed(reason: reasonText)
+            return task
+
+        case .granted(let fingerprint):
+            guard let planId = durableState.currentPlanId, let planSnapshot = try? durableStore.getPlan(planId: planId) else {
+                let reasonText = "Approval granted (fingerprint=\(fingerprint)) but plan snapshot is missing; cannot resume."
+                durableState.lifecycleState = .failed
+                durableState.lastKnownError = reasonText
+                try? durableStore.saveTask(durableState)
+                var task = durableState.toTask()
+                task.state = .failed(reason: reasonText)
+                return task
+            }
+
+            try? durableStore.recordEvent(
+                QTaskLifecycleEvent(taskId: taskId, sessionId: durableState.sessionId, eventType: .permissionGranted, payload: ["approvalId": approvalId.uuidString, "fingerprint": fingerprint])
+            )
+
+            durableState.lifecycleState = .running
+            durableState.securityBlockReason = nil
+            try? durableStore.saveTask(durableState)
+
+            return try await executeResumedPlan(taskState: durableState, planSnapshot: planSnapshot, observer: observer)
+        }
+    }
+
     private func executeResumedPlan(
         taskState: QDurableTaskState,
         planSnapshot: QDurablePlanSnapshot,
@@ -683,6 +789,22 @@ public final class QCoreRuntime: @unchecked Sendable {
         guard let exec = executionProvider else {
             task.state = .failed(reason: "No Execution Provider configured for recovery execution.")
             updateTask(task)
+            return task
+        }
+
+        // QAgentBudget remains authoritative on every resumed execution, whether the resume is
+        // driven by crash recovery or (Phase 2E) an approval grant — a task cannot be kept alive
+        // indefinitely by repeatedly crashing/approving past its step, replan, duration, or
+        // failure bounds.
+        var budget = taskState.budget
+        if case .exhausted(_, let explanation) = budget.evaluateBudget() {
+            task.state = .failed(reason: "Execution halted: \(explanation)")
+            updateTask(task)
+
+            var updatedDurable = taskState
+            updatedDurable.lifecycleState = .failed
+            updatedDurable.lastKnownError = explanation
+            try? durableStore?.saveTask(updatedDurable)
             return task
         }
 
@@ -701,6 +823,58 @@ public final class QCoreRuntime: @unchecked Sendable {
                 context: task.context,
                 observer: observer
             )
+            // Any step that reached a real terminal outcome during THIS execute() call consumes
+            // budget, exactly like submitIntent's loop. Steps still pending/waiting-for-permission
+            // are intentionally not counted here — they have not been attempted yet.
+            for step in executedPlan.steps where step.state.isTerminal {
+                budget.recordStepExecution(success: step.isComplete || step.state == .completed)
+            }
+        }
+
+        // Phase 2E: a resumed plan can halt again on a fresh (or a later) approval-gated step —
+        // surface a genuine .awaitingApproval state rather than letting goal evaluation treat an
+        // unresolved permission wait as a plain failure. Mirrors submitIntent's identical handling.
+        if case .waitingForPermission(let idx, let reason) = executedPlan.state {
+            let waitingStep = executedPlan.steps[idx]
+            let approvalReq = QApprovalRequest(
+                taskId: task.taskId,
+                toolName: waitingStep.action.actionName,
+                riskLevel: waitingStep.action.riskLevel,
+                literalAction: waitingStep.description,
+                affectedResources: waitingStep.action.targetResources,
+                scope: .global,
+                reason: reason,
+                isContextTainted: task.context.isTainted,
+                expectedEffect: waitingStep.description,
+                isReversible: waitingStep.action.riskLevel.isConsideredReversible,
+                executionIdentity: QExecutionIdentity(
+                    taskId: task.taskId,
+                    planId: executedPlan.id.uuidString,
+                    stepId: waitingStep.id.uuidString,
+                    actionName: waitingStep.action.actionName,
+                    targetResources: waitingStep.action.targetResources
+                )
+            )
+            task.state = .awaitingApproval(approvalReq)
+            updateTask(task)
+
+            var updatedDurable = taskState
+            updatedDurable.lifecycleState = .awaitingApproval
+            updatedDurable.securityBlockReason = reason
+            updatedDurable.budget = budget
+            let waitingSnapshot = QDurablePlanSnapshot(from: executedPlan)
+            updatedDurable.currentPlanId = waitingSnapshot.planId
+            try? durableStore?.savePlan(waitingSnapshot)
+            try? durableStore?.saveTask(updatedDurable)
+            try? durableStore?.recordEvent(
+                QTaskLifecycleEvent(
+                    taskId: task.taskId,
+                    sessionId: task.sessionId,
+                    eventType: .permissionRequested,
+                    payload: ["tool": waitingStep.action.actionName, "reason": reason, "approvalId": approvalReq.id.uuidString, "resumed": "true"]
+                )
+            )
+            return task
         }
 
         let goalEval = goalEvaluator.evaluate(
@@ -717,6 +891,7 @@ public final class QCoreRuntime: @unchecked Sendable {
             var updatedDurable = taskState
             updatedDurable.lifecycleState = .completed
             updatedDurable.goalEvaluationState = "satisfied"
+            updatedDurable.budget = budget
             try? durableStore?.saveTask(updatedDurable)
             try? durableStore?.recordEvent(
                 QTaskLifecycleEvent(taskId: task.taskId, sessionId: task.sessionId, eventType: .taskCompleted, payload: ["summary": summary, "resumed": "true"])
@@ -730,6 +905,7 @@ public final class QCoreRuntime: @unchecked Sendable {
             var updatedDurable = taskState
             updatedDurable.lifecycleState = .failed
             updatedDurable.lastKnownError = failureMsg
+            updatedDurable.budget = budget
             try? durableStore?.saveTask(updatedDurable)
             return task
         }

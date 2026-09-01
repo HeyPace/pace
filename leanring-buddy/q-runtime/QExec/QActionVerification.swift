@@ -16,6 +16,7 @@ public enum QVerificationStrategy: Sendable {
     case fileExists(path: String, expectedContent: String? = nil)
     case fileDeleted(path: String)
     case windowOrAppActive(appName: String)
+    case appNotRunning(appName: String)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -94,6 +95,21 @@ public final class QActionVerifier: Sendable {
                     reason: "Application '\(appName)' not found among running applications.",
                     evidence: "NSWorkspace runningApplications query returned negative."
                 )
+            }
+
+        case .appNotRunning(let appName):
+            let runningApps = NSWorkspace.shared.runningApplications
+            let stillRunning = runningApps.contains { app in
+                (app.localizedName?.caseInsensitiveCompare(appName) == .orderedSame) ||
+                (app.bundleIdentifier?.caseInsensitiveCompare(appName) == .orderedSame)
+            }
+            if stillRunning {
+                return .failed(
+                    reason: "Application '\(appName)' is still running after a termination request.",
+                    evidence: "NSWorkspace runningApplications query returned positive after quit dispatch."
+                )
+            } else {
+                return .verified(evidence: "Application '\(appName)' verified terminated (absent from NSWorkspace runningApplications).")
             }
 
         case .customCheck(let description, let check):

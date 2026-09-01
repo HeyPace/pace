@@ -46,8 +46,37 @@ public enum QCapabilityLevel: Int, Comparable, Codable, Sendable, CustomStringCo
         self >= .level2UserApproval
     }
 
+    /// Per the Level 0-4 doctrine: Level 0/1 are inherently reversible (no meaningful mutation),
+    /// Level 2 is explicitly documented as "reversible local actions", and Level 3+ is not
+    /// guaranteed reversible ("mutating actions with meaningful user impact"). Used to populate
+    /// `QApprovalRequest.isReversible` for the approval surface without per-tool metadata plumbing.
+    public var isConsideredReversible: Bool {
+        self <= .level2UserApproval
+    }
+
     public static func < (lhs: QCapabilityLevel, rhs: QCapabilityLevel) -> Bool {
         lhs.rawValue < rhs.rawValue
+    }
+
+    /// Parses a free-text risk level string (as untrusted model output might declare it) into a
+    /// known level, or `nil` if the string is not a recognized level at all. Callers decide what
+    /// to do with an unrecognized value (e.g. `QModelPlanParser` fails the whole plan closed)
+    /// rather than this parser silently guessing or defaulting.
+    public static func parse(_ text: String) -> QCapabilityLevel? {
+        switch text.lowercased() {
+        case "level0", "level0readonly", "0":
+            return .level0ReadOnly
+        case "level1", "level1safelocalaction", "1":
+            return .level1SafeLocalAction
+        case "level2", "level2userapproval", "2":
+            return .level2UserApproval
+        case "level3", "level3highrisk", "3":
+            return .level3HighRisk
+        case "level4", "level4blocked", "4":
+            return .level4Blocked
+        default:
+            return nil
+        }
     }
 }
 

@@ -107,27 +107,26 @@ public final class QPlanExecutor: Sendable {
             }
 
             // B. Independent Permission Gate Evaluation for this Step
-            let authRequest = QToolAuthorizationRequest(
+            // Every step carries a deterministic execution identity (Phase 2E) so any resulting
+            // approval request — and any later grant — is bound to this exact task/plan/step/
+            // action attempt and can never authorize a different action.
+            let executionIdentity = QExecutionIdentity(
                 taskId: plan.taskId,
-                toolName: step.action.actionName,
-                toolFamily: step.action.toolFamily,
-                baseRisk: step.action.riskLevel,
-                literalAction: step.action.literalAction,
-                affectedResources: step.action.targetResources,
-                isContextTainted: context.isTainted
+                planId: plan.id.uuidString,
+                stepId: step.id.uuidString,
+                attemptId: "step-\(step.id.uuidString)",
+                actionName: step.action.actionName,
+                targetResources: step.action.targetResources
             )
 
-            let authDecision = QPermissionGate.shared.evaluate(request: authRequest)
-            switch authDecision {
-            case .deny(let reason, _):
-                step.state = .blocked(reason: "Permission Gate Denied: \(reason)")
-                plan.steps[i] = step
-                observer?.stepDidTransition(step: step, planId: plan.id)
-
-                skipRemainingSteps(in: &plan, startingAt: i + 1, reason: "Prior step \(i) denied by permission gate")
-                plan.state = .blocked(reason: "Permission denied on step \(i): \(reason)", blockedStepIndex: i)
-                observer?.planDidUpdate(plan: plan)
-
+            // Fast path: resuming after the user already granted a one-time, execution-identity-
+            // bound approval for exactly this step (QCoreRuntime.resolveApproval). The grant is
+            // consumed here and can never be reused — a second execution attempt of this same
+            // step (e.g. a future replan) must go through fresh authorization again.
+            var authorizedByPriorGrant = false
+            if step.action.riskLevel.requiresExplicitApproval,
+               QApprovalCoordinator.shared.consumeGrantIfPresent(fingerprint: executionIdentity.stepFingerprint) {
+                authorizedByPriorGrant = true
                 QAuditLogger.shared.record(
                     QAuditRecord(
                         sessionId: plan.sessionId,
@@ -135,24 +134,76 @@ public final class QPlanExecutor: Sendable {
                         tool: step.action.actionName,
                         riskLevel: step.action.riskLevel,
                         rawArguments: step.action.literalAction,
-                        authorizationResult: "deny",
+                        authorizationResult: "allow",
                         provenance: context.isTainted ? "untrusted" : "trusted:user",
-                        error: reason
+                        executionSummary: "Executing after explicit user-approved one-time grant (fingerprint=\(executionIdentity.stepFingerprint))."
                     )
                 )
-                return plan
+            }
 
-            case .requireApproval(let req):
-                step.state = .waitingForPermission(reason: req.reason)
-                plan.steps[i] = step
-                plan.state = .waitingForPermission(stepIndex: i, reason: req.reason)
-                observer?.stepDidTransition(step: step, planId: plan.id)
-                observer?.planDidUpdate(plan: plan)
-                // For headless/non-interactive, halt until approved
-                return plan
+            if !authorizedByPriorGrant {
+                let authRequest = QToolAuthorizationRequest(
+                    taskId: plan.taskId,
+                    toolName: step.action.actionName,
+                    toolFamily: step.action.toolFamily,
+                    baseRisk: step.action.riskLevel,
+                    literalAction: step.action.literalAction,
+                    affectedResources: step.action.targetResources,
+                    isContextTainted: context.isTainted,
+                    executionIdentity: executionIdentity
+                )
 
-            case .allow:
-                break
+                let authDecision = QPermissionGate.shared.evaluate(request: authRequest)
+                switch authDecision {
+                case .deny(let reason, _):
+                    step.state = .blocked(reason: "Permission Gate Denied: \(reason)")
+                    plan.steps[i] = step
+                    observer?.stepDidTransition(step: step, planId: plan.id)
+
+                    skipRemainingSteps(in: &plan, startingAt: i + 1, reason: "Prior step \(i) denied by permission gate")
+                    plan.state = .blocked(reason: "Permission denied on step \(i): \(reason)", blockedStepIndex: i)
+                    observer?.planDidUpdate(plan: plan)
+
+                    QAuditLogger.shared.record(
+                        QAuditRecord(
+                            sessionId: plan.sessionId,
+                            taskId: plan.taskId,
+                            tool: step.action.actionName,
+                            riskLevel: step.action.riskLevel,
+                            rawArguments: step.action.literalAction,
+                            authorizationResult: "deny",
+                            provenance: context.isTainted ? "untrusted" : "trusted:user",
+                            error: reason
+                        )
+                    )
+                    return plan
+
+                case .requireApproval(let req):
+                    QApprovalCoordinator.shared.recordPending(req)
+                    step.state = .waitingForPermission(reason: req.reason)
+                    plan.steps[i] = step
+                    plan.state = .waitingForPermission(stepIndex: i, reason: req.reason)
+                    observer?.stepDidTransition(step: step, planId: plan.id)
+                    observer?.planDidUpdate(plan: plan)
+
+                    QAuditLogger.shared.record(
+                        QAuditRecord(
+                            sessionId: plan.sessionId,
+                            taskId: plan.taskId,
+                            tool: step.action.actionName,
+                            riskLevel: step.action.riskLevel,
+                            rawArguments: step.action.literalAction,
+                            authorizationResult: "approval_required",
+                            provenance: context.isTainted ? "untrusted" : "trusted:user",
+                            executionSummary: "Halted pending explicit user approval (approvalId=\(req.id.uuidString), fingerprint=\(executionIdentity.stepFingerprint))."
+                        )
+                    )
+                    // For headless/non-interactive, halt until approved via QCoreRuntime.resolveApproval
+                    return plan
+
+                case .allow:
+                    break
+                }
             }
 
             // C. Step State Transition: executing
@@ -317,6 +368,12 @@ public final class QPlanExecutor: Sendable {
             return .fileExists(path: path, expectedContent: action.arguments["content"])
         } else if action.actionName == "fs.read", let path = action.arguments["path"] {
             return .fileExists(path: path)
+        } else if action.actionName == "app.quit", let appName = action.arguments["appName"] ?? action.targetResources.first {
+            return .appNotRunning(appName: appName)
+        } else if action.actionName == "system.clipboard.write", let text = action.arguments["text"] {
+            return .customCheck(description: "Clipboard content matches written text") {
+                NSPasteboard.general.string(forType: .string) == text
+            }
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

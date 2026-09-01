@@ -261,6 +261,77 @@ public final class QAgent: Sendable {
             )
         }
     }
+
+    /// Resolves a pending Level 2/3 approval (Phase 2E) and resumes execution of the exact step
+    /// it was requested for. See `QCoreRuntime.resolveApproval` for the full fail-closed contract.
+    public func approve(
+        taskId: String,
+        approvalId: UUID,
+        decision: QApprovalDecision,
+        observer: (any QAgentStateObserver)? = nil
+    ) async throws -> QAgentResult {
+        let start = Date()
+        observer?.agentDidTransition(state: .starting, message: "Resolving approval \(approvalId) for task \(taskId)")
+
+        let bootstrap = QRuntimeBootstrap.shared
+        if customCore == nil && bootstrap.getCoreRuntime() == nil {
+            await bootstrap.bootstrap()
+        }
+
+        guard let core = customCore ?? bootstrap.getCoreRuntime() else {
+            observer?.agentDidTransition(state: .blocked, message: "Runtime not bootstrapped")
+            throw QAgentError.runtimeNotBootstrapped("Q Runtime failed to initialize core orchestrator.")
+        }
+
+        let planObserver = observer as? (any QPlanExecutionObserver)
+        let resolvedTask = try await core.resolveApproval(taskId: taskId, approvalId: approvalId, decision: decision, observer: planObserver)
+        let duration = Date().timeIntervalSince(start)
+
+        switch resolvedTask.state {
+        case .completed(let summary):
+            observer?.agentDidTransition(state: .completed, message: summary)
+            return QAgentResult(
+                taskId: resolvedTask.taskId,
+                sessionId: resolvedTask.sessionId,
+                intent: resolvedTask.intent,
+                status: .completed,
+                summary: summary,
+                provenanceTag: resolvedTask.context.isTainted ? "untrusted" : "trusted:user",
+                durationSeconds: duration
+            )
+        case .failed(let reason):
+            observer?.agentDidTransition(state: .blocked, message: reason)
+            return QAgentResult(
+                taskId: resolvedTask.taskId,
+                sessionId: resolvedTask.sessionId,
+                intent: resolvedTask.intent,
+                status: .failed(reason: reason),
+                summary: reason,
+                provenanceTag: resolvedTask.context.isTainted ? "untrusted" : "trusted:user",
+                durationSeconds: duration
+            )
+        case .awaitingApproval(let req):
+            observer?.agentDidTransition(state: .requestingPermission, message: req.reason)
+            return QAgentResult(
+                taskId: resolvedTask.taskId,
+                sessionId: resolvedTask.sessionId,
+                intent: resolvedTask.intent,
+                status: .awaitingApproval(toolName: req.toolName, riskLevel: req.riskLevel.description),
+                summary: req.reason,
+                provenanceTag: resolvedTask.context.isTainted ? "untrusted" : "trusted:user",
+                durationSeconds: duration
+            )
+        case .pending, .running:
+            return QAgentResult(
+                taskId: resolvedTask.taskId,
+                sessionId: resolvedTask.sessionId,
+                intent: resolvedTask.intent,
+                status: .failed(reason: "Task did not terminate after approval resolution"),
+                summary: "Incomplete approval resolution",
+                durationSeconds: duration
+            )
+        }
+    }
 }
 
 public enum QAgentError: Error, Equatable, Sendable {

@@ -38,9 +38,16 @@ public struct QApprovalRequest: Identifiable, Codable, Sendable, Equatable {
     public let signature: String
     public let createdAt: Date
     public let expiresAt: Date
+    /// Human-readable description of what will happen if this request is approved.
+    public let expectedEffect: String
+    /// Whether the underlying capability level is considered reversible (Level 0-2) or not (Level 3+).
+    public let isReversible: Bool
+    /// The exact execution attempt (task/plan/step/action) this approval is bound to.
+    /// A granted approval authorizes ONLY this identity — never a different action or step.
+    public let executionIdentity: QExecutionIdentity?
 
     public init(
-        id: UUID = UUID(),
+        id: UUID? = nil,
         taskId: String,
         toolName: String,
         riskLevel: QCapabilityLevel,
@@ -51,9 +58,22 @@ public struct QApprovalRequest: Identifiable, Codable, Sendable, Equatable {
         isContextTainted: Bool,
         createdAt: Date = Date(),
         expiresAt: Date? = nil,
+        expectedEffect: String = "",
+        isReversible: Bool = true,
+        executionIdentity: QExecutionIdentity? = nil,
         signingKey: SymmetricKey = QPermissionGate.defaultSigningKey
     ) {
-        self.id = id
+        // Deterministic identity: two independently-constructed approval requests for the exact
+        // same execution attempt (e.g. the original halt vs. a reconstruction during resume)
+        // MUST resolve to the same id so approval resolution can find the matching pending request.
+        // Without a bound execution identity, fall back to a random id (non-resumable approval).
+        if let id {
+            self.id = id
+        } else if let executionIdentity {
+            self.id = QApprovalRequest.deterministicId(fingerprint: executionIdentity.stepFingerprint)
+        } else {
+            self.id = UUID()
+        }
         self.taskId = taskId
         self.toolName = toolName
         self.riskLevel = riskLevel
@@ -64,14 +84,25 @@ public struct QApprovalRequest: Identifiable, Codable, Sendable, Equatable {
         self.isContextTainted = isContextTainted
         self.createdAt = createdAt
         self.expiresAt = expiresAt ?? createdAt.addingTimeInterval(300) // 5 minute default expiry
+        self.expectedEffect = expectedEffect
+        self.isReversible = isReversible
+        self.executionIdentity = executionIdentity
 
         // Generate HMAC signature over the literal payload
-        let payload = "\(id.uuidString)|\(taskId)|\(toolName)|\(riskLevel.rawValue)|\(literalAction)|\(affectedResources.joined(separator: ","))"
+        let payload = "\(self.id.uuidString)|\(taskId)|\(toolName)|\(riskLevel.rawValue)|\(literalAction)|\(affectedResources.joined(separator: ","))"
         let hmac = HMAC<SHA256>.authenticationCode(
             for: Data(payload.utf8),
             using: signingKey
         )
         self.signature = hmac.map { String(format: "%02hhx", $0) }.joined()
+    }
+
+    /// Derives a stable UUID from an execution-identity fingerprint so that any two requests
+    /// bound to the same exact task/plan/step/action attempt carry the same approval id.
+    public static func deterministicId(fingerprint: String) -> UUID {
+        let digest = SHA256.hash(data: Data(fingerprint.utf8))
+        let bytes = Array(digest.prefix(16))
+        return NSUUID(uuidBytes: bytes) as UUID
     }
 
     public func verifySignature(using signingKey: SymmetricKey = QPermissionGate.defaultSigningKey) -> Bool {
@@ -121,6 +152,9 @@ public struct QToolAuthorizationRequest: Sendable {
     public let affectedResources: [String]
     public let isContextTainted: Bool
     public let project: String?
+    /// The exact execution attempt this authorization request corresponds to, when known.
+    /// Forwarded into any resulting `QApprovalRequest` so approval grants stay execution-bound.
+    public let executionIdentity: QExecutionIdentity?
 
     public init(
         taskId: String,
@@ -132,7 +166,8 @@ public struct QToolAuthorizationRequest: Sendable {
         literalAction: String,
         affectedResources: [String] = [],
         isContextTainted: Bool = false,
-        project: String? = nil
+        project: String? = nil,
+        executionIdentity: QExecutionIdentity? = nil
     ) {
         self.taskId = taskId
         self.toolName = toolName
@@ -144,6 +179,7 @@ public struct QToolAuthorizationRequest: Sendable {
         self.affectedResources = affectedResources
         self.isContextTainted = isContextTainted
         self.project = project
+        self.executionIdentity = executionIdentity
     }
 }
 
@@ -245,7 +281,10 @@ public final class QPermissionGate: @unchecked Sendable {
                 scope: request.targetScope,
                 reason: "Context contains untrusted content. Standing grants suspended; explicit user approval required.",
                 isContextTainted: true,
-                createdAt: date
+                createdAt: date,
+                expectedEffect: request.literalAction,
+                isReversible: request.effectiveRisk.isConsideredReversible,
+                executionIdentity: request.executionIdentity
             )
             return .requireApproval(request: approvalReq)
         }
@@ -293,7 +332,10 @@ public final class QPermissionGate: @unchecked Sendable {
                 scope: request.targetScope,
                 reason: "Action requires explicit user authorization under Level \(request.effectiveRisk.rawValue) risk policy.",
                 isContextTainted: request.isContextTainted,
-                createdAt: date
+                createdAt: date,
+                expectedEffect: request.literalAction,
+                isReversible: request.effectiveRisk.isConsideredReversible,
+                executionIdentity: request.executionIdentity
             )
             return .requireApproval(request: approvalReq)
 
