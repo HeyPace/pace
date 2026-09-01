@@ -270,11 +270,37 @@ public final class QPlanExecutor: Sendable {
             }
 
             // G. Step Completed & Record Evidence
+            //
+            // Security boundary (Phase 2G remediation): screen/perception-derived action results
+            // are untrusted-by-provenance (the same predicate used below to tag context taint) and
+            // must never reach anything persisted, logged, or spoken back to the user unredacted —
+            // this is where a future real screen.ocr's recognized text would first appear on the
+            // result path. QSecretRedactor.redact is the SAME canonical redactor QAuditRecord
+            // already applies to executionSummary/error; reusing it here (rather than a second
+            // ad-hoc mechanism) closes the one confirmed gap: QAuditRecord never sees this raw
+            // string (it logs `stepEvidence`, not `actionResult.summary`, once it's verified), but
+            // `QPlanStepResult.summary` — which durable persistence copies verbatim
+            // (QDurablePlanStepSnapshot.resultSummary) — previously did.
+            //
+            // The ORIGINAL, unredacted `actionResult.summary` is still used below for the
+            // on-device-only taint propagation into QTaskContext: that value never leaves the
+            // device, is never logged or persisted, and the local planner needs the real content
+            // to reason about the screen — redacting it there would break the feature for no
+            // privacy benefit. Sanitization here also does not change provenance/taint: the
+            // sanitized value is still fed into evidence/goal-evaluation/spoken-summary paths that
+            // already carry (or, for a tainted task, already are marked with) untrusted provenance
+            // — redaction only removes matched secret-shaped substrings, it never marks content as
+            // trusted and is never itself treated as an authorization signal.
+            let isScreenDerivedStep = step.action.actionName == "screen.ocr" || step.action.toolFamily == "perception"
+            let sanitizedResultSummary = isScreenDerivedStep
+                ? QSecretRedactor.redact(actionResult.summary)
+                : actionResult.summary
+
             let stepEvidence: String
             if case .verified(let evidence) = verificationOutcome {
                 stepEvidence = evidence
             } else {
-                stepEvidence = actionResult.summary
+                stepEvidence = sanitizedResultSummary
             }
             completedStepsEvidence.append(stepEvidence)
 
@@ -282,7 +308,7 @@ public final class QPlanExecutor: Sendable {
             step.result = QPlanStepResult(
                 stepId: step.id,
                 success: true,
-                summary: actionResult.summary,
+                summary: sanitizedResultSummary,
                 verifiedEvidence: stepEvidence,
                 outputData: actionResult.outputData
             )
@@ -303,8 +329,14 @@ public final class QPlanExecutor: Sendable {
                 )
             )
 
-            // Propagate perception/untrusted taint if OCR or untrusted source was ingested
-            if step.action.actionName == "screen.ocr" || step.action.toolFamily == "perception" {
+            // Propagate perception/untrusted taint if OCR or untrusted source was ingested.
+            // Deliberately uses the RAW (unredacted) actionResult.summary, not
+            // sanitizedResultSummary: this value only ever feeds the on-device local planner's own
+            // subsequent reasoning (QTaskContext), is never logged, persisted, or spoken back to
+            // the user, and the planner needs the real screen content to function correctly.
+            // Redacting it here would break the feature with zero privacy benefit, since nothing
+            // downstream of QTaskContext.append leaves the device or reaches a logged/durable sink.
+            if isScreenDerivedStep {
                 context.append(
                     content: actionResult.summary,
                     provenance: .untrustedScreen,

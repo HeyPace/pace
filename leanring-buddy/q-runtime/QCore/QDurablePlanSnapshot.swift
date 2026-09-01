@@ -102,17 +102,33 @@ public struct QDurablePlanStepSnapshot: Codable, Sendable, Equatable {
         case .completed:
             self.state = "completed"
         case .failed(let reason):
-            self.state = "failed:\(reason)"
+            self.state = "failed:\(QSecretRedactor.redact(reason))"
         case .blocked(let reason):
-            self.state = "blocked:\(reason)"
+            self.state = "blocked:\(QSecretRedactor.redact(reason))"
         case .waitingForPermission(let reason):
-            self.state = "waitingForPermission:\(reason)"
+            self.state = "waitingForPermission:\(QSecretRedactor.redact(reason))"
         case .skipped(let reason):
-            self.state = "skipped:\(reason)"
+            self.state = "skipped:\(QSecretRedactor.redact(reason))"
         }
 
-        self.resultSummary = step.result?.summary
-        self.verifiedEvidence = step.result?.verifiedEvidence
+        // Security boundary (Phase 2G remediation): unconditional last-line-of-defense redaction
+        // at the canonical entry point into durable persistence. QPlanExecutor already sanitizes
+        // screen/perception-derived summaries at their source (see QPlanExecutor step G) — this is
+        // a defense-in-depth backstop, not the primary fix, applied to every step regardless of
+        // tool so no future code path that constructs a QPlanStep.result directly (bypassing
+        // QPlanExecutor) can write unredacted content into the durable store. QSecretRedactor.redact
+        // is idempotent on already-sanitized text, so this never double-transforms or degrades data
+        // that was already safe.
+        if let resultSummary = step.result?.summary {
+            self.resultSummary = QSecretRedactor.redact(resultSummary)
+        } else {
+            self.resultSummary = nil
+        }
+        if let verifiedEvidence = step.result?.verifiedEvidence {
+            self.verifiedEvidence = QSecretRedactor.redact(verifiedEvidence)
+        } else {
+            self.verifiedEvidence = nil
+        }
     }
 }
 
