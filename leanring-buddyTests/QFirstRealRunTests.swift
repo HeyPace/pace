@@ -59,14 +59,22 @@ struct QFirstRealRunTests {
 
     @Test("STEP 8: Real Agent Task: Read visible text on screen with untrustedScreen provenance")
     func testStep8_screenCaptureAndOCR() async throws {
+        // Phase 2G: screen.ocr now performs a REAL ScreenCaptureKit capture + Vision recognition.
+        // Screen Recording TCC permission cannot be assumed inside an isolated-DerivedData XCTest
+        // runner — assert the correct deterministic outcome for whichever permission state is
+        // actually live in this run rather than assuming success.
         let agent = QAgent.shared
         let task = "Read the visible text on my screen."
 
         let result = try await agent.run(task: task)
 
-        #expect(result.isSuccess == true)
-        #expect(result.summary.contains("screen") || result.summary.contains("recognized") || result.summary.contains("Display"))
-        #expect(result.provenanceTag == "trusted:user" || result.provenanceTag == "untrusted")
+        if CGPreflightScreenCaptureAccess() {
+            #expect(result.isSuccess == true)
+            #expect(result.summary.contains("screen") || result.summary.contains("recognized") || result.summary.contains("Display"))
+            #expect(result.provenanceTag == "trusted:user" || result.provenanceTag == "untrusted")
+        } else {
+            #expect(result.isSuccess == false)
+        }
     }
 
     // MARK: - STEP 9: Third Real Task — Clipboard Read

@@ -36,6 +36,25 @@ Run the locally built Release app (not a dev build) on real hardware.
 - [ ] "Click <a visible button>" — cursor flies to the right element.
 - [ ] "Undo that" after a reversible action — restores state, runs once.
 
+## Q real screen OCR (any release touching QBridgeScreenCapture/QBridgeVision)
+
+Real ScreenCaptureKit + Vision recognition cannot be exercised deterministically
+inside the isolated-DerivedData unit suite — Screen Recording TCC permission
+cannot be assumed there. This is the one place that gap is closed.
+
+- [ ] With Screen Recording permission granted to Pace, open a window with
+      known visible text (e.g. this checklist in a text editor) and ask Q to
+      read the screen — the spoken/HUD response reflects real on-screen text,
+      not a placeholder or generic description.
+- [ ] Revoke Screen Recording permission (System Settings → Privacy & Security
+      → Screen Recording → toggle Pace off), relaunch, and ask Q to read the
+      screen again — it fails closed with a clear permission-related message;
+      it does not fabricate a result or crash.
+- [ ] With permission granted, show text containing something secret-shaped
+      (e.g. a fake `sk-`-prefixed string) on screen and ask Q to read it —
+      confirm via Settings → Memory / the local audit log that the persisted
+      record shows `[REDACTED_SECRET]`, not the plaintext.
+
 ## Off-device tiers (any release touching planner tiers)
 
 - [ ] With Direct API tier active, run one turn — menu-bar capsule

@@ -186,12 +186,57 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         )
     }
 
+    /// Real, on-device screen capture + text recognition (Phase 2G). Every capture/recognition
+    /// failure mode — permission absence, no display, capture error, Vision error — is caught
+    /// here and converted into a deterministic, non-throwing failure result (`success: false`,
+    /// a stable `error` code) rather than propagating an opaque exception or ever fabricating a
+    /// result. `outputData["detectedText"]` and `summary` carry the real recognized text; the
+    /// security remediation in QPlanExecutor (isScreenDerivedStep — the same
+    /// `toolFamily == "perception"` predicate used for taint) redacts `summary` for any
+    /// persisted/audited/spoken representation before it ever leaves this in-memory result.
     private func executeScreenOCR(request: QActionRequest) async throws -> QActionResult {
-        let frames = try await QBridgeScreenCapture.shared.captureScreens()
+        let frames: [QScreenCaptureFrame]
+        do {
+            frames = try await QBridgeScreenCapture.shared.captureScreens()
+        } catch let captureError as QScreenCaptureError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: captureError.description,
+                error: captureError.errorCode
+            )
+        }
+
         guard let firstFrame = frames.first else {
             return QActionResult(actionId: request.actionId, success: false, summary: "No display available for capture.", error: "ENODISPLAY")
         }
-        let ocr = try await QBridgeVision.shared.performOCR(on: firstFrame)
+
+        let ocr: QVisionOCRResult
+        do {
+            ocr = try await QBridgeVision.shared.performOCR(on: firstFrame)
+        } catch let visionError as QScreenCaptureError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: visionError.description,
+                error: visionError.errorCode
+            )
+        }
+
+        guard !ocr.detectedText.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Captured screen \(firstFrame.screenNumber) — no text was recognized.",
+                outputData: [
+                    "screen": "\(firstFrame.screenNumber)",
+                    "detectedText": "",
+                    "confidence": "\(ocr.confidence)",
+                    "elementCount": "0"
+                ]
+            )
+        }
+
         return QActionResult(
             actionId: request.actionId,
             success: true,
@@ -199,7 +244,8 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
             outputData: [
                 "screen": "\(firstFrame.screenNumber)",
                 "detectedText": ocr.detectedText,
-                "confidence": "\(ocr.confidence)"
+                "confidence": "\(ocr.confidence)",
+                "elementCount": "\(ocr.elementCount)"
             ]
         )
     }

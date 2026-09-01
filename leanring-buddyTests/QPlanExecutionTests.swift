@@ -232,10 +232,17 @@ struct QPlanExecutionTests {
 
     @Test("Test 7: Untrusted OCR perception propagates taint and restricts subsequent plan steps")
     func testUntrustedProvenanceTaintPropagation() async throws {
+        // Phase 2G: screen.ocr now performs a REAL ScreenCaptureKit capture + Vision recognition
+        // via the shared, non-mocked QExecutionService — it is no longer a stub that always
+        // succeeds. Screen Recording TCC permission cannot be assumed inside an isolated
+        // DerivedData test runner (see docs/PHASE_2G_REAL_SCREEN_OCR.md's TCC test strategy), so
+        // this test asserts the CORRECT deterministic outcome for whichever permission state is
+        // actually live in this run, rather than assuming either — it must never assume success
+        // just to keep passing, and must never be weakened by mocking away the real capture path.
         let executor = QPlanExecutor.shared
-        var context = QTaskContext(taskId: "task_taint_test")
+        let context = QTaskContext(taskId: "task_taint_test")
 
-        // Step 0: Screen OCR (injects untrusted perception taint)
+        // Step 0: Screen OCR (injects untrusted perception taint on success)
         let step0 = QPlanStep(
             index: 0,
             action: QPlannedAction(
@@ -262,9 +269,24 @@ struct QPlanExecutionTests {
         let plan = QPlan(taskPrompt: "Taint propagation plan", steps: [step0, step1])
         let executedPlan = try await executor.execute(plan: plan, context: context)
 
-        #expect(executedPlan.isComplete == true)
-        #expect(executedPlan.steps[0].state == .completed)
-        #expect(executedPlan.steps[1].state == .completed)
+        if CGPreflightScreenCaptureAccess() {
+            // Permission is live in this environment — real capture + recognition should
+            // succeed and both steps should complete normally.
+            #expect(executedPlan.isComplete == true)
+            #expect(executedPlan.steps[0].state == .completed)
+            #expect(executedPlan.steps[1].state == .completed)
+        } else {
+            // No Screen Recording permission — screen.ocr MUST fail closed with the
+            // deterministic permission error, never fabricate a result, and the plan must halt
+            // (skip the remaining step) exactly like any other execution failure.
+            #expect(executedPlan.isComplete == false)
+            if case .failed(let reason) = executedPlan.steps[0].state {
+                #expect(reason.contains(QScreenCaptureError.permissionDenied.errorCode) || reason.contains("Screen Recording"))
+            } else {
+                Issue.record("Expected step 0 to fail closed on missing Screen Recording permission, got: \(executedPlan.steps[0].state)")
+            }
+            #expect(executedPlan.steps[1].state == .skipped(reason: "Prior step 0 returned error"))
+        }
     }
 
     // MARK: - Test 10: Audit Records Plan & Step Lifecycle Without Leaking Secrets

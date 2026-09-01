@@ -34,11 +34,19 @@ struct QAgentE2ETests {
 
     @Test("TEST 2: Screen capture and OCR turn records untrusted screen context")
     func test2_screenCaptureAndOCR() async throws {
+        // Phase 2G: screen.ocr now performs a REAL ScreenCaptureKit capture + Vision recognition.
+        // Screen Recording TCC permission cannot be assumed inside an isolated-DerivedData XCTest
+        // runner — assert the correct deterministic outcome for whichever permission state is
+        // actually live in this run rather than assuming success.
         let agent = QAgent.shared
         let result = try await agent.run(task: "Read the visible text on the current screen.")
 
-        #expect(result.isSuccess == true)
-        #expect(result.summary.contains("screen") || result.summary.contains("recognized"))
+        if CGPreflightScreenCaptureAccess() {
+            #expect(result.isSuccess == true)
+            #expect(result.summary.contains("screen") || result.summary.contains("recognized"))
+        } else {
+            #expect(result.isSuccess == false)
+        }
     }
 
     // MARK: - TEST 3: Safe Sandboxed Filesystem Operation

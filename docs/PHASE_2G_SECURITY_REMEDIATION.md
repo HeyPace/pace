@@ -1,10 +1,21 @@
 # Q × PACE — Phase 2G: Audit Boundary Security Remediation
 
-**This is a security remediation, not the Phase 2G "make `screen.ocr` real"
-milestone itself.** `QBridgeVision.performOCR` remains exactly the fabricated
-stub it was in Phase 2B — no `ScreenCaptureKit` or `Vision.framework` code was
-added. This work exists solely to close the gap the Phase 2G pre-check found
-before any real OCR implementation is attempted.
+**Status update:** real `screen.ocr` (`ScreenCaptureKit` + `Vision.framework`)
+has since been implemented on top of this remediation, in commit `08ca120`'s
+successor — see [`PHASE_2G_REAL_SCREEN_OCR.md`](PHASE_2G_REAL_SCREEN_OCR.md).
+Everything below describes the remediation as originally landed; the two-layer
+redaction it built was re-verified, unmodified, against genuinely
+Vision-recognized text (not just the simulated text used at the time this
+document was first written) — see that doc's §9/§10.
+
+**This document originally described a security remediation landed BEFORE the
+Phase 2G "make `screen.ocr` real" milestone.** At the time this was written,
+`QBridgeVision.performOCR` was still exactly the fabricated stub from Phase
+2B — no `ScreenCaptureKit` or `Vision.framework` code existed yet. This work
+existed solely to close the audit-boundary gap the Phase 2G pre-check found
+*before* any real OCR implementation was attempted, so the redaction boundary
+would already be proven correct by the time real screen content could ever
+reach it.
 
 ## 1. Objective
 
