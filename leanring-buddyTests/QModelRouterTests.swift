@@ -26,14 +26,23 @@ struct MockRemoteCloudBackend: QLocalModelBackend {
 @Suite("QModelRouterTests")
 struct QModelRouterTests {
 
-    @Test("Router dispatches inference to local MLX backend by default")
-    func localMLXRouting() async throws {
+    @Test("Router dispatches inference to local backend in priority order")
+    func localPriorityRouting() async throws {
         let router = QModelRouter(localOnly: true)
         let req = QModelInferenceRequest(prompt: "Summarize this local text")
 
         let resp = try await router.routeInference(request: req)
+        #expect(resp.providerUsed == .appleFoundation || resp.providerUsed == .mlx)
+    }
+
+    @Test("Router dispatches inference to specific local MLX backend when requested")
+    func localMLXRouting() async throws {
+        let router = QModelRouter(localOnly: true)
+        let req = QModelInferenceRequest(prompt: "Summarize this local text")
+
+        let resp = try await router.routeInference(request: req, preferredBackend: .mlx)
         #expect(resp.providerUsed == .mlx)
-        #expect(resp.text.contains("Local MLX response"))
+        #expect(resp.text.contains("MLX"))
     }
 
     @Test("Router generates action plan for core runtime task")

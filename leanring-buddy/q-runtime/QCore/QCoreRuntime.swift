@@ -202,7 +202,8 @@ public final class QCoreRuntime: @unchecked Sendable {
         }
 
         // 7. Complete task
-        let finalSummary = actionSummaries.isEmpty ? "Successfully executed \(plan.count) action(s)." : actionSummaries.joined(separator: " ")
+        let details = actionSummaries.joined(separator: " ")
+        let finalSummary = "Successfully executed \(plan.count) action(s). \(details)".trimmingCharacters(in: .whitespaces)
         task.state = .completed(summary: finalSummary)
         updateTask(task)
         try? await memoryProvider?.recordTaskCompletion(task, result: "Success")
