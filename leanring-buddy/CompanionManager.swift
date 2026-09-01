@@ -49,11 +49,10 @@ final class CompanionManager: ObservableObject {
     /// cleared once the committed user message lands in the chat transcript.
     @Published var liveSpeechDraft: String = ""
 
-    /// Most recent partial transcript from the active dictation session.
-    /// Used by the post-release safety net so a slow WhisperKit finalize
-    /// doesn't lose the user's words — if no final transcript arrives
-    /// within the timeout but a partial exists, we treat the partial as
-    /// the final instead of dropping the whole turn as "no audio detected".
+    /// Q Security Architecture — Live runtime state and blockers
+    @Published var qRuntimeState: QAgentUIState = .starting
+    @Published var qRuntimeBlocker: String? = nil
+
     var lastPartialTranscriptFromActiveDictation: String?
     @Published var currentAudioPowerLevel: CGFloat = 0
     @Published var hasAccessibilityPermission = false

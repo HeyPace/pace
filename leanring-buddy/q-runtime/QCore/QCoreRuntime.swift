@@ -193,6 +193,27 @@ public final class QCoreRuntime: @unchecked Sendable {
                     updateTask(task)
                     return task
                 }
+
+                // 6b. Empirical Closed-Loop Verification
+                let verifier = QActionVerifier.shared
+                let strategy: QVerificationStrategy
+                if action.toolName == "ui.open_app", let appName = action.parameters["appName"] ?? action.targetResources.first {
+                    strategy = .windowOrAppActive(appName: appName)
+                } else if action.toolName == "fs.write_sandbox", let path = action.parameters["path"] {
+                    strategy = .fileExists(path: path, expectedContent: action.parameters["content"])
+                } else if action.toolName == "fs.read", let path = action.parameters["path"] {
+                    strategy = .fileExists(path: path)
+                } else {
+                    strategy = .customCheck(description: "Default action verification") { true }
+                }
+
+                let outcome = await verifier.verify(action: action, result: result, strategy: strategy)
+                guard outcome.isVerified else {
+                    task.state = .failed(reason: "Closed-loop verification failed for '\(action.toolName)'")
+                    updateTask(task)
+                    return task
+                }
+
                 actionSummaries.append(result.summary)
             } catch {
                 task.state = .failed(reason: "Execution error: \(error.localizedDescription)")

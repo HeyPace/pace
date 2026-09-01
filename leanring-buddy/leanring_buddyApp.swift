@@ -59,6 +59,20 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             await PaceRemoteModelManifest.refreshIfNeeded()
         }
 
+        // Q Security Architecture — Boot Q Runtime automatically (Phase 1F)
+        Task { @MainActor in
+            let report = await QRuntimeBootstrap.shared.bootstrap()
+            if report.isReady {
+                companionManager.qRuntimeState = .ready
+                companionManager.qRuntimeBlocker = nil
+                print("🛡️ Q Runtime: READY (\(report.activeComponents.count) subsystems active)")
+            } else {
+                companionManager.qRuntimeState = .blocked
+                companionManager.qRuntimeBlocker = report.errors.joined(separator: "; ")
+                print("⚠️ Q Runtime: NOT READY - \(report.errors.joined(separator: "; "))")
+            }
+        }
+
         // Single-instance enforcement is fundamentally hostile to macOS's
         // own "restart the app to apply the new permission" flow for
         // Screen Recording / Accessibility: macOS launches a fresh process
