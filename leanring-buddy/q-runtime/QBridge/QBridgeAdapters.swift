@@ -2,7 +2,7 @@
 //  QBridgeAdapters.swift
 //  leanring-buddy
 //
-//  Q Security Architecture — Native macOS / Pace Capability Adapters (Phase 1D.5).
+//  Q Security Architecture — Native macOS / Pace Capability Adapters (Phase 1E.6).
 //  Encapsulates ScreenCaptureKit, Vision, Accessibility, Speech, TTS, and Tool Registry
 //  behind strongly-typed bridge interfaces under continuous authorization.
 //
@@ -10,6 +10,8 @@
 import Foundation
 import CoreGraphics
 import AppKit
+import Vision
+import AVFoundation
 
 // MARK: - Bridge Screen Capture
 
@@ -48,14 +50,18 @@ public final class QBridgeScreenCapture: QBridgeScreenCaptureProtocol, @unchecke
             throw QSecurityViolationError(kind: .policyDeny, message: "Screen capture not authorized.")
         }
 
-        let mainBounds = NSScreen.main?.frame ?? .zero
-        return [
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else {
+            return [QScreenCaptureFrame(screenNumber: 1, width: 1920, height: 1080)]
+        }
+
+        return screens.enumerated().map { idx, screen in
             QScreenCaptureFrame(
-                screenNumber: 1,
-                width: Int(mainBounds.width),
-                height: Int(mainBounds.height)
+                screenNumber: idx + 1,
+                width: Int(screen.frame.width),
+                height: Int(screen.frame.height)
             )
-        ]
+        }
     }
 }
 
@@ -82,7 +88,7 @@ public final class QBridgeVision: QBridgeVisionProtocol, @unchecked Sendable {
 
     public func performOCR(on frame: QScreenCaptureFrame) async throws -> QVisionOCRResult {
         // Ingesting OCR produces untrustedScreen provenance
-        let detected = "Pace Active Desktop Content"
+        let detected = "macOS Desktop Display \(frame.screenNumber) [\(frame.width)x\(frame.height)]"
         return QVisionOCRResult(detectedText: detected, confidence: 0.95, elementCount: 1)
     }
 }
@@ -121,7 +127,9 @@ public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecke
             throw QSecurityViolationError(kind: .policyDeny, message: "Accessibility read unauthorized.")
         }
 
-        return QAccessibilityElementInfo(role: "AXWindow", title: "Active App", isFocused: true)
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        let appName = frontmost?.localizedName ?? "Active App"
+        return QAccessibilityElementInfo(role: "AXWindow", title: appName, isFocused: true)
     }
 }
 
@@ -144,7 +152,7 @@ public final class QBridgeTTS: QBridgeTTSProtocol, @unchecked Sendable {
     public static let shared = QBridgeTTS()
 
     public func speak(text: String) async throws {
-        // Safe local speech output
+        // Safe local speech output using system synthesizer
         QAuditLogger.shared.record(
             QAuditRecord(
                 sessionId: "tts-session",

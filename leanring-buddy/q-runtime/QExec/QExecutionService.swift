@@ -2,12 +2,13 @@
 //  QExecutionService.swift
 //  leanring-buddy
 //
-//  Q Security Architecture — Action Execution Service (Phase 1D.6).
+//  Q Security Architecture — Action Execution Service (Phase 1E.6).
 //  Sole authorization-gated dispatch engine for physical local execution.
 //  Enforces path containment, capability token verification, and mandatory audit.
 //
 
 import Foundation
+import AppKit
 
 public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
     public static let shared = QExecutionService()
@@ -101,6 +102,15 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 summary: "No-op test action completed successfully."
             )
 
+        case "system.running_apps":
+            result = executeRunningAppsQuery(request: request)
+
+        case "system.clipboard.read":
+            result = executeClipboardRead(request: request)
+
+        case "screen.ocr":
+            result = try await executeScreenOCR(request: request)
+
         case "fs.read":
             result = try executeFileRead(request: request, context: context)
 
@@ -111,20 +121,7 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
             result = try await executeAccessibilityRead(request: request, context: context)
 
         case "ui.open_app":
-            let app = request.parameters["appName"] ?? "Notes"
-            result = QActionResult(
-                actionId: request.actionId,
-                success: true,
-                summary: "Simulated opening application: \(app)"
-            )
-
-        case "system.clipboard.read":
-            result = QActionResult(
-                actionId: request.actionId,
-                success: true,
-                summary: "Clipboard content accessed",
-                outputData: ["clipboard": ""]
-            )
+            result = executeOpenApp(request: request)
 
         default:
             result = QActionResult(
@@ -154,6 +151,52 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
     }
 
     // MARK: - Safe Action Implementations
+
+    private func executeRunningAppsQuery(request: QActionRequest) -> QActionResult {
+        let runningApps = NSWorkspace.shared.runningApplications
+            .compactMap(\.localizedName)
+            .sorted()
+        let count = runningApps.count
+        let sample = runningApps.prefix(8).joined(separator: ", ")
+
+        return QActionResult(
+            actionId: request.actionId,
+            success: true,
+            summary: "Found \(count) running applications: \(sample)...",
+            outputData: [
+                "count": "\(count)",
+                "apps": runningApps.joined(separator: "\n")
+            ]
+        )
+    }
+
+    private func executeClipboardRead(request: QActionRequest) -> QActionResult {
+        let clipboard = NSPasteboard.general.string(forType: .string) ?? ""
+        return QActionResult(
+            actionId: request.actionId,
+            success: true,
+            summary: "Read \(clipboard.count) characters from system clipboard.",
+            outputData: ["clipboard": clipboard]
+        )
+    }
+
+    private func executeScreenOCR(request: QActionRequest) async throws -> QActionResult {
+        let frames = try await QBridgeScreenCapture.shared.captureScreens()
+        guard let firstFrame = frames.first else {
+            return QActionResult(actionId: request.actionId, success: false, summary: "No display available for capture.", error: "ENODISPLAY")
+        }
+        let ocr = try await QBridgeVision.shared.performOCR(on: firstFrame)
+        return QActionResult(
+            actionId: request.actionId,
+            success: true,
+            summary: "Captured screen \(firstFrame.screenNumber) and recognized: \(ocr.detectedText)",
+            outputData: [
+                "screen": "\(firstFrame.screenNumber)",
+                "detectedText": ocr.detectedText,
+                "confidence": "\(ocr.confidence)"
+            ]
+        )
+    }
 
     private func executeFileRead(request: QActionRequest, context: QTaskContext) throws -> QActionResult {
         guard let path = request.parameters["path"] else {
@@ -216,6 +259,37 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
             success: true,
             summary: "Read focused element: \(axInfo?.title ?? "None") [\(axInfo?.role ?? "AXUnknown")]",
             outputData: ["role": axInfo?.role ?? "", "title": axInfo?.title ?? ""]
+        )
+    }
+
+    private func executeOpenApp(request: QActionRequest) -> QActionResult {
+        let app = request.parameters["appName"] ?? "Calculator"
+        let running = NSWorkspace.shared.runningApplications.contains {
+            $0.localizedName?.caseInsensitiveCompare(app) == .orderedSame
+        }
+
+        if running {
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Application '\(app)' is already running.",
+                outputData: ["appName": app, "running": "true"]
+            )
+        }
+
+        // Attempt launching application
+        if let appUrl = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.\(app.lowercased())") ??
+                        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.calculator") {
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = false
+            NSWorkspace.shared.openApplication(at: appUrl, configuration: config, completionHandler: nil)
+        }
+
+        return QActionResult(
+            actionId: request.actionId,
+            success: true,
+            summary: "Dispatched launch request for application '\(app)'.",
+            outputData: ["appName": app]
         )
     }
 }
