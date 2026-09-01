@@ -4,12 +4,7 @@
 //
 //  Notch-panel turn HUD card. Renders the current PaceTurnHUDState
 //  (listening / understanding / acting / needs-clarification / done /
-//  failed / unsupported) with its symbol, title, optional detail line,
-//  and — for clarification — the inline option chips that route back
-//  through `CompanionManager.resolveClarification(option:)`.
-//
-//  Extracted from CompanionPanelView.swift verbatim; the icon + color
-//  helpers move with it because they ONLY drive the HUD card.
+//  failed / unsupported) and the live QPlan multi-step execution checklist.
 //
 
 import SwiftUI
@@ -40,6 +35,27 @@ struct PaceTurnHUDView: View {
                         .lineLimit(2)
                         .truncationMode(.tail)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+
+                // Live QPlan Multi-Step Checklist (Phase 2A.2)
+                if let snapshot = companionManager.activeQPlanSnapshot,
+                   !snapshot.steps.isEmpty,
+                   !snapshot.isTerminal {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(snapshot.steps) { step in
+                            HStack(spacing: 6) {
+                                Text(step.statusGlyph)
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(glyphColor(for: step))
+                                    .frame(width: 10)
+                                Text("\(step.index + 1)  \(step.description)")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(stepTextColor(for: step))
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    .padding(.top, 4)
                 }
 
                 if companionManager.currentTurnHUDState.status == .needsClarification,
@@ -104,14 +120,50 @@ struct PaceTurnHUDView: View {
         switch companionManager.currentTurnHUDState.status {
         case .idle:
             return DS.Colors.textTertiary
-        case .listening, .understanding, .acting:
-            return DS.Colors.accent
+        case .listening:
+            return Color.blue
+        case .understanding:
+            return Color.cyan
+        case .acting:
+            return Color.orange
         case .needsClarification:
-            return DS.Colors.warning
+            return Color.yellow
         case .done:
-            return DS.Colors.success
-        case .failed, .unsupported:
-            return DS.Colors.warning
+            return Color.green
+        case .failed:
+            return Color.red
+        case .unsupported:
+            return Color.purple
+        }
+    }
+
+    private func glyphColor(for step: QRuntimeStepSnapshot) -> Color {
+        switch step.state {
+        case .completed:
+            return Color.green
+        case .executing:
+            return Color.blue
+        case .verifying:
+            return Color.orange
+        case .waitingForPermission:
+            return Color.yellow
+        case .blocked, .failed:
+            return Color.red
+        case .pending, .skipped:
+            return DS.Colors.textTertiary
+        }
+    }
+
+    private func stepTextColor(for step: QRuntimeStepSnapshot) -> Color {
+        switch step.state {
+        case .executing, .verifying, .waitingForPermission:
+            return DS.Colors.textPrimary
+        case .completed:
+            return DS.Colors.textSecondary
+        case .pending, .skipped:
+            return DS.Colors.textTertiary
+        case .blocked, .failed:
+            return DS.Colors.textSecondary
         }
     }
 }

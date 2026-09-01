@@ -186,6 +186,17 @@ extension CompanionManager {
             return
         }
 
+        // Q Security Architecture — Handle Live QPlan Permission HUD resolution
+        if let snapshot = activeQPlanSnapshot,
+           case .waitingForPermission = snapshot.planState {
+            if option.lowercased() == "allow" {
+                resolveQPermissionApproval(approved: true)
+            } else {
+                resolveQPermissionApproval(approved: false)
+            }
+            return
+        }
+
         guard let pendingIntentClarification else {
             currentTurnHUDState = .failed("Clarification expired")
             return

@@ -49,9 +49,10 @@ final class CompanionManager: ObservableObject {
     /// cleared once the committed user message lands in the chat transcript.
     @Published var liveSpeechDraft: String = ""
 
-    /// Q Security Architecture — Live runtime state and blockers
+    /// Q Security Architecture — Live runtime state, plan snapshots, and blockers
     @Published var qRuntimeState: QAgentUIState = .starting
     @Published var qRuntimeBlocker: String? = nil
+    @Published var activeQPlanSnapshot: QRuntimeUISnapshot? = nil
 
     var lastPartialTranscriptFromActiveDictation: String?
     @Published var currentAudioPowerLevel: CGFloat = 0
