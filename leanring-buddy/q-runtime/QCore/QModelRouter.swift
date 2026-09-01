@@ -322,7 +322,12 @@ public final class QModelRouter: QModelProvider, @unchecked Sendable {
         }
         // 5. Sandboxed Filesystem Operations
         else if intentLower.contains("sandbox") || intentLower.contains("file") {
-            let path = "/tmp/q-sandbox/test-\(task.taskId.prefix(8)).txt"
+            var path = "/tmp/q-sandbox/test-sandbox-data.txt"
+            let words = task.intent.components(separatedBy: .whitespacesAndNewlines)
+            if let matchedPath = words.first(where: { $0.hasPrefix("/") || $0.hasPrefix("~") }) {
+                path = matchedPath
+            }
+
             if intentLower.contains("read") {
                 return [
                     QActionRequest(

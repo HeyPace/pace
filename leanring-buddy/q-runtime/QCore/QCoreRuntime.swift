@@ -118,12 +118,12 @@ public final class QCoreRuntime: @unchecked Sendable {
             return task
         }
 
-        // 5. Execute plan steps with authorization gate
+        var actionSummaries: [String] = []
         for action in plan {
             // Resource guard check for filesystem targets
             for res in action.targetResources {
                 let guardResult = QResourceGuard.validate(path: res)
-                if case .denied(let reason, let violation) = guardResult {
+                if case .denied(let reason, _) = guardResult {
                     task.state = .failed(reason: "Security Guard Denied Resource '\(res)': \(reason)")
                     updateTask(task)
                     QAuditLogger.shared.record(
@@ -193,6 +193,7 @@ public final class QCoreRuntime: @unchecked Sendable {
                     updateTask(task)
                     return task
                 }
+                actionSummaries.append(result.summary)
             } catch {
                 task.state = .failed(reason: "Execution error: \(error.localizedDescription)")
                 updateTask(task)
@@ -201,7 +202,8 @@ public final class QCoreRuntime: @unchecked Sendable {
         }
 
         // 7. Complete task
-        task.state = .completed(summary: "Successfully executed \(plan.count) action(s).")
+        let finalSummary = actionSummaries.isEmpty ? "Successfully executed \(plan.count) action(s)." : actionSummaries.joined(separator: " ")
+        task.state = .completed(summary: finalSummary)
         updateTask(task)
         try? await memoryProvider?.recordTaskCompletion(task, result: "Success")
 
