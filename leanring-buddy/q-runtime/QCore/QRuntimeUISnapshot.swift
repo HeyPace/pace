@@ -17,6 +17,13 @@ public struct QRuntimeStepSnapshot: Sendable, Equatable, Identifiable, Codable {
     public let riskLevel: String
     public let state: QPlanStepState
     public let verifiedEvidence: String?
+    /// Typed risk level, alongside the pre-existing human-readable `riskLevel` string.
+    /// Added in Phase 2F so `QRuntimeUISnapshot.pendingApproval` can reconstruct a real,
+    /// resolvable `QApprovalRequest` without parsing `riskLevel`'s free-text description.
+    public let riskLevelValue: QCapabilityLevel
+    /// Target resources for this step's action. Added in Phase 2F for the same reason as
+    /// `riskLevelValue` — needed to reconstruct `QApprovalRequest.affectedResources`.
+    public let targetResources: [String]
 
     public var isExecuting: Bool {
         if case .executing = state { return true }
@@ -81,7 +88,9 @@ public struct QRuntimeStepSnapshot: Sendable, Equatable, Identifiable, Codable {
         actionName: String,
         riskLevel: String,
         state: QPlanStepState,
-        verifiedEvidence: String? = nil
+        verifiedEvidence: String? = nil,
+        riskLevelValue: QCapabilityLevel = .level0ReadOnly,
+        targetResources: [String] = []
     ) {
         self.id = id
         self.index = index
@@ -90,6 +99,8 @@ public struct QRuntimeStepSnapshot: Sendable, Equatable, Identifiable, Codable {
         self.riskLevel = riskLevel
         self.state = state
         self.verifiedEvidence = verifiedEvidence
+        self.riskLevelValue = riskLevelValue
+        self.targetResources = targetResources
     }
 }
 
@@ -204,7 +215,9 @@ public struct QRuntimeUISnapshot: Sendable, Equatable, Codable {
                 actionName: step.action.actionName,
                 riskLevel: step.action.riskLevel.description,
                 state: step.state,
-                verifiedEvidence: step.result?.verifiedEvidence
+                verifiedEvidence: step.result?.verifiedEvidence,
+                riskLevelValue: step.action.riskLevel,
+                targetResources: step.action.targetResources
             )
         }
 
@@ -220,6 +233,55 @@ public struct QRuntimeUISnapshot: Sendable, Equatable, Codable {
             statusMessage: statusMessage,
             steps: stepSnapshots,
             timestamp: Date()
+        )
+    }
+
+    // MARK: - Phase 2F: Approval Reconstruction
+
+    /// Reconstructs the exact `QApprovalRequest` a live `QPlanExecutor` halt recorded for the
+    /// currently-waiting step, using the same deterministic execution-identity-derived id
+    /// (`QApprovalRequest.deterministicId`) that `QApprovalCoordinator` itself used when the
+    /// halt actually occurred. This projection carries no execution authority of its own —
+    /// `QCoreRuntime.resolveApproval` always re-validates the id against `QApprovalCoordinator`'s
+    /// own live record before granting anything — but it is safe to use both for UI display and
+    /// as the `approvalId` passed to `resolveApproval`/`QAgent.approve`, since two independent
+    /// reconstructions from the same task/plan/step/action inputs always agree.
+    ///
+    /// Returns `nil` unless the plan is genuinely halted on `.waitingForPermission` with enough
+    /// identifying data (`taskId`, `planId`, an in-range step) to derive a resolvable id — a
+    /// request that couldn't actually be resolved is not presented as pending at all.
+    public var pendingApproval: QApprovalRequest? {
+        guard case .waitingForPermission(let idx, let reason) = planState,
+              let taskId,
+              let planId,
+              steps.indices.contains(idx) else {
+            return nil
+        }
+
+        let step = steps[idx]
+        let identity = QExecutionIdentity(
+            taskId: taskId,
+            planId: planId.uuidString,
+            stepId: step.id.uuidString,
+            actionName: step.actionName,
+            targetResources: step.targetResources
+        )
+
+        return QApprovalRequest(
+            taskId: taskId,
+            toolName: step.actionName,
+            riskLevel: step.riskLevelValue,
+            literalAction: step.description,
+            affectedResources: step.targetResources,
+            scope: .global,
+            reason: reason,
+            // Taint is not currently tracked on QPlan/QRuntimeUISnapshot, so this reconstruction
+            // cannot know the real value. It only affects display text here, never authorization
+            // (the actual grant, when minted, is validated against the live coordinator record).
+            isContextTainted: false,
+            expectedEffect: step.description,
+            isReversible: step.riskLevelValue.isConsideredReversible,
+            executionIdentity: identity
         )
     }
 }

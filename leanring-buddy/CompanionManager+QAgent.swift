@@ -28,7 +28,17 @@ extension CompanionManager: QAgentStateObserver, QPlanExecutionObserver {
             case .thinking:
                 self.currentTurnHUDState = PaceTurnHUDState(status: .understanding, title: "Q THINKING", detail: message, options: [])
             case .requestingPermission:
-                self.currentTurnHUDState = PaceTurnHUDState.clarification(question: message, options: ["Allow", "Deny"])
+                // Prefer the richer, risk-aware rendering (Phase 2F) when a reconstructable
+                // approval request is already available on the current plan snapshot — this
+                // observer callback only carries a plain reason string, but planDidUpdate/
+                // stepDidTransition (fired moments earlier for the same halt) already populate
+                // activeQPlanSnapshot with everything qApprovalRequest needs. Falls back to the
+                // plain generic clarification if that snapshot isn't available yet.
+                if let approval = self.activeQPlanSnapshot?.pendingApproval {
+                    self.currentTurnHUDState = PaceTurnHUDState.qApprovalRequest(approval)
+                } else {
+                    self.currentTurnHUDState = PaceTurnHUDState.clarification(question: message, options: ["Allow", "Deny"])
+                }
             case .executing:
                 self.currentTurnHUDState = PaceTurnHUDState(status: .acting, title: "Q EXECUTING", detail: message, options: [])
             case .verifying:
@@ -67,7 +77,9 @@ extension CompanionManager: QAgentStateObserver, QPlanExecutionObserver {
                         actionName: step.action.actionName,
                         riskLevel: step.action.riskLevel.description,
                         state: step.state,
-                        verifiedEvidence: step.result?.verifiedEvidence
+                        verifiedEvidence: step.result?.verifiedEvidence,
+                        riskLevelValue: step.action.riskLevel,
+                        targetResources: step.action.targetResources
                     )
                     self.activeQPlanSnapshot = QRuntimeUISnapshot(
                         planId: currentSnapshot.planId,
@@ -110,11 +122,15 @@ extension CompanionManager: QAgentStateObserver, QPlanExecutionObserver {
             )
 
         case .waitingForPermission(let idx, _):
-            let stepName = snapshot.steps.indices.contains(idx) ? snapshot.steps[idx].description : "Action"
-            currentTurnHUDState = PaceTurnHUDState.clarification(
-                question: "Q needs permission: \(stepName)",
-                options: ["Allow", "Deny"]
-            )
+            if let approval = snapshot.pendingApproval {
+                currentTurnHUDState = PaceTurnHUDState.qApprovalRequest(approval)
+            } else {
+                let stepName = snapshot.steps.indices.contains(idx) ? snapshot.steps[idx].description : "Action"
+                currentTurnHUDState = PaceTurnHUDState.clarification(
+                    question: "Q needs permission: \(stepName)",
+                    options: ["Allow", "Deny"]
+                )
+            }
 
         case .executing(let idx):
             let desc = snapshot.steps.indices.contains(idx) ? snapshot.steps[idx].description : "Executing…"
@@ -148,41 +164,69 @@ extension CompanionManager: QAgentStateObserver, QPlanExecutionObserver {
         }
     }
 
-    // MARK: - Permission UX Resolution
+    // MARK: - Permission UX Resolution (Phase 2F)
 
     /// Handles user clicking "Allow" or "Deny" in the permission HUD.
-    /// Passes the decision strictly to QPermissionGate without touching execution directly.
-    public func resolveQPermissionApproval(approved: Bool) {
+    ///
+    /// Resolves the pending approval through the real Phase 2E API
+    /// (`QAgent.approve` → `QCoreRuntime.resolveApproval` → `QApprovalCoordinator`) rather than
+    /// minting a standing `QPermissionGate` capability grant — a standing grant would authorize
+    /// ANY future call to the same tool name, not just the one specific action the user actually
+    /// saw and approved, which is exactly the blanket-approval pattern Phase 2E's approval
+    /// architecture was built to avoid. `activeQPlanSnapshot.pendingApproval` reconstructs the
+    /// same execution-identity-bound request `QPlanExecutor` recorded when it halted (see
+    /// `QRuntimeUISnapshot.pendingApproval`), so the `approvalId` passed here always matches
+    /// `QApprovalCoordinator`'s own live record — resolution is re-validated there regardless of
+    /// what this reconstruction contains, so this UI layer carries no execution authority itself.
+    ///
+    /// This actually resumes and completes (or fails/blocks) the halted task — the pre-2F version
+    /// of this method never did, because `QCoreRuntime.submitIntent` returns immediately on a
+    /// `.waitingForPermission` halt rather than blocking in place; there was no live call left to
+    /// "resume." Reuses the SAME `QAgentStateObserver` callbacks (`agentDidTransition`) that drive
+    /// `executeQAgentTurn`'s HUD updates, so intermediate execute/verify states render the same way.
+    @MainActor
+    public func resolveQPermissionApproval(approved: Bool) async {
         guard let snapshot = activeQPlanSnapshot,
-              case .waitingForPermission(let idx, _) = snapshot.planState,
-              snapshot.steps.indices.contains(idx) else {
+              let taskId = snapshot.taskId,
+              let request = snapshot.pendingApproval else {
+            currentTurnHUDState = PaceTurnHUDState.failed("No pending approval to resolve.")
             return
         }
 
-        let step = snapshot.steps[idx]
-        if approved {
-            // User explicitly approved — register temporary grant in QPermissionGate
-            let cap = QCapability(
-                toolFamily: step.actionName.components(separatedBy: ".").first ?? step.actionName,
-                toolName: step.actionName,
-                scope: .global,
-                maxRiskLevel: .level2UserApproval,
-                grantedBy: .userInteractive,
-                expiresAt: Date().addingTimeInterval(300),
-                provenanceCeiling: .trustedOnly
-            )
-            QPermissionGate.shared.addGrant(cap)
+        let decision: QApprovalDecision = approved ? .approved : .denied(reason: "Denied by user via HUD")
+        let userTranscript = approved ? "Allow: \(request.expectedEffect)" : "Deny: \(request.expectedEffect)"
 
+        if approved {
             currentTurnHUDState = PaceTurnHUDState(
                 status: .acting,
-                title: "STEP \(idx + 1) / \(snapshot.totalSteps)",
-                detail: "Permission granted, resuming…",
+                title: "RESUMING",
+                detail: request.expectedEffect,
                 options: []
             )
-        } else {
-            // User denied — fail closed
-            currentTurnHUDState = PaceTurnHUDState.unsupported("User denied permission for \(step.description)")
         }
+        // Denial's immediate HUD feedback is set synchronously by the caller
+        // (CompanionManager+AgentLoop.resolveClarification) before this async call is dispatched,
+        // so the UI reads as instant — nothing is actually executing on a denial. This call still
+        // performs the real resolution below so the durable task/coordinator record the denial.
+
+        do {
+            let result = try await QAgent.shared.approve(
+                taskId: taskId,
+                approvalId: request.id,
+                decision: decision,
+                observer: self
+            )
+
+            chatSession.appendCompletedTurn(userTranscript: userTranscript, assistantResponse: result.summary)
+            if !chatSession.isChatTTSMuted {
+                try? await ttsClient.speakText(result.summary)
+            }
+        } catch {
+            currentTurnHUDState = PaceTurnHUDState.failed(error.localizedDescription)
+            chatSession.appendCompletedTurn(userTranscript: userTranscript, assistantResponse: "Q Error: \(error.localizedDescription)")
+        }
+
+        voiceState = .idle
     }
 
     // MARK: - Agent Execution Dispatch

@@ -66,6 +66,28 @@ struct PaceTurnHUDState: Equatable {
         )
     }
 
+    /// Q Security Architecture (Phase 2F) — a controlled real-world action awaiting explicit
+    /// user approval. Reuses the existing `.needsClarification` status and Allow/Deny options so
+    /// it renders through the same clarification-chip surface every other HUD clarification uses,
+    /// but its copy is deliberately distinct for Level 3 (high-risk, meaningful user impact)
+    /// versus Level 2 (reversible) so a high-impact action does not read the same as a routine one.
+    static func qApprovalRequest(_ request: QApprovalRequest) -> PaceTurnHUDState {
+        let isHighRisk = request.riskLevel == .level3HighRisk
+        let title = isHighRisk
+            ? "⚠️ Q wants to: \(request.expectedEffect)"
+            : "Q wants to: \(request.expectedEffect)"
+        let reversibilityNote = request.isReversible
+            ? "This is reversible."
+            : "This may not be reversible."
+        let detail = "\(request.riskLevel.description). \(reversibilityNote)"
+        return PaceTurnHUDState(
+            status: .needsClarification,
+            title: title,
+            detail: detail,
+            options: ["Allow", "Deny"]
+        )
+    }
+
     static func done(_ detail: String) -> PaceTurnHUDState {
         PaceTurnHUDState(
             status: .done,

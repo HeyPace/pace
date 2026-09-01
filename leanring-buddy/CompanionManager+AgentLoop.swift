@@ -186,13 +186,21 @@ extension CompanionManager {
             return
         }
 
-        // Q Security Architecture — Handle Live QPlan Permission HUD resolution
+        // Q Security Architecture — Handle Live QPlan Permission HUD resolution (Phase 2F)
         if let snapshot = activeQPlanSnapshot,
            case .waitingForPermission = snapshot.planState {
-            if option.lowercased() == "allow" {
-                resolveQPermissionApproval(approved: true)
-            } else {
-                resolveQPermissionApproval(approved: false)
+            let approved = option.lowercased() == "allow"
+            if !approved {
+                // Denial needs no execution wait — nothing is running, so reflect it in the HUD
+                // immediately rather than waiting on the async round trip below.
+                let deniedWhat = snapshot.pendingApproval?.expectedEffect ?? "the requested action"
+                currentTurnHUDState = PaceTurnHUDState.unsupported("User denied permission for \(deniedWhat)")
+            }
+            // The real resolution (QAgent.approve -> QCoreRuntime.resolveApproval) still runs for
+            // both outcomes, so the durable task and QApprovalCoordinator record what actually
+            // happened — this UI-only state above is presentation, not the authoritative outcome.
+            Task { [weak self] in
+                await self?.resolveQPermissionApproval(approved: approved)
             }
             return
         }
