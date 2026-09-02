@@ -134,7 +134,26 @@ public struct QModelPlanParser: Sendable {
         // never AXUIElementSetAttributeValue, since many native controls only run their real
         // state-change handling in response to a genuine press, not a raw value write. See
         // QBridgeAccessibility.setElementState and docs/PHASE_2K_SEMANTIC_ELEMENT_STATE.md.
-        "ui.set_element_state": ("ui", .level2UserApproval)
+        "ui.set_element_state": ("ui", .level2UserApproval),
+        // Phase 2L: semantic menu-bar item selection — Level 2 (reversible local action, same
+        // unbounded-consequence-class reasoning as ui.click_element: a menu item's actual effect
+        // is arbitrary and app-defined, so per-action human approval — not content filtering — is
+        // the safety mechanism). Scoped to EXACTLY one level: a single top-level AXMenuBarItem
+        // (matched by `menuBarTitle`) and one direct AXMenuItem within its opened AXMenu (matched
+        // by `itemTitle`) — never a nested submenu, never a context/right-click menu, never the
+        // Apple menu (a distinct system-wide AX element this tool never queries), never the
+        // application's own root menu (explicitly excluded — see
+        // QBridgeAccessibility.selectMenuItem's app-root-menu check). No `role` parameter exists:
+        // the AXMenuBar → AXMenuBarItem → AXMenu → AXMenuItem hierarchy is fixed by macOS AX
+        // convention, not model-supplied. Opening the menu and selecting the item happen
+        // atomically within one approved execution (two AXUIElementPerformAction presses, the
+        // same dispatch primitive ui.click_element already uses) specifically because two
+        // separately-approved ui.click_element presses could not reliably do this: the approval
+        // HUD appearing between them is itself a focus-stealing event, and native menus dismiss
+        // on focus loss. See QBridgeAccessibility.selectMenuItem and
+        // docs/PHASE_2L_SEMANTIC_MENU_SELECTION.md for the full contract, including the bounded
+        // menu-open poll and the evidence-based verification model.
+        "ui.select_menu_item": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

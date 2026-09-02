@@ -141,6 +141,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.set_element_state":
             result = await executeSetElementState(request: request)
 
+        case "ui.select_menu_item":
+            result = await executeSelectMenuItem(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -762,6 +765,77 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while setting element state: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Level 2 (reversible local action, same unbounded-consequence-class reasoning as
+    /// ui.click_element): opens one top-level application menu and selects one direct item within
+    /// it via two `AXUIElementPerformAction(kAXPressAction)` calls only — never CGEvent, keyboard
+    /// simulation, or coordinates. Every `QAXInteractionError` failure mode — nested-path input,
+    /// the app's own root menu, missing/ambiguous/disabled targets, a bounded-poll timeout — is
+    /// caught here and converted into a deterministic, non-throwing `QActionResult`; this method
+    /// never fabricates success. Only non-secret targeting metadata (menu/item titles) crosses
+    /// this method's boundary — never an AX tree dump or unrelated window content. A
+    /// `verificationStatus` claim is deliberately NOT made here — a successful press sequence is
+    /// not itself evidence the selection took effect; that determination belongs solely to
+    /// QPlanExecutor's independent `.axMenuItemSelectionEvidence` verification step.
+    private func executeSelectMenuItem(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let menuBarTitle = request.parameters["menuBarTitle"], !menuBarTitle.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'menuBarTitle' parameter.",
+                error: "menuBarTitle missing"
+            )
+        }
+        guard let itemTitle = request.parameters["itemTitle"], !itemTitle.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'itemTitle' parameter.",
+                error: "itemTitle missing"
+            )
+        }
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.selectMenuItem(
+                applicationName: applicationName,
+                menuBarTitle: menuBarTitle,
+                itemTitle: itemTitle
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Menu selection attempted for \(outcome.targetIdentity). Independent closed-loop verification pending.",
+                outputData: [
+                    "applicationName": applicationName,
+                    "menuBarTitle": menuBarTitle,
+                    "itemTitle": itemTitle,
+                    "targetIdentity": outcome.targetIdentity
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while selecting menu item: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

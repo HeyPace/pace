@@ -64,6 +64,19 @@ public enum QVerificationStrategy: Sendable {
         previousStateHash: String,
         desiredStateHash: String
     )
+    /// Phase 2L: re-resolves the same top-level menu bar item and item title a
+    /// ui.select_menu_item step just selected and evaluates `QMenuItemSelectionEvidence` — the
+    /// item becoming unresolvable (the menu closed) is the expected, benign post-selection
+    /// lifecycle and is treated as `.verified`; the item remaining resolvable and unchanged, or
+    /// the application/menu-bar-item itself becoming unavailable, is treated as `.failed`. Never
+    /// invents a stronger verification claim than AX alone can generically provide — see
+    /// `QMenuItemSelectionEvidence`'s own documentation for the full evidence contract.
+    case axMenuItemSelectionEvidence(
+        applicationName: String,
+        menuBarTitle: String,
+        itemTitle: String,
+        targetIdentity: String
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -252,6 +265,30 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Target element (role=\(role)) current state does not match the desired state after the change.",
                     evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+        case .axMenuItemSelectionEvidence(let applicationName, let menuBarTitle, let itemTitle, let targetIdentity):
+            let evidence = await QBridgeAccessibility.shared.observeMenuItemSelectionEvidence(
+                applicationName: applicationName,
+                menuBarTitle: menuBarTitle,
+                itemTitle: itemTitle
+            )
+            switch evidence {
+            case .itemNoLongerResolvable:
+                // The expected, benign post-selection lifecycle — selecting an item closes its
+                // menu. This is the strongest generic evidence AX alone can provide for this
+                // capability; no stronger claim is made.
+                return .verified(evidence: "target=\(targetIdentity) evidenceType=itemDisappeared status=verified")
+            case .itemStillResolvable:
+                return .failed(
+                    reason: "Target menu item (\(itemTitle)) remained resolvable and unchanged after selection — no evidence the selection took effect.",
+                    evidence: "target=\(targetIdentity) evidenceType=itemUnchanged status=failed"
+                )
+            case .applicationOrTargetUnavailable:
+                return .failed(
+                    reason: "Application or menu bar item (\(menuBarTitle)) became unavailable during verification — physical state is uncertain.",
+                    evidence: "target=\(targetIdentity) evidenceType=uncertainLifecycle status=failed"
                 )
             }
 

@@ -503,6 +503,21 @@ public final class QPlanExecutor: Sendable {
                 previousStateHash: previousStateHash,
                 desiredStateHash: desiredStateHash
             )
+        } else if action.actionName == "ui.select_menu_item",
+                  let applicationName = action.arguments["applicationName"],
+                  let menuBarTitle = action.arguments["menuBarTitle"],
+                  let itemTitle = action.arguments["itemTitle"],
+                  let targetIdentity = result.outputData["targetIdentity"] {
+            // Reconstructed from the exact arguments used to dispatch, plus the safe (non-secret
+            // targeting metadata only) outputData QExecutionService captured at selection time —
+            // the independent verification step re-resolves the precise menu/item that was
+            // selected and evaluates the evidence contract, never fabricating a stronger claim.
+            return .axMenuItemSelectionEvidence(
+                applicationName: applicationName,
+                menuBarTitle: menuBarTitle,
+                itemTitle: itemTitle,
+                targetIdentity: targetIdentity
+            )
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

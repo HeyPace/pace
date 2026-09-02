@@ -355,6 +355,22 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// to select a *different* button in the same group instead). Refused rather than attempting
     /// a press whose effect on the desired outcome cannot be guaranteed.
     case stateChangeNotGuaranteed(String)
+    /// Phase 2L: `menuBarTitle`/`itemTitle` contains a path separator, indicating an attempted
+    /// nested-submenu or multi-level path — refused before any AX call. `ui.select_menu_item`
+    /// supports exactly one level: a single top-level menu bar item and one direct item within it.
+    case nestedMenuPathUnsupported(String)
+    /// Phase 2L: the named top-level `AXMenuBarItem` could not be resolved on the target
+    /// application's menu bar (`kAXMenuBarAttribute`), or is ambiguous/wrong-role.
+    case menuNotFound(String)
+    /// Phase 2L: the named `AXMenuItem` did not become resolvable as a direct child of the opened
+    /// menu within the bounded poll window — covers both "the item does not exist" and "polling
+    /// timed out", which are indistinguishable from the caller's perspective (the poll always
+    /// runs to its fixed ceiling before concluding either way).
+    case menuItemNotFound(String)
+    /// Phase 2L: the resolved top-level menu bar item is the application's own root menu (index 0
+    /// of the menu bar — the menu bearing the app's display name, containing About/Preferences/
+    /// Quit by macOS convention) — explicitly out of scope for this capability's first phase.
+    case appRootMenuUnsupported(String)
 
     public var description: String {
         switch self {
@@ -396,6 +412,14 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target element's state changed before it could be safely modified: \(reason)"
         case .stateChangeNotGuaranteed(let reason):
             return "Refusing to change target element's state — the outcome cannot be guaranteed: \(reason)"
+        case .nestedMenuPathUnsupported(let reason):
+            return "Nested or multi-level menu paths are not supported: \(reason)"
+        case .menuNotFound(let title):
+            return "Menu bar item '\(title)' could not be resolved."
+        case .menuItemNotFound(let title):
+            return "Menu item '\(title)' did not become available within the bounded observation window."
+        case .appRootMenuUnsupported(let title):
+            return "Menu bar item '\(title)' is the application's own root menu, which is not supported by this capability."
         }
     }
 
@@ -421,6 +445,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .stateReadFailed: return "AX_STATE_READ_FAILED"
         case .valueDriftDetected: return "AX_VALUE_DRIFT_DETECTED"
         case .stateChangeNotGuaranteed: return "AX_STATE_CHANGE_NOT_GUARANTEED"
+        case .nestedMenuPathUnsupported: return "AX_NESTED_MENU_PATH_UNSUPPORTED"
+        case .menuNotFound: return "AX_MENU_NOT_FOUND"
+        case .menuItemNotFound: return "AX_MENU_ITEM_NOT_FOUND"
+        case .appRootMenuUnsupported: return "AX_APP_ROOT_MENU_UNSUPPORTED"
         }
     }
 }
@@ -530,6 +558,39 @@ public struct QAXElementStateOutcome: Sendable, Equatable {
         self.previousStateHash = previousStateHash
         self.desiredStateHash = desiredStateHash
     }
+}
+
+/// The outcome of one `QBridgeAccessibility.selectMenuItem` call — non-secret targeting metadata
+/// only (menu/item titles), never an AX tree dump or unrelated window content.
+public struct QMenuItemSelectionOutcome: Sendable, Equatable {
+    public let targetIdentity: String
+    public let menuBarTitle: String
+    public let itemTitle: String
+
+    public init(targetIdentity: String, menuBarTitle: String, itemTitle: String) {
+        self.targetIdentity = targetIdentity
+        self.menuBarTitle = menuBarTitle
+        self.itemTitle = itemTitle
+    }
+}
+
+/// The result of re-observing a menu item after a `ui.select_menu_item` dispatch, for the later
+/// closed-loop verification step. Deliberately does NOT claim a stronger verification signal than
+/// AX alone can generically provide (see docs/PHASE_2L_SEMANTIC_MENU_SELECTION.md's "evidence
+/// contract"):
+///
+/// - `.itemNoLongerResolvable`: the item (or its menu) is no longer resolvable by the same
+///   criteria used to find it — the expected, benign lifecycle for a genuinely-selected menu item
+///   (selecting an item closes the menu). Treated as `.verified`.
+/// - `.itemStillResolvable`: the item is still resolvable, unchanged — no evidence the selection
+///   took effect. Treated as `.failed` (never fabricated as success).
+/// - `.applicationOrTargetUnavailable`: the application itself, or the top-level menu bar item,
+///   became unavailable — an UNEXPECTED disappearance (distinct from the item-level one above),
+///   meaning physical state is uncertain. Treated as `.failed`, never assumed successful.
+public enum QMenuItemSelectionEvidence: Sendable, Equatable {
+    case itemNoLongerResolvable
+    case itemStillResolvable
+    case applicationOrTargetUnavailable
 }
 
 extension QBridgeAccessibility {
@@ -1071,6 +1132,218 @@ extension QBridgeAccessibility {
         case 1: return .on
         default: return nil
         }
+    }
+
+    // MARK: - Semantic Menu-Bar Item Selection (Phase 2L)
+    //
+    // ui.select_menu_item — a Level 2, single-level menu selection: one top-level AXMenuBarItem
+    // (matched by menuBarTitle) and one direct AXMenuItem within its opened AXMenu (matched by
+    // itemTitle). Never a nested submenu, never a context/right-click menu, never the system-wide
+    // Apple menu (a distinct AX element under AXUIElementCreateSystemWide, never queried here),
+    // never the application's own root menu (explicitly checked and refused below). Opening the
+    // menu and selecting the item happen atomically within ONE approved execution — two
+    // AXUIElementPerformAction presses, the same dispatch primitive ui.click_element already
+    // uses — specifically because two separately-approved ui.click_element presses could not
+    // reliably do this: the approval HUD appearing between them is itself a focus-stealing event,
+    // and native menus dismiss on focus loss.
+
+    /// Bounded menu-open poll: fixed maximum attempts, fixed interval between them — a hard
+    /// ceiling of `maxMenuOpenPollAttempts * menuOpenPollIntervalNanoseconds` (10 * 50ms = 500ms),
+    /// never unbounded, never exponential. This is genuinely new territory for this codebase
+    /// (every prior semantic AX capability is single-shot, no-wait) because opening a native menu
+    /// is asynchronous relative to the press call returning — the target AXMenuItem is not
+    /// guaranteed queryable in the same synchronous instant. Both constants are intentionally
+    /// small and conservative, mirroring the bounded-traversal philosophy `collectMatches` already
+    /// uses (fixed depth/node/time limits) rather than introducing an unbounded wait.
+    fileprivate static let maxMenuOpenPollAttempts = 10
+    fileprivate static let menuOpenPollIntervalNanoseconds: UInt64 = 50_000_000
+
+    /// Characters that indicate an attempted nested/multi-level menu path — rejected before any
+    /// AX call. `ui.select_menu_item` supports exactly one level.
+    fileprivate static let menuPathSeparators: Set<Character> = ["/", ">", "\\", "\u{2192}"]
+
+    /// Resolves a single top-level `AXMenuBarItem`, presses it to open its menu, bounded-polls for
+    /// the named direct `AXMenuItem` to become resolvable, re-verifies it immediately before
+    /// dispatch, and presses it. Fails closed (throws `QAXInteractionError`) on a nested-path-
+    /// shaped input, the application's own root menu, missing/ambiguous/disabled targets at either
+    /// level, or a bounded-poll timeout. Never falls back to coordinates, CGEvent, or keyboard
+    /// simulation. Never recurses into a submenu — only the opened menu's DIRECT children are
+    /// ever searched.
+    public func selectMenuItem(
+        applicationName: String,
+        menuBarTitle: String,
+        itemTitle: String
+    ) async throws -> QMenuItemSelectionOutcome {
+        guard !menuBarTitle.isEmpty, !itemTitle.isEmpty else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard menuBarTitle.allSatisfy({ !Self.menuPathSeparators.contains($0) }) else {
+            throw QAXInteractionError.nestedMenuPathUnsupported("menuBarTitle must name a single top-level menu, not a path")
+        }
+        guard itemTitle.allSatisfy({ !Self.menuPathSeparators.contains($0) }) else {
+            throw QAXInteractionError.nestedMenuPathUnsupported("itemTitle must name a single direct menu item, not a path")
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            // Phase A: resolve the app's menu bar, then the named top-level menu bar item.
+            guard let menuBarElement = Self.axElementAttribute(kAXMenuBarAttribute as String, of: appElement),
+                  Self.axStringAttribute(kAXRoleAttribute, of: menuBarElement) == "AXMenuBar",
+                  let menuBarItems = Self.childrenAttribute(of: menuBarElement) else {
+                throw QAXInteractionError.menuNotFound(menuBarTitle)
+            }
+
+            let matchingMenuBarItems = menuBarItems.enumerated().filter { _, item in
+                Self.axStringAttribute(kAXRoleAttribute, of: item) == "AXMenuBarItem" &&
+                Self.axStringAttribute(kAXTitleAttribute, of: item) == menuBarTitle
+            }
+            guard !matchingMenuBarItems.isEmpty else { throw QAXInteractionError.menuNotFound(menuBarTitle) }
+            guard matchingMenuBarItems.count == 1 else {
+                throw QAXInteractionError.ambiguousTarget(count: matchingMenuBarItems.count)
+            }
+            let (matchedIndex, menuBarItemElement) = matchingMenuBarItems[0]
+
+            // The application's own root menu (About/Preferences/Quit) is always index 0 by
+            // macOS AX convention — explicitly out of scope for this capability's first phase.
+            guard matchedIndex != 0 else {
+                throw QAXInteractionError.appRootMenuUnsupported(menuBarTitle)
+            }
+
+            guard Self.axBoolAttribute(kAXEnabledAttribute, of: menuBarItemElement) ?? false else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            let openResult = AXUIElementPerformAction(menuBarItemElement, kAXPressAction as CFString)
+            switch openResult {
+            case .success:
+                break
+            case .actionUnsupported:
+                throw QAXInteractionError.actionUnsupported
+            default:
+                throw QAXInteractionError.pressFailed("AXError(\(openResult.rawValue)) while opening menu '\(menuBarTitle)'")
+            }
+
+            // Phase B: bounded poll for the named item as a DIRECT child of the now-open menu —
+            // never recurses into any nested submenu a matched item might itself contain.
+            var resolvedItem: AXUIElement?
+            for _ in 0..<Self.maxMenuOpenPollAttempts {
+                try Task.checkCancellation()
+                if let menuElement = Self.childrenAttribute(of: menuBarItemElement)?.first,
+                   Self.axStringAttribute(kAXRoleAttribute, of: menuElement) == "AXMenu",
+                   let menuItems = Self.childrenAttribute(of: menuElement) {
+                    let matches = menuItems.filter { candidate in
+                        Self.axStringAttribute(kAXRoleAttribute, of: candidate) == "AXMenuItem" &&
+                        Self.axStringAttribute(kAXTitleAttribute, of: candidate) == itemTitle
+                    }
+                    if matches.count == 1 {
+                        resolvedItem = matches[0]
+                        break
+                    } else if matches.count > 1 {
+                        throw QAXInteractionError.ambiguousTarget(count: matches.count)
+                    }
+                }
+                try? await Task.sleep(nanoseconds: Self.menuOpenPollIntervalNanoseconds)
+            }
+            guard let itemElement = resolvedItem else {
+                throw QAXInteractionError.menuItemNotFound(itemTitle)
+            }
+            guard Self.axBoolAttribute(kAXEnabledAttribute, of: itemElement) ?? false else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            // Re-verify immediately before dispatch, mirroring every prior capability's
+            // observation-binding discipline — if the item became disabled between resolution
+            // (found during the poll) and this instant, refuse rather than press regardless.
+            guard Self.axBoolAttribute(kAXEnabledAttribute, of: itemElement) ?? false else {
+                throw QAXInteractionError.staleTarget("target menu item became disabled between resolution and dispatch")
+            }
+
+            let targetIdentity = "application=\(applicationName) menu=\(menuBarTitle) item=\(itemTitle)"
+
+            let selectResult = AXUIElementPerformAction(itemElement, kAXPressAction as CFString)
+            switch selectResult {
+            case .success:
+                break
+            case .actionUnsupported:
+                throw QAXInteractionError.actionUnsupported
+            default:
+                throw QAXInteractionError.pressFailed("AXError(\(selectResult.rawValue)) while selecting item '\(itemTitle)'")
+            }
+
+            return QMenuItemSelectionOutcome(targetIdentity: targetIdentity, menuBarTitle: menuBarTitle, itemTitle: itemTitle)
+        }.value
+    }
+
+    /// Best-effort, read-only re-resolution used only for the later closed-loop verification step
+    /// (QVerificationStrategy.axMenuItemSelectionEvidence). Distinguishes the EXPECTED item-level
+    /// disappearance (menu closed after a genuine selection) from an UNEXPECTED application/
+    /// menu-bar-item-level disappearance (physical state uncertain) — see
+    /// `QMenuItemSelectionEvidence`'s own documentation for the full contract. Never mutates
+    /// anything; never re-opens the menu.
+    public func observeMenuItemSelectionEvidence(
+        applicationName: String,
+        menuBarTitle: String,
+        itemTitle: String
+    ) async -> QMenuItemSelectionEvidence {
+        guard AXIsProcessTrusted() else { return .applicationOrTargetUnavailable }
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else { return .applicationOrTargetUnavailable }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            guard let menuBarElement = Self.axElementAttribute(kAXMenuBarAttribute as String, of: appElement),
+                  let menuBarItems = Self.childrenAttribute(of: menuBarElement) else {
+                return .applicationOrTargetUnavailable
+            }
+            let matchingMenuBarItems = menuBarItems.filter { item in
+                Self.axStringAttribute(kAXRoleAttribute, of: item) == "AXMenuBarItem" &&
+                Self.axStringAttribute(kAXTitleAttribute, of: item) == menuBarTitle
+            }
+            // The menu bar item itself disappearing/becoming ambiguous is UNEXPECTED — distinct
+            // from the item-level disappearance below, which is the normal post-selection outcome.
+            guard matchingMenuBarItems.count == 1 else { return .applicationOrTargetUnavailable }
+            let menuBarItemElement = matchingMenuBarItems[0]
+
+            guard let menuElement = Self.childrenAttribute(of: menuBarItemElement)?.first,
+                  Self.axStringAttribute(kAXRoleAttribute, of: menuElement) == "AXMenu",
+                  let menuItems = Self.childrenAttribute(of: menuElement) else {
+                // Menu is no longer open (or has no children) — the expected lifecycle after a
+                // genuine selection.
+                return .itemNoLongerResolvable
+            }
+            let matches = menuItems.filter { candidate in
+                Self.axStringAttribute(kAXRoleAttribute, of: candidate) == "AXMenuItem" &&
+                Self.axStringAttribute(kAXTitleAttribute, of: candidate) == itemTitle
+            }
+            return matches.isEmpty ? .itemNoLongerResolvable : .itemStillResolvable
+        }.value
+    }
+
+    /// Reads a single AXUIElement-typed attribute (e.g. `kAXMenuBarAttribute`, which returns the
+    /// menu bar element itself, not an array) — distinct from `childrenAttribute`, which reads an
+    /// array-typed attribute.
+    fileprivate nonisolated static func axElementAttribute(_ attribute: String, of element: AXUIElement) -> AXUIElement? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+        guard result == .success, let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        return (value as! AXUIElement)
     }
 
     // MARK: - Bounded traversal (nonisolated: pure over AXUIElement/CFTypeRef, safe from any thread)
