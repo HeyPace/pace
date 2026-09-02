@@ -278,7 +278,34 @@ public struct QModelPlanParser: Sendable {
         // by this single-row capability). Idempotent: already-selected is a verified no-op, no
         // press performed. See QBridgeAccessibility.selectTableRow and
         // docs/PHASE_2S_SEMANTIC_TABLE_ROW_SELECTION.md for the full contract.
-        "ui.select_table_row": ("ui", .level2UserApproval)
+        "ui.select_table_row": ("ui", .level2UserApproval),
+        // Phase 2T: semantic outline row selection — Level 2 (reversible local action, approval
+        // required). Requests selection of exactly one semantically-identified outline row.
+        // Deliberately narrower than every prior explicit-desired-state capability in this
+        // codebase (mirroring ui.select_table_row exactly): `desiredSelected` MUST be exactly
+        // "true" — "false" (deselection) is refused deterministically
+        // (`QAXInteractionError.outlineRowDeselectionUnsupported`), never treated as a blind
+        // toggle and never silently coerced. Scoped to QAXOutlineRowRolePolicy's single-role
+        // allowlist (`AXRow` only — the identical base role table rows use), and
+        // `selectOutlineRow` additionally, unconditionally requires BOTH the `AXOutlineRow`
+        // subrole (`NSAccessibilityOutlineRowSubrole`, confirmed directly against this SDK's
+        // authoritative AXRoleConstants.h) AND a resolved parent element whose own role is
+        // `AXOutline` (`NSAccessibilityOutlineRole`) — a row lacking either is refused, never
+        // treated as an outline row. `AXTableRow` (the sibling subrole ui.select_table_row owns)
+        // is a real, distinct subrole this capability explicitly recognizes and refuses
+        // (`QAXInteractionError.tableRowUnsupportedForOutline`) — never silently folded into
+        // outline-row handling, exactly mirroring ui.select_table_row's own reciprocal refusal of
+        // AXOutlineRow (see docs/PHASE_2S_SEMANTIC_TABLE_ROW_SELECTION.md's Known limitations,
+        // where this phase was explicitly deferred). Mutation is
+        // AXUIElementPerformAction(kAXPressAction) only — the same primitive
+        // ui.select_table_row/ui.select_tab/ui.toggle_disclosure/ui.set_element_state/
+        // ui.click_element already use; kAXSelectedAttribute is never written directly. No
+        // auto-expand-then-select: a collapsed outline row's descendant is simply not resolvable
+        // (not specially detected or expanded), the same "fail closed rather than reach further"
+        // discipline every prior capability already establishes. Idempotent: already-selected is
+        // a verified no-op, no press performed. See QBridgeAccessibility.selectOutlineRow and
+        // docs/PHASE_2T_SEMANTIC_OUTLINE_ROW_SELECTION.md for the full contract.
+        "ui.select_outline_row": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

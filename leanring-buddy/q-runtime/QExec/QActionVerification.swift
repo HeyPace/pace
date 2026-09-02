@@ -193,6 +193,26 @@ public enum QVerificationStrategy: Sendable {
         targetIdentity: String,
         desiredSelected: Bool
     )
+    /// Phase 2T: re-resolves the same semantic outline-row target (`AXRow` + `AXOutlineRow`
+    /// subrole + `AXOutline` parent context — see `QAXOutlineRowRolePolicy`'s documentation) a
+    /// ui.select_outline_row step just selected (or correctly no-op'd) and independently
+    /// re-reads its `kAXSelectedAttribute` — a successful press is never itself treated as proof
+    /// of success; this is the closed-loop check that supplies the real evidence. Structurally
+    /// the same direct-comparison model `axTableRowSelectionMatchesDesired` already establishes,
+    /// reading the identical attribute. Like it, an unresolvable/ambiguous/no-longer-subrole-or-
+    /// context-qualified target after the change is `.failed`, not assumed success; an unreadable
+    /// selection state is likewise `.failed`, never defaulted to either selected or not-selected.
+    /// `desiredSelected` is carried through only for symmetry with
+    /// `axTableRowSelectionMatchesDesired` — this capability's own contract already guarantees it
+    /// is always `true` before this strategy is ever constructed.
+    case axOutlineRowSelectionMatchesDesired(
+        applicationName: String,
+        role: String,
+        matchIdentifier: String?,
+        matchTitle: String?,
+        targetIdentity: String,
+        desiredSelected: Bool
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -596,6 +616,37 @@ public final class QActionVerifier: Sendable {
             case .targetUnavailable:
                 return .failed(
                     reason: "Target table row (role=\(role)) is no longer resolvable, ambiguous, or no longer subrole/table-context-qualified, for verification after the selection.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+        case .axOutlineRowSelectionMatchesDesired(let applicationName, let role, let matchIdentifier, let matchTitle, let targetIdentity, let desiredSelected):
+            let evidence = await QBridgeAccessibility.shared.observeOutlineRowSelectionEvidence(
+                applicationName: applicationName,
+                role: role,
+                identifier: matchIdentifier,
+                title: matchTitle
+            )
+            switch evidence {
+            case .resolved(let currentSelected):
+                if currentSelected == desiredSelected {
+                    return .verified(
+                        evidence: "target=\(targetIdentity) currentSelected=\(currentSelected) desiredSelected=\(desiredSelected) status=verified"
+                    )
+                } else {
+                    return .failed(
+                        reason: "Target outline row (role=\(role)) current selection state does not match the desired state after the selection.",
+                        evidence: "target=\(targetIdentity) currentSelected=\(currentSelected) desiredSelected=\(desiredSelected) status=failed"
+                    )
+                }
+            case .stateUnreadable:
+                return .failed(
+                    reason: "Target outline row (role=\(role)) current selection state could not be read after the selection — unreadable state fails closed.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            case .targetUnavailable:
+                return .failed(
+                    reason: "Target outline row (role=\(role)) is no longer resolvable, ambiguous, or no longer subrole/outline-context-qualified, for verification after the selection.",
                     evidence: "target=\(targetIdentity) status=failed"
                 )
             }

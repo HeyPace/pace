@@ -457,6 +457,36 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// unconditionally, BEFORE any Accessibility Trust check or application resolution is even
     /// attempted, never treated as a blind toggle and never silently coerced to `true`.
     case rowDeselectionUnsupported(String)
+    /// Phase 2T: the target's AX role is not on `QAXOutlineRowRolePolicy.allowedRoles` (`AXRow`
+    /// only). Thrown before any AX tree walk, mirroring `disallowedTableRowRole`'s discipline.
+    case disallowedOutlineRowRole(String)
+    /// Phase 2T: the resolved target's role matched `AXRow`, but its `kAXSubroleAttribute` is
+    /// not exactly `"AXOutlineRow"` — this is what actually distinguishes a genuine outline row
+    /// from any other `AXRow`-shaped element (e.g. one with no subrole at all, or a custom
+    /// row-like control). `ui.select_outline_row` NEVER treats an unqualified `AXRow` as an
+    /// outline row.
+    case targetNotAnOutlineRow(String)
+    /// Phase 2T: the resolved target's role matched `AXRow` and its subrole is exactly
+    /// `"AXTableRow"` — a real, distinct, SDK-confirmed subrole `ui.select_table_row` already
+    /// owns. Reported distinctly from `targetNotAnOutlineRow` for a clearer diagnostic — this is
+    /// a recognized-but-wrong-capability row shape, not an unrecognized one, and is never
+    /// silently folded into outline-row handling.
+    case tableRowUnsupportedForOutline(String)
+    /// Phase 2T: the target's own `kAXParentAttribute` could not be resolved, or the resolved
+    /// parent's role is not exactly `"AXOutline"` — without an established outline context, a
+    /// standalone `AXRow`+`AXOutlineRow` element is never accepted as a valid target, even though
+    /// its own role/subrole alone would otherwise qualify.
+    case outlineContextUnavailable(String)
+    /// Phase 2T: `kAXSelectedAttribute` could not be read from the target outline row — without
+    /// a reliably readable current selection state, idempotency and the desired-state comparison
+    /// cannot be established safely, so the operation is refused rather than guessing. Unknown
+    /// never defaults to a state.
+    case outlineRowSelectionStateReadFailed
+    /// Phase 2T: `desiredSelected` was `false` — this phase deliberately supports selection only
+    /// (`desiredSelected` MUST be `true`); deselection is out of scope and refused
+    /// unconditionally, BEFORE any Accessibility Trust check or application resolution is even
+    /// attempted, never treated as a blind toggle and never silently coerced to `true`.
+    case outlineRowDeselectionUnsupported(String)
 
     public var description: String {
         switch self {
@@ -544,6 +574,18 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target table row's current selected state could not be read."
         case .rowDeselectionUnsupported(let reason):
             return "Refusing to deselect a table row — this capability supports selection only: \(reason)"
+        case .disallowedOutlineRowRole(let role):
+            return "Target role '\(role)' is not on the allowed outline-row role list."
+        case .targetNotAnOutlineRow(let subrole):
+            return "Target is an AXRow but its subrole ('\(subrole)') is not AXOutlineRow — refusing to treat an unqualified row as an outline row."
+        case .tableRowUnsupportedForOutline(let subrole):
+            return "Target is an AXRow with subrole '\(subrole)' (a table row) — table row selection is owned by ui.select_table_row, not this capability."
+        case .outlineContextUnavailable(let reason):
+            return "Target row's outline context could not be established: \(reason)"
+        case .outlineRowSelectionStateReadFailed:
+            return "Target outline row's current selected state could not be read."
+        case .outlineRowDeselectionUnsupported(let reason):
+            return "Refusing to deselect an outline row — this capability supports selection only: \(reason)"
         }
     }
 
@@ -592,6 +634,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .tableContextUnavailable: return "AX_TABLE_CONTEXT_UNAVAILABLE"
         case .rowSelectionStateReadFailed: return "AX_ROW_SELECTION_STATE_READ_FAILED"
         case .rowDeselectionUnsupported: return "AX_ROW_DESELECTION_UNSUPPORTED"
+        case .disallowedOutlineRowRole: return "AX_OUTLINE_ROW_ROLE_NOT_ALLOWED"
+        case .targetNotAnOutlineRow: return "AX_TARGET_NOT_AN_OUTLINE_ROW"
+        case .tableRowUnsupportedForOutline: return "AX_TABLE_ROW_UNSUPPORTED_FOR_OUTLINE"
+        case .outlineContextUnavailable: return "AX_OUTLINE_CONTEXT_UNAVAILABLE"
+        case .outlineRowSelectionStateReadFailed: return "AX_OUTLINE_ROW_SELECTION_STATE_READ_FAILED"
+        case .outlineRowDeselectionUnsupported: return "AX_OUTLINE_ROW_DESELECTION_UNSUPPORTED"
         }
     }
 }
@@ -1142,6 +1190,76 @@ public struct QAXTableRowSelectionOutcome: Sendable, Equatable {
 ///   be established — physical state is uncertain; treated as `.failed`, mirroring
 ///   `axTabSelectionMatchesDesired`'s conservative model.
 public enum QAXTableRowSelectionEvidence: Sendable, Equatable {
+    case resolved(currentSelected: Bool)
+    case stateUnreadable
+    case targetUnavailable
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.select_outline_row` (Phase 2T) may target.
+///
+/// Deliberately a SINGLE role — the identical base role `QAXTableRowRolePolicy` uses, since
+/// `AXRow` is the shared base role for both table and outline rows (they differ only by subrole).
+/// `AXRow` alone is NOT sufficient for `selectOutlineRow` to treat a resolved element as an
+/// outline row — resolution additionally, unconditionally requires the `AXOutlineRow` subrole
+/// (see `QAXInteractionError.targetNotAnOutlineRow`) AND an established `AXOutline` parent
+/// context (see `QAXInteractionError.outlineContextUnavailable`). `AXTableRow` — a real, distinct
+/// subrole `ui.select_table_row` already owns — is explicitly recognized-but-refused (see
+/// `QAXInteractionError.tableRowUnsupportedForOutline`), never silently folded into outline-row
+/// handling, the exact reciprocal of `ui.select_table_row`'s own `AXOutlineRow` refusal.
+public enum QAXOutlineRowRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXRow"]
+
+    public static func isAllowedOutlineRowRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Whether a `selectOutlineRow` call actually performed a press, or found the target already
+/// selected and correctly did nothing.
+public enum QAXOutlineRowSelectionChangeKind: String, Sendable, Equatable {
+    case alreadyDesired
+    case changed
+}
+
+/// The outcome of one `QBridgeAccessibility.selectOutlineRow` call. Carries only a small,
+/// non-sensitive boolean and non-secret targeting metadata — never a raw AX attribute dump,
+/// never the content of the row's own cells, descendants, or the outline it belongs to.
+public struct QAXOutlineRowSelectionOutcome: Sendable, Equatable {
+    public let changeKind: QAXOutlineRowSelectionChangeKind
+    public let previousSelected: Bool
+    public let currentSelected: Bool
+    public let targetIdentity: String
+
+    public init(
+        changeKind: QAXOutlineRowSelectionChangeKind,
+        previousSelected: Bool,
+        currentSelected: Bool,
+        targetIdentity: String
+    ) {
+        self.changeKind = changeKind
+        self.previousSelected = previousSelected
+        self.currentSelected = currentSelected
+        self.targetIdentity = targetIdentity
+    }
+}
+
+/// The result of independently re-observing an outline row's `kAXSelectedAttribute` after a
+/// `ui.select_outline_row` dispatch, for the later closed-loop verification step (and for
+/// `QTaskRecoveryManager`'s observation-first recovery, which reuses this exact primitive).
+/// Authoritative selection state is read from `kAXSelectedAttribute` — the same attribute
+/// already proven correct for `ui.select_tab`/`ui.select_table_row`, deliberately never any
+/// table/outline-level multi-selection attribute.
+///
+/// - `.resolved(currentSelected:)`: the target is still resolvable (role `AXRow`, subrole
+///   `AXOutlineRow`, with an `AXOutline`-rooted parent context) and its selection state was read
+///   as a clean boolean.
+/// - `.stateUnreadable`: the target is resolvable but `kAXSelectedAttribute` could not be read —
+///   treated as `.failed`, NEVER defaulted to either selected or not-selected.
+/// - `.targetUnavailable`: the target (or application) is no longer resolvable at all, is
+///   ambiguous, no longer carries the `AXOutlineRow` subrole, or its outline context can no
+///   longer be established — physical state is uncertain; treated as `.failed`, mirroring
+///   `axTableRowSelectionMatchesDesired`'s conservative model.
+public enum QAXOutlineRowSelectionEvidence: Sendable, Equatable {
     case resolved(currentSelected: Bool)
     case stateUnreadable
     case targetUnavailable
@@ -3064,6 +3182,238 @@ extension QBridgeAccessibility {
             }
             guard let parentElement = Self.axElementAttribute(kAXParentAttribute, of: matches[0].element),
                   Self.axStringAttribute(kAXRoleAttribute, of: parentElement) == Self.tableContextRole else {
+                return .targetUnavailable
+            }
+            guard let currentSelected = Self.axBoolAttribute(kAXSelectedAttribute, of: matches[0].element) else {
+                return .stateUnreadable
+            }
+            return .resolved(currentSelected: currentSelected)
+        }.value
+    }
+
+    // MARK: - Semantic Outline Row Selection (Phase 2T)
+    //
+    // ui.select_outline_row — a Level 2, selection-only operation (never deselection) for exactly
+    // one semantically-identified outline row. Confirmed directly against this SDK's
+    // authoritative AXRoleConstants.h (the same header family that confirmed
+    // ui.select_table_row's role/subrole/parent constants): `AXRow` (`kAXRowRole`) is the same
+    // genuine, standalone base role table rows use — outline rows are distinguished purely by
+    // subrole (`AXOutlineRow`/`kAXOutlineRowSubrole`) and parent role (`AXOutline`/
+    // `kAXOutlineRole`), never by a distinct base role. `selectOutlineRow` resolves by role
+    // `AXRow` (`QAXOutlineRowRolePolicy`'s only allowed role) and additionally, unconditionally
+    // requires BOTH the `AXOutlineRow` subrole AND a resolved `kAXParentAttribute` whose own role
+    // is exactly `AXOutline` — an `AXRow` missing either is refused, never treated as an outline
+    // row. `AXTableRow` is a real, SDK-confirmed subrole this phase explicitly recognizes and
+    // refuses (`QAXInteractionError.tableRowUnsupportedForOutline`) — see
+    // docs/PHASE_2T_SEMANTIC_OUTLINE_ROW_SELECTION.md. Mutation is
+    // AXUIElementPerformAction(kAXPressAction) only — the same primitive
+    // ui.select_table_row/ui.select_tab/ui.toggle_disclosure/ui.set_element_state/
+    // ui.click_element already use; kAXSelectedAttribute is never written directly. No
+    // auto-expand-then-select: a collapsed row's descendant is simply not resolvable by the
+    // bounded tree walk — never specially detected or expanded. Authoritative selection state is
+    // read from kAXSelectedAttribute — deliberately never any table/outline-level multi-selection
+    // attribute. Unlike `ui.select_tab`, deselection is not merely unguaranteed — it is
+    // categorically out of scope: `desiredSelected` MUST be `true`, refused BEFORE any
+    // Accessibility Trust check or application resolution is even attempted if `false`.
+
+    // Reuses `Self.outlineRowSubrole` ("AXOutlineRow") and `Self.tableRowSubrole` ("AXTableRow")
+    // directly — both already declared, fileprivate-scoped, in this same extension by
+    // `ui.select_table_row`'s (Phase 2S) implementation above. No duplicate constant declared
+    // here: the exact same SDK-confirmed string values apply unchanged to this capability.
+
+    /// The exact parent `kAXRoleAttribute` value that establishes a row's outline context. Never
+    /// a model-configurable input — hard-coded, non-negotiable part of
+    /// `ui.select_outline_row`'s own contract.
+    fileprivate static let outlineContextRole = "AXOutline"
+
+    /// Resolves exactly one semantic `AXRow` target carrying the `AXOutlineRow` subrole and an
+    /// `AXOutline`-rooted parent context, and — unless it already reports the desired
+    /// `kAXSelectedAttribute` state — presses it toward selection. Fails closed (throws
+    /// `QAXInteractionError`) on a disallowed role, a resolved `AXRow` lacking the `AXOutlineRow`
+    /// subrole, a recognized-but-unsupported `AXTableRow` subrole, an unestablished outline
+    /// context, missing criteria, permission absence, application absence, zero/ambiguous
+    /// matches, a disabled/stale target, an unreadable current selection state, a selection-state
+    /// drift between resolution and dispatch, or a deselection request — never falls back to
+    /// coordinates, CGEvent, or keyboard simulation, and never fabricates success. Idempotent: if
+    /// the row's current `kAXSelectedAttribute` already reports `true`, no
+    /// `AXUIElementPerformAction` call is made at all — `changeKind: .alreadyDesired` is itself
+    /// the deterministic, structural proof that no mutation occurred (the same convention every
+    /// prior idempotent AX capability in this codebase already establishes).
+    public func selectOutlineRow(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?,
+        desiredSelected: Bool
+    ) async throws -> QAXOutlineRowSelectionOutcome {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Role is validated as a search CRITERION, before any tree walk — an unauthorized role
+        // is refused outright rather than allowed to shape what gets searched for, mirroring
+        // every prior write-side role policy in this codebase. Note: passing this check alone
+        // does NOT mean the target will be treated as an outline row — the mandatory
+        // AXOutlineRow subrole + AXOutline parent-context checks below are what actually decide
+        // that.
+        guard QAXOutlineRowRolePolicy.isAllowedOutlineRowRole(role) else {
+            throw QAXInteractionError.disallowedOutlineRowRole(role)
+        }
+        // Deselection is categorically out of scope for this phase — refused BEFORE any
+        // Accessibility Trust check or application resolution is even attempted, never treated
+        // as a blind toggle and never silently coerced to true.
+        guard desiredSelected else {
+            throw QAXInteractionError.outlineRowDeselectionUnsupported(
+                "ui.select_outline_row supports selection only (desiredSelected must be true)"
+            )
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Identity observation binding: identical discipline to every prior AX mutation
+            // capability — re-read the SAME element reference immediately before any mutation
+            // and refuse on any drift.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and dispatch")
+            }
+            guard observedAtVerify.isEnabled else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            // The mandatory, non-negotiable subrole gate: an AXRow without the AXOutlineRow
+            // subrole is never treated as an outline row. AXTableRow is recognized-but-refused
+            // with its own distinct diagnostic, never silently folded into outline-row handling.
+            let observedSubrole = Self.axStringAttribute(kAXSubroleAttribute, of: targetElement)
+            guard observedSubrole != Self.tableRowSubrole else {
+                throw QAXInteractionError.tableRowUnsupportedForOutline(observedSubrole ?? "none")
+            }
+            guard observedSubrole == Self.outlineRowSubrole else {
+                throw QAXInteractionError.targetNotAnOutlineRow(observedSubrole ?? "none")
+            }
+
+            // The mandatory, non-negotiable outline-context gate: a row is never accepted unless
+            // its own kAXParentAttribute resolves to an element whose role is exactly AXOutline —
+            // an arbitrary standalone AXRow+AXOutlineRow element with no such parent is refused.
+            // This is re-verified independently on every observation (never assumed to persist
+            // from resolution time) — a row discovered under an outline does not remain
+            // trustworthy as an outline row merely because it once was.
+            guard let parentElement = Self.axElementAttribute(kAXParentAttribute, of: targetElement) else {
+                throw QAXInteractionError.outlineContextUnavailable("parent element could not be resolved")
+            }
+            guard Self.axStringAttribute(kAXRoleAttribute, of: parentElement) == Self.outlineContextRole else {
+                throw QAXInteractionError.outlineContextUnavailable("parent role is not AXOutline")
+            }
+
+            // Selection-state-drift staleness check (mirroring selectTableRow's/selectTab's
+            // discipline): read kAXSelectedAttribute once at resolution, once again immediately
+            // before dispatch, and refuse if they differ — the target may still be the exact same
+            // element by identity, but its selection state already changed out from under this
+            // call.
+            guard let selectedAtSearch = Self.axBoolAttribute(kAXSelectedAttribute, of: targetElement) else {
+                throw QAXInteractionError.outlineRowSelectionStateReadFailed
+            }
+            guard let selectedAtVerify = Self.axBoolAttribute(kAXSelectedAttribute, of: targetElement) else {
+                throw QAXInteractionError.outlineRowSelectionStateReadFailed
+            }
+            guard selectedAtVerify == selectedAtSearch else {
+                throw QAXInteractionError.valueDriftDetected("target row's selected state changed between observation and dispatch")
+            }
+
+            let targetIdentity = "application=\(applicationName) role=\(role) subrole=\(Self.outlineRowSubrole) identifier=\(observedAtVerify.identifier ?? "none") label=\(observedAtVerify.titleOrDescription ?? "none")"
+
+            guard !selectedAtVerify else {
+                // Idempotent no-op: the row already reports selected=true. No AX press is
+                // performed — an unnecessary mutation is itself something to avoid.
+                return QAXOutlineRowSelectionOutcome(
+                    changeKind: .alreadyDesired,
+                    previousSelected: selectedAtVerify,
+                    currentSelected: selectedAtVerify,
+                    targetIdentity: targetIdentity
+                )
+            }
+
+            let pressResult = AXUIElementPerformAction(targetElement, kAXPressAction as CFString)
+            switch pressResult {
+            case .success:
+                break
+            case .actionUnsupported:
+                throw QAXInteractionError.actionUnsupported
+            default:
+                throw QAXInteractionError.pressFailed("AXError(\(pressResult.rawValue))")
+            }
+
+            // Immediate ephemeral post-press read — provisional only; the authoritative check is
+            // the later, independent closed-loop verification step
+            // (QVerificationStrategy.axOutlineRowSelectionMatchesDesired), which re-resolves the
+            // target fresh rather than trusting this in-process observation.
+            let currentSelected = Self.axBoolAttribute(kAXSelectedAttribute, of: targetElement) ?? true
+
+            return QAXOutlineRowSelectionOutcome(
+                changeKind: .changed,
+                previousSelected: selectedAtVerify,
+                currentSelected: currentSelected,
+                targetIdentity: targetIdentity
+            )
+        }.value
+    }
+
+    /// Best-effort, read-only re-resolution of the same match criteria used by
+    /// `selectOutlineRow`, used both by the later closed-loop verification step
+    /// (`QVerificationStrategy.axOutlineRowSelectionMatchesDesired`) and by
+    /// `QTaskRecoveryManager`'s observation-first recovery branch — the SAME primitive for both,
+    /// never a parallel resolver. Independently re-reads `kAXSelectedAttribute` fresh — never
+    /// trusts whatever `selectOutlineRow` itself last observed. Also independently re-verifies the
+    /// `AXOutlineRow` subrole and the `AXOutline` parent context, so a target that has stopped
+    /// being a qualifying outline row (however implausible in practice) is never conflated with a
+    /// genuine, still-authoritative selection observation. `.stateUnreadable` (the attribute could
+    /// not be read) is deliberately distinct from `.targetUnavailable` (the target itself cannot
+    /// be resolved, is ambiguous, or is no longer subrole/context-qualified) for a clearer
+    /// diagnostic, though both are treated as `.failed` by verification — neither is ever coerced
+    /// into a definite selected/not-selected guess.
+    public func observeOutlineRowSelectionEvidence(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async -> QAXOutlineRowSelectionEvidence {
+        guard AXIsProcessTrusted() else { return .targetUnavailable }
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else { return .targetUnavailable }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard matches.count == 1 else { return .targetUnavailable }
+            guard Self.axStringAttribute(kAXSubroleAttribute, of: matches[0].element) == Self.outlineRowSubrole else {
+                return .targetUnavailable
+            }
+            guard let parentElement = Self.axElementAttribute(kAXParentAttribute, of: matches[0].element),
+                  Self.axStringAttribute(kAXRoleAttribute, of: parentElement) == Self.outlineContextRole else {
                 return .targetUnavailable
             }
             guard let currentSelected = Self.axBoolAttribute(kAXSelectedAttribute, of: matches[0].element) else {

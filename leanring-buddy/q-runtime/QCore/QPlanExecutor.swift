@@ -648,6 +648,26 @@ public final class QPlanExecutor: Sendable {
                 targetIdentity: targetIdentity,
                 desiredSelected: desiredSelected
             )
+        } else if action.actionName == "ui.select_outline_row",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let targetIdentity = result.outputData["targetIdentity"],
+                  let desiredSelectedRaw = action.arguments["desiredSelected"],
+                  let desiredSelected = Bool(desiredSelectedRaw) {
+            // Reconstructed from the exact arguments used to dispatch, plus the safe (non-secret
+            // targeting metadata only) outputData QExecutionService captured at selection time —
+            // the independent verification step re-resolves the precise outline row that was
+            // selected and independently re-reads its own kAXSelectedAttribute, never trusting
+            // whatever executeSelectOutlineRow itself already observed.
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            return .axOutlineRowSelectionMatchesDesired(
+                applicationName: applicationName,
+                role: role,
+                matchIdentifier: nonEmpty(action.arguments["identifier"]),
+                matchTitle: nonEmpty(action.arguments["title"]),
+                targetIdentity: targetIdentity,
+                desiredSelected: desiredSelected
+            )
         } else {
             return .customCheck(description: "Default step verification") { true }
         }
