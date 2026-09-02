@@ -551,6 +551,23 @@ public final class QPlanExecutor: Sendable {
                 applicationName: applicationName,
                 targetProcessIdentifier: pid_t(targetProcessIdentifier)
             )
+        } else if action.actionName == "ui.focus_element",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let targetIdentity = result.outputData["targetIdentity"] {
+            // Reconstructed from the exact arguments used to dispatch, plus the safe (non-secret
+            // targeting metadata only) outputData QExecutionService captured at focus-change
+            // time — the independent verification step re-resolves the precise element that was
+            // focused and independently re-reads kAXFocusedUIElementAttribute, never trusting
+            // whatever executeFocusElement itself already observed.
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            return .axElementIsFocused(
+                applicationName: applicationName,
+                role: role,
+                matchIdentifier: nonEmpty(action.arguments["identifier"]),
+                matchTitle: nonEmpty(action.arguments["title"]),
+                targetIdentity: targetIdentity
+            )
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

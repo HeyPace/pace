@@ -181,7 +181,24 @@ public struct QModelPlanParser: Sendable {
         // Idempotent: an already-frontmost target is a verified no-op, no activation call made.
         // See QExecutionService.executeActivateApplication and
         // docs/PHASE_2N_APPLICATION_ACTIVATION.md for the full contract.
-        "ui.activate_application": ("app", .level1SafeLocalAction)
+        "ui.activate_application": ("app", .level1SafeLocalAction),
+        // Phase 2O: semantic AX element focus — Level 2 (reversible local action, approval
+        // required). Requests keyboard focus for a single semantically-identified element via
+        // AXUIElementSetAttributeValue(kAXFocusedAttribute) only — never a press, never a value
+        // write, never CGEvent/keyboard/mouse simulation. Unlike ui.activate_application's
+        // application-level Level 1 classification, focus-setting is element-level AX
+        // interaction — the same risk class as every other per-element AX write in this codebase
+        // (click/text-entry/state-change/slider/menu-select), so it follows their Level 2
+        // precedent rather than ui.activate_application's exception. Restricted to
+        // QAXFocusableRolePolicy's narrow fail-closed allowlist (AXButton, AXCheckBox,
+        // AXRadioButton, AXTextField, AXTextArea, AXSlider, AXStepper) — the union of every role
+        // already proven interactive by an existing write-side policy, plus AXButton.
+        // AXSecureTextField, AXStaticText, AXImage, and AXGroup are never allowed. Idempotent:
+        // already-focused is a verified no-op, no AX write made. Closes the gap explicitly named
+        // (and deliberately deferred) in ui.set_text_value's own contract: that tool "never
+        // clicks/focuses a field itself" and requires the target to already be focused. See
+        // QBridgeAccessibility.focusElement and docs/PHASE_2O_SEMANTIC_ELEMENT_FOCUS.md.
+        "ui.focus_element": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

@@ -150,6 +150,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.activate_application":
             result = await executeActivateApplication(request: request)
 
+        case "ui.focus_element":
+            result = await executeFocusElement(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -1041,5 +1044,85 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 "changeKind": "activated"
             ]
         )
+    }
+
+    // MARK: - Phase 2O: Semantic Element Focus (Level 2)
+
+    /// Level 2 (reversible local action): requests keyboard focus for one semantically-identified,
+    /// allowlisted (`QAXFocusableRolePolicy`-only) Accessibility element via
+    /// `AXUIElementSetAttributeValue(kAXFocusedAttribute)` only — never a press, never a value
+    /// write, never CGEvent/keyboard/mouse simulation, never coordinates. Every
+    /// `QAXInteractionError` failure mode — disallowed role, missing criteria, permission
+    /// absence, application absence, zero/ambiguous matches, disabled/stale target — is caught
+    /// here and converted into a deterministic, non-throwing `QActionResult`; this method never
+    /// fabricates success. Only non-secret targeting metadata crosses this method's boundary —
+    /// focus-setting never reads or exposes element values, unlike ui.read_element_value/
+    /// ui.set_text_value. A `verificationStatus` claim is deliberately NOT made here — a
+    /// successful AX write is not itself evidence the target is genuinely focused; that
+    /// determination belongs solely to QPlanExecutor's independent `.axElementIsFocused`
+    /// verification step.
+    private func executeFocusElement(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.focusElement(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Focus change attempted for \(outcome.targetIdentity): changeKind=\(outcome.changeKind.rawValue). Independent closed-loop verification pending.",
+                outputData: [
+                    "applicationName": applicationName,
+                    "role": role,
+                    "matchIdentifier": identifier ?? "",
+                    "matchTitle": title ?? "",
+                    "targetIdentity": outcome.targetIdentity,
+                    "changeKind": outcome.changeKind.rawValue
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while focusing element: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
     }
 }

@@ -389,6 +389,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// mutation is attempted. A hard security boundary: never widened by the numeric-comparison
     /// tolerance used elsewhere (idempotency/verification) — this check is always strict.
     case desiredValueOutOfRange(String)
+    /// Phase 2O: the target's AX role is not on `QAXFocusableRolePolicy.allowedRoles` — a narrow,
+    /// fail-closed allowlist of roles genuinely appropriate for keyboard focus. Thrown before any
+    /// AX tree walk, mirroring `disallowedTargetRole`'s/`disallowedStateRole`'s discipline.
+    case disallowedFocusRole(String)
+    /// Phase 2O: `AXUIElementSetAttributeValue(kAXFocusedAttribute)` did not return `.success`.
+    case setFocusFailed(String)
 
     public var description: String {
         switch self {
@@ -448,6 +454,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target element's reported range is invalid: \(reason)"
         case .desiredValueOutOfRange(let reason):
             return "Refusing to set value — desired value is out of range: \(reason)"
+        case .disallowedFocusRole(let role):
+            return "Target role '\(role)' is not on the allowed focus role list."
+        case .setFocusFailed(let reason):
+            return "Failed to focus target element: \(reason)"
         }
     }
 
@@ -482,6 +492,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .rangeReadFailed: return "AX_RANGE_READ_FAILED"
         case .invalidRange: return "AX_INVALID_RANGE"
         case .desiredValueOutOfRange: return "AX_DESIRED_VALUE_OUT_OF_RANGE"
+        case .disallowedFocusRole: return "AX_FOCUS_ROLE_NOT_ALLOWED"
+        case .setFocusFailed: return "AX_SET_FOCUS_FAILED"
         }
     }
 }
@@ -691,6 +703,71 @@ public struct QAXSliderValueOutcome: Sendable, Equatable {
 public enum QAXSliderValueEvidence: Sendable, Equatable {
     case resolved(currentValue: Double)
     case rangeInvalid(currentValue: Double)
+    case targetUnavailable
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.focus_element` (Phase 2O) may target.
+///
+/// Deliberately the narrowest allowlist of any write-capable capability in this codebase — the
+/// union of every role already proven genuinely interactive by an EXISTING write-side policy
+/// (`QAXTextEntryRolePolicy`'s `AXTextField`/`AXTextArea`, `QAXElementStateRolePolicy`'s
+/// `AXCheckBox`/`AXRadioButton`, `QAXSliderRolePolicy`'s `AXSlider`/`AXStepper`) plus `AXButton`
+/// (keyboard-activatable via Space/Return once focused, and already `ui.click_element`'s
+/// press target). `AXPopUpButton`/`AXComboBox` — already read-allowlisted by
+/// `QAXElementReadRolePolicy` — are deliberately NOT included here: selecting a value from either
+/// is a distinct, not-yet-implemented capability of its own (see docs/PHASE_2O_SEMANTIC_ELEMENT_
+/// FOCUS.md's Known limitations), and adding them here would informally provide a sliver of that
+/// capability ahead of its own proper scoping. `AXStaticText`/`AXImage`/`AXGroup` are never
+/// listed — non-interactive elements have no legitimate reason to receive keyboard focus.
+/// `AXSecureTextField` is never listed either, consistent with `QAXTextEntryRolePolicy`'s and
+/// `QAXElementReadRolePolicy`'s blanket exclusion of that role from every existing AX interaction
+/// capability, not just value read/write.
+public enum QAXFocusableRolePolicy {
+    public static let allowedRoles: Set<String> = [
+        "AXButton", "AXCheckBox", "AXRadioButton", "AXTextField", "AXTextArea", "AXSlider", "AXStepper"
+    ]
+
+    public static func isAllowedFocusRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Whether a `focusElement` call actually performed a mutation, or found the target already
+/// focused and correctly did nothing.
+public enum QAXFocusChangeKind: String, Sendable, Equatable {
+    case alreadyFocused
+    case focused
+}
+
+/// The outcome of one `QBridgeAccessibility.focusElement` call. Carries only non-secret targeting
+/// metadata (a role/identifier/label identity string) — never an AX value, since focus-setting
+/// never reads or exposes element content.
+public struct QAXFocusOutcome: Sendable, Equatable {
+    public let changeKind: QAXFocusChangeKind
+    public let targetIdentity: String
+
+    public init(changeKind: QAXFocusChangeKind, targetIdentity: String) {
+        self.changeKind = changeKind
+        self.targetIdentity = targetIdentity
+    }
+}
+
+/// The result of independently re-observing focus state after a `ui.focus_element` dispatch, for
+/// the later closed-loop verification step. A successful `AXUIElementSetAttributeValue` call is
+/// never itself treated as proof of success — this is the sole source of truth.
+///
+/// - `.focused(identity:)`: the target is resolvable AND is the systemwide
+///   `kAXFocusedUIElementAttribute` element. Treated as `.verified`.
+/// - `.notFocused`: the target is resolvable but is NOT the systemwide focused element (including
+///   the case where no focused element can be determined at all). Treated as `.failed` — never
+///   assumed successful.
+/// - `.targetUnavailable`: the target (or application) is no longer resolvable at all — physical
+///   state is uncertain; treated as `.failed`, mirroring `axTextValueChanged`'s/
+///   `axElementStateMatchesDesired`'s conservative model (not click's more permissive one), since
+///   nothing about being focused should make an element disappear.
+public enum QAXFocusVerificationEvidence: Sendable, Equatable {
+    case focused(identity: String)
+    case notFocused
     case targetUnavailable
 }
 
@@ -1647,6 +1724,152 @@ extension QBridgeAccessibility {
             }
             return .resolved(currentValue: currentValue)
         }.value
+    }
+
+    // MARK: - Semantic Element Focus (Phase 2O)
+    //
+    // ui.focus_element — a Level 2, semantically-targeted focus mutation for a single element on
+    // QAXFocusableRolePolicy's fail-closed allowlist. Mutation is
+    // AXUIElementSetAttributeValue(kAXFocusedAttribute) only — never a press, never a value
+    // write, never CGEvent/keyboard/mouse simulation. Idempotent: a target already the systemwide
+    // focused element is a verified no-op, no AX write performed. Verification is independent and
+    // re-reads kAXFocusedUIElementAttribute fresh — a successful set is never itself treated as
+    // proof of success.
+
+    /// Resolves exactly one semantic target and requests keyboard focus for it via
+    /// `AXUIElementSetAttributeValue(kAXFocusedAttribute)`. Fails closed (throws
+    /// `QAXInteractionError`) on a disallowed role, missing criteria, permission absence,
+    /// application absence, zero/ambiguous matches, a disabled target, or a stale/drifted
+    /// identity between resolution and dispatch — never falls back to coordinates, CGEvent, or
+    /// keyboard simulation, and never fabricates success. Idempotent: if the target is already
+    /// the systemwide `kAXFocusedUIElementAttribute` element, no `AXUIElementSetAttributeValue`
+    /// call is made at all — `changeKind: .alreadyFocused` is itself the deterministic, purely
+    /// structural proof that no AX write occurred (the mutation call sits in the one code path
+    /// this early return can never reach), the same convention every prior idempotent AX
+    /// capability in this codebase already establishes (see e.g. `setElementState`'s
+    /// `.alreadyDesired`, `setSliderValue`'s `.alreadyDesired`).
+    public func focusElement(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXFocusOutcome {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Role is validated as a search CRITERION, before any tree walk — an unauthorized role
+        // is refused outright rather than allowed to shape what gets searched for, mirroring
+        // every prior write-side role policy in this codebase.
+        guard QAXFocusableRolePolicy.isAllowedFocusRole(role) else {
+            throw QAXInteractionError.disallowedFocusRole(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Identity observation binding: identical discipline to every prior AX mutation
+            // capability — re-read the SAME element reference immediately before any mutation
+            // and refuse on any drift.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and dispatch")
+            }
+            guard observedAtVerify.isEnabled else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            let targetIdentity = "application=\(applicationName) role=\(role) identifier=\(observedAtVerify.identifier ?? "none") label=\(observedAtVerify.titleOrDescription ?? "none")"
+
+            // Idempotency check: is targetElement already the systemwide focused element? This
+            // read happens BEFORE any mutation decision — the same
+            // AXUIElementCreateSystemWide + kAXFocusedUIElementAttribute pattern
+            // `setTextValue`'s focus precondition check already uses.
+            if let currentlyFocused = Self.systemWideFocusedElement(), CFEqual(currentlyFocused, targetElement) {
+                return QAXFocusOutcome(changeKind: .alreadyFocused, targetIdentity: targetIdentity)
+            }
+
+            let setResult = AXUIElementSetAttributeValue(targetElement, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            guard setResult == .success else {
+                throw QAXInteractionError.setFocusFailed("AXError(\(setResult.rawValue))")
+            }
+
+            return QAXFocusOutcome(changeKind: .focused, targetIdentity: targetIdentity)
+        }.value
+    }
+
+    /// Best-effort, read-only re-resolution of the same match criteria used by `focusElement`,
+    /// used only for the later closed-loop verification step
+    /// (`QVerificationStrategy.axElementIsFocused`). Independently re-reads
+    /// `kAXFocusedUIElementAttribute` fresh — never trusts whatever `focusElement` itself last
+    /// observed. `.targetUnavailable` (not `.notFocused`) is returned if the target itself can no
+    /// longer be resolved — physical state is uncertain, so this is never conflated with a
+    /// definite "resolvable but not focused" result.
+    public func observeFocusedElementIdentity(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async -> QAXFocusVerificationEvidence {
+        guard AXIsProcessTrusted() else { return .targetUnavailable }
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else { return .targetUnavailable }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard matches.count == 1 else { return .targetUnavailable }
+            let (targetElement, snapshot) = matches[0]
+
+            guard let currentlyFocused = Self.systemWideFocusedElement(), CFEqual(currentlyFocused, targetElement) else {
+                return .notFocused
+            }
+            let identity = "application=\(applicationName) role=\(role) identifier=\(snapshot.identifier ?? "none") label=\(snapshot.titleOrDescription ?? "none")"
+            return .focused(identity: identity)
+        }.value
+    }
+
+    /// Reads the systemwide currently-focused Accessibility element, or `nil` if none can be
+    /// determined — the single shared primitive both `focusElement`'s idempotency check and
+    /// `observeFocusedElementIdentity`'s independent verification read use, so the two never risk
+    /// drifting into inconsistent focus-detection logic.
+    fileprivate nonisolated static func systemWideFocusedElement() -> AXUIElement? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElementValue: CFTypeRef?
+        let focusedResult = AXUIElementCopyAttributeValue(
+            systemWideElement,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedElementValue
+        )
+        guard focusedResult == .success,
+              let focusedElementValue,
+              CFGetTypeID(focusedElementValue) == AXUIElementGetTypeID() else {
+            return nil
+        }
+        return (focusedElementValue as! AXUIElement)
     }
 
     /// Reads a numeric (`NSNumber`-boxed) AX attribute as a `Double` — distinct from

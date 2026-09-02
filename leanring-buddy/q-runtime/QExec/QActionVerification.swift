@@ -102,6 +102,21 @@ public enum QVerificationStrategy: Sendable {
     /// assumes — if no frontmost application can be observed at all, or if the observed frontmost
     /// application's pid does not match.
     case processIsFrontmost(applicationName: String, targetProcessIdentifier: pid_t)
+    /// Phase 2O: re-resolves the same semantic target a ui.focus_element step just focused (or
+    /// correctly no-op'd) and independently re-reads `kAXFocusedUIElementAttribute` — a
+    /// successful `AXUIElementSetAttributeValue` call is never itself treated as proof of
+    /// success; this is the closed-loop check that supplies the real evidence. Like
+    /// `axTextValueChanged`/`axElementStateMatchesDesired`/`axSliderValueMatchesDesired`
+    /// (and deliberately unlike `axElementStateChanged`'s click-based model), an unresolvable
+    /// target after the change is `.failed`, not assumed success — nothing about being focused
+    /// should make an element disappear.
+    case axElementIsFocused(
+        applicationName: String,
+        role: String,
+        matchIdentifier: String?,
+        matchTitle: String?,
+        targetIdentity: String
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -363,6 +378,30 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Application '\(applicationName)' is not the frontmost application after activation.",
                     evidence: "target=\(applicationName) expectedPid=\(targetProcessIdentifier) actualFrontmostPid=\(frontmost.processIdentifier) actualFrontmostName=\(frontmost.localizedName ?? "unknown") status=failed"
+                )
+            }
+
+        case .axElementIsFocused(let applicationName, let role, let matchIdentifier, let matchTitle, let targetIdentity):
+            let evidence = await QBridgeAccessibility.shared.observeFocusedElementIdentity(
+                applicationName: applicationName,
+                role: role,
+                identifier: matchIdentifier,
+                title: matchTitle
+            )
+            switch evidence {
+            case .focused:
+                return .verified(
+                    evidence: "target=\(targetIdentity) status=verified focused=true"
+                )
+            case .notFocused:
+                return .failed(
+                    reason: "Target element (role=\(role)) is not the currently focused Accessibility element after the change.",
+                    evidence: "target=\(targetIdentity) status=failed focused=false"
+                )
+            case .targetUnavailable:
+                return .failed(
+                    reason: "Target element (role=\(role)) is no longer resolvable for verification after the focus change.",
+                    evidence: "target=\(targetIdentity) status=failed"
                 )
             }
 

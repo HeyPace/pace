@@ -183,6 +183,34 @@ public final class QTaskRecoveryManager: Sendable {
                 }
             }
 
+        case "ui.focus_element":
+            // Observation-first (Phase 2O): re-check whether the requested target is already the
+            // systemwide focused Accessibility element before ever considering a replay. Reuses
+            // the EXACT SAME independent observation primitive
+            // (QBridgeAccessibility.observeFocusedElementIdentity) QActionVerification's
+            // .axElementIsFocused strategy uses — no parallel resolver. An unresolvable target,
+            // or a resolvable-but-not-focused one, does NOT trigger a blind replay of the AX
+            // focus write here — it falls through to `verified = false`, so a fresh execution
+            // requires both a brand-new QExecutionIdentity (per QPlanExecutor) AND a genuinely
+            // fresh user approval grant, since QApprovalCoordinator's in-memory one-time grants
+            // never survive a crash/restart (no persisted authorization is ever consulted here).
+            let applicationName = uncertainStep.arguments["applicationName"] ?? ""
+            let role = uncertainStep.arguments["role"] ?? ""
+            let identifier = uncertainStep.arguments["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let title = uncertainStep.arguments["title"].flatMap { $0.isEmpty ? nil : $0 }
+            if !applicationName.isEmpty, !role.isEmpty, (identifier != nil || title != nil) {
+                let evidence = await QBridgeAccessibility.shared.observeFocusedElementIdentity(
+                    applicationName: applicationName,
+                    role: role,
+                    identifier: identifier,
+                    title: title
+                )
+                if case .focused(let identity) = evidence {
+                    verified = true
+                    verifiedEvidence = "Observation verified: target=\(identity) status=verified focused=true"
+                }
+            }
+
         case "fs.write_sandbox":
             let path = uncertainStep.targetResources.first ?? uncertainStep.arguments["path"] ?? ""
             if !path.isEmpty && FileManager.default.fileExists(atPath: path) {
