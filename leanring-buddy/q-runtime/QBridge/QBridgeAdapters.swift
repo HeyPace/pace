@@ -325,9 +325,13 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     case setValueFailed(String)
     /// Phase 2J: the target's AX role is `AXSecureTextField` — `readElementValue` refuses to
     /// read a secure/password field's value even though the OS itself typically masks it,
-    /// exactly like `setTextValue` refuses to write to one. A denylist, not an allowlist (unlike
-    /// the write-side role policy): every other role is legitimately readable.
+    /// exactly like `setTextValue` refuses to write to one. Checked and reported distinctly from
+    /// `disallowedReadRole` below for a clearer, more specific diagnostic.
     case secureFieldReadDenied(String)
+    /// Phase 2J: the target's AX role is not on `QAXElementReadRolePolicy.allowedRoles` — an
+    /// explicit allowlist, not a denylist: any role this policy does not recognize, known or
+    /// unknown, is refused by the same default-deny check.
+    case disallowedReadRole(String)
 
     public var description: String {
         switch self {
@@ -359,6 +363,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Failed to set target element's value: \(reason)"
         case .secureFieldReadDenied(let role):
             return "Refusing to read the value of a secure field (role '\(role)')."
+        case .disallowedReadRole(let role):
+            return "Target role '\(role)' is not on the allowed read-role list."
         }
     }
 
@@ -379,6 +385,7 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .valueReadFailed: return "AX_VALUE_READ_FAILED"
         case .setValueFailed: return "AX_SET_VALUE_FAILED"
         case .secureFieldReadDenied: return "AX_SECURE_FIELD_READ_DENIED"
+        case .disallowedReadRole: return "AX_READ_ROLE_NOT_ALLOWED"
         }
     }
 }
@@ -398,6 +405,27 @@ public struct QAXElementSnapshot: Sendable, Equatable {
         self.identifier = identifier
         self.titleOrDescription = titleOrDescription
         self.isEnabled = isEnabled
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.read_element_value` (Phase 2J) may target.
+///
+/// Deliberately wider than `QAXTextEntryRolePolicy`'s two-role write allowlist — reading is
+/// categorically lower-risk than writing and needs to cover the ordinary vocabulary of native
+/// macOS UI (text fields/areas, static text, buttons, toggles, choice controls) rather than only
+/// the narrow set safe to mutate — but it remains an explicit allowlist, not a denylist: any role
+/// not listed here, known or unknown, is refused by the same default-deny check
+/// `readElementValue` applies. `AXSecureTextField` is never listed and is additionally checked
+/// first with its own distinct error for a clearer diagnostic.
+public enum QAXElementReadRolePolicy {
+    public static let allowedRoles: Set<String> = [
+        "AXTextField", "AXTextArea", "AXStaticText",
+        "AXButton", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXMenuButton", "AXMenuItem",
+        "AXComboBox", "AXSlider", "AXStepper", "AXLink", "AXTab", "AXDisclosureTriangle"
+    ]
+
+    public static func isAllowedReadRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
     }
 }
 
@@ -675,22 +703,26 @@ extension QBridgeAccessibility {
     // MARK: - Semantic AX Element Value Read (Phase 2J)
     //
     // ui.read_element_value — a Level 0, read-only value read. Every element is identified by
-    // role + (identifier or title), exactly like ui.click_element/ui.set_text_value. Unlike the
-    // write-side role policy (an allowlist of exactly two roles), this is a DENYLIST of exactly
-    // one role (AXSecureTextField) — every other role is a legitimate, useful read target
-    // (buttons, labels, checkboxes, menu items, static text). Unlike setTextValue's returned
-    // QAXTextValueMutationOutcome, the value read here is returned as PLAINTEXT — this
-    // capability's entire purpose is to surface previously-unknown content to the model, exactly
-    // like screen.ocr already does. Registering this tool under toolFamily "perception" (see
-    // QModelPlanSchema.swift) — not "ui" — is what puts it through the same sanitize-before-
-    // persist / raw-for-reasoning boundary screen.ocr already relies on, with zero changes to
-    // QPlanExecutor.
+    // role + (identifier or title), exactly like ui.click_element/ui.set_text_value. The role
+    // policy is an explicit ALLOWLIST (QAXElementReadRolePolicy) — deliberately wider than the
+    // write-side allowlist (reading needs to cover the ordinary vocabulary of native macOS UI:
+    // fields, labels, buttons, toggles, choices — not just the two roles safe to mutate), but
+    // still a fail-closed allowlist, not a denylist: any role not explicitly listed, known or
+    // unknown, is refused, and AXSecureTextField is checked and reported first with its own
+    // distinct, more specific error. Unlike setTextValue's returned QAXTextValueMutationOutcome,
+    // the value read here is returned as PLAINTEXT — this capability's entire purpose is to
+    // surface previously-unknown content to the model, exactly like screen.ocr already does.
+    // Registering this tool under toolFamily "perception" (see QModelPlanSchema.swift) — not
+    // "ui" — is what puts it through the same sanitize-before-persist / raw-for-reasoning
+    // boundary screen.ocr already relies on, with zero changes to QPlanExecutor. Role is the sole
+    // authoritative signal for this policy — identifier/title content is never consulted to grant
+    // or deny access, so a benign-looking title can never bypass a disallowed role.
 
     /// Resolves exactly one semantic target and reads its value — `kAXValueAttribute` if present
     /// and non-empty, falling back to title-or-description for roles (buttons, static text, menu
     /// items) that don't carry a meaningful AXValue. Fails closed (throws `QAXInteractionError`)
-    /// on a denylisted role, missing criteria, permission absence, application absence, or zero/
-    /// ambiguous matches — never fabricates a value. Never mutates anything.
+    /// on a disallowed/secure role, missing criteria, permission absence, application absence, or
+    /// zero/ambiguous matches — never fabricates a value. Never mutates anything.
     public func readElementValue(
         applicationName: String,
         role: String,
@@ -700,8 +732,13 @@ extension QBridgeAccessibility {
         guard identifier != nil || title != nil else {
             throw QAXInteractionError.missingMatchCriteria
         }
+        // Secure field first, for a specific diagnostic; then the general allowlist, which would
+        // also reject AXSecureTextField on its own (it is never listed) — belt and suspenders.
         guard role != "AXSecureTextField" else {
             throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+        guard QAXElementReadRolePolicy.isAllowedReadRole(role) else {
+            throw QAXInteractionError.disallowedReadRole(role)
         }
 
         guard AXIsProcessTrusted() else {

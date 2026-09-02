@@ -81,6 +81,25 @@ private func makeCheckboxWindow(identifier: String, isChecked: Bool) -> (window:
     return (window, checkbox)
 }
 
+@MainActor
+private func makeTextAreaWindow(identifier: String, value: String) -> (window: NSWindow, view: NSTextView) {
+    let window = NSWindow(
+        contentRect: NSRect(x: 80, y: 80, width: 300, height: 160),
+        styleMask: [.titled],
+        backing: .buffered,
+        defer: false
+    )
+    window.title = "QSemanticElementReadTestFixture"
+    let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 160))
+    let textView = NSTextView(frame: NSRect(x: 20, y: 20, width: 260, height: 120))
+    textView.string = value
+    textView.setAccessibilityIdentifier(identifier)
+    contentView.addSubview(textView)
+    window.contentView = contentView
+    window.makeKeyAndOrderFront(nil)
+    return (window, textView)
+}
+
 private var currentProcessAppName: String {
     NSRunningApplication.current.localizedName ?? ProcessInfo.processInfo.processName
 }
@@ -187,6 +206,43 @@ struct QSemanticElementReadTests {
         // the polymorphic reader handles non-String AX values, not just text-field strings.
         #expect(!value.isEmpty)
         #expect(value != "hello world") // sanity: not accidentally reading some other fixture
+    }
+
+    // MARK: - 4b. Valid AXTextArea read (allowlisted, same role write is restricted to)
+
+    @Test("4b. A valid AXTextArea target's value is read correctly")
+    @MainActor
+    func validTextAreaValueIsRead() async throws {
+        guard AXIsProcessTrusted() else { return }
+        let suffix = UUID().uuidString
+        let (window, _) = makeTextAreaWindow(identifier: "read-area-\(suffix)", value: "multi\nline body")
+        defer { window.close() }
+        try? await Task.sleep(nanoseconds: 150_000_000)
+
+        let (value, snapshot) = try await QBridgeAccessibility.shared.readElementValue(
+            applicationName: currentProcessAppName, role: "AXTextArea", identifier: "read-area-\(suffix)", title: nil
+        )
+        #expect(value == "multi\nline body")
+        #expect(snapshot.identifier == "read-area-\(suffix)")
+    }
+
+    // MARK: - 4c. Unknown/unlisted role rejected (allowlist, not denylist)
+
+    @Test("4c. A role not on the allowlist is rejected, even though it is a real, unremarkable AX role")
+    func unknownRoleRejected() async throws {
+        // AXImage is a real, ordinary macOS AX role that is simply not on the read allowlist —
+        // proves the policy is a fail-closed allowlist (reject anything not listed) rather than a
+        // denylist (reject only known-bad roles).
+        await #expect(throws: QAXInteractionError.disallowedReadRole("AXImage")) {
+            _ = try await QBridgeAccessibility.shared.readElementValue(
+                applicationName: currentProcessAppName, role: "AXImage", identifier: "whatever", title: nil
+            )
+        }
+        await #expect(throws: QAXInteractionError.disallowedReadRole("AXMadeUpRole42")) {
+            _ = try await QBridgeAccessibility.shared.readElementValue(
+                applicationName: currentProcessAppName, role: "AXMadeUpRole42", identifier: "whatever", title: nil
+            )
+        }
     }
 
     // MARK: - 5. Invalid parameters fail closed
@@ -322,6 +378,25 @@ struct QSemanticElementReadTests {
         }
     }
 
+    // MARK: - 10b. Direct proof: QPermissionGate.evaluate never produces .requireApproval for this tool
+
+    @Test("10b. QPermissionGate.evaluate returns .allow (never .requireApproval) for ui.read_element_value — routed through the real gate, not bypassed")
+    func permissionGateNeverRequiresApprovalForRead() {
+        let authRequest = QToolAuthorizationRequest(
+            taskId: "task-read-permgate-\(UUID().uuidString)",
+            toolName: "ui.read_element_value",
+            toolFamily: "perception",
+            baseRisk: .level0ReadOnly,
+            literalAction: "Read a semantically-identified element's value",
+            affectedResources: ["SomeApp"],
+            isContextTainted: false
+        )
+        let decision = QPermissionGate.shared.evaluate(request: authRequest)
+        #expect(decision.isAllowed == true)
+        #expect(decision.requiresApproval == false)
+        #expect(decision.isDenied == false)
+    }
+
     // MARK: - 11. Uncertain in-flight step fails closed to pending on recovery
 
     @Test("11. An uncertain in-flight read step fails closed to pending — a retry is always safe since a read has no side effects")
@@ -351,6 +426,62 @@ struct QSemanticElementReadTests {
         #expect(isVerified == false)
         #expect(updatedPlan.steps[0].state == "pending")
         #expect(updatedTask.completedStepIds.isEmpty)
+    }
+
+    // MARK: - 11b. Budget accounting
+
+    @Test("11b. Each completed read step is correctly counted against the task's execution budget")
+    @MainActor
+    func readStepsAreCountedAgainstBudget() async throws {
+        guard AXIsProcessTrusted() else { return }
+        let suffix = UUID().uuidString
+        let (windowA, _) = makeTextFieldWindow(identifier: "budget-a-\(suffix)", value: "one")
+        let (windowB, _) = makeTextFieldWindow(identifier: "budget-b-\(suffix)", value: "two")
+        defer { windowA.close(); windowB.close() }
+        try? await Task.sleep(nanoseconds: 150_000_000)
+
+        let mockModel = MockAutonomousModelProvider()
+        mockModel.structuredPlansToReturn = [
+            """
+            {
+              "taskPrompt": "Read two fields",
+              "steps": [
+                {
+                  "actionName": "ui.read_element_value",
+                  "toolFamily": "perception",
+                  "description": "Read the first field",
+                  "parameters": {"applicationName": "\(currentProcessAppName)", "role": "AXTextField", "identifier": "budget-a-\(suffix)"}
+                },
+                {
+                  "actionName": "ui.read_element_value",
+                  "toolFamily": "perception",
+                  "description": "Read the second field",
+                  "parameters": {"applicationName": "\(currentProcessAppName)", "role": "AXTextField", "identifier": "budget-b-\(suffix)"}
+                }
+              ]
+            }
+            """
+        ]
+        let store = try QDurableTaskStore(inMemory: true)
+        let runtime = QCoreRuntime(
+            modelProvider: mockModel,
+            memoryProvider: try QSQLiteMemoryStore(inMemory: true),
+            executionProvider: QExecutionService.shared,
+            durableStore: store,
+            endpointName: "semantic-read-budget-\(UUID().uuidString)"
+        )
+
+        let task = try await runtime.submitIntent(prompt: "Read two fields")
+        guard case .completed = task.state else {
+            Issue.record("Expected both reads to complete, got: \(task.state)")
+            return
+        }
+
+        guard let durableTaskState = try store.getTask(taskId: task.taskId) else {
+            Issue.record("Expected a persisted durable task state")
+            return
+        }
+        #expect(durableTaskState.budget.executedStepsCount == 2)
     }
 
     // MARK: - 12/15/16/17/18. Privacy: raw value reaches model reasoning, sanitized before persistence
@@ -423,11 +554,38 @@ struct QSemanticElementReadTests {
         }
         #expect(anyRecordLeaksSecret == false)
 
+        // HUD / persistent UI state: no approval surface was ever created for this Level 0 tool
+        // (test 10/10b), so there is no QApprovalRequest.expectedEffect for the secret to appear
+        // in at all — explicitly confirmed via the same reconstruction path the live HUD uses.
+        let recoveredPlan = try durablePlan.validate()
+        let uiSnapshot = QRuntimeUISnapshot.from(plan: recoveredPlan)
+        #expect(uiSnapshot.pendingApproval == nil)
+
+        // Recovery state: reconstructing a QTask from the persisted durable task state (the same
+        // reconstruction QTaskRecoveryManager/QCoreRuntime use on resume) never surfaces the
+        // secret — every free-text field on the durable task state is checked directly.
+        guard let durableTaskState = try store.getTask(taskId: task.taskId) else {
+            Issue.record("Expected a persisted durable task state")
+            return
+        }
+        #expect(durableTaskState.lastKnownError?.contains(secret) != true)
+        #expect(durableTaskState.securityBlockReason?.contains(secret) != true)
+        #expect(durableTaskState.originalIntent.contains(secret) == false)
+        let recoveredTask = durableTaskState.toTask()
+        if case .awaitingApproval(let recoveredApproval) = recoveredTask.state {
+            Issue.record("A completed Level 0 read must never reconstruct into an awaitingApproval state: \(recoveredApproval)")
+        }
+
+        // Persisted replan context: this run succeeded on the first attempt, so no replan
+        // occurred — the closest-available persisted replan-context field is the durable task
+        // state's own replan counter/last-error, both already checked above and both zero/nil
+        // here, which is itself the correct evidence that no replan artifact carrying the secret
+        // was ever written.
+        #expect(durableTaskState.replanAttemptCount == 0)
+
         // The OPPOSITE property, equally required: the raw value must have reached QTaskContext
-        // (proven indirectly here via the same taint-forcing mechanism test 13 exercises
-        // directly) — this test only asserts the persistence-layer redaction; test 13 proves the
-        // raw value's provenance/taint effect, which is only possible if QTaskContext actually
-        // received it.
+        // (proven directly by test 13's taint-forcing mechanism) — this test only asserts the
+        // persistence-layer redaction.
         _ = suffix
     }
 

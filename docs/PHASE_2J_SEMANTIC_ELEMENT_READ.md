@@ -15,22 +15,28 @@ Registered in `QModelPlanParser.registeredCapabilities` as `"ui.read_element_val
 | Parameter | Required | Meaning |
 | --- | --- | --- |
 | `applicationName` | yes | The running application to search. |
-| `role` | yes | The AX role to match. Any role **except** `AXSecureTextField` — a denylist, not an allowlist (see below). |
+| `role` | yes | The AX role to match. Must be on `QAXElementReadRolePolicy.allowedRoles` — an explicit allowlist (see below), not a denylist. `AXSecureTextField` is never listed and is additionally checked first for a clearer, distinct diagnostic. |
 | `identifier` | one of `identifier`/`title` | Matched against `AXIdentifier`. |
 | `title` | one of `identifier`/`title` | Matched against `AXTitle`. |
 
 No `value` parameter exists — this tool never writes anything.
 
-## Why a denylist, not an allowlist — the opposite of `ui.set_text_value`
+## Why an allowlist, wider than `ui.set_text_value`'s but still fail-closed
 
-`ui.set_text_value`'s role policy is an allowlist of exactly two roles because writing is
-inherently risky and the safe set is small and well-understood. Reading is categorically
-different: a read has zero mutation risk, and restricting it to two roles would make it far less
-useful than it should be — an agent legitimately needs to read button titles, checkbox states,
-static text, and menu items, not just text fields. `QBridgeAccessibility.readElementValue`
-therefore denies exactly one role, `AXSecureTextField`, and allows everything else — the same
-"exclude the one known-secret-shaped role" judgment `ui.set_text_value` already made, applied in
-the opposite (permissive-by-default) direction appropriate to a read-only capability.
+`ui.set_text_value`'s role policy is a narrow, two-role allowlist because writing is inherently
+risky. Reading has zero mutation risk, so the allowlist here is deliberately much wider —
+`QAXElementReadRolePolicy.allowedRoles` covers the ordinary vocabulary of native macOS UI
+(`AXTextField`, `AXTextArea`, `AXStaticText`, `AXButton`, `AXCheckBox`, `AXRadioButton`,
+`AXPopUpButton`, `AXMenuButton`, `AXMenuItem`, `AXComboBox`, `AXSlider`, `AXStepper`, `AXLink`,
+`AXTab`, `AXDisclosureTriangle`) rather than just text fields. It is still an **explicit
+allowlist, not a denylist**: any role not listed — known or unknown — is refused by the same
+fail-closed default-deny check every other AX capability in this codebase already uses.
+`AXSecureTextField` is never listed, and is checked first with its own distinct
+`AX_SECURE_FIELD_READ_DENIED` error before the general `AX_READ_ROLE_NOT_ALLOWED` check runs, for
+a clearer diagnostic — belt and suspenders, since the general allowlist would refuse it either
+way. Role is the sole authoritative signal this policy consults: an element's identifier or title
+is never used to grant or deny access, so a benign-sounding title can never let a disallowed role
+through.
 
 ## Why `toolFamily: "perception"`, not `"ui"` — the key security decision
 
@@ -54,8 +60,9 @@ predicate was already written generically enough to support it.
 
 `QBridgeAccessibility.readElementValue` (`QBridgeAdapters.swift`) reuses the identical bounded
 tree walker (`collectMatches`, depth 12 / 3,000 nodes / 1.5s budget) `ui.click_element`/
-`ui.set_text_value` already use. It performs the secure-field denylist check before any search
-(`AX_SECURE_FIELD_READ_DENIED`), resolves zero/one/many matches
+`ui.set_text_value` already use. It checks the secure-field case first for a specific diagnostic
+(`AX_SECURE_FIELD_READ_DENIED`), then the general role allowlist
+(`AX_READ_ROLE_NOT_ALLOWED`) — both before any search — resolves zero/one/many matches
 (`AX_NO_MATCHING_ELEMENT`/`AX_AMBIGUOUS_TARGET`), and reads the value via a polymorphic helper
 (`axValueDescription`): `kAXValueAttribute` as a `String` if present and non-empty, else as a
 boxed `NSNumber` (covers checkboxes/sliders/steppers) converted to its string representation,
@@ -83,22 +90,27 @@ capability in this codebase.
 
 ## Real macOS test coverage
 
-`leanring-buddyTests/QSemanticElementReadTests.swift` (14 tests, gated on `AXIsProcessTrusted()`,
+`leanring-buddyTests/QSemanticElementReadTests.swift` (18 tests, gated on `AXIsProcessTrusted()`,
 honest no-op fallback): registration/anti-downgrade (including the *upgrade* direction, since
-Level 0 is the floor rather than the ceiling), text-field/button/checkbox reads (proving the
-polymorphic value reader), missing parameters, secure-field denial, zero/ambiguous match,
-idempotency, no-approval-ever, uncertain-state recovery, and — the two tests that directly prove
-the toolFamily security decision — a redaction test (a real secret read stays out of durable
-state/audit/memory) paired with a provenance test (the same read's untrusted taint still forces a
-*later* Level 2 step to require fresh approval, which is only possible if the raw value really did
-reach `QTaskContext`). A final E2E test composes `ui.set_text_value` and `ui.read_element_value` in
-one plan, writing a value and reading it back.
+Level 0 is the floor rather than the ceiling), text-field/text-area/button/checkbox reads (proving
+the polymorphic value reader and the allowlist's breadth), missing parameters, secure-field
+denial, a role that is real and unremarkable but simply not on the allowlist (proving allowlist,
+not denylist, semantics), zero/ambiguous match, idempotency, no-approval-ever (both an end-to-end
+completion proof and a direct `QPermissionGate.evaluate` unit proof), uncertain-state recovery,
+budget accounting across a two-step plan, and — the tests that directly prove the toolFamily
+security decision — a redaction test (a real secret read stays out of durable state, audit,
+memory, the HUD reconstruction path, and recovered durable-task-state fields) paired with a
+provenance test (the same read's untrusted taint still forces a *later* Level 2 step to require
+fresh approval, which is only possible if the raw value really did reach `QTaskContext`). A final
+E2E test composes `ui.set_text_value` and `ui.read_element_value` in one plan, writing a value and
+reading it back.
 
 ## Excluded capabilities (explicitly out of scope for this phase)
 
 Any mutation, keyboard simulation, CGEvent, coordinate-based interaction, reading
-`AXSecureTextField`, full-screen/vision-based reading (that remains `screen.ocr`'s job), browser
-automation, and any new network/cloud dependency. None of these were added.
+`AXSecureTextField` or any role not on `QAXElementReadRolePolicy.allowedRoles`, full-screen/
+vision-based reading (that remains `screen.ocr`'s job), browser automation, and any new
+network/cloud dependency. None of these were added.
 
 ## Known limitations
 
@@ -106,9 +118,11 @@ automation, and any new network/cloud dependency. None of these were added.
 - The polymorphic value reader covers `String` and `NSNumber`-boxed values; an AX attribute of
   some other exotic type would return the title-or-description fallback rather than a
   representation of that value.
-- The role denylist covers `AXSecureTextField` specifically; a custom-drawn secure-looking field
-  claiming a different role is the same class of limitation already documented for
-  `ui.set_text_value`'s role policy.
+- The role allowlist is fixed at implementation time (`QAXElementReadRolePolicy.allowedRoles`); a
+  legitimate role not yet on the list would need a follow-up change to read — a deliberate
+  fail-closed trade-off, same in kind as `ui.set_text_value`'s narrower write allowlist. A
+  custom-drawn secure-looking field claiming an allowlisted role (rather than
+  `AXSecureTextField`) is the same class of limitation already documented for that write policy.
 - The internal (non-user-facing) `QTaskContext` event-log `sourceId` this capability's taint
   propagation uses (`"step_\(i)_ocr"`, inherited unchanged from the shared `isScreenDerivedStep`
   code path) is a generic, pre-existing label shared with `screen.ocr` — cosmetic only, not a
