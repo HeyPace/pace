@@ -93,6 +93,15 @@ public enum QVerificationStrategy: Sendable {
         targetIdentity: String,
         desiredValue: Double
     )
+    /// Phase 2N: re-observes `NSWorkspace.shared.frontmostApplication` independently of whatever
+    /// `executeActivateApplication` itself observed (including its own bounded poll) and confirms
+    /// it matches the resolved target's stable `processIdentifier` — never `localizedName`, which
+    /// a same-named replacement process could otherwise satisfy. A successful `activate()` call
+    /// (or an idempotent already-frontmost no-op) is not itself evidence of goal success; this is
+    /// the independent closed-loop check that supplies the real evidence, and it fails — never
+    /// assumes — if no frontmost application can be observed at all, or if the observed frontmost
+    /// application's pid does not match.
+    case processIsFrontmost(applicationName: String, targetProcessIdentifier: pid_t)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -336,6 +345,24 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Target element (role=\(role)) is no longer resolvable for verification after the change.",
                     evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+        case .processIsFrontmost(let applicationName, let targetProcessIdentifier):
+            guard let frontmost = NSWorkspace.shared.frontmostApplication else {
+                return .failed(
+                    reason: "No frontmost application could be observed after activating '\(applicationName)'.",
+                    evidence: "NSWorkspace.shared.frontmostApplication returned nil."
+                )
+            }
+            if frontmost.processIdentifier == targetProcessIdentifier {
+                return .verified(
+                    evidence: "target=\(applicationName) pid=\(targetProcessIdentifier) status=verified frontmost=true"
+                )
+            } else {
+                return .failed(
+                    reason: "Application '\(applicationName)' is not the frontmost application after activation.",
+                    evidence: "target=\(applicationName) expectedPid=\(targetProcessIdentifier) actualFrontmostPid=\(frontmost.processIdentifier) actualFrontmostName=\(frontmost.localizedName ?? "unknown") status=failed"
                 )
             }
 

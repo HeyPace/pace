@@ -538,6 +538,19 @@ public final class QPlanExecutor: Sendable {
                 targetIdentity: targetIdentity,
                 desiredValue: desiredValue
             )
+        } else if action.actionName == "ui.activate_application",
+                  let applicationName = action.arguments["applicationName"],
+                  let targetProcessIdentifierString = result.outputData["targetProcessIdentifier"],
+                  let targetProcessIdentifier = Int32(targetProcessIdentifierString) {
+            // Reconstructed from the exact application name used to dispatch, plus the safe
+            // (non-secret, stable process identity) outputData QExecutionService captured at
+            // resolution time — the independent verification step re-queries
+            // NSWorkspace.shared.frontmostApplication itself rather than trusting whatever
+            // executeActivateApplication's own bounded poll already observed.
+            return .processIsFrontmost(
+                applicationName: applicationName,
+                targetProcessIdentifier: pid_t(targetProcessIdentifier)
+            )
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

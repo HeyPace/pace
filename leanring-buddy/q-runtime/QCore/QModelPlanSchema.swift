@@ -169,7 +169,19 @@ public struct QModelPlanParser: Sendable {
         // and is registered under toolFamily "ui". See QBridgeAccessibility.setSliderValue and
         // docs/PHASE_2M_SEMANTIC_SLIDER_VALUE.md for the full contract, including the exact
         // tolerance rule and the range/value-drift protection.
-        "ui.set_slider_value": ("ui", .level2UserApproval)
+        "ui.set_slider_value": ("ui", .level2UserApproval),
+        // Phase 2N: semantic application activation — Level 1 (safe local action, NOT gated by
+        // user approval). Activates one already-running application, matched by an EXACT
+        // `localizedName` (never substring/prefix/suffix/fuzzy/case-insensitive), via
+        // `NSRunningApplication.activate()` only — never AXUIElement/CGEvent/AppleScript/shell.
+        // Deliberately application-level, not window-level: no window title/ID targeting exists.
+        // Unlike every Level 2+ UI capability above, this NEVER produces a `QApprovalRequest` —
+        // `QPermissionGate.evaluate` already routes Level 0/1 straight to `.allow` by policy, so
+        // this is enforced by registering the correct level here, not by a special-cased bypass.
+        // Idempotent: an already-frontmost target is a verified no-op, no activation call made.
+        // See QExecutionService.executeActivateApplication and
+        // docs/PHASE_2N_APPLICATION_ACTIVATION.md for the full contract.
+        "ui.activate_application": ("app", .level1SafeLocalAction)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

@@ -147,6 +147,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.set_slider_value":
             result = await executeSetSliderValue(request: request)
 
+        case "ui.activate_application":
+            result = await executeActivateApplication(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -938,5 +941,105 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 error: "AX_UNEXPECTED_ERROR"
             )
         }
+    }
+
+    // MARK: - Phase 2N: Semantic Application Activation (Level 1, no approval)
+
+    /// Level 1 (safe local action, no approval gate): activates one already-running application,
+    /// resolved by an EXACT `localizedName` match, via `NSRunningApplication.activate()` only —
+    /// never `AXUIElement`, `CGEvent`, keyboard/mouse simulation, coordinates, AppleScript, or
+    /// shell automation, and never gated on `AXIsProcessTrusted()` (the entire point of this
+    /// capability is that it works without Accessibility permission granted). Resolution rejects
+    /// a missing/empty/whitespace-only name, accepts only `candidate.localizedName ==
+    /// requestedName` (never substring/prefix/suffix/fuzzy/case-insensitive), fails closed on zero
+    /// matches, and fails closed on more than one exact match rather than guessing which running
+    /// instance was intended. The resolved target's `processIdentifier` — not `localizedName` — is
+    /// the stable identity used for the idempotency check and threaded through `outputData` for
+    /// the independent closed-loop `.processIsFrontmost` verification step
+    /// (`QActionVerification.swift`): a `pid` uniquely identifies the exact resolved instance, so
+    /// a same-named process quitting and a different one launching between resolution and
+    /// verification cannot be misread as the original target remaining frontmost. Idempotent: if
+    /// the resolved target is already frontmost, no `activate()` call is made at all. A bounded
+    /// ~1s poll (mirroring `executeAppQuit`'s identical pattern) gives the OS time to actually
+    /// raise the target before returning, so verification does not race ordinary activation
+    /// latency — that independent step, never this method's own observation or `activate()`'s own
+    /// return value, is the authoritative postcondition check on success.
+    private func executeActivateApplication(request: QActionRequest) async -> QActionResult {
+        guard let requestedName = request.parameters["applicationName"],
+              !requestedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing or empty required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        // Exact localizedName match only — never substring/prefix/suffix/fuzzy/case-insensitive,
+        // and never a silently-normalized (e.g. trimmed) comparison value.
+        let exactMatches = NSWorkspace.shared.runningApplications.filter {
+            $0.localizedName == requestedName
+        }
+
+        guard !exactMatches.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "No running application found with the exact name '\(requestedName)'.",
+                error: "APP_NOT_RUNNING"
+            )
+        }
+
+        guard exactMatches.count == 1, let target = exactMatches.first else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Multiple running applications exactly match the name '\(requestedName)' — refusing to guess which one was intended.",
+                error: "APP_AMBIGUOUS_MATCH"
+            )
+        }
+
+        let targetProcessIdentifier = target.processIdentifier
+        let targetBundleIdentifier = target.bundleIdentifier ?? ""
+
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == targetProcessIdentifier {
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Application '\(requestedName)' is already the frontmost application; no activation was necessary.",
+                outputData: [
+                    "applicationName": requestedName,
+                    "targetProcessIdentifier": "\(targetProcessIdentifier)",
+                    "targetBundleIdentifier": targetBundleIdentifier,
+                    "changeKind": "alreadyFrontmost"
+                ]
+            )
+        }
+
+        let activationRequestAccepted = target.activate()
+
+        // Bounded poll (~1s) for the target to actually become frontmost before returning, so the
+        // immediately-following independent closed-loop verification does not race normal
+        // activation latency — the same pattern executeAppQuit already established for
+        // termination. This poll is a UX/timing convenience only; it is never itself treated as
+        // proof of success — see .processIsFrontmost in QActionVerification.swift.
+        for _ in 0..<10 {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == targetProcessIdentifier {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+        }
+
+        return QActionResult(
+            actionId: request.actionId,
+            success: true,
+            summary: "Activation attempted for application '\(requestedName)' (activate() accepted=\(activationRequestAccepted)). Independent closed-loop verification pending.",
+            outputData: [
+                "applicationName": requestedName,
+                "targetProcessIdentifier": "\(targetProcessIdentifier)",
+                "targetBundleIdentifier": targetBundleIdentifier,
+                "changeKind": "activated"
+            ]
+        )
     }
 }

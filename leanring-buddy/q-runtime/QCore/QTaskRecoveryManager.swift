@@ -162,6 +162,27 @@ public final class QTaskRecoveryManager: Sendable {
                 }
             }
 
+        case "ui.activate_application":
+            // Observation-first (Phase 2N): re-check whether the requested target is already
+            // frontmost before ever considering a replay. Mirrors the capability's own exact-
+            // match resolution contract exactly — never substring/fuzzy — and, like the live
+            // capability itself, only recognizes completion when EXACTLY ONE running application
+            // exactly matches the requested name and it is currently frontmost (matched by stable
+            // `processIdentifier`, not `localizedName`). An ambiguous, absent, or not-yet-frontmost
+            // target does NOT trigger a blind replay of activate() here — it falls through to
+            // `verified = false`, so a fresh execution (with a fresh QExecutionIdentity, per
+            // QPlanExecutor) goes through the normal plan-executor path exactly once, safely.
+            let appName = uncertainStep.arguments["applicationName"] ?? uncertainStep.targetResources.first ?? ""
+            if !appName.isEmpty {
+                let exactMatches = NSWorkspace.shared.runningApplications.filter { $0.localizedName == appName }
+                if exactMatches.count == 1,
+                   let target = exactMatches.first,
+                   NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier {
+                    verified = true
+                    verifiedEvidence = "Observation verified: Application '\(appName)' is already the frontmost application (pid=\(target.processIdentifier))."
+                }
+            }
+
         case "fs.write_sandbox":
             let path = uncertainStep.targetResources.first ?? uncertainStep.arguments["path"] ?? ""
             if !path.isEmpty && FileManager.default.fileExists(atPath: path) {
