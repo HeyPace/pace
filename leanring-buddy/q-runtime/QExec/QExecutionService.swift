@@ -135,6 +135,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.set_text_value":
             result = await executeSetTextValue(request: request)
 
+        case "ui.read_element_value":
+            result = await executeReadElementValue(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -589,6 +592,82 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while setting text value: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Level 0 (read-only, zero mutation): reads the value of one semantically-identified
+    /// Accessibility element. Every `QAXInteractionError` failure mode — missing criteria,
+    /// denylisted secure-field role, permission denied, application unavailable, zero/ambiguous
+    /// matches — is caught here and converted into a deterministic, non-throwing `QActionResult`;
+    /// this method never falls back to coordinates or a screenshot, and never fabricates a value.
+    /// Unlike ui.set_text_value's carefully-hashed-and-masked outputs, the read value is placed
+    /// directly in `summary`/`outputData` as plaintext — exposing it to the model is this
+    /// capability's entire purpose, exactly like screen.ocr. This tool is registered under
+    /// toolFamily "perception" (see QModelPlanSchema.swift), which is what routes this raw value
+    /// through QPlanExecutor's existing sanitize-before-persist / raw-for-reasoning boundary
+    /// before it reaches durable state, audit, or memory — the same boundary screen.ocr already
+    /// relies on.
+    private func executeReadElementValue(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let (value, snapshot) = try await QBridgeAccessibility.shared.readElementValue(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Read \(role) element (identifier=\(snapshot.identifier ?? "none"), label=\(snapshot.titleOrDescription ?? "none")) in \(applicationName): \(value)",
+                outputData: [
+                    "applicationName": applicationName,
+                    "role": role,
+                    "matchIdentifier": identifier ?? "",
+                    "matchTitle": title ?? "",
+                    "value": value
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading element value: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

@@ -104,7 +104,19 @@ public struct QModelPlanParser: Sendable {
         // in QSensitiveArgumentPolicy — masked before durable persistence and never used to
         // build approval/HUD display text. See QBridgeAccessibility.setTextValue and
         // docs/PHASE_2I_TEXT_ENTRY_SECURITY_REMEDIATION.md for the full contract.
-        "ui.set_text_value": ("ui", .level2UserApproval)
+        "ui.set_text_value": ("ui", .level2UserApproval),
+        // Phase 2J: semantic AX element value read — Level 0 (read-only, zero mutation). The
+        // target MUST identify an Accessibility element semantically (role + identifier or
+        // title); AXSecureTextField is denylisted. Deliberately registered under toolFamily
+        // "perception" — NOT "ui" — even though it targets AX rather than pixels: this is what
+        // activates QPlanExecutor's existing `isScreenDerivedStep` predicate
+        // (`toolFamily == "perception"`), the same sanitize-before-persist / raw-for-reasoning
+        // boundary screen.ocr already relies on, with zero changes to QPlanExecutor itself. The
+        // read value is INTENTIONALLY exposed to the model (unlike ui.set_text_value's masked
+        // `value` input) — that is this capability's entire purpose — so it must never be
+        // registered under "ui", which carries no such redaction boundary. See
+        // QBridgeAccessibility.readElementValue and docs/PHASE_2J_SEMANTIC_ELEMENT_READ.md.
+        "ui.read_element_value": ("perception", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

@@ -323,6 +323,11 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     case valueReadFailed
     /// Phase 2I: `AXUIElementSetAttributeValue(kAXValueAttribute)` did not return `.success`.
     case setValueFailed(String)
+    /// Phase 2J: the target's AX role is `AXSecureTextField` — `readElementValue` refuses to
+    /// read a secure/password field's value even though the OS itself typically masks it,
+    /// exactly like `setTextValue` refuses to write to one. A denylist, not an allowlist (unlike
+    /// the write-side role policy): every other role is legitimately readable.
+    case secureFieldReadDenied(String)
 
     public var description: String {
         switch self {
@@ -352,6 +357,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target element's current value could not be read."
         case .setValueFailed(let reason):
             return "Failed to set target element's value: \(reason)"
+        case .secureFieldReadDenied(let role):
+            return "Refusing to read the value of a secure field (role '\(role)')."
         }
     }
 
@@ -371,6 +378,7 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .targetNotFocused: return "AX_TARGET_NOT_FOCUSED"
         case .valueReadFailed: return "AX_VALUE_READ_FAILED"
         case .setValueFailed: return "AX_SET_VALUE_FAILED"
+        case .secureFieldReadDenied: return "AX_SECURE_FIELD_READ_DENIED"
         }
     }
 }
@@ -662,6 +670,82 @@ extension QBridgeAccessibility {
             guard let currentValue = Self.axStringAttribute(kAXValueAttribute, of: matches[0].element) else { return nil }
             return (Self.sha256Hex(currentValue), currentValue.count)
         }.value
+    }
+
+    // MARK: - Semantic AX Element Value Read (Phase 2J)
+    //
+    // ui.read_element_value — a Level 0, read-only value read. Every element is identified by
+    // role + (identifier or title), exactly like ui.click_element/ui.set_text_value. Unlike the
+    // write-side role policy (an allowlist of exactly two roles), this is a DENYLIST of exactly
+    // one role (AXSecureTextField) — every other role is a legitimate, useful read target
+    // (buttons, labels, checkboxes, menu items, static text). Unlike setTextValue's returned
+    // QAXTextValueMutationOutcome, the value read here is returned as PLAINTEXT — this
+    // capability's entire purpose is to surface previously-unknown content to the model, exactly
+    // like screen.ocr already does. Registering this tool under toolFamily "perception" (see
+    // QModelPlanSchema.swift) — not "ui" — is what puts it through the same sanitize-before-
+    // persist / raw-for-reasoning boundary screen.ocr already relies on, with zero changes to
+    // QPlanExecutor.
+
+    /// Resolves exactly one semantic target and reads its value — `kAXValueAttribute` if present
+    /// and non-empty, falling back to title-or-description for roles (buttons, static text, menu
+    /// items) that don't carry a meaningful AXValue. Fails closed (throws `QAXInteractionError`)
+    /// on a denylisted role, missing criteria, permission absence, application absence, or zero/
+    /// ambiguous matches — never fabricates a value. Never mutates anything.
+    public func readElementValue(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> (value: String, snapshot: QAXElementSnapshot) {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard role != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, snapshot) = matches[0]
+
+            let value = Self.axValueDescription(of: targetElement) ?? snapshot.titleOrDescription ?? ""
+            return (value, snapshot)
+        }.value
+    }
+
+    /// Best-effort, polymorphic `kAXValueAttribute` reader — text fields/labels typically carry a
+    /// `String`, checkboxes/sliders/steppers typically carry a boxed number (`NSNumber`,
+    /// commonly bridging a Bool or Int) — returns a human-readable string representation in
+    /// either case, or nil if the attribute is absent/unreadable/of an unrecognized type.
+    fileprivate nonisolated static func axValueDescription(of element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
+        guard result == .success, let value else { return nil }
+        if let stringValue = value as? String {
+            return stringValue.isEmpty ? nil : stringValue
+        }
+        if let numberValue = value as? NSNumber {
+            return numberValue.stringValue
+        }
+        return nil
     }
 
     // MARK: - Bounded traversal (nonisolated: pure over AXUIElement/CFTypeRef, safe from any thread)
