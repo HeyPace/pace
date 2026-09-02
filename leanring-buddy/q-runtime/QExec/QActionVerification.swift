@@ -46,6 +46,24 @@ public enum QVerificationStrategy: Sendable {
         previousValueHash: String,
         intendedValueHash: String
     )
+    /// Phase 2K: re-resolves the same semantic checkbox/radio-button target a
+    /// ui.set_element_state step just pressed (or correctly no-op'd) and confirms its CURRENT
+    /// state hashes to the desired state's hash — never comparing or transmitting the raw AX
+    /// value itself (only the small "on"/"off" enum and its hash ever exist). A successful press
+    /// is not itself evidence of goal success; this is the independent closed-loop check that
+    /// supplies the real evidence. Like `axTextValueChanged` (and deliberately unlike
+    /// `axElementStateChanged`), an unresolvable target after the change is treated as `.failed`,
+    /// not assumed success — a checkbox/radio's identity is not expected to change as a direct
+    /// result of being toggled the way some buttons' identity does after a press.
+    case axElementStateMatchesDesired(
+        applicationName: String,
+        role: String,
+        matchIdentifier: String?,
+        matchTitle: String?,
+        targetIdentity: String,
+        previousStateHash: String,
+        desiredStateHash: String
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -210,6 +228,30 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Target element (role=\(role)) current value does not match the intended value after the write.",
                     evidence: evidence.safeEvidenceDescription
+                )
+            }
+
+        case .axElementStateMatchesDesired(let applicationName, let role, let matchIdentifier, let matchTitle, let targetIdentity, let previousStateHash, let desiredStateHash):
+            guard let currentStateHash = await QBridgeAccessibility.shared.observeElementStateHash(
+                applicationName: applicationName,
+                role: role,
+                identifier: matchIdentifier,
+                title: matchTitle
+            ) else {
+                return .failed(
+                    reason: "Target element (role=\(role)) is no longer resolvable for verification after the state change.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+            if currentStateHash == desiredStateHash {
+                return .verified(
+                    evidence: "target=\(targetIdentity) stateChanged=\(currentStateHash != previousStateHash) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Target element (role=\(role)) current state does not match the desired state after the change.",
+                    evidence: "target=\(targetIdentity) status=failed"
                 )
             }
 

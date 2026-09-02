@@ -138,6 +138,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_element_value":
             result = await executeReadElementValue(request: request)
 
+        case "ui.set_element_state":
+            result = await executeSetElementState(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -668,6 +671,97 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading element value: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Level 2 (reversible local action): sets one semantically-identified, allowlisted
+    /// (`AXCheckBox`/`AXRadioButton`-only) element to an explicit desired on/off state via
+    /// `AXUIElementPerformAction(kAXPressAction)` only — never CGEvent, keyboard simulation, or
+    /// coordinates. Every `QAXInteractionError` failure mode — disallowed role, unreadable/
+    /// uninterpretable state, ambiguous/stale target (identity or value-drift), an unguaranteed
+    /// state transition — is caught here and converted into a deterministic, non-throwing
+    /// `QActionResult`; this method never fabricates success. Only small, non-secret enum values
+    /// ("on"/"off") and SHA-256 hashes cross this method's boundary — never a raw AX attribute
+    /// dump, never unrelated UI content. A `verificationStatus` claim is deliberately NOT made
+    /// here — a successful press is not itself evidence the desired state was reached; that
+    /// determination belongs solely to QPlanExecutor's independent
+    /// `.axElementStateMatchesDesired` verification step.
+    private func executeSetElementState(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+        guard let desiredStateRaw = request.parameters["desiredState"],
+              let desiredState = QAXElementState(rawValue: desiredStateRaw) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing or invalid 'desiredState' parameter — must be exactly 'on' or 'off'.",
+                error: "desiredState invalid"
+            )
+        }
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.setElementState(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                desiredState: desiredState
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "State change attempted for \(outcome.targetIdentity): changeKind=\(outcome.changeKind.rawValue), previousState=\(outcome.previousState.rawValue), currentState=\(outcome.currentState.rawValue). Independent closed-loop verification pending.",
+                outputData: [
+                    "applicationName": applicationName,
+                    "role": role,
+                    "matchIdentifier": identifier ?? "",
+                    "matchTitle": title ?? "",
+                    "targetIdentity": outcome.targetIdentity,
+                    "changeKind": outcome.changeKind.rawValue,
+                    "previousState": outcome.previousState.rawValue,
+                    "currentState": outcome.currentState.rawValue,
+                    "previousStateHash": outcome.previousStateHash,
+                    "desiredStateHash": outcome.desiredStateHash
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while setting element state: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

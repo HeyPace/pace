@@ -107,16 +107,34 @@ public struct QModelPlanParser: Sendable {
         "ui.set_text_value": ("ui", .level2UserApproval),
         // Phase 2J: semantic AX element value read — Level 0 (read-only, zero mutation). The
         // target MUST identify an Accessibility element semantically (role + identifier or
-        // title); AXSecureTextField is denylisted. Deliberately registered under toolFamily
-        // "perception" — NOT "ui" — even though it targets AX rather than pixels: this is what
-        // activates QPlanExecutor's existing `isScreenDerivedStep` predicate
-        // (`toolFamily == "perception"`), the same sanitize-before-persist / raw-for-reasoning
-        // boundary screen.ocr already relies on, with zero changes to QPlanExecutor itself. The
-        // read value is INTENTIONALLY exposed to the model (unlike ui.set_text_value's masked
-        // `value` input) — that is this capability's entire purpose — so it must never be
-        // registered under "ui", which carries no such redaction boundary. See
-        // QBridgeAccessibility.readElementValue and docs/PHASE_2J_SEMANTIC_ELEMENT_READ.md.
-        "ui.read_element_value": ("perception", .level0ReadOnly)
+        // title); the role MUST be on QAXElementReadRolePolicy's fail-closed allowlist
+        // (AXSecureTextField is never listed, and is checked first for a distinct diagnostic).
+        // Deliberately registered under toolFamily "perception" — NOT "ui" — even though it
+        // targets AX rather than pixels: this is what activates QPlanExecutor's existing
+        // `isScreenDerivedStep` predicate (`toolFamily == "perception"`), the same
+        // sanitize-before-persist / raw-for-reasoning boundary screen.ocr already relies on, with
+        // zero changes to QPlanExecutor itself. The read value is INTENTIONALLY exposed to the
+        // model (unlike ui.set_text_value's masked `value` input) — that is this capability's
+        // entire purpose — so it must never be registered under "ui", which carries no such
+        // redaction boundary. See QBridgeAccessibility.readElementValue and
+        // docs/PHASE_2J_SEMANTIC_ELEMENT_READ.md.
+        "ui.read_element_value": ("perception", .level0ReadOnly),
+        // Phase 2K: semantic AX element STATE change — Level 2 (reversible local action). Sets a
+        // checkbox/radio-button-shaped element to an explicit desired state ("on"/"off"),
+        // restricted to QAXElementStateRolePolicy's fail-closed allowlist (AXCheckBox,
+        // AXRadioButton only). Unlike ui.click_element's stateless press, this tool verifies the
+        // resulting VALUE (kAXValueAttribute), not just identity — ui.click_element's own
+        // QAXElementSnapshot has no value field and would very likely report a false verification
+        // failure for a value-bearing control like a checkbox. Idempotent: a target already in
+        // the desired state is never pressed. AXRadioButton deselection (desiredState "off" on an
+        // already-"on" radio button) is refused — AX press cannot reliably deselect a single
+        // radio button, only select a different one in its group — rather than attempting a press
+        // that cannot guarantee the requested outcome. Mutation is AXUIElementPerformAction
+        // (kAXPressAction) only — the same dispatch primitive ui.click_element already uses —
+        // never AXUIElementSetAttributeValue, since many native controls only run their real
+        // state-change handling in response to a genuine press, not a raw value write. See
+        // QBridgeAccessibility.setElementState and docs/PHASE_2K_SEMANTIC_ELEMENT_STATE.md.
+        "ui.set_element_state": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

@@ -483,6 +483,26 @@ public final class QPlanExecutor: Sendable {
                 previousValueHash: previousValueHash,
                 intendedValueHash: intendedValueHash
             )
+        } else if action.actionName == "ui.set_element_state",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let targetIdentity = result.outputData["targetIdentity"],
+                  let previousStateHash = result.outputData["previousStateHash"],
+                  let desiredStateHash = result.outputData["desiredStateHash"] {
+            // Reconstructed from the exact arguments used to dispatch, plus the safe (hash-only,
+            // never the raw AX value) metadata QExecutionService captured at state-change time —
+            // the independent verification step re-resolves the precise element that was changed
+            // and compares only hashes of the small "on"/"off" enum, never a raw AX attribute.
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            return .axElementStateMatchesDesired(
+                applicationName: applicationName,
+                role: role,
+                matchIdentifier: nonEmpty(action.arguments["identifier"]),
+                matchTitle: nonEmpty(action.arguments["title"]),
+                targetIdentity: targetIdentity,
+                previousStateHash: previousStateHash,
+                desiredStateHash: desiredStateHash
+            )
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

@@ -332,6 +332,29 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// explicit allowlist, not a denylist: any role this policy does not recognize, known or
     /// unknown, is refused by the same default-deny check.
     case disallowedReadRole(String)
+    /// Phase 2K: the target's AX role is not on `QAXElementStateRolePolicy.allowedRoles`
+    /// (`AXCheckBox`/`AXRadioButton` only). Thrown before any AX tree walk, mirroring
+    /// `disallowedTargetRole`'s discipline.
+    case disallowedStateRole(String)
+    /// Phase 2K: `kAXValueAttribute` could not be read, or could not be interpreted as a clean
+    /// on/off boolean state (e.g. a checkbox's "mixed" tri-state value `2`) — without a reliably
+    /// interpretable current state, idempotency and the desired-state comparison cannot be
+    /// established safely, so the operation is refused rather than guessing.
+    case stateReadFailed
+    /// Phase 2K: the element's live state, re-read immediately before dispatch, no longer matches
+    /// the state captured at resolution time — a value-drift staleness failure, distinct from
+    /// `staleTarget`'s identity-drift check. The target may still be the exact same element by
+    /// identity, but something already changed its value between observation and dispatch, so the
+    /// mutation is refused rather than proceeding against a target whose state is no longer the
+    /// one that was observed.
+    case valueDriftDetected(String)
+    /// Phase 2K: the requested state transition cannot be guaranteed by the available AX
+    /// mechanism for this role — specifically, `AXRadioButton` supports being reliably selected
+    /// (press when currently off) but macOS provides no reliable, semantically-correct way to
+    /// deselect a single radio button via its own press action (the standard interaction model is
+    /// to select a *different* button in the same group instead). Refused rather than attempting
+    /// a press whose effect on the desired outcome cannot be guaranteed.
+    case stateChangeNotGuaranteed(String)
 
     public var description: String {
         switch self {
@@ -365,6 +388,14 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Refusing to read the value of a secure field (role '\(role)')."
         case .disallowedReadRole(let role):
             return "Target role '\(role)' is not on the allowed read-role list."
+        case .disallowedStateRole(let role):
+            return "Target role '\(role)' is not on the allowed state-change role list."
+        case .stateReadFailed:
+            return "Target element's current state could not be read or interpreted as on/off."
+        case .valueDriftDetected(let reason):
+            return "Target element's state changed before it could be safely modified: \(reason)"
+        case .stateChangeNotGuaranteed(let reason):
+            return "Refusing to change target element's state — the outcome cannot be guaranteed: \(reason)"
         }
     }
 
@@ -386,6 +417,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .setValueFailed: return "AX_SET_VALUE_FAILED"
         case .secureFieldReadDenied: return "AX_SECURE_FIELD_READ_DENIED"
         case .disallowedReadRole: return "AX_READ_ROLE_NOT_ALLOWED"
+        case .disallowedStateRole: return "AX_STATE_ROLE_NOT_ALLOWED"
+        case .stateReadFailed: return "AX_STATE_READ_FAILED"
+        case .valueDriftDetected: return "AX_VALUE_DRIFT_DETECTED"
+        case .stateChangeNotGuaranteed: return "AX_STATE_CHANGE_NOT_GUARANTEED"
         }
     }
 }
@@ -426,6 +461,74 @@ public enum QAXElementReadRolePolicy {
 
     public static func isAllowedReadRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.set_element_state` (Phase 2K) may target.
+///
+/// Deliberately narrow, matching `QAXTextEntryRolePolicy`'s write-side discipline (not
+/// `QAXElementReadRolePolicy`'s much wider read-side allowlist): mutating a control's state
+/// demands the same narrowest-possible surface `ui.set_text_value` already established. Only the
+/// two AX roles with a well-understood, reliably-interpretable boolean/tri-state
+/// `kAXValueAttribute` are listed.
+public enum QAXElementStateRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXCheckBox", "AXRadioButton"]
+
+    public static func isAllowedStateRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// The normalized on/off state of a checkbox/radio-button-shaped AX element. Never carries a
+/// "mixed" case as a settable target — a tri-state control's indeterminate state is a resting
+/// state an agent should never intentionally request; reads that observe `2` (mixed) via
+/// `kAXValueAttribute` fail closed (`QAXInteractionError.stateReadFailed`) rather than being
+/// coerced into this type.
+public enum QAXElementState: String, Sendable, Equatable {
+    case on
+    case off
+}
+
+/// Whether a `setElementState` call actually performed a press, or found the target already in
+/// the desired state and correctly did nothing.
+public enum QAXElementStateChangeKind: String, Sendable, Equatable {
+    case alreadyDesired
+    case changed
+}
+
+/// The outcome of one `QBridgeAccessibility.setElementState` call.
+///
+/// Like `QAXTextValueMutationOutcome` (Phase 2I), this type carries only non-secret, small-enum
+/// state values (`on`/`off` — never free-form text) and SHA-256 hex digests used solely so the
+/// later, independent closed-loop verification step can confirm the change without either layer
+/// re-reading and re-trusting a stale in-process observation.
+public struct QAXElementStateOutcome: Sendable, Equatable {
+    public let changeKind: QAXElementStateChangeKind
+    public let previousState: QAXElementState
+    public let currentState: QAXElementState
+    /// Non-secret targeting metadata — application, role, and identifier-or-title.
+    public let targetIdentity: String
+    /// SHA-256 hex digest of `previousState.rawValue` ("on"/"off" — not sensitive content, but
+    /// hashed anyway for architectural consistency with `ui.set_text_value`'s identical pattern).
+    public let previousStateHash: String
+    /// SHA-256 hex digest of the desired state's `rawValue`, threaded through to the later
+    /// closed-loop verification step.
+    public let desiredStateHash: String
+
+    public init(
+        changeKind: QAXElementStateChangeKind,
+        previousState: QAXElementState,
+        currentState: QAXElementState,
+        targetIdentity: String,
+        previousStateHash: String,
+        desiredStateHash: String
+    ) {
+        self.changeKind = changeKind
+        self.previousState = previousState
+        self.currentState = currentState
+        self.targetIdentity = targetIdentity
+        self.previousStateHash = previousStateHash
+        self.desiredStateHash = desiredStateHash
     }
 }
 
@@ -783,6 +886,191 @@ extension QBridgeAccessibility {
             return numberValue.stringValue
         }
         return nil
+    }
+
+    // MARK: - Semantic AX Element State Change (Phase 2K)
+    //
+    // ui.set_element_state — a Level 2, reversible, semantic checkbox/radio-button state change.
+    // Every element is identified by role + (identifier or title), exactly like
+    // ui.click_element/ui.set_text_value, restricted to QAXElementStateRolePolicy's fail-closed
+    // allowlist (AXCheckBox/AXRadioButton only). Unlike ui.click_element's stateless press, this
+    // capability verifies the resulting VALUE, not just identity — QAXElementSnapshot has no
+    // value field, so click's own verification would very likely report a false failure for a
+    // value-bearing control. Mutation is AXUIElementPerformAction(kAXPressAction) only — the same
+    // dispatch primitive click already uses — never AXUIElementSetAttributeValue, since many
+    // native controls only run their real state-change handling in response to a genuine press.
+
+    /// Resolves exactly one semantic AXCheckBox/AXRadioButton target, verifies it is not stale by
+    /// BOTH identity (role/identifier/title/enabled, like click) and VALUE (a new check this
+    /// capability introduces — the state read at resolution time must still match immediately
+    /// before dispatch, or the operation is refused as a value-drift staleness failure), and
+    /// presses it via `AXUIElementPerformAction` only if its current state differs from
+    /// `desiredState` — an already-correct target is an idempotent no-op, never pressed. Fails
+    /// closed (throws `QAXInteractionError`) on a disallowed role, unreadable/uninterpretable
+    /// state, ambiguous/stale target, or a state transition the AX press mechanism cannot
+    /// guarantee (deselecting an `AXRadioButton`). Never falls back to coordinates, CGEvent, or
+    /// keyboard simulation.
+    public func setElementState(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?,
+        desiredState: QAXElementState
+    ) async throws -> QAXElementStateOutcome {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard QAXElementStateRolePolicy.isAllowedStateRole(role) else {
+            throw QAXInteractionError.disallowedStateRole(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Identity observation binding: identical discipline to clickElement/setTextValue.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and dispatch")
+            }
+            guard observedAtVerify.isEnabled else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            // Value-drift staleness check (Phase 2K's addition beyond click's identity-only
+            // discipline): read the state once at resolution, once again immediately before
+            // dispatch, and refuse if they differ — the target may still be the exact same
+            // element by identity, but something already changed its value out from under this
+            // call. As with the identity re-verify above, both reads happen back-to-back inside
+            // one synchronous closure with no `await` between them — a genuine race in the
+            // sub-millisecond window between the two reads themselves cannot be triggered
+            // deterministically without an artificial delay seam in production code, the same
+            // documented, honest limitation already accepted for click's identity check.
+            guard let stateAtSearch = Self.axCheckboxRadioState(of: targetElement) else {
+                throw QAXInteractionError.stateReadFailed
+            }
+            guard let stateAtVerify = Self.axCheckboxRadioState(of: targetElement) else {
+                throw QAXInteractionError.stateReadFailed
+            }
+            guard stateAtVerify == stateAtSearch else {
+                throw QAXInteractionError.valueDriftDetected("target element state changed between observation and dispatch")
+            }
+
+            let targetIdentity = "application=\(applicationName) role=\(role) identifier=\(observedAtVerify.identifier ?? "none") label=\(observedAtVerify.titleOrDescription ?? "none")"
+            let desiredStateHash = Self.sha256Hex(desiredState.rawValue)
+
+            guard stateAtVerify != desiredState else {
+                // Idempotent no-op: the control already holds the desired state. No AX press is
+                // performed — an unnecessary mutation is itself something to avoid.
+                return QAXElementStateOutcome(
+                    changeKind: .alreadyDesired,
+                    previousState: stateAtVerify,
+                    currentState: stateAtVerify,
+                    targetIdentity: targetIdentity,
+                    previousStateHash: Self.sha256Hex(stateAtVerify.rawValue),
+                    desiredStateHash: desiredStateHash
+                )
+            }
+
+            // AXRadioButton supports being reliably SELECTED (press while off) but macOS provides
+            // no reliable way to deselect a single radio button via its own press action — the
+            // standard interaction model selects a different button in the group instead. Refuse
+            // rather than press and hope, per "if the AX API cannot safely guarantee the desired
+            // state, fail closed."
+            if role == "AXRadioButton" && desiredState == .off {
+                throw QAXInteractionError.stateChangeNotGuaranteed(
+                    "AXRadioButton cannot be reliably deselected via its own press action; select a different radio button in the group instead"
+                )
+            }
+
+            let pressResult = AXUIElementPerformAction(targetElement, kAXPressAction as CFString)
+            switch pressResult {
+            case .success:
+                break
+            case .actionUnsupported:
+                throw QAXInteractionError.actionUnsupported
+            default:
+                throw QAXInteractionError.pressFailed("AXError(\(pressResult.rawValue))")
+            }
+
+            // Immediate ephemeral post-press read — provisional only; the authoritative check is
+            // the later, independent closed-loop verification step
+            // (QVerificationStrategy.axElementStateMatchesDesired), which re-resolves the target
+            // fresh rather than trusting this in-process observation.
+            let currentState = Self.axCheckboxRadioState(of: targetElement) ?? desiredState
+
+            return QAXElementStateOutcome(
+                changeKind: .changed,
+                previousState: stateAtVerify,
+                currentState: currentState,
+                targetIdentity: targetIdentity,
+                previousStateHash: Self.sha256Hex(stateAtVerify.rawValue),
+                desiredStateHash: desiredStateHash
+            )
+        }.value
+    }
+
+    /// Best-effort, read-only re-resolution of the same match criteria used by `setElementState`,
+    /// used only for the later closed-loop verification step
+    /// (QVerificationStrategy.axElementStateMatchesDesired). Returns the CURRENT state's SHA-256
+    /// hash only, or nil if the target is no longer uniquely resolvable or its state cannot be
+    /// read/interpreted.
+    public func observeElementStateHash(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async -> String? {
+        guard AXIsProcessTrusted() else { return nil }
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else { return nil }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard matches.count == 1 else { return nil }
+            guard let state = Self.axCheckboxRadioState(of: matches[0].element) else { return nil }
+            return Self.sha256Hex(state.rawValue)
+        }.value
+    }
+
+    /// Reads `kAXValueAttribute` and interprets it as a clean on/off boolean state: `0` → `.off`,
+    /// `1` → `.on`. Any other value (including `2`, the conventional AX "mixed"/indeterminate
+    /// tri-state) or a non-numeric/unreadable attribute returns nil — this capability never
+    /// guesses at an ambiguous current state.
+    fileprivate nonisolated static func axCheckboxRadioState(of element: AXUIElement) -> QAXElementState? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
+        guard result == .success, let value else { return nil }
+        guard let numberValue = value as? NSNumber else { return nil }
+        switch numberValue.intValue {
+        case 0: return .off
+        case 1: return .on
+        default: return nil
+        }
     }
 
     // MARK: - Bounded traversal (nonisolated: pure over AXUIElement/CFTypeRef, safe from any thread)
