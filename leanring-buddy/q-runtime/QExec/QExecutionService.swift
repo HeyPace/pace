@@ -144,6 +144,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.select_menu_item":
             result = await executeSelectMenuItem(request: request)
 
+        case "ui.set_slider_value":
+            result = await executeSetSliderValue(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -836,6 +839,102 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while selecting menu item: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Level 2 (reversible local action): sets one semantically-identified, allowlisted
+    /// (`AXSlider`/`AXStepper`-only) element to an explicit numeric `desiredValue` via
+    /// `AXUIElementSetAttributeValue(kAXValueAttribute)` only — never CGEvent, keyboard
+    /// simulation, drag/mouse simulation, or coordinates. Every `QAXInteractionError` failure
+    /// mode — disallowed role, non-finite value, unreadable/inconsistent range, an out-of-range
+    /// request, ambiguous/stale target (identity, value, or range drift) — is caught here and
+    /// converted into a deterministic, non-throwing `QActionResult`; this method never fabricates
+    /// success. Only plain numeric values and non-secret targeting metadata cross this method's
+    /// boundary — per the Phase 2M discovery, a slider/stepper's value is not sensitive content,
+    /// so no masking is applied. A `verificationStatus` claim is deliberately NOT made here — a
+    /// successful set is not itself evidence the value actually stuck; that determination belongs
+    /// solely to QPlanExecutor's independent `.axSliderValueMatchesDesired` verification step.
+    private func executeSetSliderValue(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+        // Swift's Double(String) init parses "nan"/"inf"/"infinity" as valid (non-finite)
+        // Doubles — the explicit .isFinite check below is what actually rejects them, not the
+        // parse itself.
+        guard let desiredValueRaw = request.parameters["desiredValue"],
+              let desiredValue = Double(desiredValueRaw),
+              desiredValue.isFinite else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing or invalid 'desiredValue' parameter — must be a finite numeric value.",
+                error: "desiredValue invalid"
+            )
+        }
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.setSliderValue(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                desiredValue: desiredValue
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Slider/stepper value change attempted for \(outcome.targetIdentity): changeKind=\(outcome.changeKind.rawValue), previousValue=\(outcome.previousValue), currentValue=\(outcome.currentValue), desiredValue=\(outcome.desiredValue), range=[\(outcome.minValue), \(outcome.maxValue)]. Independent closed-loop verification pending.",
+                outputData: [
+                    "applicationName": applicationName,
+                    "role": role,
+                    "matchIdentifier": identifier ?? "",
+                    "matchTitle": title ?? "",
+                    "targetIdentity": outcome.targetIdentity,
+                    "changeKind": outcome.changeKind.rawValue,
+                    "previousValue": "\(outcome.previousValue)",
+                    "currentValue": "\(outcome.currentValue)",
+                    "desiredValue": "\(outcome.desiredValue)",
+                    "minValue": "\(outcome.minValue)",
+                    "maxValue": "\(outcome.maxValue)"
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while setting slider value: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

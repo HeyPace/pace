@@ -518,6 +518,26 @@ public final class QPlanExecutor: Sendable {
                 itemTitle: itemTitle,
                 targetIdentity: targetIdentity
             )
+        } else if action.actionName == "ui.set_slider_value",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let targetIdentity = result.outputData["targetIdentity"],
+                  let desiredValueString = action.arguments["desiredValue"],
+                  let desiredValue = Double(desiredValueString) {
+            // Reconstructed from the exact arguments used to dispatch, plus the safe (plain
+            // numeric metadata, never masked — see docs/PHASE_2M_SEMANTIC_SLIDER_VALUE.md)
+            // outputData QExecutionService captured at value-change time — the independent
+            // verification step re-resolves the precise element that was changed and compares
+            // its current value against the desired value directly.
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            return .axSliderValueMatchesDesired(
+                applicationName: applicationName,
+                role: role,
+                matchIdentifier: nonEmpty(action.arguments["identifier"]),
+                matchTitle: nonEmpty(action.arguments["title"]),
+                targetIdentity: targetIdentity,
+                desiredValue: desiredValue
+            )
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

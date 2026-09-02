@@ -77,6 +77,22 @@ public enum QVerificationStrategy: Sendable {
         itemTitle: String,
         targetIdentity: String
     )
+    /// Phase 2M: re-resolves the same semantic slider/stepper target a ui.set_slider_value step
+    /// just set (or correctly no-op'd) and confirms its CURRENT value matches `desiredValue`
+    /// using the same tolerance rule (`QBridgeAccessibility.sliderValuesAreEqual`) idempotency
+    /// used — plain numeric comparison, since a slider's value is not sensitive content. A
+    /// successful set is not itself evidence of goal success; this is the independent closed-loop
+    /// check that supplies the real evidence. Like `axTextValueChanged`/
+    /// `axElementStateMatchesDesired`, an unresolvable target after the change is `.failed`, not
+    /// assumed success; an internally-inconsistent post-change range is likewise `.failed`.
+    case axSliderValueMatchesDesired(
+        applicationName: String,
+        role: String,
+        matchIdentifier: String?,
+        matchTitle: String?,
+        targetIdentity: String,
+        desiredValue: Double
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -289,6 +305,37 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Application or menu bar item (\(menuBarTitle)) became unavailable during verification — physical state is uncertain.",
                     evidence: "target=\(targetIdentity) evidenceType=uncertainLifecycle status=failed"
+                )
+            }
+
+        case .axSliderValueMatchesDesired(let applicationName, let role, let matchIdentifier, let matchTitle, let targetIdentity, let desiredValue):
+            let evidence = await QBridgeAccessibility.shared.observeSliderValueEvidence(
+                applicationName: applicationName,
+                role: role,
+                identifier: matchIdentifier,
+                title: matchTitle
+            )
+            switch evidence {
+            case .resolved(let currentValue):
+                if QBridgeAccessibility.sliderValuesAreEqual(currentValue, desiredValue) {
+                    return .verified(
+                        evidence: "target=\(targetIdentity) currentValue=\(currentValue) desiredValue=\(desiredValue) status=verified"
+                    )
+                } else {
+                    return .failed(
+                        reason: "Target element (role=\(role)) current value does not match the desired value after the change.",
+                        evidence: "target=\(targetIdentity) currentValue=\(currentValue) desiredValue=\(desiredValue) status=failed"
+                    )
+                }
+            case .rangeInvalid(let currentValue):
+                return .failed(
+                    reason: "Target element (role=\(role)) reported an internally inconsistent range after the change — verification cannot be trusted.",
+                    evidence: "target=\(targetIdentity) currentValue=\(currentValue) status=failed"
+                )
+            case .targetUnavailable:
+                return .failed(
+                    reason: "Target element (role=\(role)) is no longer resolvable for verification after the change.",
+                    evidence: "target=\(targetIdentity) status=failed"
                 )
             }
 

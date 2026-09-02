@@ -153,7 +153,23 @@ public struct QModelPlanParser: Sendable {
         // on focus loss. See QBridgeAccessibility.selectMenuItem and
         // docs/PHASE_2L_SEMANTIC_MENU_SELECTION.md for the full contract, including the bounded
         // menu-open poll and the evidence-based verification model.
-        "ui.select_menu_item": ("ui", .level2UserApproval)
+        "ui.select_menu_item": ("ui", .level2UserApproval),
+        // Phase 2M: semantic AX slider/stepper value change — Level 2 (reversible local action).
+        // Sets an AXSlider/AXStepper's numeric value to an explicit `desiredValue`, restricted to
+        // QAXSliderRolePolicy's fail-closed allowlist. Mutation is
+        // AXUIElementSetAttributeValue(kAXValueAttribute) directly — the same primitive
+        // ui.set_text_value already uses, correct here because a slider/stepper's AXValue IS its
+        // authoritative state (unlike a checkbox, which needs a real press to run its own
+        // handler). `desiredValue` is validated against the target's OWN reported
+        // kAXMinValueAttribute/kAXMaxValueAttribute range and refused BEFORE any mutation if
+        // outside it — a hard security boundary never widened by the numeric comparison
+        // tolerance used elsewhere (idempotency/verification only). Unlike
+        // ui.set_text_value, no masking apparatus was needed: desiredValue is a plain, non-
+        // sensitive number, not free text, so this tool carries no QSensitiveArgumentPolicy entry
+        // and is registered under toolFamily "ui". See QBridgeAccessibility.setSliderValue and
+        // docs/PHASE_2M_SEMANTIC_SLIDER_VALUE.md for the full contract, including the exact
+        // tolerance rule and the range/value-drift protection.
+        "ui.set_slider_value": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

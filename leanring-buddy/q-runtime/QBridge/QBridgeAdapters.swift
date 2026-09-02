@@ -371,6 +371,24 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// of the menu bar — the menu bearing the app's display name, containing About/Preferences/
     /// Quit by macOS convention) — explicitly out of scope for this capability's first phase.
     case appRootMenuUnsupported(String)
+    /// Phase 2M: the target's AX role is not on `QAXSliderRolePolicy.allowedRoles`
+    /// (`AXSlider`/`AXStepper` only). Thrown before any AX tree walk.
+    case disallowedSliderRole(String)
+    /// Phase 2M: the model-supplied `desiredValue` is not finite (NaN/infinite) or could not be
+    /// parsed as a number — rejected before any AX call.
+    case invalidDesiredValue(String)
+    /// Phase 2M: `kAXMinValueAttribute`/`kAXMaxValueAttribute` could not be read from the
+    /// target — without a reliably readable range, `desiredValue` cannot be safely validated, so
+    /// the operation is refused rather than proceeding unchecked.
+    case rangeReadFailed
+    /// Phase 2M: the target's own reported range is internally inconsistent (`minValue >
+    /// maxValue`), or its current value falls outside that range — the range cannot be trusted,
+    /// so the operation is refused rather than validating `desiredValue` against it anyway.
+    case invalidRange(String)
+    /// Phase 2M: `desiredValue` falls outside `[minValue, maxValue]` — refused BEFORE any
+    /// mutation is attempted. A hard security boundary: never widened by the numeric-comparison
+    /// tolerance used elsewhere (idempotency/verification) — this check is always strict.
+    case desiredValueOutOfRange(String)
 
     public var description: String {
         switch self {
@@ -420,6 +438,16 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Menu item '\(title)' did not become available within the bounded observation window."
         case .appRootMenuUnsupported(let title):
             return "Menu bar item '\(title)' is the application's own root menu, which is not supported by this capability."
+        case .disallowedSliderRole(let role):
+            return "Target role '\(role)' is not on the allowed slider/stepper role list."
+        case .invalidDesiredValue(let reason):
+            return "Invalid desired value: \(reason)"
+        case .rangeReadFailed:
+            return "Target element's min/max range could not be read."
+        case .invalidRange(let reason):
+            return "Target element's reported range is invalid: \(reason)"
+        case .desiredValueOutOfRange(let reason):
+            return "Refusing to set value — desired value is out of range: \(reason)"
         }
     }
 
@@ -449,6 +477,11 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .menuNotFound: return "AX_MENU_NOT_FOUND"
         case .menuItemNotFound: return "AX_MENU_ITEM_NOT_FOUND"
         case .appRootMenuUnsupported: return "AX_APP_ROOT_MENU_UNSUPPORTED"
+        case .disallowedSliderRole: return "AX_SLIDER_ROLE_NOT_ALLOWED"
+        case .invalidDesiredValue: return "AX_INVALID_DESIRED_VALUE"
+        case .rangeReadFailed: return "AX_RANGE_READ_FAILED"
+        case .invalidRange: return "AX_INVALID_RANGE"
+        case .desiredValueOutOfRange: return "AX_DESIRED_VALUE_OUT_OF_RANGE"
         }
     }
 }
@@ -591,6 +624,74 @@ public enum QMenuItemSelectionEvidence: Sendable, Equatable {
     case itemNoLongerResolvable
     case itemStillResolvable
     case applicationOrTargetUnavailable
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.set_slider_value` (Phase 2M) may target.
+///
+/// Narrow, matching `QAXTextEntryRolePolicy`'s/`QAXElementStateRolePolicy`'s write-side
+/// discipline: only the two AX roles whose `kAXValueAttribute` is a directly-settable,
+/// range-bounded number are listed.
+public enum QAXSliderRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXSlider", "AXStepper"]
+
+    public static func isAllowedSliderRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Whether a `setSliderValue` call actually performed a mutation, or found the target already at
+/// the desired value and correctly did nothing.
+public enum QAXSliderChangeKind: String, Sendable, Equatable {
+    case alreadyDesired
+    case changed
+}
+
+/// The outcome of one `QBridgeAccessibility.setSliderValue` call. Numeric values are carried
+/// directly (not hashed) — per the Phase 2M discovery, a slider/stepper's value is not sensitive
+/// free-form content the way `ui.set_text_value`'s input is.
+public struct QAXSliderValueOutcome: Sendable, Equatable {
+    public let changeKind: QAXSliderChangeKind
+    public let previousValue: Double
+    public let currentValue: Double
+    public let desiredValue: Double
+    public let minValue: Double
+    public let maxValue: Double
+    public let targetIdentity: String
+
+    public init(
+        changeKind: QAXSliderChangeKind,
+        previousValue: Double,
+        currentValue: Double,
+        desiredValue: Double,
+        minValue: Double,
+        maxValue: Double,
+        targetIdentity: String
+    ) {
+        self.changeKind = changeKind
+        self.previousValue = previousValue
+        self.currentValue = currentValue
+        self.desiredValue = desiredValue
+        self.minValue = minValue
+        self.maxValue = maxValue
+        self.targetIdentity = targetIdentity
+    }
+}
+
+/// The result of re-observing a slider/stepper after a `ui.set_slider_value` dispatch, for the
+/// later closed-loop verification step.
+///
+/// - `.resolved(currentValue:)`: the target is still resolvable and its range is internally
+///   consistent — `currentValue` is compared against the desired value using the same tolerance
+///   rule (`QBridgeAccessibility.sliderValuesAreEqual`) idempotency used.
+/// - `.rangeInvalid(currentValue:)`: the target is resolvable but its reported range is no longer
+///   internally consistent (or the value falls outside it) — verification cannot be trusted;
+///   treated as `.failed`, never assumed successful.
+/// - `.targetUnavailable`: the target (or application) is no longer resolvable at all — physical
+///   state is uncertain; treated as `.failed`, never assumed successful.
+public enum QAXSliderValueEvidence: Sendable, Equatable {
+    case resolved(currentValue: Double)
+    case rangeInvalid(currentValue: Double)
+    case targetUnavailable
 }
 
 extension QBridgeAccessibility {
@@ -1344,6 +1445,219 @@ extension QBridgeAccessibility {
         let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
         guard result == .success, let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
         return (value as! AXUIElement)
+    }
+
+    // MARK: - Semantic Slider/Stepper Value Change (Phase 2M)
+    //
+    // ui.set_slider_value — a Level 2, semantic numeric value change. Every element is identified
+    // by role + (identifier or title), exactly like every prior mutation capability, restricted
+    // to QAXSliderRolePolicy's fail-closed allowlist (AXSlider/AXStepper only). Mutation is
+    // AXUIElementSetAttributeValue(kAXValueAttribute) directly — correct here (unlike
+    // ui.set_element_state's checkbox/radio press requirement) because a slider/stepper's
+    // AXValue IS its authoritative state, the same reasoning ui.set_text_value already relies on
+    // for text fields.
+
+    /// Tolerance used ONLY for equality comparisons (idempotency, drift re-checks, post-action
+    /// verification) — NEVER for range-boundary validation, which is always strict. A hybrid
+    /// absolute+relative rule: two values are equal if they differ by no more than
+    /// `valueComparisonAbsoluteTolerance`, OR by no more than `valueComparisonRelativeTolerance`
+    /// of their magnitude (scale-aware, so this remains meaningful for both small
+    /// normalized-range sliders, e.g. 0.0–1.0, and larger-range steppers, e.g. 0–1000). Both
+    /// constants are deliberately small: large enough to absorb ordinary floating-point
+    /// representation noise from an AX round trip, far too small to meaningfully move a value
+    /// across a real range boundary.
+    fileprivate static let valueComparisonAbsoluteTolerance: Double = 1e-6
+    fileprivate static let valueComparisonRelativeTolerance: Double = 1e-9
+
+    /// The single, canonical numeric-equality rule this capability uses everywhere it compares
+    /// two AX-read (or AX-read-vs-desired) values — idempotency, value/range-drift re-checks, and
+    /// closed-loop verification all call this SAME function, per the Phase 2M contract's explicit
+    /// requirement that comparison semantics stay consistent across every one of those call
+    /// sites. Public specifically so `QActionVerification.swift`'s verification strategy can
+    /// reuse it rather than re-implementing the tolerance rule a second time.
+    public static func sliderValuesAreEqual(_ a: Double, _ b: Double) -> Bool {
+        let difference = abs(a - b)
+        if difference <= valueComparisonAbsoluteTolerance { return true }
+        let scale = max(abs(a), abs(b))
+        return difference <= scale * valueComparisonRelativeTolerance
+    }
+
+    /// Resolves exactly one semantic `AXSlider`/`AXStepper` target, validates `desiredValue`
+    /// against the target's own reported `[minValue, maxValue]` range using STRICT (non-tolerant)
+    /// comparison — a hard security boundary — re-verifies both identity and value/range
+    /// immediately before dispatch, and sets the value via `AXUIElementSetAttributeValue` only if
+    /// it differs (tolerantly) from the current value. Fails closed on a disallowed role,
+    /// non-finite `desiredValue`, unreadable/inconsistent range, an out-of-range request, or any
+    /// staleness. Never falls back to coordinates, CGEvent, keyboard, or drag simulation.
+    public func setSliderValue(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?,
+        desiredValue: Double
+    ) async throws -> QAXSliderValueOutcome {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard desiredValue.isFinite else {
+            throw QAXInteractionError.invalidDesiredValue("desiredValue must be a finite number, got \(desiredValue)")
+        }
+        guard QAXSliderRolePolicy.isAllowedSliderRole(role) else {
+            throw QAXInteractionError.disallowedSliderRole(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Identity observation binding: identical discipline to every prior mutation capability.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and dispatch")
+            }
+            guard observedAtVerify.isEnabled else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            // Range discovery — read BEFORE any mutation decision, and before desiredValue is
+            // validated against it. kAXMinValueAttribute/kAXMaxValueAttribute are new AX
+            // territory for this codebase (see docs/PHASE_2M_SEMANTIC_SLIDER_VALUE.md).
+            guard let minValueAtSearch = Self.axDoubleAttribute(kAXMinValueAttribute as String, of: targetElement),
+                  let maxValueAtSearch = Self.axDoubleAttribute(kAXMaxValueAttribute as String, of: targetElement) else {
+                throw QAXInteractionError.rangeReadFailed
+            }
+            guard minValueAtSearch <= maxValueAtSearch else {
+                throw QAXInteractionError.invalidRange("minValue (\(minValueAtSearch)) is greater than maxValue (\(maxValueAtSearch))")
+            }
+            guard let currentValueAtSearch = Self.axDoubleAttribute(kAXValueAttribute as String, of: targetElement) else {
+                throw QAXInteractionError.valueReadFailed
+            }
+            guard currentValueAtSearch >= minValueAtSearch, currentValueAtSearch <= maxValueAtSearch else {
+                throw QAXInteractionError.invalidRange("current value (\(currentValueAtSearch)) is outside the reported range [\(minValueAtSearch), \(maxValueAtSearch)]")
+            }
+
+            // SECURITY BOUNDARY: strict, non-tolerant range check. Never widened by
+            // sliderValuesAreEqual's tolerance — an out-of-range request is refused exactly at
+            // its true boundary, not a tolerance-expanded one.
+            guard desiredValue >= minValueAtSearch, desiredValue <= maxValueAtSearch else {
+                throw QAXInteractionError.desiredValueOutOfRange("desiredValue (\(desiredValue)) is outside the allowed range [\(minValueAtSearch), \(maxValueAtSearch)]")
+            }
+
+            // Value/range-drift re-check immediately before dispatch — refuses on ANY drift in
+            // current value, minValue, or maxValue (tolerant comparison: this is asking "did
+            // anything actually change", not re-validating a boundary).
+            guard let minValueAtVerify = Self.axDoubleAttribute(kAXMinValueAttribute as String, of: targetElement),
+                  let maxValueAtVerify = Self.axDoubleAttribute(kAXMaxValueAttribute as String, of: targetElement),
+                  let currentValueAtVerify = Self.axDoubleAttribute(kAXValueAttribute as String, of: targetElement) else {
+                throw QAXInteractionError.valueReadFailed
+            }
+            guard Self.sliderValuesAreEqual(minValueAtVerify, minValueAtSearch),
+                  Self.sliderValuesAreEqual(maxValueAtVerify, maxValueAtSearch),
+                  Self.sliderValuesAreEqual(currentValueAtVerify, currentValueAtSearch) else {
+                throw QAXInteractionError.valueDriftDetected("target element's value or range changed between observation and dispatch")
+            }
+
+            let targetIdentity = "application=\(applicationName) role=\(role) identifier=\(observedAtVerify.identifier ?? "none") label=\(observedAtVerify.titleOrDescription ?? "none")"
+
+            guard !Self.sliderValuesAreEqual(currentValueAtVerify, desiredValue) else {
+                // Idempotent no-op: already at the desired value. No AX write is performed.
+                return QAXSliderValueOutcome(
+                    changeKind: .alreadyDesired,
+                    previousValue: currentValueAtVerify,
+                    currentValue: currentValueAtVerify,
+                    desiredValue: desiredValue,
+                    minValue: minValueAtVerify,
+                    maxValue: maxValueAtVerify,
+                    targetIdentity: targetIdentity
+                )
+            }
+
+            let setResult = AXUIElementSetAttributeValue(targetElement, kAXValueAttribute as CFString, NSNumber(value: desiredValue))
+            guard setResult == .success else {
+                throw QAXInteractionError.setValueFailed("AXError(\(setResult.rawValue))")
+            }
+
+            // Immediate ephemeral post-set read — provisional only; the authoritative check is
+            // the later, independent closed-loop verification step
+            // (QVerificationStrategy.axSliderValueMatchesDesired), which re-resolves the target
+            // fresh rather than trusting this in-process observation.
+            let currentValueAfterSet = Self.axDoubleAttribute(kAXValueAttribute as String, of: targetElement) ?? desiredValue
+
+            return QAXSliderValueOutcome(
+                changeKind: .changed,
+                previousValue: currentValueAtVerify,
+                currentValue: currentValueAfterSet,
+                desiredValue: desiredValue,
+                minValue: minValueAtVerify,
+                maxValue: maxValueAtVerify,
+                targetIdentity: targetIdentity
+            )
+        }.value
+    }
+
+    /// Best-effort, read-only re-resolution of the same match criteria used by `setSliderValue`,
+    /// used only for the later closed-loop verification step
+    /// (QVerificationStrategy.axSliderValueMatchesDesired). Also re-validates that the target's
+    /// range remains internally consistent — a `QAXSliderValueEvidence.rangeInvalid` result means
+    /// verification cannot be trusted, exactly like an unresolvable target.
+    public func observeSliderValueEvidence(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async -> QAXSliderValueEvidence {
+        guard AXIsProcessTrusted() else { return .targetUnavailable }
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else { return .targetUnavailable }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard matches.count == 1 else { return .targetUnavailable }
+            guard let currentValue = Self.axDoubleAttribute(kAXValueAttribute as String, of: matches[0].element),
+                  let minValue = Self.axDoubleAttribute(kAXMinValueAttribute as String, of: matches[0].element),
+                  let maxValue = Self.axDoubleAttribute(kAXMaxValueAttribute as String, of: matches[0].element) else {
+                return .targetUnavailable
+            }
+            guard minValue <= maxValue, currentValue >= minValue, currentValue <= maxValue else {
+                return .rangeInvalid(currentValue: currentValue)
+            }
+            return .resolved(currentValue: currentValue)
+        }.value
+    }
+
+    /// Reads a numeric (`NSNumber`-boxed) AX attribute as a `Double` — distinct from
+    /// `axCheckboxRadioState`, which specifically interprets the value as a clean on/off boolean;
+    /// this returns the raw numeric magnitude, needed for slider/stepper values and range bounds.
+    fileprivate nonisolated static func axDoubleAttribute(_ attribute: String, of element: AXUIElement) -> Double? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+        guard result == .success, let value else { return nil }
+        guard let numberValue = value as? NSNumber else { return nil }
+        return numberValue.doubleValue
     }
 
     // MARK: - Bounded traversal (nonisolated: pure over AXUIElement/CFTypeRef, safe from any thread)
