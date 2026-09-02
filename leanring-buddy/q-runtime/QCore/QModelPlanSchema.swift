@@ -225,7 +225,35 @@ public struct QModelPlanParser: Sendable {
         // read-allowlisted since Phase 2J. Idempotent: already-at-the-desired-state is a
         // verified no-op, no press performed. See QBridgeAccessibility.toggleDisclosure and
         // docs/PHASE_2Q_SEMANTIC_DISCLOSURE_TOGGLE.md for the full contract.
-        "ui.toggle_disclosure": ("ui", .level2UserApproval)
+        "ui.toggle_disclosure": ("ui", .level2UserApproval),
+        // Phase 2R: semantic tab selection — Level 2 (reversible local action, approval
+        // required). Requests an explicit desired selection state ("true"/"false" —
+        // desiredSelected — never a blind toggle) for exactly one semantically-identified tab.
+        //
+        // IMPORTANT EMPIRICAL FINDING (see docs/PHASE_2R_SEMANTIC_TAB_SELECTION.md's Known
+        // limitations for the full account): there is no standalone "AXTab" role anywhere in
+        // macOS's Accessibility API — confirmed directly against the AppKit SDK's authoritative
+        // NSAccessibilityConstants.h, which lists every NSAccessibilityRole constant Apple has
+        // ever defined. A tab item's real, header-confirmed shape is base role AXRadioButton
+        // carrying kAXSubroleAttribute == "AXTabButton" (NSAccessibilityTabButtonSubrole).
+        // QAXTabRolePolicy therefore allows exactly AXRadioButton, but selectTab additionally,
+        // unconditionally requires the AXTabButton subrole before ever treating a resolved
+        // element as a tab — a generic AXRadioButton lacking that subrole is refused
+        // (targetNotATabButton), never silently accepted. This keeps ui.select_tab from being
+        // cross-wired with ui.set_element_state's own, unconditional AXRadioButton coverage: the
+        // two capabilities read entirely different attributes for their respective state models
+        // (kAXSelectedAttribute here, kAXValueAttribute there).
+        //
+        // Mutation is AXUIElementPerformAction(kAXPressAction) only — the same primitive
+        // ui.toggle_disclosure/ui.set_element_state/ui.click_element already use. Authoritative
+        // selection state is read from kAXSelectedAttribute — deliberately never
+        // kAXValueAttribute or kAXFocusedAttribute, which represent different semantics
+        // entirely. Idempotent: already-at-the-desired-selection-state is a verified no-op, no
+        // press performed. A desiredSelected=false request against an already-selected tab is
+        // refused (AX provides no reliable single-tab deselection, the same limitation already
+        // established for AXRadioButton in Phase 2K). See QBridgeAccessibility.selectTab and
+        // docs/PHASE_2R_SEMANTIC_TAB_SELECTION.md for the full contract.
+        "ui.select_tab": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

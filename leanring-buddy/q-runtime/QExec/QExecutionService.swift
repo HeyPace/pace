@@ -159,6 +159,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.toggle_disclosure":
             result = await executeToggleDisclosure(request: request)
 
+        case "ui.select_tab":
+            result = await executeSelectTab(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -1313,6 +1316,103 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while toggling disclosure triangle: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    // MARK: - Phase 2R: Semantic Tab Selection (Level 2)
+
+    /// Level 2 (reversible local action): resolves one semantically-identified, allowlisted
+    /// (`AXRadioButton`-with-`AXTabButton`-subrole-only — see `QAXTabRolePolicy`'s documentation
+    /// for why "AXTab" is not a real macOS Accessibility role) tab and, unless it already
+    /// reports the requested desired selection state, presses it toward that state via
+    /// `AXUIElementPerformAction(kAXPressAction)` only — never `AXUIElementSetAttributeValue`,
+    /// never CGEvent, keyboard, mouse, or coordinate interaction. Every `QAXInteractionError`
+    /// failure mode — disallowed role, a resolved `AXRadioButton` lacking the `AXTabButton`
+    /// subrole, missing criteria, permission absence, application absence, zero/ambiguous
+    /// matches, disabled/stale target, unreadable selection state, selection-state drift, an
+    /// unsupported deselection request — is caught here and converted into a deterministic,
+    /// non-throwing `QActionResult`; this method never fabricates success. Only the small,
+    /// non-secret selected/not-selected boolean and non-secret targeting metadata cross this
+    /// method's boundary — never a raw AX attribute dump, never the content of the pane the tab
+    /// reveals. A `verificationStatus` claim is deliberately NOT made here — a successful press
+    /// is not itself evidence the desired selection state was reached; that determination
+    /// belongs solely to QPlanExecutor's independent `.axTabSelectionMatchesDesired`
+    /// verification step.
+    private func executeSelectTab(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+        guard let desiredSelectedRaw = request.parameters["desiredSelected"],
+              let desiredSelected = Bool(desiredSelectedRaw) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing or invalid 'desiredSelected' parameter — must be exactly 'true' or 'false'.",
+                error: "desiredSelected invalid"
+            )
+        }
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.selectTab(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                desiredSelected: desiredSelected
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Tab selection attempted for \(outcome.targetIdentity): changeKind=\(outcome.changeKind.rawValue), previousSelected=\(outcome.previousSelected), currentSelected=\(outcome.currentSelected), desiredSelected=\(desiredSelected). Independent closed-loop verification pending.",
+                outputData: [
+                    "applicationName": applicationName,
+                    "role": role,
+                    "matchIdentifier": identifier ?? "",
+                    "matchTitle": title ?? "",
+                    "targetIdentity": outcome.targetIdentity,
+                    "changeKind": outcome.changeKind.rawValue,
+                    "previousSelected": "\(outcome.previousSelected)",
+                    "currentSelected": "\(outcome.currentSelected)",
+                    "desiredSelected": "\(desiredSelected)"
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while selecting tab: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

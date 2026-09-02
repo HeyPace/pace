@@ -152,6 +152,26 @@ public enum QVerificationStrategy: Sendable {
         targetIdentity: String,
         desiredState: QAXDisclosureState
     )
+    /// Phase 2R: re-resolves the same semantic tab target (`AXRadioButton` + `AXTabButton`
+    /// subrole — see `QAXTabRolePolicy`'s documentation for why "AXTab" is not a real role) a
+    /// ui.select_tab step just selected (or correctly no-op'd) and independently re-reads its
+    /// `kAXSelectedAttribute` — a successful press is never itself treated as proof of success;
+    /// this is the closed-loop check that supplies the real evidence. Structurally the same
+    /// direct-comparison model `axElementStateMatchesDesired`/`axPopupValueMatchesDesired`/
+    /// `axDisclosureStateMatchesDesired` already establish, reading a different (but equally
+    /// authoritative) boolean attribute. Like those (and deliberately unlike
+    /// `axElementStateChanged`'s click-based model), an unresolvable/ambiguous/no-longer-
+    /// subrole-qualified target after the change is `.failed`, not assumed success; an
+    /// unreadable selection state is likewise `.failed`, never defaulted to either selected or
+    /// not-selected.
+    case axTabSelectionMatchesDesired(
+        applicationName: String,
+        role: String,
+        matchIdentifier: String?,
+        matchTitle: String?,
+        targetIdentity: String,
+        desiredSelected: Bool
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -493,6 +513,37 @@ public final class QActionVerifier: Sendable {
             case .targetUnavailable:
                 return .failed(
                     reason: "Target disclosure triangle (role=\(role)) is no longer resolvable for verification after the toggle.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+        case .axTabSelectionMatchesDesired(let applicationName, let role, let matchIdentifier, let matchTitle, let targetIdentity, let desiredSelected):
+            let evidence = await QBridgeAccessibility.shared.observeTabSelectionEvidence(
+                applicationName: applicationName,
+                role: role,
+                identifier: matchIdentifier,
+                title: matchTitle
+            )
+            switch evidence {
+            case .resolved(let currentSelected):
+                if currentSelected == desiredSelected {
+                    return .verified(
+                        evidence: "target=\(targetIdentity) currentSelected=\(currentSelected) desiredSelected=\(desiredSelected) status=verified"
+                    )
+                } else {
+                    return .failed(
+                        reason: "Target tab (role=\(role)) current selection state does not match the desired state after the selection.",
+                        evidence: "target=\(targetIdentity) currentSelected=\(currentSelected) desiredSelected=\(desiredSelected) status=failed"
+                    )
+                }
+            case .stateUnreadable:
+                return .failed(
+                    reason: "Target tab (role=\(role)) current selection state could not be read after the selection — unreadable state fails closed.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            case .targetUnavailable:
+                return .failed(
+                    reason: "Target tab (role=\(role)) is no longer resolvable, ambiguous, or no longer subrole-qualified as a tab, for verification after the selection.",
                     evidence: "target=\(targetIdentity) status=failed"
                 )
             }

@@ -409,6 +409,25 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// established safely, so the operation is refused rather than guessing. Unknown never
     /// defaults to a state.
     case disclosureStateReadFailed
+    /// Phase 2R: the target's AX role is not on `QAXTabRolePolicy.allowedRoles` (`AXRadioButton`
+    /// only — the real, header-confirmed base role macOS uses for tab items; there is no
+    /// standalone "AXTab" role in the Accessibility API, see
+    /// docs/PHASE_2R_SEMANTIC_TAB_SELECTION.md's Known limitations for the full empirical
+    /// finding). Thrown before any AX tree walk, mirroring `disallowedDisclosureRole`'s/
+    /// `disallowedPopupRole`'s discipline.
+    case disallowedTabRole(String)
+    /// Phase 2R: the resolved target's role matched `AXRadioButton`, but its
+    /// `kAXSubroleAttribute` is not exactly `"AXTabButton"` — this is what actually distinguishes
+    /// a genuine tab from an ordinary checkbox-group/radio-group control sharing the same base
+    /// role. `ui.select_tab` NEVER treats a generic `AXRadioButton` as a tab; only the
+    /// `AXTabButton` subrole qualifies. `ui.set_element_state` remains the correct capability for
+    /// ordinary (non-tab-subrole) radio buttons — the two are never cross-wired.
+    case targetNotATabButton(String)
+    /// Phase 2R: `kAXSelectedAttribute` could not be read from the target tab — without a
+    /// reliably readable current selection state, idempotency and the desired-state comparison
+    /// cannot be established safely, so the operation is refused rather than guessing. Unknown
+    /// never defaults to a state.
+    case tabSelectionStateReadFailed
 
     public var description: String {
         switch self {
@@ -478,6 +497,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not on the allowed disclosure role list."
         case .disclosureStateReadFailed:
             return "Target disclosure triangle's current state could not be read or interpreted as expanded/collapsed."
+        case .disallowedTabRole(let role):
+            return "Target role '\(role)' is not on the allowed tab role list."
+        case .targetNotATabButton(let subrole):
+            return "Target is an AXRadioButton but its subrole ('\(subrole)') is not AXTabButton — refusing to treat a generic radio button as a tab."
+        case .tabSelectionStateReadFailed:
+            return "Target tab's current selected state could not be read."
         }
     }
 
@@ -517,6 +542,9 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .disallowedPopupRole: return "AX_POPUP_ROLE_NOT_ALLOWED"
         case .disallowedDisclosureRole: return "AX_DISCLOSURE_ROLE_NOT_ALLOWED"
         case .disclosureStateReadFailed: return "AX_DISCLOSURE_STATE_READ_FAILED"
+        case .disallowedTabRole: return "AX_TAB_ROLE_NOT_ALLOWED"
+        case .targetNotATabButton: return "AX_TARGET_NOT_A_TAB_BUTTON"
+        case .tabSelectionStateReadFailed: return "AX_TAB_SELECTION_STATE_READ_FAILED"
         }
     }
 }
@@ -925,6 +953,80 @@ public struct QAXDisclosureToggleOutcome: Sendable, Equatable {
 ///   should make the triangle itself disappear.
 public enum QAXDisclosureVerificationEvidence: Sendable, Equatable {
     case resolved(currentState: QAXDisclosureState)
+    case stateUnreadable
+    case targetUnavailable
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.select_tab` (Phase 2R) may target.
+///
+/// **Important empirical finding** (see docs/PHASE_2R_SEMANTIC_TAB_SELECTION.md's Known
+/// limitations for the full account): there is no standalone "AXTab" role anywhere in macOS's
+/// Accessibility API — confirmed directly against this SDK's authoritative
+/// `NSAccessibilityConstants.h`, which lists every `NSAccessibilityRole` constant Apple has ever
+/// defined. Individual tab items are represented by the base role `AXRadioButton` carrying the
+/// distinct `kAXSubroleAttribute` value `"AXTabButton"` (`NSAccessibilityTabButtonSubrole`) — the
+/// role list below reflects that reality, not the originally-assumed (and incorrect) "AXTab"
+/// role. `AXRadioButton` alone is NOT sufficient: `selectTab`'s resolution additionally requires
+/// the `AXTabButton` subrole (see `QAXInteractionError.targetNotATabButton`) — a generic radio
+/// button sharing this base role is refused, never treated as a tab. This is what keeps this
+/// capability from being cross-wired with `ui.set_element_state`'s existing, unconditional
+/// `AXRadioButton` coverage: the two read entirely different attributes for their respective
+/// state models (`kAXSelectedAttribute` here, `kAXValueAttribute` there) and are never confused.
+public enum QAXTabRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXRadioButton"]
+
+    public static func isAllowedTabRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Whether a `selectTab` call actually performed a press, or found the target already at the
+/// desired selection state and correctly did nothing.
+public enum QAXTabSelectionChangeKind: String, Sendable, Equatable {
+    case alreadyDesired
+    case changed
+}
+
+/// The outcome of one `QBridgeAccessibility.selectTab` call. Carries only a small, non-sensitive
+/// boolean and non-secret targeting metadata — never a raw AX attribute dump, never the content
+/// of the pane the tab reveals.
+public struct QAXTabSelectionOutcome: Sendable, Equatable {
+    public let changeKind: QAXTabSelectionChangeKind
+    public let previousSelected: Bool
+    public let currentSelected: Bool
+    public let targetIdentity: String
+
+    public init(
+        changeKind: QAXTabSelectionChangeKind,
+        previousSelected: Bool,
+        currentSelected: Bool,
+        targetIdentity: String
+    ) {
+        self.changeKind = changeKind
+        self.previousSelected = previousSelected
+        self.currentSelected = currentSelected
+        self.targetIdentity = targetIdentity
+    }
+}
+
+/// The result of independently re-observing a tab's `kAXSelectedAttribute` after a
+/// `ui.select_tab` dispatch, for the later closed-loop verification step (and for
+/// `QTaskRecoveryManager`'s observation-first recovery, which reuses this exact primitive).
+/// Authoritative selection state is read from `kAXSelectedAttribute` — deliberately never
+/// `kAXValueAttribute` (an ordinary `AXRadioButton`'s own on/off state, which
+/// `ui.set_element_state` already owns) or `kAXFocusedAttribute` (keyboard focus, a distinct
+/// concept `ui.focus_element` already owns).
+///
+/// - `.resolved(currentSelected:)`: the target is still resolvable (role `AXRadioButton`,
+///   subrole `AXTabButton`) and its selection state was read as a clean boolean.
+/// - `.stateUnreadable`: the target is resolvable but `kAXSelectedAttribute` could not be read —
+///   treated as `.failed`, NEVER defaulted to either selected or not-selected.
+/// - `.targetUnavailable`: the target (or application) is no longer resolvable at all, is
+///   ambiguous, or no longer carries the `AXTabButton` subrole — physical state is uncertain;
+///   treated as `.failed`, mirroring `axDisclosureStateMatchesDesired`'s/
+///   `axPopupValueMatchesDesired`'s conservative model.
+public enum QAXTabSelectionEvidence: Sendable, Equatable {
+    case resolved(currentSelected: Bool)
     case stateUnreadable
     case targetUnavailable
 }
@@ -2416,6 +2518,214 @@ extension QBridgeAccessibility {
         case 1: return .expanded
         default: return nil
         }
+    }
+
+    // MARK: - Semantic Tab Selection (Phase 2R)
+    //
+    // ui.select_tab — a Level 2, explicit-desired-selection operation for exactly one
+    // semantically-identified tab. IMPORTANT EMPIRICAL FINDING (see
+    // docs/PHASE_2R_SEMANTIC_TAB_SELECTION.md's Known limitations for the full account): there is
+    // no standalone "AXTab" role in macOS's Accessibility API — confirmed directly against this
+    // SDK's authoritative NSAccessibilityConstants.h. A tab item's real, header-confirmed shape is
+    // base role AXRadioButton carrying kAXSubroleAttribute == "AXTabButton". `selectTab` therefore
+    // resolves by role AXRadioButton (QAXTabRolePolicy's only allowed role) and additionally,
+    // unconditionally requires the AXTabButton subrole — a generic AXRadioButton without that
+    // subrole is refused (targetNotATabButton), never treated as a tab, and never cross-wired
+    // with ui.set_element_state's existing, unconditional AXRadioButton coverage. Mutation is
+    // AXUIElementPerformAction(kAXPressAction) only — the same primitive
+    // ui.toggle_disclosure/ui.set_element_state/ui.click_element already use. Authoritative
+    // selection state is read from kAXSelectedAttribute — a real, standard, generically-
+    // documented Apple AX attribute for "is this one of several sibling elements currently
+    // selected" — deliberately never kAXValueAttribute (an ordinary AXRadioButton's own on/off
+    // state, a different semantic ui.set_element_state already owns) or kAXFocusedAttribute
+    // (keyboard focus, a distinct concept ui.focus_element already owns). Explicit
+    // desiredSelected semantics (never a blind toggle), mirroring ui.toggle_disclosure's
+    // explicit-desired-state discipline exactly. AX provides no reliable way to deselect a
+    // single tab via its own press action — the same limitation Phase 2K already established for
+    // AXRadioButton deselection — so a desiredSelected=false request against an already-selected
+    // tab is refused (stateChangeNotGuaranteed), never attempted.
+
+    /// The exact `kAXSubroleAttribute` value that distinguishes a genuine tab-shaped
+    /// `AXRadioButton` from an ordinary one. Never a model-configurable input — this is a
+    /// hard-coded, non-negotiable part of `ui.select_tab`'s own contract, not something the
+    /// caller supplies or could weaken.
+    fileprivate static let tabButtonSubrole = "AXTabButton"
+
+    /// Resolves exactly one semantic `AXRadioButton` target carrying the `AXTabButton` subrole
+    /// and, unless it already reports the desired `kAXSelectedAttribute` state, presses it toward
+    /// selection. Fails closed (throws `QAXInteractionError`) on a disallowed role, a resolved
+    /// `AXRadioButton` lacking the `AXTabButton` subrole, missing criteria, permission absence,
+    /// application absence, zero/ambiguous matches, a disabled/stale target, an unreadable
+    /// current selection state, a selection-state drift between resolution and dispatch, or an
+    /// unsupported deselection request — never falls back to coordinates, CGEvent, or keyboard
+    /// simulation, and never fabricates success. Idempotent: if the tab's current
+    /// `kAXSelectedAttribute` already matches `desiredSelected`, no `AXUIElementPerformAction`
+    /// call is made at all — `changeKind: .alreadyDesired` is itself the deterministic,
+    /// structural proof that no mutation occurred (the same convention every prior idempotent AX
+    /// capability in this codebase already establishes).
+    public func selectTab(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?,
+        desiredSelected: Bool
+    ) async throws -> QAXTabSelectionOutcome {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Role is validated as a search CRITERION, before any tree walk — an unauthorized role
+        // is refused outright rather than allowed to shape what gets searched for, mirroring
+        // every prior write-side role policy in this codebase. Note: passing this check alone
+        // does NOT mean the target will be treated as a tab — the mandatory AXTabButton subrole
+        // check below is what actually decides that.
+        guard QAXTabRolePolicy.isAllowedTabRole(role) else {
+            throw QAXInteractionError.disallowedTabRole(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Identity observation binding: identical discipline to every prior AX mutation
+            // capability — re-read the SAME element reference immediately before any mutation
+            // and refuse on any drift.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and dispatch")
+            }
+            guard observedAtVerify.isEnabled else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            // The mandatory, non-negotiable subrole gate: an AXRadioButton without the
+            // AXTabButton subrole is a generic radio button, not a tab — refused here, never
+            // treated as a tab, never cross-wired with ui.set_element_state's own coverage.
+            let observedSubrole = Self.axStringAttribute(kAXSubroleAttribute, of: targetElement)
+            guard observedSubrole == Self.tabButtonSubrole else {
+                throw QAXInteractionError.targetNotATabButton(observedSubrole ?? "none")
+            }
+
+            // Selection-state-drift staleness check (mirroring setElementState's/
+            // toggleDisclosure's discipline): read kAXSelectedAttribute once at resolution, once
+            // again immediately before dispatch, and refuse if they differ — the target may
+            // still be the exact same element by identity, but its selection state already
+            // changed out from under this call.
+            guard let selectedAtSearch = Self.axBoolAttribute(kAXSelectedAttribute, of: targetElement) else {
+                throw QAXInteractionError.tabSelectionStateReadFailed
+            }
+            guard let selectedAtVerify = Self.axBoolAttribute(kAXSelectedAttribute, of: targetElement) else {
+                throw QAXInteractionError.tabSelectionStateReadFailed
+            }
+            guard selectedAtVerify == selectedAtSearch else {
+                throw QAXInteractionError.valueDriftDetected("target tab's selected state changed between observation and dispatch")
+            }
+
+            let targetIdentity = "application=\(applicationName) role=\(role) identifier=\(observedAtVerify.identifier ?? "none") label=\(observedAtVerify.titleOrDescription ?? "none")"
+
+            guard selectedAtVerify != desiredSelected else {
+                // Idempotent no-op: the tab already reports the desired selection state. No AX
+                // press is performed — an unnecessary mutation is itself something to avoid.
+                return QAXTabSelectionOutcome(
+                    changeKind: .alreadyDesired,
+                    previousSelected: selectedAtVerify,
+                    currentSelected: selectedAtVerify,
+                    targetIdentity: targetIdentity
+                )
+            }
+
+            // A tab (like an AXRadioButton in a radio group) supports being reliably SELECTED
+            // (press while not selected) but macOS provides no reliable way to deselect a single
+            // tab via its own press action — the standard interaction model selects a different
+            // tab in the group instead, the same reasoning already established for AXRadioButton
+            // deselection in Phase 2K. Refuse rather than press and hope.
+            guard desiredSelected else {
+                throw QAXInteractionError.stateChangeNotGuaranteed(
+                    "A tab cannot be reliably deselected via its own press action; select a different tab instead"
+                )
+            }
+
+            let pressResult = AXUIElementPerformAction(targetElement, kAXPressAction as CFString)
+            switch pressResult {
+            case .success:
+                break
+            case .actionUnsupported:
+                throw QAXInteractionError.actionUnsupported
+            default:
+                throw QAXInteractionError.pressFailed("AXError(\(pressResult.rawValue))")
+            }
+
+            // Immediate ephemeral post-press read — provisional only; the authoritative check is
+            // the later, independent closed-loop verification step
+            // (QVerificationStrategy.axTabSelectionMatchesDesired), which re-resolves the target
+            // fresh rather than trusting this in-process observation.
+            let currentSelected = Self.axBoolAttribute(kAXSelectedAttribute, of: targetElement) ?? desiredSelected
+
+            return QAXTabSelectionOutcome(
+                changeKind: .changed,
+                previousSelected: selectedAtVerify,
+                currentSelected: currentSelected,
+                targetIdentity: targetIdentity
+            )
+        }.value
+    }
+
+    /// Best-effort, read-only re-resolution of the same match criteria used by `selectTab`, used
+    /// both by the later closed-loop verification step
+    /// (`QVerificationStrategy.axTabSelectionMatchesDesired`) and by `QTaskRecoveryManager`'s
+    /// observation-first recovery branch — the SAME primitive for both, never a parallel
+    /// resolver. Independently re-reads `kAXSelectedAttribute` fresh — never trusts whatever
+    /// `selectTab` itself last observed. Also independently re-verifies the `AXTabButton`
+    /// subrole, so a target that has stopped being a tab (however implausible in practice) is
+    /// never conflated with a genuine, still-authoritative selection observation.
+    /// `.stateUnreadable` (the attribute could not be read) is deliberately distinct from
+    /// `.targetUnavailable` (the target itself cannot be resolved, is ambiguous, or is no longer
+    /// subrole-qualified) for a clearer diagnostic, though both are treated as `.failed` by
+    /// verification — neither is ever coerced into a definite selected/not-selected guess.
+    public func observeTabSelectionEvidence(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async -> QAXTabSelectionEvidence {
+        guard AXIsProcessTrusted() else { return .targetUnavailable }
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else { return .targetUnavailable }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard matches.count == 1 else { return .targetUnavailable }
+            guard Self.axStringAttribute(kAXSubroleAttribute, of: matches[0].element) == Self.tabButtonSubrole else {
+                return .targetUnavailable
+            }
+            guard let currentSelected = Self.axBoolAttribute(kAXSelectedAttribute, of: matches[0].element) else {
+                return .stateUnreadable
+            }
+            return .resolved(currentSelected: currentSelected)
+        }.value
     }
 
     /// Reads a numeric (`NSNumber`-boxed) AX attribute as a `Double` — distinct from

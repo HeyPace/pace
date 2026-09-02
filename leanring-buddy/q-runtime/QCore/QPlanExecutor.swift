@@ -608,6 +608,26 @@ public final class QPlanExecutor: Sendable {
                 targetIdentity: targetIdentity,
                 desiredState: desiredState
             )
+        } else if action.actionName == "ui.select_tab",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let targetIdentity = result.outputData["targetIdentity"],
+                  let desiredSelectedRaw = action.arguments["desiredSelected"],
+                  let desiredSelected = Bool(desiredSelectedRaw) {
+            // Reconstructed from the exact arguments used to dispatch, plus the safe (non-secret
+            // targeting metadata only) outputData QExecutionService captured at selection time —
+            // the independent verification step re-resolves the precise tab that was selected
+            // and independently re-reads its own kAXSelectedAttribute, never trusting whatever
+            // executeSelectTab itself already observed.
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            return .axTabSelectionMatchesDesired(
+                applicationName: applicationName,
+                role: role,
+                matchIdentifier: nonEmpty(action.arguments["identifier"]),
+                matchTitle: nonEmpty(action.arguments["title"]),
+                targetIdentity: targetIdentity,
+                desiredSelected: desiredSelected
+            )
         } else {
             return .customCheck(description: "Default step verification") { true }
         }
