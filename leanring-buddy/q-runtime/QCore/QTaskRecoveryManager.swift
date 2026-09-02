@@ -211,6 +211,36 @@ public final class QTaskRecoveryManager: Sendable {
                 }
             }
 
+        case "ui.select_popup_item":
+            // Observation-first (Phase 2P): re-check whether the requested popup already shows
+            // the requested item before ever considering a replay. Reuses the EXACT SAME
+            // independent observation primitive (QBridgeAccessibility.observePopupValueEvidence)
+            // QActionVerification's .axPopupValueMatchesDesired strategy uses — no parallel
+            // resolver. An unresolvable target, or a resolvable-but-wrong-value one, does NOT
+            // trigger a blind replay of the AX open+select press sequence here — it falls through
+            // to `verified = false`, so a fresh execution requires both a brand-new
+            // QExecutionIdentity (per QPlanExecutor) AND a genuinely fresh user approval grant,
+            // since QApprovalCoordinator's in-memory one-time grants never survive a
+            // crash/restart (no persisted authorization is ever consulted here).
+            let popupApplicationName = uncertainStep.arguments["applicationName"] ?? ""
+            let popupRole = uncertainStep.arguments["role"] ?? ""
+            let popupIdentifier = uncertainStep.arguments["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let popupTitle = uncertainStep.arguments["title"].flatMap { $0.isEmpty ? nil : $0 }
+            let requestedItemTitle = uncertainStep.arguments["itemTitle"] ?? ""
+            if !popupApplicationName.isEmpty, !popupRole.isEmpty, !requestedItemTitle.isEmpty,
+               (popupIdentifier != nil || popupTitle != nil) {
+                let evidence = await QBridgeAccessibility.shared.observePopupValueEvidence(
+                    applicationName: popupApplicationName,
+                    role: popupRole,
+                    identifier: popupIdentifier,
+                    title: popupTitle
+                )
+                if case .resolved(let currentValue) = evidence, currentValue == requestedItemTitle {
+                    verified = true
+                    verifiedEvidence = "Observation verified: target popup currentValue='\(currentValue)' requestedItemTitle='\(requestedItemTitle)' status=verified"
+                }
+            }
+
         case "fs.write_sandbox":
             let path = uncertainStep.targetResources.first ?? uncertainStep.arguments["path"] ?? ""
             if !path.isEmpty && FileManager.default.fileExists(atPath: path) {

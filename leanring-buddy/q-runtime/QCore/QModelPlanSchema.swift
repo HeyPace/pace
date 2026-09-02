@@ -198,7 +198,20 @@ public struct QModelPlanParser: Sendable {
         // (and deliberately deferred) in ui.set_text_value's own contract: that tool "never
         // clicks/focuses a field itself" and requires the target to already be focused. See
         // QBridgeAccessibility.focusElement and docs/PHASE_2O_SEMANTIC_ELEMENT_FOCUS.md.
-        "ui.focus_element": ("ui", .level2UserApproval)
+        "ui.focus_element": ("ui", .level2UserApproval),
+        // Phase 2P: semantic popup item selection — Level 2 (reversible local action, approval
+        // required). Resolves a single AXPopUpButton (QAXPopupRolePolicy's ONLY allowed role —
+        // AXComboBox is deliberately never allowed) and, unless it already shows the desired
+        // item, opens it and selects one direct AXMenuItem within its opened AXMenu atomically
+        // within one approved execution — the same two-press-atomic-with-bounded-poll mechanism
+        // ui.select_menu_item (Phase 2L) already proved works in this codebase, reused verbatim.
+        // Unlike a momentary menu-bar command, an AXPopUpButton's kAXValueAttribute is a
+        // persistent, already-readable current selection (QAXElementReadRolePolicy has listed
+        // AXPopUpButton since Phase 2J) — so both idempotency and closed-loop verification
+        // compare the popup's own current value directly against the requested item title, a
+        // stronger signal than ui.select_menu_item's indirect "item disappeared" evidence. See
+        // QBridgeAccessibility.selectPopupItem and docs/PHASE_2P_SEMANTIC_POPUP_SELECTION.md.
+        "ui.select_popup_item": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

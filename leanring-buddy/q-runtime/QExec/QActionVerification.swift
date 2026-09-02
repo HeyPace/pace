@@ -117,6 +117,24 @@ public enum QVerificationStrategy: Sendable {
         matchTitle: String?,
         targetIdentity: String
     )
+    /// Phase 2P: re-resolves the same semantic `AXPopUpButton` target a ui.select_popup_item
+    /// step just selected (or correctly no-op'd) and independently re-reads its OWN
+    /// `kAXValueAttribute` — a successful open+select press sequence is never itself treated as
+    /// proof of success; this is the closed-loop check that supplies the real evidence. Unlike
+    /// `axMenuItemSelectionEvidence`'s indirect "item disappeared" model, a popup's value is
+    /// directly comparable, so this compares `currentValue` against `requestedItemTitle` plainly
+    /// — the same direct-comparison model `axSliderValueMatchesDesired` already established. Like
+    /// `axSliderValueMatchesDesired`/`axElementStateMatchesDesired` (and deliberately unlike
+    /// `axElementStateChanged`'s click-based model), an unresolvable target after the change is
+    /// `.failed`, not assumed success.
+    case axPopupValueMatchesDesired(
+        applicationName: String,
+        role: String,
+        matchIdentifier: String?,
+        matchTitle: String?,
+        targetIdentity: String,
+        requestedItemTitle: String
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -401,6 +419,32 @@ public final class QActionVerifier: Sendable {
             case .targetUnavailable:
                 return .failed(
                     reason: "Target element (role=\(role)) is no longer resolvable for verification after the focus change.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+        case .axPopupValueMatchesDesired(let applicationName, let role, let matchIdentifier, let matchTitle, let targetIdentity, let requestedItemTitle):
+            let evidence = await QBridgeAccessibility.shared.observePopupValueEvidence(
+                applicationName: applicationName,
+                role: role,
+                identifier: matchIdentifier,
+                title: matchTitle
+            )
+            switch evidence {
+            case .resolved(let currentValue):
+                if currentValue == requestedItemTitle {
+                    return .verified(
+                        evidence: "target=\(targetIdentity) currentValue=\(currentValue) requestedItemTitle=\(requestedItemTitle) status=verified"
+                    )
+                } else {
+                    return .failed(
+                        reason: "Target popup (role=\(role)) current value does not match the requested item after the selection.",
+                        evidence: "target=\(targetIdentity) currentValue=\(currentValue) requestedItemTitle=\(requestedItemTitle) status=failed"
+                    )
+                }
+            case .targetUnavailable:
+                return .failed(
+                    reason: "Target popup (role=\(role)) is no longer resolvable, or its value could not be read, for verification after the selection.",
                     evidence: "target=\(targetIdentity) status=failed"
                 )
             }

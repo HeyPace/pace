@@ -568,6 +568,26 @@ public final class QPlanExecutor: Sendable {
                 matchTitle: nonEmpty(action.arguments["title"]),
                 targetIdentity: targetIdentity
             )
+        } else if action.actionName == "ui.select_popup_item",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let targetIdentity = result.outputData["targetIdentity"],
+                  let requestedItemTitle = result.outputData["requestedItemTitle"] {
+            // Reconstructed from the exact arguments used to dispatch, plus the safe (plain
+            // item-label metadata, never masked — see docs/PHASE_2P_SEMANTIC_POPUP_SELECTION.md)
+            // outputData QExecutionService captured at selection time — the independent
+            // verification step re-resolves the precise popup that was changed and independently
+            // re-reads its own kAXValueAttribute, never trusting whatever executeSelectPopupItem
+            // itself already observed.
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            return .axPopupValueMatchesDesired(
+                applicationName: applicationName,
+                role: role,
+                matchIdentifier: nonEmpty(action.arguments["identifier"]),
+                matchTitle: nonEmpty(action.arguments["title"]),
+                targetIdentity: targetIdentity,
+                requestedItemTitle: requestedItemTitle
+            )
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

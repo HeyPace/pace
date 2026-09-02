@@ -395,6 +395,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     case disallowedFocusRole(String)
     /// Phase 2O: `AXUIElementSetAttributeValue(kAXFocusedAttribute)` did not return `.success`.
     case setFocusFailed(String)
+    /// Phase 2P: the target's AX role is not on `QAXPopupRolePolicy.allowedRoles`
+    /// (`AXPopUpButton` only — `AXComboBox` is deliberately never listed). Thrown before any AX
+    /// tree walk, mirroring `disallowedSliderRole`'s/`disallowedFocusRole`'s discipline.
+    case disallowedPopupRole(String)
 
     public var description: String {
         switch self {
@@ -458,6 +462,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not on the allowed focus role list."
         case .setFocusFailed(let reason):
             return "Failed to focus target element: \(reason)"
+        case .disallowedPopupRole(let role):
+            return "Target role '\(role)' is not on the allowed popup role list."
         }
     }
 
@@ -494,6 +500,7 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .desiredValueOutOfRange: return "AX_DESIRED_VALUE_OUT_OF_RANGE"
         case .disallowedFocusRole: return "AX_FOCUS_ROLE_NOT_ALLOWED"
         case .setFocusFailed: return "AX_SET_FOCUS_FAILED"
+        case .disallowedPopupRole: return "AX_POPUP_ROLE_NOT_ALLOWED"
         }
     }
 }
@@ -768,6 +775,67 @@ public struct QAXFocusOutcome: Sendable, Equatable {
 public enum QAXFocusVerificationEvidence: Sendable, Equatable {
     case focused(identity: String)
     case notFocused
+    case targetUnavailable
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.select_popup_item` (Phase 2P) may target.
+///
+/// Deliberately a SINGLE role, the narrowest write-capable policy in this codebase alongside
+/// `QAXPopupRolePolicy`'s siblings. `AXComboBox` is explicitly NOT listed: unlike a pure popup
+/// button, a combo box is a materially different, hybrid text-entry-plus-selection control whose
+/// correct interaction model has not been evaluated — folding it in here would silently expand
+/// this phase's scope rather than deliberately scoping a future one for it (see
+/// docs/PHASE_2P_SEMANTIC_POPUP_SELECTION.md's Known limitations).
+public enum QAXPopupRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXPopUpButton"]
+
+    public static func isAllowedPopupRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Whether a `selectPopupItem` call actually performed the open+select press sequence, or found
+/// the popup already showing the desired item and correctly did nothing.
+public enum QAXPopupSelectionChangeKind: String, Sendable, Equatable {
+    case alreadySelected
+    case changed
+}
+
+/// The outcome of one `QBridgeAccessibility.selectPopupItem` call. `previousValue` and
+/// `requestedItemTitle` are carried directly (not hashed) — popup item labels are non-secret UI
+/// text, the same class already exposed by `ui.click_element`/`ui.select_menu_item`.
+public struct QAXPopupSelectionOutcome: Sendable, Equatable {
+    public let changeKind: QAXPopupSelectionChangeKind
+    public let previousValue: String
+    public let requestedItemTitle: String
+    public let targetIdentity: String
+
+    public init(
+        changeKind: QAXPopupSelectionChangeKind,
+        previousValue: String,
+        requestedItemTitle: String,
+        targetIdentity: String
+    ) {
+        self.changeKind = changeKind
+        self.previousValue = previousValue
+        self.requestedItemTitle = requestedItemTitle
+        self.targetIdentity = targetIdentity
+    }
+}
+
+/// The result of independently re-observing a popup's OWN `kAXValueAttribute` after a
+/// `ui.select_popup_item` dispatch, for the later closed-loop verification step. Unlike
+/// `ui.select_menu_item`'s indirect "item disappeared" evidence, an `AXPopUpButton` is a
+/// persistent value-holding control — this evidence compares its CURRENT value directly against
+/// the requested item title, a stronger, more direct signal.
+///
+/// - `.resolved(currentValue:)`: the popup is still resolvable and its current value was read.
+/// - `.targetUnavailable`: the popup (or application) is no longer resolvable, or its value could
+///   not be read at all — physical state is uncertain; treated as `.failed`, never assumed
+///   successful, mirroring `axSliderValueMatchesDesired`'s/`axElementStateMatchesDesired`'s
+///   conservative model.
+public enum QAXPopupValueEvidence: Sendable, Equatable {
+    case resolved(currentValue: String)
     case targetUnavailable
 }
 
@@ -1870,6 +1938,213 @@ extension QBridgeAccessibility {
             return nil
         }
         return (focusedElementValue as! AXUIElement)
+    }
+
+    // MARK: - Semantic Popup Item Selection (Phase 2P)
+    //
+    // ui.select_popup_item — a Level 2, single-role (AXPopUpButton only) selection: resolves one
+    // semantically-identified popup button, and — unless it already shows the desired item —
+    // opens it and selects one direct AXMenuItem within its opened AXMenu, atomically within ONE
+    // approved execution. Architecturally the same two-press-atomic-with-bounded-poll mechanism
+    // ui.select_menu_item (Phase 2L) already proved works in this codebase — reused verbatim
+    // (maxMenuOpenPollAttempts/menuOpenPollIntervalNanoseconds), not duplicated with different
+    // constants. The one genuine improvement over ui.select_menu_item: unlike a momentary menu-bar
+    // command, an AXPopUpButton is a persistent value-holding control (its kAXValueAttribute is
+    // already proven readable — QAXElementReadRolePolicy has listed AXPopUpButton since Phase 2J)
+    // — so both idempotency (before dispatch) and closed-loop verification (after dispatch) can
+    // compare the popup's OWN current value directly against the requested item title, a
+    // stronger, more direct signal than menu-select's indirect "item disappeared" evidence.
+
+    /// Resolves exactly one semantic `AXPopUpButton` target, and — unless it already shows the
+    /// desired item — presses it to open, bounded-polls for the named direct `AXMenuItem` to
+    /// become resolvable (reusing `ui.select_menu_item`'s exact poll constants), and presses it.
+    /// Fails closed (throws `QAXInteractionError`) on a disallowed role, missing criteria,
+    /// permission absence, application absence, zero/ambiguous popup or item matches, a
+    /// disabled/stale target, or a value/identity drift between resolution and dispatch — never
+    /// falls back to coordinates, CGEvent, or keyboard simulation, and never fabricates success.
+    /// Idempotent: if the popup's current `kAXValueAttribute` already equals `itemTitle`, no
+    /// press is performed at all — `changeKind: .alreadySelected` is itself the deterministic,
+    /// structural proof that no mutation occurred (the same convention every prior idempotent AX
+    /// capability in this codebase already establishes).
+    public func selectPopupItem(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?,
+        itemTitle: String
+    ) async throws -> QAXPopupSelectionOutcome {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard !itemTitle.isEmpty else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Role is validated as a search CRITERION, before any tree walk — an unauthorized role
+        // (AXComboBox, or anything not explicitly allowlisted) is refused outright rather than
+        // allowed to shape what gets searched for, mirroring every prior write-side role policy.
+        guard QAXPopupRolePolicy.isAllowedPopupRole(role) else {
+            throw QAXInteractionError.disallowedPopupRole(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Identity observation binding: identical discipline to every prior AX mutation
+            // capability — re-read the SAME element reference immediately before any mutation
+            // and refuse on any drift.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and dispatch")
+            }
+            guard observedAtVerify.isEnabled else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            // Value-drift staleness check (mirroring setElementState's/setSliderValue's
+            // discipline, new territory for a press-based capability): read the popup's current
+            // value once at resolution, once again immediately before any dispatch decision, and
+            // refuse if they differ — the popup may still be the exact same element by identity,
+            // but its shown value already changed out from under this call.
+            guard let currentValueAtSearch = Self.axStringAttribute(kAXValueAttribute, of: targetElement) else {
+                throw QAXInteractionError.valueReadFailed
+            }
+            guard let currentValueAtVerify = Self.axStringAttribute(kAXValueAttribute, of: targetElement) else {
+                throw QAXInteractionError.valueReadFailed
+            }
+            guard currentValueAtVerify == currentValueAtSearch else {
+                throw QAXInteractionError.valueDriftDetected("target popup's current value changed between observation and dispatch")
+            }
+
+            let targetIdentity = "application=\(applicationName) role=\(role) identifier=\(observedAtVerify.identifier ?? "none") label=\(observedAtVerify.titleOrDescription ?? "none")"
+
+            guard currentValueAtVerify != itemTitle else {
+                // Idempotent no-op: the popup already shows the desired item. No AX press is
+                // performed — an unnecessary mutation is itself something to avoid.
+                return QAXPopupSelectionOutcome(
+                    changeKind: .alreadySelected,
+                    previousValue: currentValueAtVerify,
+                    requestedItemTitle: itemTitle,
+                    targetIdentity: targetIdentity
+                )
+            }
+
+            let openResult = AXUIElementPerformAction(targetElement, kAXPressAction as CFString)
+            switch openResult {
+            case .success:
+                break
+            case .actionUnsupported:
+                throw QAXInteractionError.actionUnsupported
+            default:
+                throw QAXInteractionError.pressFailed("AXError(\(openResult.rawValue)) while opening popup")
+            }
+
+            // Bounded poll for the named item as a DIRECT child of the now-open popup's AXMenu —
+            // the exact same ceiling and interval ui.select_menu_item already established
+            // (maxMenuOpenPollAttempts * menuOpenPollIntervalNanoseconds = 10 * 50ms = 500ms),
+            // reused verbatim rather than duplicated with new constants.
+            var resolvedItem: AXUIElement?
+            for _ in 0..<Self.maxMenuOpenPollAttempts {
+                try Task.checkCancellation()
+                if let menuElement = Self.childrenAttribute(of: targetElement)?.first,
+                   Self.axStringAttribute(kAXRoleAttribute, of: menuElement) == "AXMenu",
+                   let menuItems = Self.childrenAttribute(of: menuElement) {
+                    let itemMatches = menuItems.filter { candidate in
+                        Self.axStringAttribute(kAXRoleAttribute, of: candidate) == "AXMenuItem" &&
+                        Self.axStringAttribute(kAXTitleAttribute, of: candidate) == itemTitle
+                    }
+                    if itemMatches.count == 1 {
+                        resolvedItem = itemMatches[0]
+                        break
+                    } else if itemMatches.count > 1 {
+                        throw QAXInteractionError.ambiguousTarget(count: itemMatches.count)
+                    }
+                }
+                try? await Task.sleep(nanoseconds: Self.menuOpenPollIntervalNanoseconds)
+            }
+            guard let itemElement = resolvedItem else {
+                throw QAXInteractionError.menuItemNotFound(itemTitle)
+            }
+            guard Self.axBoolAttribute(kAXEnabledAttribute, of: itemElement) ?? false else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            // Re-verify immediately before dispatch, mirroring every prior capability's
+            // observation-binding discipline — if the item became disabled between resolution
+            // (found during the poll) and this instant, refuse rather than press regardless.
+            guard Self.axBoolAttribute(kAXEnabledAttribute, of: itemElement) ?? false else {
+                throw QAXInteractionError.staleTarget("target popup item became disabled between resolution and dispatch")
+            }
+
+            let selectResult = AXUIElementPerformAction(itemElement, kAXPressAction as CFString)
+            switch selectResult {
+            case .success:
+                break
+            case .actionUnsupported:
+                throw QAXInteractionError.actionUnsupported
+            default:
+                throw QAXInteractionError.pressFailed("AXError(\(selectResult.rawValue)) while selecting item '\(itemTitle)'")
+            }
+
+            return QAXPopupSelectionOutcome(
+                changeKind: .changed,
+                previousValue: currentValueAtVerify,
+                requestedItemTitle: itemTitle,
+                targetIdentity: targetIdentity
+            )
+        }.value
+    }
+
+    /// Best-effort, read-only re-resolution of the same match criteria used by `selectPopupItem`,
+    /// used only for the later closed-loop verification step
+    /// (`QVerificationStrategy.axPopupValueMatchesDesired`). Independently re-reads the popup's
+    /// OWN `kAXValueAttribute` fresh — never trusts whatever `selectPopupItem` itself last
+    /// observed. `.targetUnavailable` (not a "resolved but wrong value" case) is returned if the
+    /// target itself can no longer be resolved, or its value cannot be read at all — physical
+    /// state is uncertain, so this is never conflated with a definite "resolvable with the wrong
+    /// value" result.
+    public func observePopupValueEvidence(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async -> QAXPopupValueEvidence {
+        guard AXIsProcessTrusted() else { return .targetUnavailable }
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else { return .targetUnavailable }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard matches.count == 1 else { return .targetUnavailable }
+            guard let currentValue = Self.axStringAttribute(kAXValueAttribute, of: matches[0].element) else {
+                return .targetUnavailable
+            }
+            return .resolved(currentValue: currentValue)
+        }.value
     }
 
     /// Reads a numeric (`NSNumber`-boxed) AX attribute as a `Double` — distinct from

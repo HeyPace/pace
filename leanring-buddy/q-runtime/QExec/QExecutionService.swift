@@ -153,6 +153,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.focus_element":
             result = await executeFocusElement(request: request)
 
+        case "ui.select_popup_item":
+            result = await executeSelectPopupItem(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -1121,6 +1124,98 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while focusing element: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    // MARK: - Phase 2P: Semantic Popup Item Selection (Level 2)
+
+    /// Level 2 (reversible local action): resolves one semantically-identified, allowlisted
+    /// (`AXPopUpButton`-only) popup, and — unless it already shows the desired item — selects one
+    /// item from it via the same two-press-atomic-with-bounded-poll mechanism
+    /// `executeSelectMenuItem` already uses, targeting the popup's own opened menu instead of the
+    /// application's menu bar. Every `QAXInteractionError` failure mode — disallowed role,
+    /// missing criteria, permission absence, application absence, zero/ambiguous popup or item
+    /// matches, disabled/stale target, value drift — is caught here and converted into a
+    /// deterministic, non-throwing `QActionResult`; this method never fabricates success. Only
+    /// non-secret targeting metadata and plain item-label text cross this method's boundary —
+    /// popup item labels are not sensitive content, the same conclusion already reached for
+    /// button/menu labels. A `verificationStatus` claim is deliberately NOT made here — a
+    /// successful press sequence is not itself evidence the popup now shows the desired item;
+    /// that determination belongs solely to QPlanExecutor's independent
+    /// `.axPopupValueMatchesDesired` verification step.
+    private func executeSelectPopupItem(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+        guard let itemTitle = request.parameters["itemTitle"], !itemTitle.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'itemTitle' parameter.",
+                error: "itemTitle missing"
+            )
+        }
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.selectPopupItem(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                itemTitle: itemTitle
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Popup selection attempted for \(outcome.targetIdentity): changeKind=\(outcome.changeKind.rawValue), previousValue=\(outcome.previousValue), requestedItemTitle=\(outcome.requestedItemTitle). Independent closed-loop verification pending.",
+                outputData: [
+                    "applicationName": applicationName,
+                    "role": role,
+                    "matchIdentifier": identifier ?? "",
+                    "matchTitle": title ?? "",
+                    "targetIdentity": outcome.targetIdentity,
+                    "changeKind": outcome.changeKind.rawValue,
+                    "previousValue": outcome.previousValue,
+                    "requestedItemTitle": outcome.requestedItemTitle
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while selecting popup item: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }
