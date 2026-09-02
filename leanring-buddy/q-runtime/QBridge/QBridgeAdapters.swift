@@ -14,6 +14,7 @@ import Vision
 import AVFoundation
 import ScreenCaptureKit
 import ApplicationServices
+import CryptoKit
 
 // MARK: - Screen Capture / OCR Deterministic Failure Classification
 //
@@ -307,6 +308,21 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     case staleTarget(String)
     case actionUnsupported
     case pressFailed(String)
+    /// Phase 2I: the target's AX role is not on `QAXTextEntryRolePolicy.allowedRoles` — covers
+    /// `AXSecureTextField`, `AXStaticText`, and any role the policy does not explicitly
+    /// allowlist. Thrown by `setTextValue` before any AX tree walk is even attempted — an
+    /// unauthorized role is refused as a search criterion, not just as a search result.
+    case disallowedTargetRole(String)
+    /// Phase 2I: the resolved target is not the system's current focused Accessibility element.
+    /// `setTextValue` never clicks/focuses a field itself — it only ever writes into whatever is
+    /// already, genuinely focused, and fails closed rather than guessing or auto-focusing.
+    case targetNotFocused(String)
+    /// Phase 2I: `kAXValueAttribute` could not be read from the target before a write was
+    /// attempted — without a readable prior value, idempotency and closed-loop verification
+    /// cannot be established, so the write is refused rather than proceeding blind.
+    case valueReadFailed
+    /// Phase 2I: `AXUIElementSetAttributeValue(kAXValueAttribute)` did not return `.success`.
+    case setValueFailed(String)
 
     public var description: String {
         switch self {
@@ -328,6 +344,14 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target element does not support the press action."
         case .pressFailed(let reason):
             return "Failed to press target element: \(reason)"
+        case .disallowedTargetRole(let role):
+            return "Target role '\(role)' is not an allowed text-entry target."
+        case .targetNotFocused(let reason):
+            return "Target element is not the currently focused element: \(reason)"
+        case .valueReadFailed:
+            return "Target element's current value could not be read."
+        case .setValueFailed(let reason):
+            return "Failed to set target element's value: \(reason)"
         }
     }
 
@@ -343,6 +367,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .staleTarget: return "AX_STALE_TARGET"
         case .actionUnsupported: return "AX_ACTION_UNSUPPORTED"
         case .pressFailed: return "AX_PRESS_FAILED"
+        case .disallowedTargetRole: return "AX_TARGET_ROLE_NOT_ALLOWED"
+        case .targetNotFocused: return "AX_TARGET_NOT_FOCUSED"
+        case .valueReadFailed: return "AX_VALUE_READ_FAILED"
+        case .setValueFailed: return "AX_SET_VALUE_FAILED"
         }
     }
 }
@@ -471,6 +499,171 @@ extension QBridgeAccessibility {
         }.value
     }
 
+    // MARK: - Semantic AX Text-Entry Mutation (Phase 2I)
+    //
+    // ui.set_text_value — a Level 2, reversible, semantic text-field write. Every element is
+    // identified by role + (identifier or title), exactly like ui.click_element, with two
+    // additional preconditions unique to a mutation that writes content rather than presses a
+    // button: the role must be on QAXTextEntryRolePolicy's explicit allowlist (never
+    // AXSecureTextField, never an unrecognized role), and the resolved target must already be
+    // the system's genuinely focused element — this capability never clicks/focuses a field
+    // itself. The literal value read from, or written into, the target exists only inside
+    // `setTextValue`'s own local scope: only lengths, non-secret target identity, and SHA-256
+    // hex digests (for the later independent closed-loop verification step) ever cross its
+    // return boundary, via QAXTextValueMutationOutcome.
+
+    /// Resolves exactly one semantic AXTextField/AXTextArea target, verifies it is genuinely
+    /// focused and not stale, and sets its value via `AXUIElementSetAttributeValue
+    /// (kAXValueAttribute)` only — never CGEvent, never keyboard simulation, never Return/Tab/
+    /// submit. Fails closed (throws `QAXInteractionError`) on every disallowed-role, ambiguous,
+    /// stale, disabled, unfocused, or unreadable outcome. If the target's current value already
+    /// equals `newValue`, this is treated as an idempotent no-op — no AX write is performed at
+    /// all — rather than an unnecessary mutation.
+    public func setTextValue(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?,
+        newValue: String
+    ) async throws -> QAXTextValueMutationOutcome {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Role is validated as a search CRITERION, before any tree walk — an unauthorized role
+        // (AXSecureTextField, or anything not explicitly allowlisted) is refused outright rather
+        // than allowed to shape what gets searched for.
+        guard QAXTextEntryRolePolicy.isAllowedTextEntryRole(role) else {
+            throw QAXInteractionError.disallowedTargetRole(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: identical discipline to clickElement — re-read the SAME
+            // element reference immediately before any mutation and refuse on any drift.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element state changed between observation and dispatch")
+            }
+            guard observedAtVerify.isEnabled else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            // Focus verification: the target must BE the system's current focused UI element.
+            // This mirrors Pace-native's own PaceActionExecutor+Keyboard.swift setTextValue
+            // read pattern (AXUIElementCreateSystemWide + kAXFocusedUIElementAttribute), except
+            // here the read is compared against a specific, already-semantically-resolved
+            // target rather than blindly trusted — no click-to-focus is ever attempted.
+            let systemWideElement = AXUIElementCreateSystemWide()
+            var focusedElementValue: CFTypeRef?
+            let focusedResult = AXUIElementCopyAttributeValue(
+                systemWideElement,
+                kAXFocusedUIElementAttribute as CFString,
+                &focusedElementValue
+            )
+            guard focusedResult == .success,
+                  let focusedElementValue,
+                  CFGetTypeID(focusedElementValue) == AXUIElementGetTypeID() else {
+                throw QAXInteractionError.targetNotFocused("no focused Accessibility element could be determined")
+            }
+            let focusedElement = focusedElementValue as! AXUIElement
+            guard CFEqual(focusedElement, targetElement) else {
+                throw QAXInteractionError.targetNotFocused("the resolved target is not the currently focused element")
+            }
+
+            // Ephemeral readback: the previous literal value lives only in this local `let` for
+            // exactly as long as it takes to compute its length and hash on the next two lines.
+            guard let previousValue = Self.axStringAttribute(kAXValueAttribute, of: targetElement) else {
+                throw QAXInteractionError.valueReadFailed
+            }
+            let previousLength = previousValue.count
+            let previousValueHash = Self.sha256Hex(previousValue)
+            let intendedValueHash = Self.sha256Hex(newValue)
+            let targetIdentity = "application=\(applicationName) role=\(role) identifier=\(observedAtVerify.identifier ?? "none") label=\(observedAtVerify.titleOrDescription ?? "none")"
+
+            guard previousValueHash != intendedValueHash else {
+                // Idempotent no-op: the field already holds the intended value. No AX write is
+                // performed — an unnecessary mutation is itself something to avoid.
+                return QAXTextValueMutationOutcome(
+                    valueChanged: false,
+                    previousLength: previousLength,
+                    currentLength: newValue.count,
+                    targetIdentity: targetIdentity,
+                    previousValueHash: previousValueHash,
+                    intendedValueHash: intendedValueHash
+                )
+            }
+
+            let setResult = AXUIElementSetAttributeValue(targetElement, kAXValueAttribute as CFString, newValue as CFString)
+            guard setResult == .success else {
+                throw QAXInteractionError.setValueFailed("AXError(\(setResult.rawValue))")
+            }
+
+            // Immediate ephemeral readback confirming the write landed — again discarded after
+            // its length is computed; the authoritative check is the later, independent
+            // closed-loop verification step (QVerificationStrategy.axTextValueChanged), which
+            // re-resolves the target fresh rather than trusting this in-process observation.
+            let currentLength = Self.axStringAttribute(kAXValueAttribute, of: targetElement)?.count ?? newValue.count
+
+            return QAXTextValueMutationOutcome(
+                valueChanged: true,
+                previousLength: previousLength,
+                currentLength: currentLength,
+                targetIdentity: targetIdentity,
+                previousValueHash: previousValueHash,
+                intendedValueHash: intendedValueHash
+            )
+        }.value
+    }
+
+    /// Best-effort, read-only re-resolution of the same match criteria used by `setTextValue`,
+    /// used only for the later closed-loop verification step
+    /// (QVerificationStrategy.axTextValueChanged). Returns the CURRENT value's length and
+    /// SHA-256 hash only — never the plaintext — or nil if the target is no longer uniquely
+    /// resolvable or its value cannot be read.
+    public func observeTextValueHashAndLength(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async -> (hash: String, length: Int)? {
+        guard AXIsProcessTrusted() else { return nil }
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else { return nil }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard matches.count == 1 else { return nil }
+            guard let currentValue = Self.axStringAttribute(kAXValueAttribute, of: matches[0].element) else { return nil }
+            return (Self.sha256Hex(currentValue), currentValue.count)
+        }.value
+    }
+
     // MARK: - Bounded traversal (nonisolated: pure over AXUIElement/CFTypeRef, safe from any thread)
 
     fileprivate nonisolated static func collectMatches(
@@ -561,6 +754,14 @@ extension QBridgeAccessibility {
         let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
         guard result == .success else { return nil }
         return value as? Bool
+    }
+
+    /// Hex-encoded SHA-256 digest — the only representation of a text-entry value ever allowed
+    /// to cross `setTextValue`/`observeTextValueHashAndLength`'s return boundary. Mirrors
+    /// `QAuditRecord`'s existing rawArguments-hashing pattern (hash instead of storing plaintext).
+    fileprivate nonisolated static func sha256Hex(_ input: String) -> String {
+        let digest = SHA256.hash(data: Data(input.utf8))
+        return digest.map { String(format: "%02hhx", $0) }.joined()
     }
 }
 

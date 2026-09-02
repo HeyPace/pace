@@ -267,11 +267,24 @@ public struct QRuntimeUISnapshot: Sendable, Equatable, Codable {
             targetResources: step.targetResources
         )
 
+        // Security boundary (Phase 2I remediation): `QRuntimeStepSnapshot` (this type's own step
+        // model) does not carry the step's raw arguments, only its model-authored free-text
+        // `description` — the same field a future sensitive-argument tool's model output could
+        // use to describe exactly the value it's about to write. `approvalSafeLiteralAction`
+        // degrades to a fully generic, argument-free safe template (no dynamic content at all)
+        // for any tool `QSensitiveArgumentPolicy` declares sensitive; every other tool's display
+        // text is unchanged. See docs/PHASE_2I_TEXT_ENTRY_SECURITY_REMEDIATION.md.
+        let approvalSafeLiteralAction = QSensitiveArgumentPolicy.approvalSafeLiteralAction(
+            toolName: step.actionName,
+            arguments: [:],
+            fallbackLiteralAction: step.description
+        )
+
         return QApprovalRequest(
             taskId: taskId,
             toolName: step.actionName,
             riskLevel: step.riskLevelValue,
-            literalAction: step.description,
+            literalAction: approvalSafeLiteralAction,
             affectedResources: step.targetResources,
             scope: .global,
             reason: reason,
@@ -279,7 +292,7 @@ public struct QRuntimeUISnapshot: Sendable, Equatable, Codable {
             // cannot know the real value. It only affects display text here, never authorization
             // (the actual grant, when minted, is validated against the live coordinator record).
             isContextTainted: false,
-            expectedEffect: step.description,
+            expectedEffect: approvalSafeLiteralAction,
             isReversible: step.riskLevelValue.isConsideredReversible,
             executionIdentity: identity
         )

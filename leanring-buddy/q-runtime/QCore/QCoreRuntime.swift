@@ -312,16 +312,26 @@ public final class QCoreRuntime: @unchecked Sendable {
             // Handle Permission Approval Halts
             if case .waitingForPermission(let idx, let reason) = executedPlan.state {
                 let step = executedPlan.steps[idx]
+                // Security boundary (Phase 2I remediation): this reconstructs the live,
+                // HUD-facing approval request independently of QPermissionGate.evaluate — see
+                // docs/PHASE_2I_TEXT_ENTRY_SECURITY_REMEDIATION.md. Same narrow guard as the
+                // original evaluation path: a no-op for every tool without declared-sensitive
+                // arguments.
+                let approvalSafeLiteralAction = QSensitiveArgumentPolicy.approvalSafeLiteralAction(
+                    toolName: step.action.actionName,
+                    arguments: step.action.arguments,
+                    fallbackLiteralAction: step.description
+                )
                 let approvalReq = QApprovalRequest(
                     taskId: task.taskId,
                     toolName: step.action.actionName,
                     riskLevel: step.action.riskLevel,
-                    literalAction: step.description,
+                    literalAction: approvalSafeLiteralAction,
                     affectedResources: step.action.targetResources,
                     scope: .global,
                     reason: reason,
                     isContextTainted: task.context.isTainted,
-                    expectedEffect: step.description,
+                    expectedEffect: approvalSafeLiteralAction,
                     isReversible: step.action.riskLevel.isConsideredReversible,
                     executionIdentity: QExecutionIdentity(
                         taskId: task.taskId,
@@ -836,16 +846,25 @@ public final class QCoreRuntime: @unchecked Sendable {
         // unresolved permission wait as a plain failure. Mirrors submitIntent's identical handling.
         if case .waitingForPermission(let idx, let reason) = executedPlan.state {
             let waitingStep = executedPlan.steps[idx]
+            // Security boundary (Phase 2I remediation): same narrow guard as the original
+            // evaluation path and the submitIntent halt-handling above — a no-op for every tool
+            // without declared-sensitive arguments. See
+            // docs/PHASE_2I_TEXT_ENTRY_SECURITY_REMEDIATION.md.
+            let approvalSafeLiteralAction = QSensitiveArgumentPolicy.approvalSafeLiteralAction(
+                toolName: waitingStep.action.actionName,
+                arguments: waitingStep.action.arguments,
+                fallbackLiteralAction: waitingStep.description
+            )
             let approvalReq = QApprovalRequest(
                 taskId: task.taskId,
                 toolName: waitingStep.action.actionName,
                 riskLevel: waitingStep.action.riskLevel,
-                literalAction: waitingStep.description,
+                literalAction: approvalSafeLiteralAction,
                 affectedResources: waitingStep.action.targetResources,
                 scope: .global,
                 reason: reason,
                 isContextTainted: task.context.isTainted,
-                expectedEffect: waitingStep.description,
+                expectedEffect: approvalSafeLiteralAction,
                 isReversible: waitingStep.action.riskLevel.isConsideredReversible,
                 executionIdentity: QExecutionIdentity(
                     taskId: task.taskId,

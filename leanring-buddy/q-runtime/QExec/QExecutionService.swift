@@ -132,6 +132,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.click_element":
             result = await executeClickElement(request: request)
 
+        case "ui.set_text_value":
+            result = await executeSetTextValue(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -496,6 +499,96 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while clicking element: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Level 2 (reversible local action): sets the value of one semantically-identified,
+    /// currently-focused AXTextField/AXTextArea element via `AXUIElementSetAttributeValue
+    /// (kAXValueAttribute)` only — never CGEvent, keyboard simulation, or Return/Tab/submit.
+    /// Every `QAXInteractionError` failure mode is caught here and converted into a
+    /// deterministic, non-throwing `QActionResult`; this method never falls back to coordinates
+    /// or CGEvent, and never fabricates success. Neither the model-supplied `value` parameter nor
+    /// the field's prior/current literal content are ever placed in `summary` or `outputData` —
+    /// only `QAXTextValueMutationOutcome`'s safe metadata (lengths, non-secret target identity,
+    /// and SHA-256 hashes the later closed-loop verification step consumes) crosses this
+    /// method's boundary. A `verificationStatus` claim is deliberately NOT made here — a
+    /// successful AX write is not itself evidence of goal success; that determination belongs
+    /// solely to QPlanExecutor's independent `.axTextValueChanged` verification step.
+    private func executeSetTextValue(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+        guard let newValue = request.parameters["value"] else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'value' parameter.",
+                error: "value missing"
+            )
+        }
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.setTextValue(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                newValue: newValue
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "AX text-value write attempted for \(outcome.targetIdentity): valueChanged=\(outcome.valueChanged), previousLength=\(outcome.previousLength), currentLength=\(outcome.currentLength). Independent closed-loop verification pending.",
+                outputData: [
+                    "applicationName": applicationName,
+                    "role": role,
+                    "matchIdentifier": identifier ?? "",
+                    "matchTitle": title ?? "",
+                    "targetIdentity": outcome.targetIdentity,
+                    "valueChanged": outcome.valueChanged ? "true" : "false",
+                    "previousLength": "\(outcome.previousLength)",
+                    "currentLength": "\(outcome.currentLength)",
+                    "previousValueHash": outcome.previousValueHash,
+                    "intendedValueHash": outcome.intendedValueHash
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while setting text value: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

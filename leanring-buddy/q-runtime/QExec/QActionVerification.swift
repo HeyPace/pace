@@ -29,6 +29,23 @@ public enum QVerificationStrategy: Sendable {
         matchTitle: String?,
         beforeSnapshot: QAXElementSnapshot
     )
+    /// Phase 2I: re-resolves the same semantic target a ui.set_text_value step just wrote to and
+    /// confirms its CURRENT value hashes to the intended value's hash — never comparing or
+    /// transmitting the plaintext itself. A successful AX write is not itself evidence of goal
+    /// success; this is the independent closed-loop check that supplies the real evidence, and
+    /// (deliberately, unlike axElementStateChanged) it FAILS rather than assumes success if the
+    /// target becomes unresolvable — a text field disappearing after a value write is a more
+    /// concerning signal than a button's identity changing after a press.
+    case axTextValueChanged(
+        applicationName: String,
+        role: String,
+        matchIdentifier: String?,
+        matchTitle: String?,
+        targetIdentity: String,
+        previousLength: Int,
+        previousValueHash: String,
+        intendedValueHash: String
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -148,6 +165,53 @@ public final class QActionVerifier: Sendable {
             return .verified(
                 evidence: "Target element (role=\(role)) state changed after press: identifier \(beforeSnapshot.identifier ?? "none") -> \(afterSnapshot.identifier ?? "none"), label \(beforeSnapshot.titleOrDescription ?? "none") -> \(afterSnapshot.titleOrDescription ?? "none")."
             )
+
+        case .axTextValueChanged(let applicationName, let role, let matchIdentifier, let matchTitle, let targetIdentity, let previousLength, let previousValueHash, let intendedValueHash):
+            guard let (currentValueHash, currentLength) = await QBridgeAccessibility.shared.observeTextValueHashAndLength(
+                applicationName: applicationName,
+                role: role,
+                identifier: matchIdentifier,
+                title: matchTitle
+            ) else {
+                // Unlike axElementStateChanged, an unresolvable text-entry target after a write
+                // is NOT treated as an observed success — a text field disappearing after having
+                // its value set is a more concerning signal than a control's identity changing as
+                // a direct, expected effect of being pressed. Fail closed rather than assume.
+                let evidence = QSafeTextEntryVerificationEvidence(
+                    valueChanged: false,
+                    previousLength: previousLength,
+                    currentLength: 0,
+                    targetIdentity: targetIdentity,
+                    verificationStatus: .failed
+                )
+                return .failed(
+                    reason: "Target element (role=\(role)) is no longer resolvable for verification after the write.",
+                    evidence: evidence.safeEvidenceDescription
+                )
+            }
+
+            if currentValueHash == intendedValueHash {
+                let evidence = QSafeTextEntryVerificationEvidence(
+                    valueChanged: currentValueHash != previousValueHash,
+                    previousLength: previousLength,
+                    currentLength: currentLength,
+                    targetIdentity: targetIdentity,
+                    verificationStatus: .verified
+                )
+                return .verified(evidence: evidence.safeEvidenceDescription)
+            } else {
+                let evidence = QSafeTextEntryVerificationEvidence(
+                    valueChanged: currentValueHash != previousValueHash,
+                    previousLength: previousLength,
+                    currentLength: currentLength,
+                    targetIdentity: targetIdentity,
+                    verificationStatus: .failed
+                )
+                return .failed(
+                    reason: "Target element (role=\(role)) current value does not match the intended value after the write.",
+                    evidence: evidence.safeEvidenceDescription
+                )
+            }
 
         case .customCheck(let description, let check):
             let passed = await check()

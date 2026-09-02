@@ -93,7 +93,18 @@ public struct QModelPlanParser: Sendable {
         // description); raw screen coordinates are never an accepted parameter for this tool. See
         // QBridgeAccessibility.clickElement and docs/PHASE_2H_SEMANTIC_CLICK.md for the full
         // resolution / observation-binding / verification contract.
-        "ui.click_element": ("ui", .level2UserApproval)
+        "ui.click_element": ("ui", .level2UserApproval),
+        // Phase 2I: semantic AX text-entry write — Level 2 (reversible local action). The target
+        // MUST identify an Accessibility element semantically (role + identifier or title) AND
+        // the role MUST be on QAXTextEntryRolePolicy's allowlist (AXTextField/AXTextArea only —
+        // never AXSecureTextField, never an unrecognized role). The target must already be the
+        // system's genuinely focused element; this tool never clicks/focuses a field itself.
+        // Mutation is AXUIElementSetAttributeValue(kAXValueAttribute) only — never CGEvent,
+        // keyboard simulation, or Return/Tab/submit. Its `value` parameter is declared sensitive
+        // in QSensitiveArgumentPolicy — masked before durable persistence and never used to
+        // build approval/HUD display text. See QBridgeAccessibility.setTextValue and
+        // docs/PHASE_2I_TEXT_ENTRY_SECURITY_REMEDIATION.md for the full contract.
+        "ui.set_text_value": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

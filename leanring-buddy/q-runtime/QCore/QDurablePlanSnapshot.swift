@@ -88,7 +88,18 @@ public struct QDurablePlanStepSnapshot: Codable, Sendable, Equatable {
         self.riskLevel = "\(step.action.riskLevel.rawValue)"
         self.literalAction = step.action.literalAction
         self.targetResources = step.action.targetResources
-        self.arguments = step.action.arguments
+        // Security boundary (Phase 2I remediation): this was previously a verbatim, unredacted
+        // copy of the raw model-supplied arguments dictionary into durable (on-disk SQLite)
+        // persistence — the one confirmed structural gap the Phase 2I text-entry pre-check
+        // found (see docs/PHASE_2I_TEXT_ENTRY_SECURITY_REMEDIATION.md). `QSensitiveArgumentPolicy`
+        // masks only the declared-sensitive keys for tools that have any (today: none of the
+        // registered/executable capabilities do — see QModelPlanParser.registeredCapabilities —
+        // so this is a no-op for every capability that actually runs), leaving non-sensitive
+        // arguments (identifiers, roles, titles, paths, etc.) fully intact for debugging.
+        self.arguments = QSensitiveArgumentPolicy.redactedArguments(
+            toolName: step.action.actionName,
+            arguments: step.action.arguments
+        )
         self.expectedOutcomes = []
         self.verificationStrategy = "empirical"
 

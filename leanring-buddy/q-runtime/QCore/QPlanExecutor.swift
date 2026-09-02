@@ -142,12 +142,29 @@ public final class QPlanExecutor: Sendable {
             }
 
             if !authorizedByPriorGrant {
+                // Security boundary (Phase 2I remediation): `QToolAuthorizationRequest
+                // .literalAction` flows straight into `QApprovalRequest.expectedEffect`
+                // (QPermissionGate.evaluate), which the HUD renders verbatim
+                // ("Q wants to: \(expectedEffect)" — PaceTurnHUDState.swift). The generic path
+                // trusts the model's own free-text step description here, which is fine for
+                // targeting metadata (e.g. a click description) but not for a tool whose
+                // arguments carry a sensitive literal — the model could describe exactly the
+                // text it's about to enter. `approvalSafeLiteralAction` only overrides this for
+                // tools `QSensitiveArgumentPolicy` declares sensitive (today: none of the
+                // registered/executable capabilities — see QModelPlanParser
+                // .registeredCapabilities — so this is a no-op today); every other tool's
+                // approval text is byte-for-byte unchanged.
+                let approvalSafeLiteralAction = QSensitiveArgumentPolicy.approvalSafeLiteralAction(
+                    toolName: step.action.actionName,
+                    arguments: step.action.arguments,
+                    fallbackLiteralAction: step.action.literalAction
+                )
                 let authRequest = QToolAuthorizationRequest(
                     taskId: plan.taskId,
                     toolName: step.action.actionName,
                     toolFamily: step.action.toolFamily,
                     baseRisk: step.action.riskLevel,
-                    literalAction: step.action.literalAction,
+                    literalAction: approvalSafeLiteralAction,
                     affectedResources: step.action.targetResources,
                     isContextTainted: context.isTainted,
                     executionIdentity: executionIdentity
@@ -354,12 +371,28 @@ public final class QPlanExecutor: Sendable {
         observer?.planDidUpdate(plan: plan)
 
         // Record plan completion in Memory and Audit
+        //
+        // Security boundary (Phase 2I remediation): QMemoryStore is a separate, independent
+        // durable SQLite store from QDurableTaskStore/QAuditLogger — the confirmed Phase 2I
+        // pre-check found it had NO redaction applied at all, unlike every other persistence
+        // sink this same `finalSummary` value already flows through (QAuditRecord.executionSummary
+        // applies QSecretRedactor.redact internally; QDurablePlanStepSnapshot.resultSummary/
+        // verifiedEvidence do the same at construction). Applying the identical canonical
+        // redactor here closes that one gap without introducing a second mechanism. This is the
+        // same defense-in-depth backstop as those existing call sites, not a general-purpose
+        // redactor: QSecretRedactor only strips secret-*shaped* substrings (API keys, PEM blocks,
+        // password/token assignments) — it does not, and cannot, generically identify arbitrary
+        // sensitive free text. The structural guarantee that a future capability's literal input
+        // (e.g. a typed text value) never reaches `finalSummary` in the first place must come
+        // from that capability's own executor never placing it in QActionResult.summary/
+        // verifiedEvidence — see QSafeTextEntryVerificationEvidence in
+        // QTextEntrySecurityContracts.swift and docs/PHASE_2I_TEXT_ENTRY_SECURITY_REMEDIATION.md.
         if let memory = QRuntimeBootstrap.shared.getMemoryStore() {
             let memoryRecord = QMemoryRecord(
                 sessionId: plan.sessionId,
                 taskId: plan.taskId,
                 key: "plan_\(plan.id.uuidString)",
-                content: finalSummary,
+                content: QSecretRedactor.redact(finalSummary),
                 provenanceKind: context.isTainted ? "untrusted" : "trusted:user",
                 provenanceSource: "q_plan_executor"
             )
@@ -427,6 +460,28 @@ public final class QPlanExecutor: Sendable {
                 matchIdentifier: matchIdentifier,
                 matchTitle: matchTitle,
                 beforeSnapshot: beforeSnapshot
+            )
+        } else if action.actionName == "ui.set_text_value",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let targetIdentity = result.outputData["targetIdentity"],
+                  let previousLength = result.outputData["previousLength"].flatMap(Int.init),
+                  let previousValueHash = result.outputData["previousValueHash"],
+                  let intendedValueHash = result.outputData["intendedValueHash"] {
+            // Reconstructed from the exact arguments used to dispatch, plus the safe (hash/length
+            // only, never plaintext) metadata QExecutionService captured at write time — the
+            // independent verification step re-resolves the precise element that was written to
+            // and compares only hashes, never the literal value.
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            return .axTextValueChanged(
+                applicationName: applicationName,
+                role: role,
+                matchIdentifier: nonEmpty(action.arguments["identifier"]),
+                matchTitle: nonEmpty(action.arguments["title"]),
+                targetIdentity: targetIdentity,
+                previousLength: previousLength,
+                previousValueHash: previousValueHash,
+                intendedValueHash: intendedValueHash
             )
         } else {
             return .customCheck(description: "Default step verification") { true }
