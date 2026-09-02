@@ -253,7 +253,32 @@ public struct QModelPlanParser: Sendable {
         // refused (AX provides no reliable single-tab deselection, the same limitation already
         // established for AXRadioButton in Phase 2K). See QBridgeAccessibility.selectTab and
         // docs/PHASE_2R_SEMANTIC_TAB_SELECTION.md for the full contract.
-        "ui.select_tab": ("ui", .level2UserApproval)
+        "ui.select_tab": ("ui", .level2UserApproval),
+        // Phase 2S: semantic table row selection — Level 2 (reversible local action, approval
+        // required). Requests selection of exactly one semantically-identified table row.
+        // Deliberately narrower than every prior explicit-desired-state capability in this
+        // codebase: `desiredSelected` MUST be exactly "true" — "false" (deselection) is refused
+        // deterministically (`QAXInteractionError.rowDeselectionUnsupported`), never treated as a
+        // blind toggle and never silently coerced. Scoped to QAXTableRowRolePolicy's single-role
+        // allowlist (`AXRow` only), and `selectTableRow` additionally, unconditionally requires
+        // BOTH the `AXTableRow` subrole (`NSAccessibilityTableRowSubrole`, confirmed directly
+        // against this SDK's authoritative NSAccessibilityConstants.h — the same header that
+        // caught Phase 2R's "AXTab" mistake) AND a resolved parent element whose own role is
+        // `AXTable` (`NSAccessibilityTableRole`) — a row lacking either is refused, never treated
+        // as a table row. `AXOutlineRow` (`NSAccessibilityOutlineRowSubrole`) is a real, distinct
+        // subrole this SDK also defines, but is explicitly OUT OF SCOPE for this phase
+        // (`QAXInteractionError.outlineRowUnsupported`) — expanding to outline rows would
+        // silently broaden this phase's scope rather than deliberately scoping a future one for
+        // it (see docs/PHASE_2S_SEMANTIC_TABLE_ROW_SELECTION.md's Known limitations). Mutation is
+        // AXUIElementPerformAction(kAXPressAction) only — the same primitive
+        // ui.select_tab/ui.toggle_disclosure/ui.set_element_state/ui.click_element already use.
+        // Authoritative selection state is read from kAXSelectedAttribute — the identical
+        // attribute already proven correct for ui.select_tab, deliberately never
+        // kAXSelectedRowsAttribute (the table-level multi-selection array, never read or written
+        // by this single-row capability). Idempotent: already-selected is a verified no-op, no
+        // press performed. See QBridgeAccessibility.selectTableRow and
+        // docs/PHASE_2S_SEMANTIC_TABLE_ROW_SELECTION.md for the full contract.
+        "ui.select_table_row": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

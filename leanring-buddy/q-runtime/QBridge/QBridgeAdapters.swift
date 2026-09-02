@@ -428,6 +428,35 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// cannot be established safely, so the operation is refused rather than guessing. Unknown
     /// never defaults to a state.
     case tabSelectionStateReadFailed
+    /// Phase 2S: the target's AX role is not on `QAXTableRowRolePolicy.allowedRoles` (`AXRow`
+    /// only). Thrown before any AX tree walk, mirroring `disallowedTabRole`'s discipline.
+    case disallowedTableRowRole(String)
+    /// Phase 2S: the resolved target's role matched `AXRow`, but its `kAXSubroleAttribute` is
+    /// not exactly `"AXTableRow"` — this is what actually distinguishes a genuine table row from
+    /// any other `AXRow`-shaped element (e.g. one with no subrole at all, or a custom row-like
+    /// control). `ui.select_table_row` NEVER treats an unqualified `AXRow` as a table row.
+    case targetNotATableRow(String)
+    /// Phase 2S: the resolved target's role matched `AXRow` and its subrole is exactly
+    /// `"AXOutlineRow"` — a real, distinct, SDK-confirmed subrole this capability deliberately
+    /// does not support in this phase (see docs/PHASE_2S_SEMANTIC_TABLE_ROW_SELECTION.md's Known
+    /// limitations). Reported distinctly from `targetNotATableRow` for a clearer diagnostic —
+    /// this is a recognized-but-unsupported row shape, not an unrecognized one.
+    case outlineRowUnsupported(String)
+    /// Phase 2S: the target's own `kAXParentAttribute` could not be resolved, or the resolved
+    /// parent's role is not exactly `"AXTable"` — without an established table context, a
+    /// standalone `AXRow`+`AXTableRow` element is never accepted as a valid target, even though
+    /// its own role/subrole alone would otherwise qualify.
+    case tableContextUnavailable(String)
+    /// Phase 2S: `kAXSelectedAttribute` could not be read from the target table row — without a
+    /// reliably readable current selection state, idempotency and the desired-state comparison
+    /// cannot be established safely, so the operation is refused rather than guessing. Unknown
+    /// never defaults to a state.
+    case rowSelectionStateReadFailed
+    /// Phase 2S: `desiredSelected` was `false` — this phase deliberately supports selection only
+    /// (`desiredSelected` MUST be `true`); deselection is out of scope and refused
+    /// unconditionally, BEFORE any Accessibility Trust check or application resolution is even
+    /// attempted, never treated as a blind toggle and never silently coerced to `true`.
+    case rowDeselectionUnsupported(String)
 
     public var description: String {
         switch self {
@@ -503,6 +532,18 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target is an AXRadioButton but its subrole ('\(subrole)') is not AXTabButton — refusing to treat a generic radio button as a tab."
         case .tabSelectionStateReadFailed:
             return "Target tab's current selected state could not be read."
+        case .disallowedTableRowRole(let role):
+            return "Target role '\(role)' is not on the allowed table-row role list."
+        case .targetNotATableRow(let subrole):
+            return "Target is an AXRow but its subrole ('\(subrole)') is not AXTableRow — refusing to treat an unqualified row as a table row."
+        case .outlineRowUnsupported(let subrole):
+            return "Target is an AXRow with subrole '\(subrole)' (an outline row) — outline row selection is not supported by this capability."
+        case .tableContextUnavailable(let reason):
+            return "Target row's table context could not be established: \(reason)"
+        case .rowSelectionStateReadFailed:
+            return "Target table row's current selected state could not be read."
+        case .rowDeselectionUnsupported(let reason):
+            return "Refusing to deselect a table row — this capability supports selection only: \(reason)"
         }
     }
 
@@ -545,6 +586,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .disallowedTabRole: return "AX_TAB_ROLE_NOT_ALLOWED"
         case .targetNotATabButton: return "AX_TARGET_NOT_A_TAB_BUTTON"
         case .tabSelectionStateReadFailed: return "AX_TAB_SELECTION_STATE_READ_FAILED"
+        case .disallowedTableRowRole: return "AX_TABLE_ROW_ROLE_NOT_ALLOWED"
+        case .targetNotATableRow: return "AX_TARGET_NOT_A_TABLE_ROW"
+        case .outlineRowUnsupported: return "AX_OUTLINE_ROW_UNSUPPORTED"
+        case .tableContextUnavailable: return "AX_TABLE_CONTEXT_UNAVAILABLE"
+        case .rowSelectionStateReadFailed: return "AX_ROW_SELECTION_STATE_READ_FAILED"
+        case .rowDeselectionUnsupported: return "AX_ROW_DESELECTION_UNSUPPORTED"
         }
     }
 }
@@ -1026,6 +1073,75 @@ public struct QAXTabSelectionOutcome: Sendable, Equatable {
 ///   treated as `.failed`, mirroring `axDisclosureStateMatchesDesired`'s/
 ///   `axPopupValueMatchesDesired`'s conservative model.
 public enum QAXTabSelectionEvidence: Sendable, Equatable {
+    case resolved(currentSelected: Bool)
+    case stateUnreadable
+    case targetUnavailable
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.select_table_row` (Phase 2S) may target.
+///
+/// Deliberately a SINGLE role, the narrowest write-capable policy in this codebase alongside
+/// `QAXTabRolePolicy`'s/`QAXPopupRolePolicy`'s/`QAXDisclosureRolePolicy`'s siblings. `AXRow`
+/// alone is NOT sufficient for `selectTableRow` to treat a resolved element as a table row —
+/// resolution additionally, unconditionally requires the `AXTableRow` subrole (see
+/// `QAXInteractionError.targetNotATableRow`) AND an established `AXTable` parent context (see
+/// `QAXInteractionError.tableContextUnavailable`). `AXOutlineRow` — a real, distinct subrole this
+/// SDK also defines — is explicitly recognized-but-refused (see
+/// `QAXInteractionError.outlineRowUnsupported`), never silently folded into table-row handling.
+public enum QAXTableRowRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXRow"]
+
+    public static func isAllowedTableRowRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Whether a `selectTableRow` call actually performed a press, or found the target already
+/// selected and correctly did nothing.
+public enum QAXTableRowSelectionChangeKind: String, Sendable, Equatable {
+    case alreadyDesired
+    case changed
+}
+
+/// The outcome of one `QBridgeAccessibility.selectTableRow` call. Carries only a small,
+/// non-sensitive boolean and non-secret targeting metadata — never a raw AX attribute dump,
+/// never the content of the row's own cells or the table it belongs to.
+public struct QAXTableRowSelectionOutcome: Sendable, Equatable {
+    public let changeKind: QAXTableRowSelectionChangeKind
+    public let previousSelected: Bool
+    public let currentSelected: Bool
+    public let targetIdentity: String
+
+    public init(
+        changeKind: QAXTableRowSelectionChangeKind,
+        previousSelected: Bool,
+        currentSelected: Bool,
+        targetIdentity: String
+    ) {
+        self.changeKind = changeKind
+        self.previousSelected = previousSelected
+        self.currentSelected = currentSelected
+        self.targetIdentity = targetIdentity
+    }
+}
+
+/// The result of independently re-observing a table row's `kAXSelectedAttribute` after a
+/// `ui.select_table_row` dispatch, for the later closed-loop verification step (and for
+/// `QTaskRecoveryManager`'s observation-first recovery, which reuses this exact primitive).
+/// Authoritative selection state is read from `kAXSelectedAttribute` — the same attribute
+/// already proven correct for `ui.select_tab`, deliberately never `kAXSelectedRowsAttribute`
+/// (the table-level multi-selection array, never read or written by this single-row capability).
+///
+/// - `.resolved(currentSelected:)`: the target is still resolvable (role `AXRow`, subrole
+///   `AXTableRow`, with an `AXTable`-rooted parent context) and its selection state was read as
+///   a clean boolean.
+/// - `.stateUnreadable`: the target is resolvable but `kAXSelectedAttribute` could not be read —
+///   treated as `.failed`, NEVER defaulted to either selected or not-selected.
+/// - `.targetUnavailable`: the target (or application) is no longer resolvable at all, is
+///   ambiguous, no longer carries the `AXTableRow` subrole, or its table context can no longer
+///   be established — physical state is uncertain; treated as `.failed`, mirroring
+///   `axTabSelectionMatchesDesired`'s conservative model.
+public enum QAXTableRowSelectionEvidence: Sendable, Equatable {
     case resolved(currentSelected: Bool)
     case stateUnreadable
     case targetUnavailable
@@ -2719,6 +2835,235 @@ extension QBridgeAccessibility {
             let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
             guard matches.count == 1 else { return .targetUnavailable }
             guard Self.axStringAttribute(kAXSubroleAttribute, of: matches[0].element) == Self.tabButtonSubrole else {
+                return .targetUnavailable
+            }
+            guard let currentSelected = Self.axBoolAttribute(kAXSelectedAttribute, of: matches[0].element) else {
+                return .stateUnreadable
+            }
+            return .resolved(currentSelected: currentSelected)
+        }.value
+    }
+
+    // MARK: - Semantic Table Row Selection (Phase 2S)
+    //
+    // ui.select_table_row — a Level 2, selection-only operation (never deselection) for exactly
+    // one semantically-identified table row. Confirmed directly against this SDK's authoritative
+    // NSAccessibilityConstants.h: `AXRow` (NSAccessibilityRowRole) is a genuine, standalone base
+    // role, distinct from `AXTable`/`AXOutline`, carrying one of two real, distinct subroles —
+    // `AXTableRow` (NSAccessibilityTableRowSubrole) or `AXOutlineRow`
+    // (NSAccessibilityOutlineRowSubrole). `selectTableRow` resolves by role `AXRow`
+    // (`QAXTableRowRolePolicy`'s only allowed role) and additionally, unconditionally requires
+    // BOTH the `AXTableRow` subrole AND a resolved `kAXParentAttribute` whose own role is exactly
+    // `AXTable` — an `AXRow` missing either is refused, never treated as a table row.
+    // `AXOutlineRow` is a real, SDK-confirmed subrole this phase deliberately does not support
+    // (`QAXInteractionError.outlineRowUnsupported`) — see
+    // docs/PHASE_2S_SEMANTIC_TABLE_ROW_SELECTION.md's Known limitations. Mutation is
+    // AXUIElementPerformAction(kAXPressAction) only — the same primitive
+    // ui.select_tab/ui.toggle_disclosure/ui.set_element_state/ui.click_element already use.
+    // Authoritative selection state is read from kAXSelectedAttribute — deliberately never
+    // kAXSelectedRowsAttribute (the table-level multi-selection array). Unlike `ui.select_tab`,
+    // deselection is not merely unguaranteed — it is categorically out of scope: `desiredSelected`
+    // MUST be `true`, refused BEFORE any Accessibility Trust check or application resolution is
+    // even attempted if `false`.
+
+    /// The exact `kAXSubroleAttribute` value that distinguishes a genuine table row from any
+    /// other `AXRow`-shaped element. Never a model-configurable input — hard-coded, non-negotiable
+    /// part of `ui.select_table_row`'s own contract.
+    fileprivate static let tableRowSubrole = "AXTableRow"
+
+    /// The real, SDK-confirmed subrole for an outline (`NSOutlineView`) row — recognized so it can
+    /// be reported with a clear, distinct diagnostic, but deliberately unsupported in this phase.
+    fileprivate static let outlineRowSubrole = "AXOutlineRow"
+
+    /// The exact parent `kAXRoleAttribute` value that establishes a row's table context. Never a
+    /// model-configurable input — hard-coded, non-negotiable part of `ui.select_table_row`'s own
+    /// contract.
+    fileprivate static let tableContextRole = "AXTable"
+
+    /// Resolves exactly one semantic `AXRow` target carrying the `AXTableRow` subrole and an
+    /// `AXTable`-rooted parent context, and — unless it already reports the desired
+    /// `kAXSelectedAttribute` state — presses it toward selection. Fails closed (throws
+    /// `QAXInteractionError`) on a disallowed role, a resolved `AXRow` lacking the `AXTableRow`
+    /// subrole, a recognized-but-unsupported `AXOutlineRow` subrole, an unestablished table
+    /// context, missing criteria, permission absence, application absence, zero/ambiguous
+    /// matches, a disabled/stale target, an unreadable current selection state, a selection-state
+    /// drift between resolution and dispatch, or a deselection request — never falls back to
+    /// coordinates, CGEvent, or keyboard simulation, and never fabricates success. Idempotent: if
+    /// the row's current `kAXSelectedAttribute` already reports `true`, no
+    /// `AXUIElementPerformAction` call is made at all — `changeKind: .alreadyDesired` is itself
+    /// the deterministic, structural proof that no mutation occurred (the same convention every
+    /// prior idempotent AX capability in this codebase already establishes).
+    public func selectTableRow(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?,
+        desiredSelected: Bool
+    ) async throws -> QAXTableRowSelectionOutcome {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Role is validated as a search CRITERION, before any tree walk — an unauthorized role
+        // is refused outright rather than allowed to shape what gets searched for, mirroring
+        // every prior write-side role policy in this codebase. Note: passing this check alone
+        // does NOT mean the target will be treated as a table row — the mandatory AXTableRow
+        // subrole + AXTable parent-context checks below are what actually decide that.
+        guard QAXTableRowRolePolicy.isAllowedTableRowRole(role) else {
+            throw QAXInteractionError.disallowedTableRowRole(role)
+        }
+        // Deselection is categorically out of scope for this phase — refused BEFORE any
+        // Accessibility Trust check or application resolution is even attempted, never treated
+        // as a blind toggle and never silently coerced to true.
+        guard desiredSelected else {
+            throw QAXInteractionError.rowDeselectionUnsupported(
+                "ui.select_table_row supports selection only (desiredSelected must be true)"
+            )
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Identity observation binding: identical discipline to every prior AX mutation
+            // capability — re-read the SAME element reference immediately before any mutation
+            // and refuse on any drift.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and dispatch")
+            }
+            guard observedAtVerify.isEnabled else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            // The mandatory, non-negotiable subrole gate: an AXRow without the AXTableRow subrole
+            // is never treated as a table row. AXOutlineRow is recognized-but-refused with its
+            // own distinct diagnostic, never silently folded into table-row handling.
+            let observedSubrole = Self.axStringAttribute(kAXSubroleAttribute, of: targetElement)
+            guard observedSubrole != Self.outlineRowSubrole else {
+                throw QAXInteractionError.outlineRowUnsupported(observedSubrole ?? "none")
+            }
+            guard observedSubrole == Self.tableRowSubrole else {
+                throw QAXInteractionError.targetNotATableRow(observedSubrole ?? "none")
+            }
+
+            // The mandatory, non-negotiable table-context gate: a row is never accepted unless
+            // its own kAXParentAttribute resolves to an element whose role is exactly AXTable —
+            // an arbitrary standalone AXRow+AXTableRow element with no such parent is refused.
+            guard let parentElement = Self.axElementAttribute(kAXParentAttribute, of: targetElement) else {
+                throw QAXInteractionError.tableContextUnavailable("parent element could not be resolved")
+            }
+            guard Self.axStringAttribute(kAXRoleAttribute, of: parentElement) == Self.tableContextRole else {
+                throw QAXInteractionError.tableContextUnavailable("parent role is not AXTable")
+            }
+
+            // Selection-state-drift staleness check (mirroring selectTab's/setElementState's
+            // discipline): read kAXSelectedAttribute once at resolution, once again immediately
+            // before dispatch, and refuse if they differ — the target may still be the exact same
+            // element by identity, but its selection state already changed out from under this
+            // call.
+            guard let selectedAtSearch = Self.axBoolAttribute(kAXSelectedAttribute, of: targetElement) else {
+                throw QAXInteractionError.rowSelectionStateReadFailed
+            }
+            guard let selectedAtVerify = Self.axBoolAttribute(kAXSelectedAttribute, of: targetElement) else {
+                throw QAXInteractionError.rowSelectionStateReadFailed
+            }
+            guard selectedAtVerify == selectedAtSearch else {
+                throw QAXInteractionError.valueDriftDetected("target row's selected state changed between observation and dispatch")
+            }
+
+            let targetIdentity = "application=\(applicationName) role=\(role) subrole=\(Self.tableRowSubrole) identifier=\(observedAtVerify.identifier ?? "none") label=\(observedAtVerify.titleOrDescription ?? "none")"
+
+            guard !selectedAtVerify else {
+                // Idempotent no-op: the row already reports selected=true. No AX press is
+                // performed — an unnecessary mutation is itself something to avoid.
+                return QAXTableRowSelectionOutcome(
+                    changeKind: .alreadyDesired,
+                    previousSelected: selectedAtVerify,
+                    currentSelected: selectedAtVerify,
+                    targetIdentity: targetIdentity
+                )
+            }
+
+            let pressResult = AXUIElementPerformAction(targetElement, kAXPressAction as CFString)
+            switch pressResult {
+            case .success:
+                break
+            case .actionUnsupported:
+                throw QAXInteractionError.actionUnsupported
+            default:
+                throw QAXInteractionError.pressFailed("AXError(\(pressResult.rawValue))")
+            }
+
+            // Immediate ephemeral post-press read — provisional only; the authoritative check is
+            // the later, independent closed-loop verification step
+            // (QVerificationStrategy.axTableRowSelectionMatchesDesired), which re-resolves the
+            // target fresh rather than trusting this in-process observation.
+            let currentSelected = Self.axBoolAttribute(kAXSelectedAttribute, of: targetElement) ?? true
+
+            return QAXTableRowSelectionOutcome(
+                changeKind: .changed,
+                previousSelected: selectedAtVerify,
+                currentSelected: currentSelected,
+                targetIdentity: targetIdentity
+            )
+        }.value
+    }
+
+    /// Best-effort, read-only re-resolution of the same match criteria used by `selectTableRow`,
+    /// used both by the later closed-loop verification step
+    /// (`QVerificationStrategy.axTableRowSelectionMatchesDesired`) and by
+    /// `QTaskRecoveryManager`'s observation-first recovery branch — the SAME primitive for both,
+    /// never a parallel resolver. Independently re-reads `kAXSelectedAttribute` fresh — never
+    /// trusts whatever `selectTableRow` itself last observed. Also independently re-verifies the
+    /// `AXTableRow` subrole and the `AXTable` parent context, so a target that has stopped being a
+    /// qualifying table row (however implausible in practice) is never conflated with a genuine,
+    /// still-authoritative selection observation. `.stateUnreadable` (the attribute could not be
+    /// read) is deliberately distinct from `.targetUnavailable` (the target itself cannot be
+    /// resolved, is ambiguous, or is no longer subrole/context-qualified) for a clearer
+    /// diagnostic, though both are treated as `.failed` by verification — neither is ever coerced
+    /// into a definite selected/not-selected guess.
+    public func observeTableRowSelectionEvidence(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async -> QAXTableRowSelectionEvidence {
+        guard AXIsProcessTrusted() else { return .targetUnavailable }
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else { return .targetUnavailable }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard matches.count == 1 else { return .targetUnavailable }
+            guard Self.axStringAttribute(kAXSubroleAttribute, of: matches[0].element) == Self.tableRowSubrole else {
+                return .targetUnavailable
+            }
+            guard let parentElement = Self.axElementAttribute(kAXParentAttribute, of: matches[0].element),
+                  Self.axStringAttribute(kAXRoleAttribute, of: parentElement) == Self.tableContextRole else {
                 return .targetUnavailable
             }
             guard let currentSelected = Self.axBoolAttribute(kAXSelectedAttribute, of: matches[0].element) else {

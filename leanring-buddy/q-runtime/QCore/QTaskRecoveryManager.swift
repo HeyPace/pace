@@ -309,6 +309,43 @@ public final class QTaskRecoveryManager: Sendable {
                 }
             }
 
+        case "ui.select_table_row":
+            // Observation-first (Phase 2S): re-check whether the requested table row already
+            // reports selected=true before ever considering a replay. Reuses the EXACT SAME
+            // independent observation primitive
+            // (QBridgeAccessibility.observeTableRowSelectionEvidence) QActionVerification's
+            // .axTableRowSelectionMatchesDesired strategy uses — no parallel resolver. An
+            // unresolvable/ambiguous/no-longer-subrole-or-table-context-qualified target, an
+            // unreadable selection state, or a resolvable-but-not-selected one, does NOT trigger
+            // a blind replay of the AX press here — it falls through to `verified = false`, so a
+            // fresh execution requires both a brand-new QExecutionIdentity (per QPlanExecutor)
+            // AND a genuinely fresh user approval grant, since QApprovalCoordinator's in-memory
+            // one-time grants never survive a crash/restart (no persisted authorization is ever
+            // consulted here). A selection without this explicit desired-state re-verification
+            // would be unsafe to resume — this branch is exactly what makes it safe. Note: since
+            // this capability only ever supports `desiredSelected=true` (deselection is
+            // categorically out of scope, refused before dispatch), a persisted step is only ever
+            // resumed toward `true` — there is no `desiredSelected=false` case to reconstruct.
+            let rowApplicationName = uncertainStep.arguments["applicationName"] ?? ""
+            let rowRole = uncertainStep.arguments["role"] ?? ""
+            let rowIdentifier = uncertainStep.arguments["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let rowTitle = uncertainStep.arguments["title"].flatMap { $0.isEmpty ? nil : $0 }
+            let rowDesiredSelectedRaw = uncertainStep.arguments["desiredSelected"] ?? ""
+            if !rowApplicationName.isEmpty, !rowRole.isEmpty,
+               let rowDesiredSelected = Bool(rowDesiredSelectedRaw), rowDesiredSelected,
+               (rowIdentifier != nil || rowTitle != nil) {
+                let evidence = await QBridgeAccessibility.shared.observeTableRowSelectionEvidence(
+                    applicationName: rowApplicationName,
+                    role: rowRole,
+                    identifier: rowIdentifier,
+                    title: rowTitle
+                )
+                if case .resolved(let currentSelected) = evidence, currentSelected == rowDesiredSelected {
+                    verified = true
+                    verifiedEvidence = "Observation verified: target table row currentSelected='\(currentSelected)' desiredSelected='\(rowDesiredSelected)' status=verified"
+                }
+            }
+
         case "fs.write_sandbox":
             let path = uncertainStep.targetResources.first ?? uncertainStep.arguments["path"] ?? ""
             if !path.isEmpty && FileManager.default.fileExists(atPath: path) {

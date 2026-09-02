@@ -162,6 +162,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.select_tab":
             result = await executeSelectTab(request: request)
 
+        case "ui.select_table_row":
+            result = await executeSelectTableRow(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -1413,6 +1416,113 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while selecting tab: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2S: semantic table row selection — Level 2 (reversible local action, approval
+    /// required). Selection ONLY: `desiredSelected` MUST be exactly `"true"` — `"false"` is
+    /// rejected deterministically before any Accessibility call is made, never treated as a
+    /// blind toggle. Restricted to `QAXTableRowRolePolicy`'s single-role allowlist (`AXRow`
+    /// only), with the mandatory `AXTableRow` subrole and `AXTable` parent-context gates enforced
+    /// inside `QBridgeAccessibility.selectTableRow` itself. Mutation is
+    /// `AXUIElementPerformAction(kAXPressAction)` only — never `AXUIElementSetAttributeValue`,
+    /// never CGEvent, keyboard, mouse, or coordinate interaction. Every `QAXInteractionError`
+    /// failure mode — disallowed role, a resolved `AXRow` lacking the `AXTableRow` subrole, a
+    /// recognized-but-unsupported `AXOutlineRow` subrole, an unestablished table context, missing
+    /// criteria, permission absence, application absence, zero/ambiguous matches,
+    /// disabled/stale target, unreadable selection state, selection-state drift — is caught here
+    /// and converted into a deterministic, non-throwing `QActionResult`; this method never
+    /// fabricates success. Only the small, non-secret selected/not-selected boolean and non-secret
+    /// targeting metadata cross this method's boundary — never a raw AX attribute dump, never the
+    /// content of the row's own cells or the table it belongs to. A `verificationStatus` claim is
+    /// deliberately NOT made here — a successful press is not itself evidence the desired
+    /// selection state was reached; that determination belongs solely to QPlanExecutor's
+    /// independent `.axTableRowSelectionMatchesDesired` verification step.
+    private func executeSelectTableRow(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+        guard let desiredSelectedRaw = request.parameters["desiredSelected"],
+              let desiredSelected = Bool(desiredSelectedRaw) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing or invalid 'desiredSelected' parameter — must be exactly 'true' or 'false'.",
+                error: "desiredSelected invalid"
+            )
+        }
+        // This phase supports selection only — refused BEFORE any Accessibility call is made,
+        // never treated as a blind toggle and never silently coerced to true.
+        guard desiredSelected else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "ui.select_table_row supports selection only — 'desiredSelected: false' (deselection) is not supported in this phase.",
+                error: "AX_ROW_DESELECTION_UNSUPPORTED"
+            )
+        }
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.selectTableRow(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                desiredSelected: desiredSelected
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Table row selection attempted for \(outcome.targetIdentity): changeKind=\(outcome.changeKind.rawValue), previousSelected=\(outcome.previousSelected), currentSelected=\(outcome.currentSelected), desiredSelected=\(desiredSelected). Independent closed-loop verification pending.",
+                outputData: [
+                    "applicationName": applicationName,
+                    "role": role,
+                    "matchIdentifier": identifier ?? "",
+                    "matchTitle": title ?? "",
+                    "targetIdentity": outcome.targetIdentity,
+                    "changeKind": outcome.changeKind.rawValue,
+                    "previousSelected": "\(outcome.previousSelected)",
+                    "currentSelected": "\(outcome.currentSelected)",
+                    "desiredSelected": "\(desiredSelected)"
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while selecting table row: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }
