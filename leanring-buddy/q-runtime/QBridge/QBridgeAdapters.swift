@@ -399,6 +399,16 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// (`AXPopUpButton` only — `AXComboBox` is deliberately never listed). Thrown before any AX
     /// tree walk, mirroring `disallowedSliderRole`'s/`disallowedFocusRole`'s discipline.
     case disallowedPopupRole(String)
+    /// Phase 2Q: the target's AX role is not on `QAXDisclosureRolePolicy.allowedRoles`
+    /// (`AXDisclosureTriangle` only). Thrown before any AX tree walk, mirroring
+    /// `disallowedPopupRole`'s/`disallowedStateRole`'s discipline.
+    case disallowedDisclosureRole(String)
+    /// Phase 2Q: `kAXValueAttribute` could not be read from the target disclosure triangle, or
+    /// could not be interpreted as a clean expanded(1)/collapsed(0) boolean — without a reliably
+    /// interpretable current state, idempotency and the desired-state comparison cannot be
+    /// established safely, so the operation is refused rather than guessing. Unknown never
+    /// defaults to a state.
+    case disclosureStateReadFailed
 
     public var description: String {
         switch self {
@@ -464,6 +474,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Failed to focus target element: \(reason)"
         case .disallowedPopupRole(let role):
             return "Target role '\(role)' is not on the allowed popup role list."
+        case .disallowedDisclosureRole(let role):
+            return "Target role '\(role)' is not on the allowed disclosure role list."
+        case .disclosureStateReadFailed:
+            return "Target disclosure triangle's current state could not be read or interpreted as expanded/collapsed."
         }
     }
 
@@ -501,6 +515,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .disallowedFocusRole: return "AX_FOCUS_ROLE_NOT_ALLOWED"
         case .setFocusFailed: return "AX_SET_FOCUS_FAILED"
         case .disallowedPopupRole: return "AX_POPUP_ROLE_NOT_ALLOWED"
+        case .disallowedDisclosureRole: return "AX_DISCLOSURE_ROLE_NOT_ALLOWED"
+        case .disclosureStateReadFailed: return "AX_DISCLOSURE_STATE_READ_FAILED"
         }
     }
 }
@@ -836,6 +852,80 @@ public struct QAXPopupSelectionOutcome: Sendable, Equatable {
 ///   conservative model.
 public enum QAXPopupValueEvidence: Sendable, Equatable {
     case resolved(currentValue: String)
+    case targetUnavailable
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.toggle_disclosure` (Phase 2Q) may target.
+///
+/// Deliberately a SINGLE role — the narrowest write-capable policy in this codebase alongside
+/// `QAXPopupRolePolicy`. `AXButton`/`AXCheckBox`/`AXRadioButton`/`AXPopUpButton`/`AXComboBox`/
+/// `AXGroup`/`AXStaticText` are never listed: this capability is scoped to the one AX role whose
+/// entire purpose is expand/collapse disclosure, not a generic press-based toggle. A control that
+/// merely LOOKS like a disclosure triangle but reports a different role (e.g. a custom `AXButton`
+/// styled to resemble one) is refused, not silently accepted — the same fail-closed discipline
+/// every prior write-side role policy in this codebase already establishes.
+public enum QAXDisclosureRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXDisclosureTriangle"]
+
+    public static func isAllowedDisclosureRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// The normalized expand/collapse state of an `AXDisclosureTriangle`. Never carries an "unknown"
+/// case as a settable target — an indeterminate/unreadable `kAXValueAttribute` fails closed
+/// (`QAXInteractionError.disclosureStateReadFailed`) rather than being coerced into this type,
+/// the same discipline `QAXElementState` already establishes for checkbox/radio "mixed" states.
+public enum QAXDisclosureState: String, Sendable, Equatable {
+    case expanded
+    case collapsed
+}
+
+/// Whether a `toggleDisclosure` call actually performed a press, or found the target already at
+/// the desired expand/collapse state and correctly did nothing.
+public enum QAXDisclosureChangeKind: String, Sendable, Equatable {
+    case alreadyDesired
+    case changed
+}
+
+/// The outcome of one `QBridgeAccessibility.toggleDisclosure` call. Carries only the small,
+/// non-sensitive expanded/collapsed enum and non-secret targeting metadata — never a raw AX
+/// attribute dump, never the content revealed/hidden by the toggle.
+public struct QAXDisclosureToggleOutcome: Sendable, Equatable {
+    public let changeKind: QAXDisclosureChangeKind
+    public let previousState: QAXDisclosureState
+    public let currentState: QAXDisclosureState
+    public let targetIdentity: String
+
+    public init(
+        changeKind: QAXDisclosureChangeKind,
+        previousState: QAXDisclosureState,
+        currentState: QAXDisclosureState,
+        targetIdentity: String
+    ) {
+        self.changeKind = changeKind
+        self.previousState = previousState
+        self.currentState = currentState
+        self.targetIdentity = targetIdentity
+    }
+}
+
+/// The result of independently re-observing a disclosure triangle's state after a
+/// `ui.toggle_disclosure` dispatch, for the later closed-loop verification step (and for
+/// `QTaskRecoveryManager`'s observation-first recovery, which reuses this exact primitive).
+///
+/// - `.resolved(currentState:)`: the target is still resolvable and its state was read and
+///   cleanly interpreted as expanded or collapsed.
+/// - `.stateUnreadable`: the target is resolvable but its `kAXValueAttribute` could not be read
+///   or cleanly interpreted — an indeterminate/unknown state, treated as `.failed`, NEVER
+///   defaulted to either expanded or collapsed.
+/// - `.targetUnavailable`: the target (or application) is no longer resolvable at all — physical
+///   state is uncertain; treated as `.failed`, mirroring `axElementStateMatchesDesired`'s/
+///   `axPopupValueMatchesDesired`'s conservative model, since nothing about toggling disclosure
+///   should make the triangle itself disappear.
+public enum QAXDisclosureVerificationEvidence: Sendable, Equatable {
+    case resolved(currentState: QAXDisclosureState)
+    case stateUnreadable
     case targetUnavailable
 }
 
@@ -2145,6 +2235,187 @@ extension QBridgeAccessibility {
             }
             return .resolved(currentValue: currentValue)
         }.value
+    }
+
+    // MARK: - Semantic Disclosure Toggle (Phase 2Q)
+    //
+    // ui.toggle_disclosure — a Level 2, single-role (AXDisclosureTriangle only) expand/collapse
+    // toggle for exactly one semantically-identified disclosure triangle. Mutation is
+    // AXUIElementPerformAction(kAXPressAction) only — the same primitive
+    // ui.set_element_state/ui.click_element already use — never AXUIElementSetAttributeValue,
+    // since a disclosure triangle (like a checkbox) only runs its real expand/collapse handling
+    // in response to a genuine press, not a raw value write. Explicit desired-state semantics
+    // (never a blind toggle): the caller states the desired final state, and the operation is a
+    // true idempotent no-op if the target is already there. Reuses the exact same
+    // press-based-mutation, direct-value-verification architecture ui.set_element_state (Phase
+    // 2K) already established for checkbox/radio's binary state — this is structurally the same
+    // interaction shape, just applied to a different (and, per Phase 2Q Discovery, already
+    // read-allowlisted) role.
+
+    /// Resolves exactly one semantic `AXDisclosureTriangle` target and, unless it already reports
+    /// the desired expand/collapse state, presses it toward that state. Fails closed (throws
+    /// `QAXInteractionError`) on a disallowed role, missing criteria, permission absence,
+    /// application absence, zero/ambiguous matches, a disabled/stale target, an unreadable
+    /// current state, or a state drift between resolution and dispatch — never falls back to
+    /// coordinates, CGEvent, or keyboard simulation, and never fabricates success. Idempotent: if
+    /// the disclosure triangle's current `kAXValueAttribute` already reports the desired state,
+    /// no `AXUIElementPerformAction` call is made at all — `changeKind: .alreadyDesired` is
+    /// itself the deterministic, structural proof that no mutation occurred (the same convention
+    /// every prior idempotent AX capability in this codebase already establishes).
+    public func toggleDisclosure(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?,
+        desiredState: QAXDisclosureState
+    ) async throws -> QAXDisclosureToggleOutcome {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Role is validated as a search CRITERION, before any tree walk — an unauthorized role
+        // is refused outright rather than allowed to shape what gets searched for, mirroring
+        // every prior write-side role policy in this codebase.
+        guard QAXDisclosureRolePolicy.isAllowedDisclosureRole(role) else {
+            throw QAXInteractionError.disallowedDisclosureRole(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Identity observation binding: identical discipline to every prior AX mutation
+            // capability — re-read the SAME element reference immediately before any mutation
+            // and refuse on any drift.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and dispatch")
+            }
+            guard observedAtVerify.isEnabled else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            // Value-drift staleness check (mirroring setElementState's/selectPopupItem's
+            // discipline): read the disclosure state once at resolution, once again immediately
+            // before dispatch, and refuse if they differ — the target may still be the exact
+            // same element by identity, but its expand/collapse state already changed out from
+            // under this call. An unreadable/indeterminate state at either read fails closed
+            // rather than defaulting to a guess.
+            guard let stateAtSearch = Self.axDisclosureState(of: targetElement) else {
+                throw QAXInteractionError.disclosureStateReadFailed
+            }
+            guard let stateAtVerify = Self.axDisclosureState(of: targetElement) else {
+                throw QAXInteractionError.disclosureStateReadFailed
+            }
+            guard stateAtVerify == stateAtSearch else {
+                throw QAXInteractionError.valueDriftDetected("target disclosure state changed between observation and dispatch")
+            }
+
+            let targetIdentity = "application=\(applicationName) role=\(role) identifier=\(observedAtVerify.identifier ?? "none") label=\(observedAtVerify.titleOrDescription ?? "none")"
+
+            guard stateAtVerify != desiredState else {
+                // Idempotent no-op: the target already reports the desired state. No AX press is
+                // performed — an unnecessary mutation is itself something to avoid.
+                return QAXDisclosureToggleOutcome(
+                    changeKind: .alreadyDesired,
+                    previousState: stateAtVerify,
+                    currentState: stateAtVerify,
+                    targetIdentity: targetIdentity
+                )
+            }
+
+            let pressResult = AXUIElementPerformAction(targetElement, kAXPressAction as CFString)
+            switch pressResult {
+            case .success:
+                break
+            case .actionUnsupported:
+                throw QAXInteractionError.actionUnsupported
+            default:
+                throw QAXInteractionError.pressFailed("AXError(\(pressResult.rawValue))")
+            }
+
+            // Immediate ephemeral post-press read — provisional only; the authoritative check is
+            // the later, independent closed-loop verification step
+            // (QVerificationStrategy.axDisclosureStateMatchesDesired), which re-resolves the
+            // target fresh rather than trusting this in-process observation.
+            let currentState = Self.axDisclosureState(of: targetElement) ?? desiredState
+
+            return QAXDisclosureToggleOutcome(
+                changeKind: .changed,
+                previousState: stateAtVerify,
+                currentState: currentState,
+                targetIdentity: targetIdentity
+            )
+        }.value
+    }
+
+    /// Best-effort, read-only re-resolution of the same match criteria used by
+    /// `toggleDisclosure`, used both by the later closed-loop verification step
+    /// (`QVerificationStrategy.axDisclosureStateMatchesDesired`) and by
+    /// `QTaskRecoveryManager`'s observation-first recovery branch — the SAME primitive for both,
+    /// never a parallel resolver. Independently re-reads `kAXValueAttribute` fresh — never trusts
+    /// whatever `toggleDisclosure` itself last observed. `.stateUnreadable` (an indeterminate/
+    /// unknown value) is deliberately distinct from `.targetUnavailable` (the target itself
+    /// cannot be resolved at all) for a clearer diagnostic, though both are treated as `.failed`
+    /// by verification — neither is ever coerced into a definite expanded/collapsed guess.
+    public func observeDisclosureStateEvidence(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async -> QAXDisclosureVerificationEvidence {
+        guard AXIsProcessTrusted() else { return .targetUnavailable }
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else { return .targetUnavailable }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard matches.count == 1 else { return .targetUnavailable }
+            guard let currentState = Self.axDisclosureState(of: matches[0].element) else {
+                return .stateUnreadable
+            }
+            return .resolved(currentState: currentState)
+        }.value
+    }
+
+    /// Reads `kAXValueAttribute` and interprets it as a clean expanded/collapsed boolean:
+    /// `0` → `.collapsed`, `1` → `.expanded`. Any other value or a non-numeric/unreadable
+    /// attribute returns `nil` — this capability never guesses at an ambiguous current state, the
+    /// same discipline `axCheckboxRadioState` already establishes for checkbox/radio's tri-state
+    /// "mixed" value.
+    fileprivate nonisolated static func axDisclosureState(of element: AXUIElement) -> QAXDisclosureState? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
+        guard result == .success, let value else { return nil }
+        guard let numberValue = value as? NSNumber else { return nil }
+        switch numberValue.intValue {
+        case 0: return .collapsed
+        case 1: return .expanded
+        default: return nil
+        }
     }
 
     /// Reads a numeric (`NSNumber`-boxed) AX attribute as a `Double` — distinct from

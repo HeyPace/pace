@@ -211,7 +211,21 @@ public struct QModelPlanParser: Sendable {
         // compare the popup's own current value directly against the requested item title, a
         // stronger signal than ui.select_menu_item's indirect "item disappeared" evidence. See
         // QBridgeAccessibility.selectPopupItem and docs/PHASE_2P_SEMANTIC_POPUP_SELECTION.md.
-        "ui.select_popup_item": ("ui", .level2UserApproval)
+        "ui.select_popup_item": ("ui", .level2UserApproval),
+        // Phase 2Q: semantic disclosure triangle toggle — Level 2 (reversible local action,
+        // approval required). Requests an explicit desired expand/collapse state ("expanded" or
+        // "collapsed" — never a blind toggle whose result is unknown) for exactly one
+        // semantically-identified AXDisclosureTriangle, restricted to QAXDisclosureRolePolicy's
+        // single-role fail-closed allowlist. Mutation is AXUIElementPerformAction(kAXPressAction)
+        // only — the same primitive ui.set_element_state/ui.click_element already use, correct
+        // here for the identical reason: a disclosure triangle only runs its real expand/collapse
+        // handling in response to a genuine press, not a raw kAXValueAttribute write.
+        // Structurally the same interaction shape ui.set_element_state (Phase 2K) already
+        // established for checkbox/radio's binary state, applied to a role already
+        // read-allowlisted since Phase 2J. Idempotent: already-at-the-desired-state is a
+        // verified no-op, no press performed. See QBridgeAccessibility.toggleDisclosure and
+        // docs/PHASE_2Q_SEMANTIC_DISCLOSURE_TOGGLE.md for the full contract.
+        "ui.toggle_disclosure": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

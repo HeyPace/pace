@@ -135,6 +135,23 @@ public enum QVerificationStrategy: Sendable {
         targetIdentity: String,
         requestedItemTitle: String
     )
+    /// Phase 2Q: re-resolves the same semantic `AXDisclosureTriangle` target a
+    /// ui.toggle_disclosure step just toggled (or correctly no-op'd) and independently re-reads
+    /// its `kAXValueAttribute` — a successful press is never itself treated as proof of success;
+    /// this is the closed-loop check that supplies the real evidence. Structurally the same
+    /// direct-comparison model `axElementStateMatchesDesired`/`axPopupValueMatchesDesired`
+    /// already establish. Like those (and deliberately unlike `axElementStateChanged`'s
+    /// click-based model), an unresolvable target after the change is `.failed`, not assumed
+    /// success; an unreadable/indeterminate state is likewise `.failed`, never defaulted to
+    /// either expanded or collapsed.
+    case axDisclosureStateMatchesDesired(
+        applicationName: String,
+        role: String,
+        matchIdentifier: String?,
+        matchTitle: String?,
+        targetIdentity: String,
+        desiredState: QAXDisclosureState
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -445,6 +462,37 @@ public final class QActionVerifier: Sendable {
             case .targetUnavailable:
                 return .failed(
                     reason: "Target popup (role=\(role)) is no longer resolvable, or its value could not be read, for verification after the selection.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+        case .axDisclosureStateMatchesDesired(let applicationName, let role, let matchIdentifier, let matchTitle, let targetIdentity, let desiredState):
+            let evidence = await QBridgeAccessibility.shared.observeDisclosureStateEvidence(
+                applicationName: applicationName,
+                role: role,
+                identifier: matchIdentifier,
+                title: matchTitle
+            )
+            switch evidence {
+            case .resolved(let currentState):
+                if currentState == desiredState {
+                    return .verified(
+                        evidence: "target=\(targetIdentity) currentState=\(currentState.rawValue) desiredState=\(desiredState.rawValue) status=verified"
+                    )
+                } else {
+                    return .failed(
+                        reason: "Target disclosure triangle (role=\(role)) current state does not match the desired state after the toggle.",
+                        evidence: "target=\(targetIdentity) currentState=\(currentState.rawValue) desiredState=\(desiredState.rawValue) status=failed"
+                    )
+                }
+            case .stateUnreadable:
+                return .failed(
+                    reason: "Target disclosure triangle (role=\(role)) current state could not be read or interpreted after the toggle — unknown state fails closed.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            case .targetUnavailable:
+                return .failed(
+                    reason: "Target disclosure triangle (role=\(role)) is no longer resolvable for verification after the toggle.",
                     evidence: "target=\(targetIdentity) status=failed"
                 )
             }

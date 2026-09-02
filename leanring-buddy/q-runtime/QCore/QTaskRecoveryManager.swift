@@ -241,6 +241,40 @@ public final class QTaskRecoveryManager: Sendable {
                 }
             }
 
+        case "ui.toggle_disclosure":
+            // Observation-first (Phase 2Q): re-check whether the requested disclosure triangle
+            // already reports the requested desired state before ever considering a replay.
+            // Reuses the EXACT SAME independent observation primitive
+            // (QBridgeAccessibility.observeDisclosureStateEvidence)
+            // QActionVerification's .axDisclosureStateMatchesDesired strategy uses — no parallel
+            // resolver. An unresolvable target, an unreadable/indeterminate state, or a
+            // resolvable-but-wrong-state one, does NOT trigger a blind replay of the AX press
+            // here — it falls through to `verified = false`, so a fresh execution requires both a
+            // brand-new QExecutionIdentity (per QPlanExecutor) AND a genuinely fresh user approval
+            // grant, since QApprovalCoordinator's in-memory one-time grants never survive a
+            // crash/restart (no persisted authorization is ever consulted here). A toggle without
+            // this explicit desired-state re-verification would be unsafe to resume — this branch
+            // is exactly what makes it safe.
+            let disclosureApplicationName = uncertainStep.arguments["applicationName"] ?? ""
+            let disclosureRole = uncertainStep.arguments["role"] ?? ""
+            let disclosureIdentifier = uncertainStep.arguments["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let disclosureTitle = uncertainStep.arguments["title"].flatMap { $0.isEmpty ? nil : $0 }
+            let disclosureDesiredStateRaw = uncertainStep.arguments["desiredState"] ?? ""
+            if !disclosureApplicationName.isEmpty, !disclosureRole.isEmpty,
+               let disclosureDesiredState = QAXDisclosureState(rawValue: disclosureDesiredStateRaw),
+               (disclosureIdentifier != nil || disclosureTitle != nil) {
+                let evidence = await QBridgeAccessibility.shared.observeDisclosureStateEvidence(
+                    applicationName: disclosureApplicationName,
+                    role: disclosureRole,
+                    identifier: disclosureIdentifier,
+                    title: disclosureTitle
+                )
+                if case .resolved(let currentState) = evidence, currentState == disclosureDesiredState {
+                    verified = true
+                    verifiedEvidence = "Observation verified: target disclosure currentState='\(currentState.rawValue)' desiredState='\(disclosureDesiredState.rawValue)' status=verified"
+                }
+            }
+
         case "fs.write_sandbox":
             let path = uncertainStep.targetResources.first ?? uncertainStep.arguments["path"] ?? ""
             if !path.isEmpty && FileManager.default.fileExists(atPath: path) {

@@ -588,6 +588,26 @@ public final class QPlanExecutor: Sendable {
                 targetIdentity: targetIdentity,
                 requestedItemTitle: requestedItemTitle
             )
+        } else if action.actionName == "ui.toggle_disclosure",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let targetIdentity = result.outputData["targetIdentity"],
+                  let desiredStateRaw = action.arguments["desiredState"],
+                  let desiredState = QAXDisclosureState(rawValue: desiredStateRaw) {
+            // Reconstructed from the exact arguments used to dispatch, plus the safe (non-secret
+            // targeting metadata only) outputData QExecutionService captured at toggle time — the
+            // independent verification step re-resolves the precise disclosure triangle that was
+            // toggled and independently re-reads its own kAXValueAttribute, never trusting
+            // whatever executeToggleDisclosure itself already observed.
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            return .axDisclosureStateMatchesDesired(
+                applicationName: applicationName,
+                role: role,
+                matchIdentifier: nonEmpty(action.arguments["identifier"]),
+                matchTitle: nonEmpty(action.arguments["title"]),
+                targetIdentity: targetIdentity,
+                desiredState: desiredState
+            )
         } else {
             return .customCheck(description: "Default step verification") { true }
         }
