@@ -851,6 +851,17 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual toolbar button title or identifier — this strategy only ever
             // carries aggregate counts, by design.
             return .toolbarItemEnumerationSucceeded(applicationName: applicationName, itemCount: itemCount)
+        } else if action.actionName == "ui.list_segmented_control_items",
+                  let applicationName = action.arguments["applicationName"],
+                  let itemCountString = result.outputData["itemCount"],
+                  let itemCount = Int(itemCountString),
+                  let selectedCountString = result.outputData["selectedItemCount"],
+                  let selectedCount = Int(selectedCountString) {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the item count and selected count captured at read time. Deliberately NOT threaded
+            // through here: any individual segment title or identifier — this strategy only ever
+            // carries aggregate counts, by design.
+            return .segmentedControlEnumerationSucceeded(applicationName: applicationName, itemCount: itemCount, selectedCount: selectedCount)
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

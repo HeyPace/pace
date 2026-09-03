@@ -271,6 +271,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func listTabItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXTabGroupMetadata
     func listRadioGroupItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXRadioGroupMetadata
     func listToolbarItems(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXToolbarMetadata
+    func listSegmentedControlItems(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXSegmentedControlMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -601,6 +602,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// Phase 2AK: the direct toolbar item count for a toolbar exceeds this capability's
     /// defensive safe bound (64).
     case toolbarItemCollectionExceedsSafeBound(Int)
+    /// Phase 2AM: the target's AX role is not on `QAXSegmentedControlRolePolicy.allowedRoles`
+    /// (`AXSegmentedControl` only).
+    case disallowedSegmentedControlRole(String)
+    /// Phase 2AM: the direct segment count for a segmented control exceeds this capability's
+    /// defensive safe bound (32).
+    case segmentedControlItemCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -752,6 +759,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not an allowed toolbar target."
         case .toolbarItemCollectionExceedsSafeBound(let count):
             return "Toolbar item collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .disallowedSegmentedControlRole(let role):
+            return "Target role '\(role)' is not an allowed segmented control target."
+        case .segmentedControlItemCollectionExceedsSafeBound(let count):
+            return "Segmented control item collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -832,6 +843,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .radioItemCollectionExceedsSafeBound: return "AX_RADIO_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .disallowedToolbarRole: return "AX_DISALLOWED_ROLE"
         case .toolbarItemCollectionExceedsSafeBound: return "AX_TOOLBAR_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .disallowedSegmentedControlRole: return "AX_DISALLOWED_ROLE"
+        case .segmentedControlItemCollectionExceedsSafeBound: return "AX_SEGMENTED_CONTROL_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1269,6 +1282,16 @@ public enum QAXToolbarRolePolicy {
     public static let allowedRoles: Set<String> = ["AXToolbar"]
 
     public static func isAllowedToolbarRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.list_segmented_control_items` (Phase 2AM) may target.
+/// Canonical role only — AXRadioGroup is explicitly excluded and handled exclusively by ui.list_radio_group_items.
+public enum QAXSegmentedControlRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXSegmentedControl"]
+
+    public static func isAllowedSegmentedControlRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -2160,6 +2183,69 @@ public struct QAXToolbarMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One segment item's safe, non-sensitive identity metadata, as returned by `ui.list_segmented_control_items`
+/// (Phase 2AM).
+public struct QAXSegmentedControlItemMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let role: String
+    public let subrole: String?
+    public let isEnabled: Bool?
+    public let isSelected: Bool?
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        role: String,
+        subrole: String? = nil,
+        isEnabled: Bool? = nil,
+        isSelected: Bool? = nil
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.role = role
+        self.subrole = subrole
+        self.isEnabled = isEnabled
+        self.isSelected = isSelected
+    }
+}
+
+/// A segmented control's safe, non-sensitive direct items metadata, as returned by `ui.list_segmented_control_items`
+/// (Phase 2AM). Deliberately carries ONLY the fields this capability's contract allows — never raw
+/// `AXUIElement` references, never arbitrary descendant trees.
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target
+/// reference; any subsequent mutation capability must independently perform its own fresh, exact target resolution.
+public struct QAXSegmentedControlMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let windowTitle: String?
+    public let controlTitle: String?
+    public let controlIdentifier: String?
+    public let itemCount: Int
+    public let selectedItemCount: Int
+    public let items: [QAXSegmentedControlItemMetadata]
+
+    public init(
+        applicationName: String,
+        windowTitle: String?,
+        controlTitle: String?,
+        controlIdentifier: String?,
+        itemCount: Int,
+        selectedItemCount: Int,
+        items: [QAXSegmentedControlItemMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.windowTitle = windowTitle
+        self.controlTitle = controlTitle
+        self.controlIdentifier = controlIdentifier
+        self.itemCount = itemCount
+        self.selectedItemCount = selectedItemCount
+        self.items = items
+    }
+}
+
 extension QBridgeAccessibility {
     private static let maxTraversalDepth = 12
     private static let maxTraversalNodes = 3_000
@@ -2200,6 +2286,12 @@ extension QBridgeAccessibility {
         "AXTextField",
         "AXComboBox",
         "AXSlider"
+    ]
+    /// Phase 2AM: defensive bound on segmented control item enumeration.
+    private static let maxDirectSegmentsCount = 32
+    private static let allowedDirectSegmentRoles: Set<String> = [
+        "AXRadioButton",
+        "AXButton"
     ]
     private static let traversalTimeBudgetSeconds: CFAbsoluteTime = 1.5
     /// No `kAX...` Swift constant exists for this attribute; confirmed via direct empirical
@@ -5861,6 +5953,140 @@ extension QBridgeAccessibility {
                 toolbarTitle: observedAtVerify.titleOrDescription,
                 toolbarIdentifier: observedAtVerify.identifier,
                 itemCount: itemsMetadata.count,
+                items: itemsMetadata
+            )
+        }.value
+    }
+
+    /// Phase 2AM: semantic segmented control direct item enumeration (Level 0, read-only). Enumerates direct segments
+    /// belonging to exactly ONE named AXSegmentedControl in an application window.
+    /// No mutation, no press, no approval, no recovery. Subtrees, menus, and groups are strictly NOT expanded.
+    public func listSegmentedControlItems(
+        applicationName: String,
+        role: String = "AXSegmentedControl",
+        identifier: String?,
+        title: String?,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil
+    ) async throws -> QAXSegmentedControlMetadata {
+        guard QAXSegmentedControlRolePolicy.isAllowedSegmentedControlRole(role) else {
+            throw QAXInteractionError.disallowedSegmentedControlRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            let resolvedWindowTitle: String?
+
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+                guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+                let (targetWindow, windowSnapshot) = windowMatches[0]
+                guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                    throw QAXInteractionError.staleTarget("target window element is no longer resolvable")
+                }
+                guard verifiedWindow == windowSnapshot else {
+                    throw QAXInteractionError.staleTarget("target window identity changed between observation and verification")
+                }
+                searchRoot = targetWindow
+                resolvedWindowTitle = verifiedWindow.titleOrDescription
+            } else {
+                searchRoot = appElement
+                resolvedWindowTitle = nil
+            }
+
+            let matches = Self.collectMatches(root: searchRoot, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target segmented control element is no longer resolvable immediately before enumeration")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target segmented control element identity changed between observation and enumeration")
+            }
+
+            let rawChildElements = Self.childrenAttribute(of: targetElement) ?? []
+
+            var validSegmentElements: [AXUIElement] = []
+            for childElement in rawChildElements {
+                guard let childRole = Self.axStringAttribute(kAXRoleAttribute, of: childElement) else {
+                    continue
+                }
+                guard Self.allowedDirectSegmentRoles.contains(childRole) else {
+                    continue
+                }
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: childElement)
+                // Strict tab exclusion: AXTabButton is owned exclusively by Phase 2AH (ui.list_tab_items)
+                guard subrole != Self.tabButtonSubrole else {
+                    continue
+                }
+                validSegmentElements.append(childElement)
+            }
+
+            guard validSegmentElements.count <= Self.maxDirectSegmentsCount else {
+                throw QAXInteractionError.segmentedControlItemCollectionExceedsSafeBound(validSegmentElements.count)
+            }
+
+            var itemsMetadata: [QAXSegmentedControlItemMetadata] = []
+            itemsMetadata.reserveCapacity(validSegmentElements.count)
+            var selectedCount = 0
+
+            for (index, itemElement) in validSegmentElements.enumerated() {
+                let itemTitle = Self.axStringAttribute(kAXTitleAttribute, of: itemElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: itemElement)
+                let itemIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: itemElement)
+                let childRole = Self.axStringAttribute(kAXRoleAttribute, of: itemElement) ?? "AXUnknown"
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: itemElement)
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: itemElement)
+                let isSelected: Bool?
+                if let state = Self.axCheckboxRadioState(of: itemElement) {
+                    isSelected = (state == .on)
+                } else if let selectedVal = Self.axBoolAttribute(kAXSelectedAttribute, of: itemElement) {
+                    isSelected = selectedVal
+                } else {
+                    isSelected = nil
+                }
+
+                if isSelected == true {
+                    selectedCount += 1
+                }
+
+                itemsMetadata.append(
+                    QAXSegmentedControlItemMetadata(
+                        index: index,
+                        title: itemTitle,
+                        identifier: itemIdentifier,
+                        role: childRole,
+                        subrole: subrole,
+                        isEnabled: isEnabled,
+                        isSelected: isSelected
+                    )
+                )
+            }
+
+            return QAXSegmentedControlMetadata(
+                applicationName: applicationName,
+                windowTitle: resolvedWindowTitle,
+                controlTitle: observedAtVerify.titleOrDescription,
+                controlIdentifier: observedAtVerify.identifier,
+                itemCount: itemsMetadata.count,
+                selectedItemCount: selectedCount,
                 items: itemsMetadata
             )
         }.value

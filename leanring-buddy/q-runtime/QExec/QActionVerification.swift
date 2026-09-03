@@ -341,6 +341,10 @@ public enum QVerificationStrategy: Sendable {
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual toolbar button title or identifier.
     case toolbarItemEnumerationSucceeded(applicationName: String, itemCount: Int)
+    /// Phase 2AM: semantic segmented control item enumeration verification (Level 0, read-only). Success requires
+    /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
+    /// only, never any individual segment title or identifier.
+    case segmentedControlEnumerationSucceeded(applicationName: String, itemCount: Int, selectedCount: Int)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -777,6 +781,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Toolbar item enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) toolbarRole=AXToolbar status=failed"
+                )
+            }
+
+        case .segmentedControlEnumerationSucceeded(let applicationName, let itemCount, let selectedCount):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) segmentedControlRole=AXSegmentedControl itemCount=\(itemCount) selectedCount=\(selectedCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Segmented control item enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) segmentedControlRole=AXSegmentedControl status=failed"
                 )
             }
 
