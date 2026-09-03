@@ -231,6 +231,24 @@ public enum QVerificationStrategy: Sendable {
         targetIdentity: String,
         desiredMinimized: Bool
     )
+    /// Phase 2V: re-resolves the same running application (by stable `processIdentifier`, never
+    /// `localizedName`, which a same-named replacement process could otherwise satisfy) a
+    /// ui.set_application_hidden step just mutated (or correctly no-op'd) and independently
+    /// re-reads its own `NSRunningApplication.isHidden` — a successful `hide()`/`unhide()` call is
+    /// never itself treated as proof of success; this is the closed-loop check that supplies the
+    /// real evidence. Structurally the same direct-comparison, pid-anchored model
+    /// `.processIsFrontmost` (Phase 2N) already establishes for the identical application-level
+    /// resolution class — never `AXUIElement`, never gated on `AXIsProcessTrusted()`. Like
+    /// `axWindowMinimizedStateMatchesDesired`, `desiredHidden` is genuinely bidirectional — both
+    /// `true` and `false` are valid, fully-verified target states. If the target process can no
+    /// longer be found by its resolved pid (the application quit), this is `.failed`, not assumed
+    /// success — a process disappearing after a hide/unhide request is never automatically
+    /// interpreted as success.
+    case applicationHiddenStateMatchesDesired(
+        applicationName: String,
+        targetProcessIdentifier: pid_t,
+        desiredHidden: Bool
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -697,6 +715,25 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Target window (role=\(role)) is no longer resolvable or is ambiguous, for verification after the mutation.",
                     evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+        case .applicationHiddenStateMatchesDesired(let applicationName, let targetProcessIdentifier, let desiredHidden):
+            guard let target = NSWorkspace.shared.runningApplications.first(where: { $0.processIdentifier == targetProcessIdentifier }) else {
+                return .failed(
+                    reason: "Application '\(applicationName)' (pid=\(targetProcessIdentifier)) is no longer running, for verification after the hidden-state mutation.",
+                    evidence: "target=\(applicationName) pid=\(targetProcessIdentifier) status=failed"
+                )
+            }
+            let currentHidden = target.isHidden
+            if currentHidden == desiredHidden {
+                return .verified(
+                    evidence: "target=\(applicationName) pid=\(targetProcessIdentifier) currentHidden=\(currentHidden) desiredHidden=\(desiredHidden) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Application '\(applicationName)' current hidden state does not match the desired state after the mutation.",
+                    evidence: "target=\(applicationName) pid=\(targetProcessIdentifier) currentHidden=\(currentHidden) desiredHidden=\(desiredHidden) status=failed"
                 )
             }
 

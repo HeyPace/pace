@@ -327,7 +327,32 @@ public struct QModelPlanParser: Sendable {
         // desired-state is a verified no-op, no attribute write performed. See
         // QBridgeAccessibility.setWindowMinimizedState and
         // docs/PHASE_2U_SEMANTIC_WINDOW_MINIMIZED_STATE.md for the full contract.
-        "ui.set_window_minimized": ("ui", .level2UserApproval)
+        "ui.set_window_minimized": ("ui", .level2UserApproval),
+        // Phase 2V: semantic application hidden-state mutation — Level 2 (reversible local
+        // action, approval required). Sets exactly one already-running application's hidden/
+        // visible state to an explicit `desiredHidden` ("true"/"false" — never a blind toggle),
+        // resolved by an EXACT `localizedName` match, via `NSRunningApplication.hide()`/
+        // `.unhide()` only — never `AXUIElement`, CGEvent, keyboard/mouse simulation,
+        // coordinates, AppleScript, or shell automation, and never gated on
+        // `AXIsProcessTrusted()`, mirroring `ui.activate_application`'s (Phase 2N) own
+        // native-API-over-raw-AX precedent for app-level operations. Deliberately registered
+        // under toolFamily "app" — the same family `ui.activate_application`/`app.quit` already
+        // use — consistent with every other application-lifecycle operation in this codebase.
+        // Unlike `ui.activate_application`'s Level 1 classification, this capability remains
+        // Level 2: hiding affects EVERY window of the target application simultaneously, a
+        // broader blast radius than a single-window mutation, so it is never downgraded merely
+        // because the operation looks visually harmless. Resolution rejects a missing/empty
+        // name, fails closed on zero matches, and fails closed on more than one exact match
+        // rather than guessing which running instance was intended — identical discipline to
+        // `ui.activate_application`'s own resolution. The resolved target's stable
+        // `processIdentifier` — never `localizedName`, which a same-named replacement process
+        // could otherwise satisfy — is threaded through to the later, independent closed-loop
+        // `.applicationHiddenStateMatchesDesired` verification step. Idempotent in BOTH
+        // directions: if the resolved target's `isHidden` already equals `desiredHidden`, no
+        // `hide()`/`unhide()` call is made at all, and no approval is consumed for a mutation
+        // that was never needed. See QExecutionService.executeSetApplicationHidden and
+        // docs/PHASE_2V_SEMANTIC_APPLICATION_HIDDEN_STATE.md for the full contract.
+        "ui.set_application_hidden": ("app", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

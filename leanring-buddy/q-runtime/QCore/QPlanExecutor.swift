@@ -688,6 +688,22 @@ public final class QPlanExecutor: Sendable {
                 targetIdentity: targetIdentity,
                 desiredMinimized: desiredMinimized
             )
+        } else if action.actionName == "ui.set_application_hidden",
+                  let applicationName = action.arguments["applicationName"],
+                  let targetProcessIdentifierString = result.outputData["targetProcessIdentifier"],
+                  let targetProcessIdentifier = Int32(targetProcessIdentifierString),
+                  let desiredHiddenRaw = action.arguments["desiredHidden"],
+                  let desiredHidden = Bool(desiredHiddenRaw) {
+            // Reconstructed from the exact application name used to dispatch, plus the safe
+            // (non-secret, stable process identity) outputData QExecutionService captured at
+            // resolution time — the independent verification step re-resolves the exact process
+            // by pid and independently re-reads its own isHidden, never trusting whatever
+            // executeSetApplicationHidden's own bounded poll already observed.
+            return .applicationHiddenStateMatchesDesired(
+                applicationName: applicationName,
+                targetProcessIdentifier: pid_t(targetProcessIdentifier),
+                desiredHidden: desiredHidden
+            )
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

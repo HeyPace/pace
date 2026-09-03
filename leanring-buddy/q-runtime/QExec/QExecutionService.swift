@@ -171,6 +171,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.set_window_minimized":
             result = await executeSetWindowMinimized(request: request)
 
+        case "ui.set_application_hidden":
+            result = await executeSetApplicationHidden(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -1735,5 +1738,126 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 error: "AX_UNEXPECTED_ERROR"
             )
         }
+    }
+
+    // MARK: - Phase 2V: Semantic Application Hidden State (Level 2)
+
+    /// Level 2 (reversible local action, approval required): sets exactly one already-running
+    /// application's hidden/visible state to an explicit `desiredHidden` — never a blind toggle —
+    /// resolved by an EXACT `localizedName` match, via `NSRunningApplication.hide()`/`.unhide()`
+    /// only — never `AXUIElement`, CGEvent, keyboard/mouse simulation, coordinates, AppleScript,
+    /// or shell automation, and never gated on `AXIsProcessTrusted()` (mirroring
+    /// `ui.activate_application`'s own native-API-over-raw-AX precedent for app-level operations
+    /// — the entire reason this capability works without Accessibility permission granted).
+    /// Resolution rejects a missing/empty/whitespace-only name, accepts only
+    /// `candidate.localizedName == requestedName` (never substring/prefix/suffix/fuzzy/case-
+    /// insensitive), fails closed on zero matches, and fails closed on more than one exact match
+    /// rather than guessing which running instance was intended — identical discipline to
+    /// `executeActivateApplication`. The resolved target's `processIdentifier` — not
+    /// `localizedName` — is the stable identity used for the idempotency check and threaded
+    /// through `outputData` for the independent closed-loop
+    /// `.applicationHiddenStateMatchesDesired` verification step
+    /// (`QActionVerification.swift`): a `pid` uniquely identifies the exact resolved instance, so
+    /// a same-named process quitting and a different one launching between resolution and
+    /// verification cannot be misread as the original target. Idempotent in BOTH directions: if
+    /// the resolved target's `isHidden` already equals `desiredHidden`, no `hide()`/`unhide()`
+    /// call is made at all, and no approval is consumed for a mutation that was never needed. A
+    /// bounded ~1s poll (mirroring `executeActivateApplication`'s/`executeAppQuit`'s identical
+    /// pattern) gives the OS time to actually apply the visibility change before returning, so
+    /// verification does not race ordinary hide/unhide latency — that independent step, never
+    /// this method's own observation or `hide()`/`unhide()`'s own return value, is the
+    /// authoritative postcondition check on success.
+    private func executeSetApplicationHidden(request: QActionRequest) async -> QActionResult {
+        guard let requestedName = request.parameters["applicationName"],
+              !requestedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing or empty required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let desiredHiddenRaw = request.parameters["desiredHidden"],
+              let desiredHidden = Bool(desiredHiddenRaw) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing or invalid 'desiredHidden' parameter — must be exactly 'true' or 'false'.",
+                error: "desiredHidden invalid"
+            )
+        }
+
+        // Exact localizedName match only — never substring/prefix/suffix/fuzzy/case-insensitive,
+        // and never a silently-normalized (e.g. trimmed) comparison value.
+        let exactMatches = NSWorkspace.shared.runningApplications.filter {
+            $0.localizedName == requestedName
+        }
+
+        guard !exactMatches.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "No running application found with the exact name '\(requestedName)'.",
+                error: "APP_NOT_RUNNING"
+            )
+        }
+
+        guard exactMatches.count == 1, let target = exactMatches.first else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Multiple running applications exactly match the name '\(requestedName)' — refusing to guess which one was intended.",
+                error: "APP_AMBIGUOUS_MATCH"
+            )
+        }
+
+        let targetProcessIdentifier = target.processIdentifier
+        let targetBundleIdentifier = target.bundleIdentifier ?? ""
+
+        // Idempotency check: read isHidden BEFORE any mutation decision — the sole authoritative
+        // pre-check, never inferred from frontmost state, window count, or any other signal.
+        let currentHiddenAtSearch = target.isHidden
+        guard currentHiddenAtSearch != desiredHidden else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Application '\(requestedName)' already has hidden=\(desiredHidden); no mutation was necessary.",
+                outputData: [
+                    "applicationName": requestedName,
+                    "targetProcessIdentifier": "\(targetProcessIdentifier)",
+                    "targetBundleIdentifier": targetBundleIdentifier,
+                    "desiredHidden": "\(desiredHidden)",
+                    "changeKind": "alreadyDesired"
+                ]
+            )
+        }
+
+        let mutationRequestAccepted = desiredHidden ? target.hide() : target.unhide()
+
+        // Bounded poll (~1s) for the target to actually reach the desired visibility state before
+        // returning, so the immediately-following independent closed-loop verification does not
+        // race normal hide/unhide latency — the same pattern
+        // executeActivateApplication/executeAppQuit already establish. This poll is a UX/timing
+        // convenience only; it is never itself treated as proof of success — see
+        // .applicationHiddenStateMatchesDesired in QActionVerification.swift.
+        for _ in 0..<10 {
+            if target.isHidden == desiredHidden {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+        }
+
+        return QActionResult(
+            actionId: request.actionId,
+            success: true,
+            summary: "Hidden-state mutation attempted for application '\(requestedName)' (\(desiredHidden ? "hide()" : "unhide()") accepted=\(mutationRequestAccepted)). Independent closed-loop verification pending.",
+            outputData: [
+                "applicationName": requestedName,
+                "targetProcessIdentifier": "\(targetProcessIdentifier)",
+                "targetBundleIdentifier": targetBundleIdentifier,
+                "desiredHidden": "\(desiredHidden)",
+                "changeKind": "changed"
+            ]
+        )
     }
 }

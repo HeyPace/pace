@@ -419,6 +419,36 @@ public final class QTaskRecoveryManager: Sendable {
                 }
             }
 
+        case "ui.set_application_hidden":
+            // Observation-first (Phase 2V): re-check whether the requested application already
+            // reports the requested desired hidden state before ever considering a replay.
+            // Mirrors ui.activate_application's (Phase 2N) own exact-match resolution contract
+            // exactly — never substring/fuzzy — and, like that capability's recovery branch,
+            // only recognizes completion when EXACTLY ONE running application exactly matches the
+            // persisted name (a stable pid from resolution time is not available to reconstruct
+            // here, since only the dispatch-time arguments — not QExecutionService's outputData —
+            // survive into `uncertainStep.arguments`; a fresh, unambiguous name resolution is
+            // required instead, identical to ui.activate_application's own recovery discipline).
+            // An ambiguous, absent, or wrong-state target does NOT trigger a blind replay of
+            // hide()/unhide() here — it falls through to `verified = false`, so a fresh execution
+            // requires both a brand-new QExecutionIdentity (per QPlanExecutor) AND a genuinely
+            // fresh user approval grant, since QApprovalCoordinator's in-memory one-time grants
+            // never survive a crash/restart (no persisted authorization is ever consulted here).
+            // Like ui.set_window_minimized's own recovery branch, `desiredHidden` is genuinely
+            // bidirectional — both `true` and `false` are valid, fully-resumable target states,
+            // so no directional filter is applied here.
+            let hiddenAppName = uncertainStep.arguments["applicationName"] ?? ""
+            let hiddenDesiredRaw = uncertainStep.arguments["desiredHidden"] ?? ""
+            if !hiddenAppName.isEmpty, let hiddenDesired = Bool(hiddenDesiredRaw) {
+                let exactMatches = NSWorkspace.shared.runningApplications.filter { $0.localizedName == hiddenAppName }
+                if exactMatches.count == 1,
+                   let target = exactMatches.first,
+                   target.isHidden == hiddenDesired {
+                    verified = true
+                    verifiedEvidence = "Observation verified: Application '\(hiddenAppName)' currentHidden='\(target.isHidden)' desiredHidden='\(hiddenDesired)' status=verified (pid=\(target.processIdentifier))."
+                }
+            }
+
         case "fs.write_sandbox":
             let path = uncertainStep.targetResources.first ?? uncertainStep.arguments["path"] ?? ""
             if !path.isEmpty && FileManager.default.fileExists(atPath: path) {
