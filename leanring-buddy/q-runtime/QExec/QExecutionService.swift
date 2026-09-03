@@ -177,6 +177,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.set_scroll_position":
             result = await executeSetScrollPosition(request: request)
 
+        case "ui.set_window_main":
+            result = await executeSetWindowMain(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -1981,6 +1984,111 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while setting scroll position: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2X: semantic window main designation — Level 2 (reversible local action, approval
+    /// required). SELECT-ONLY: `desiredMain` MUST be exactly `"true"` — `"false"` is rejected
+    /// deterministically before any Accessibility call is made, never treated as a blind toggle.
+    /// Restricted to `QAXWindowRolePolicy`'s single-role allowlist (`AXWindow` only, reused
+    /// unmodified from Phase 2U). Mutation is
+    /// `AXUIElementSetAttributeValue(kAXMainAttribute)` only — never `kAXRaiseAction`, never
+    /// `kAXFocusedAttribute`, never `NSRunningApplication.activate()`, never any window-ordering
+    /// call. This capability makes NO claim about activation, focus, raise, or any visual/
+    /// ordering effect — it reads and writes `kAXMainAttribute` alone. Every `QAXInteractionError`
+    /// failure mode — disallowed role, missing criteria, permission absence, application absence,
+    /// zero/ambiguous matches, unreadable current main state, main-state drift — is caught here
+    /// and converted into a deterministic, non-throwing `QActionResult`; this method never
+    /// fabricates success. Only the small, non-secret main/not-main boolean and non-secret
+    /// targeting metadata cross this method's boundary — never window content. A
+    /// `verificationStatus` claim is deliberately NOT made here — a successful attribute-set call
+    /// is not itself evidence the desired main state was reached; that determination belongs
+    /// solely to QPlanExecutor's independent `.windowMainStateMatchesDesired` verification step.
+    private func executeSetWindowMain(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+        guard let desiredMainRaw = request.parameters["desiredMain"],
+              let desiredMain = Bool(desiredMainRaw) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing or invalid 'desiredMain' parameter — must be exactly 'true' or 'false'.",
+                error: "desiredMain invalid"
+            )
+        }
+        // This capability supports selection only — refused BEFORE any Accessibility call is
+        // made, never treated as a blind toggle and never silently coerced to true.
+        guard desiredMain else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "ui.set_window_main supports selection only — 'desiredMain: false' (un-maining) is not supported.",
+                error: "AX_WINDOW_MAIN_DESELECTION_UNSUPPORTED"
+            )
+        }
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.setWindowMain(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                desiredMain: desiredMain
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Window main-designation mutation attempted for \(outcome.targetIdentity): changeKind=\(outcome.changeKind.rawValue), previousMain=\(outcome.previousMain), currentMain=\(outcome.currentMain). This does not imply activation, focus, or raise. Independent closed-loop verification pending.",
+                outputData: [
+                    "applicationName": applicationName,
+                    "role": role,
+                    "matchIdentifier": identifier ?? "",
+                    "matchTitle": title ?? "",
+                    "targetIdentity": outcome.targetIdentity,
+                    "changeKind": outcome.changeKind.rawValue,
+                    "previousMain": "\(outcome.previousMain)",
+                    "currentMain": "\(outcome.currentMain)",
+                    "desiredMain": "\(desiredMain)"
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while setting window main designation: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

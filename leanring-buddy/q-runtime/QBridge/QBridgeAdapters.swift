@@ -516,6 +516,18 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// sufficient; its own `kAXRoleAttribute` is independently re-validated before it is ever
     /// treated as a genuine scroll bar target.
     case targetNotAScrollBar(String)
+    /// Phase 2X: `kAXMainAttribute` could not be read from the target window, or could not be
+    /// interpreted as a clean boolean — without a reliably readable current state, idempotency
+    /// cannot be established safely, so the operation is refused rather than guessing. Unknown
+    /// never defaults to `false`.
+    case windowMainStateReadFailed
+    /// Phase 2X: `desiredMain` was `false` — this capability is SELECT-ONLY (`desiredMain` MUST
+    /// be `true`); deselection is out of scope and refused unconditionally, BEFORE any
+    /// Accessibility Trust check or application resolution is even attempted, by direct analogy
+    /// to `ui.select_tab`'s identical finding — AX provides no reliable way to "un-main" a single
+    /// window without designating a replacement; the standard model is to make a DIFFERENT window
+    /// main instead.
+    case windowMainDeselectionUnsupported(String)
 
     public var description: String {
         switch self {
@@ -627,6 +639,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "No \(orientation) scroll bar reference could be resolved from the target scroll area."
         case .targetNotAScrollBar(let role):
             return "Target resolved via the orientation convenience-reference attribute is not role AXScrollBar (got '\(role)')."
+        case .windowMainStateReadFailed:
+            return "Target window's current main state could not be read."
+        case .windowMainDeselectionUnsupported(let reason):
+            return "Refusing to un-main a window — this capability supports selection only: \(reason)"
         }
     }
 
@@ -687,6 +703,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .invalidOrientation: return "AX_INVALID_ORIENTATION"
         case .scrollBarReferenceUnavailable: return "AX_SCROLL_BAR_REFERENCE_UNAVAILABLE"
         case .targetNotAScrollBar: return "AX_TARGET_NOT_A_SCROLL_BAR"
+        case .windowMainStateReadFailed: return "AX_WINDOW_MAIN_STATE_READ_FAILED"
+        case .windowMainDeselectionUnsupported: return "AX_WINDOW_MAIN_DESELECTION_UNSUPPORTED"
         }
     }
 }
@@ -1450,6 +1468,56 @@ public struct QAXScrollPositionOutcome: Sendable, Equatable {
 public enum QAXScrollPositionEvidence: Sendable, Equatable {
     case resolved(currentValue: Double)
     case rangeInvalid(currentValue: Double)
+    case targetUnavailable
+}
+
+/// Whether a `setWindowMain` call actually performed an attribute write, or found the target
+/// already reporting `kAXMainAttribute == true` and correctly did nothing.
+public enum QAXWindowMainChangeKind: String, Sendable, Equatable {
+    case alreadyDesired
+    case changed
+}
+
+/// The outcome of one `QBridgeAccessibility.setWindowMain` call. Carries only a small,
+/// non-sensitive boolean and non-secret targeting metadata — never a raw AX attribute dump, never
+/// the window's own content.
+public struct QAXWindowMainOutcome: Sendable, Equatable {
+    public let changeKind: QAXWindowMainChangeKind
+    public let previousMain: Bool
+    public let currentMain: Bool
+    public let targetIdentity: String
+
+    public init(
+        changeKind: QAXWindowMainChangeKind,
+        previousMain: Bool,
+        currentMain: Bool,
+        targetIdentity: String
+    ) {
+        self.changeKind = changeKind
+        self.previousMain = previousMain
+        self.currentMain = currentMain
+        self.targetIdentity = targetIdentity
+    }
+}
+
+/// The result of independently re-observing a window's `kAXMainAttribute` after a
+/// `ui.set_window_main` dispatch, for the later closed-loop verification step (and for
+/// `QTaskRecoveryManager`'s observation-first recovery, which reuses this exact primitive).
+/// Authoritative state is read from `kAXMainAttribute` alone. This capability makes NO claim
+/// about activation, focus, raise, or any other visual/ordering effect — `kAXMainAttribute` is
+/// documented to not necessarily imply key focus, and this evidence type reflects only the
+/// attribute's own value, nothing more.
+///
+/// - `.resolved(currentMain:)`: the target is still resolvable (role `AXWindow`) and its main
+///   state was read as a clean boolean.
+/// - `.stateUnreadable`: the target is resolvable but `kAXMainAttribute` could not be read —
+///   treated as `.failed`, NEVER defaulted to either `true` or `false`.
+/// - `.targetUnavailable`: the target (or application) is no longer resolvable at all, or is
+///   ambiguous — physical state is uncertain; treated as `.failed`, mirroring every prior
+///   capability's conservative model.
+public enum QAXWindowMainEvidence: Sendable, Equatable {
+    case resolved(currentMain: Bool)
+    case stateUnreadable
     case targetUnavailable
 }
 
@@ -4035,6 +4103,179 @@ extension QBridgeAccessibility {
                 return .rangeInvalid(currentValue: currentValue)
             }
             return .resolved(currentValue: currentValue)
+        }.value
+    }
+
+    // MARK: - Semantic Window Main Designation (Phase 2X)
+    //
+    // ui.set_window_main — a Level 2, SELECT-ONLY operation (never deselection) for exactly one
+    // semantically-identified window. Confirmed directly against this SDK's authoritative
+    // AXAttributeConstants.h: `kAXMainAttribute` is documented "Whether a window is the main
+    // document window of an application... Main does not necessarily imply that the window has
+    // key focus... Writable? Yes." — a directly-settable boolean, the same "attribute IS the
+    // authoritative state" reasoning `ui.set_window_minimized` already established for
+    // `kAXMinimizedAttribute`, applied here to `kAXMainAttribute` instead. Reuses
+    // `QAXWindowRolePolicy` (Phase 2U) unmodified — the identical single-role allowlist (`AXWindow`
+    // only). Unlike `ui.set_window_minimized`'s bidirectional model, this capability is
+    // select-only, by direct analogy to `ui.select_tab`'s own already-established finding: AX
+    // provides no reliable way to "un-main" a single window without designating a replacement —
+    // the standard interaction model makes a DIFFERENT window main instead. `desiredMain` MUST be
+    // `true`, refused BEFORE any Accessibility Trust check or application resolution is even
+    // attempted if `false`. This capability makes NO claim about activation, focus, raise, or any
+    // visual/ordering effect — it reads and writes `kAXMainAttribute` alone, nothing more; it
+    // never enumerates other windows, never mutates any window other than the exact resolved
+    // target, and never attempts to enforce exclusivity itself — that semantic is owned entirely
+    // by the OS/application.
+
+    /// Resolves exactly one semantic `AXWindow` target and — unless it already reports
+    /// `kAXMainAttribute == true` — writes it directly. Fails closed (throws
+    /// `QAXInteractionError`) on a disallowed role, missing criteria, permission absence,
+    /// application absence, zero/ambiguous matches, a stale target, an unreadable current main
+    /// state, a state drift between resolution and dispatch, or a deselection request — never
+    /// falls back to coordinates, CGEvent, or keyboard simulation, and never fabricates success.
+    /// Idempotent: if the window's current `kAXMainAttribute` already reports `true`, no
+    /// `AXUIElementSetAttributeValue` call is made at all — `changeKind: .alreadyDesired` is
+    /// itself the deterministic, structural proof that no mutation occurred.
+    public func setWindowMain(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?,
+        desiredMain: Bool
+    ) async throws -> QAXWindowMainOutcome {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Role is validated as a search CRITERION, before any tree walk — an unauthorized role
+        // is refused outright rather than allowed to shape what gets searched for, mirroring
+        // every prior write-side role policy in this codebase.
+        guard QAXWindowRolePolicy.isAllowedWindowRole(role) else {
+            throw QAXInteractionError.disallowedWindowRole(role)
+        }
+        // Deselection is categorically out of scope for this capability — refused BEFORE any
+        // Accessibility Trust check or application resolution is even attempted, never treated
+        // as a blind toggle and never silently coerced to true.
+        guard desiredMain else {
+            throw QAXInteractionError.windowMainDeselectionUnsupported(
+                "ui.set_window_main supports selection only (desiredMain must be true)"
+            )
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            // A pure AX object-reference constructor — never activates, focuses, or raises the
+            // target application, the same primitive every prior capability already uses without
+            // any such side effect.
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Identity observation binding: identical discipline to every prior AX mutation
+            // capability — re-read the SAME element reference immediately before any mutation
+            // and refuse on any drift.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and dispatch")
+            }
+
+            // Main-state-drift staleness check (mirroring setWindowMinimizedState's/selectTab's
+            // discipline): read kAXMainAttribute once at resolution, once again immediately
+            // before dispatch, and refuse if they differ — the target may still be the exact same
+            // element by identity, but its main state already changed out from under this call.
+            guard let mainAtSearch = Self.axBoolAttribute(kAXMainAttribute, of: targetElement) else {
+                throw QAXInteractionError.windowMainStateReadFailed
+            }
+            guard let mainAtVerify = Self.axBoolAttribute(kAXMainAttribute, of: targetElement) else {
+                throw QAXInteractionError.windowMainStateReadFailed
+            }
+            guard mainAtVerify == mainAtSearch else {
+                throw QAXInteractionError.valueDriftDetected("target window's main state changed between observation and dispatch")
+            }
+
+            let targetIdentity = "application=\(applicationName) role=\(role) identifier=\(observedAtVerify.identifier ?? "none") label=\(observedAtVerify.titleOrDescription ?? "none")"
+
+            guard !mainAtVerify else {
+                // Idempotent no-op: the window already reports main=true. No AX write is
+                // performed — an unnecessary mutation is itself something to avoid, and no
+                // approval is consumed for a mutation that was never needed.
+                return QAXWindowMainOutcome(
+                    changeKind: .alreadyDesired,
+                    previousMain: mainAtVerify,
+                    currentMain: mainAtVerify,
+                    targetIdentity: targetIdentity
+                )
+            }
+
+            let setResult = AXUIElementSetAttributeValue(targetElement, kAXMainAttribute as CFString, kCFBooleanTrue)
+            guard setResult == .success else {
+                throw QAXInteractionError.setValueFailed("AXError(\(setResult.rawValue))")
+            }
+
+            // Immediate ephemeral post-set read — provisional only; the authoritative check is
+            // the later, independent closed-loop verification step
+            // (QVerificationStrategy.windowMainStateMatchesDesired), which re-resolves the
+            // target fresh rather than trusting this in-process observation. This capability
+            // makes no claim about activation/focus/raise — only kAXMainAttribute's own value is
+            // ever read or reasoned about.
+            let currentMainAfterSet = Self.axBoolAttribute(kAXMainAttribute, of: targetElement) ?? true
+
+            return QAXWindowMainOutcome(
+                changeKind: .changed,
+                previousMain: mainAtVerify,
+                currentMain: currentMainAfterSet,
+                targetIdentity: targetIdentity
+            )
+        }.value
+    }
+
+    /// Best-effort, read-only re-resolution of the same match criteria used by `setWindowMain`,
+    /// used both by the later closed-loop verification step
+    /// (`QVerificationStrategy.windowMainStateMatchesDesired`) and by `QTaskRecoveryManager`'s
+    /// observation-first recovery branch — the SAME primitive for both, never a parallel
+    /// resolver. Independently re-reads `kAXMainAttribute` fresh — never trusts whatever
+    /// `setWindowMain` itself last observed. `.stateUnreadable` (the attribute could not be read)
+    /// is deliberately distinct from `.targetUnavailable` (the target itself cannot be resolved
+    /// or is ambiguous) for a clearer diagnostic, though both are treated as `.failed` by
+    /// verification — neither is ever coerced into a definite main/not-main guess.
+    public func observeWindowMainEvidence(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async -> QAXWindowMainEvidence {
+        guard AXIsProcessTrusted() else { return .targetUnavailable }
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else { return .targetUnavailable }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard matches.count == 1 else { return .targetUnavailable }
+            guard let currentMain = Self.axBoolAttribute(kAXMainAttribute, of: matches[0].element) else {
+                return .stateUnreadable
+            }
+            return .resolved(currentMain: currentMain)
         }.value
     }
 

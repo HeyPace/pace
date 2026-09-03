@@ -378,7 +378,29 @@ public struct QModelPlanParser: Sendable {
         // desired-position (within tolerance) is a verified no-op, no attribute write performed.
         // See QBridgeAccessibility.setScrollPosition and
         // docs/PHASE_2W_SEMANTIC_SCROLL_POSITION.md for the full contract.
-        "ui.set_scroll_position": ("ui", .level2UserApproval)
+        "ui.set_scroll_position": ("ui", .level2UserApproval),
+        // Phase 2X: semantic window main designation — Level 2 (reversible local action,
+        // approval required). Designates exactly one semantically-identified window as its
+        // application's main document window — SELECT-ONLY (`desiredMain` MUST be exactly
+        // "true"; "false" is refused deterministically, by direct analogy to ui.select_tab's own
+        // finding that AX provides no reliable way to deselect/un-main a single item without
+        // designating a replacement). Confirmed directly against this SDK's authoritative
+        // AXAttributeConstants.h: `kAXMainAttribute` is documented "Whether a window is the main
+        // document window of an application... Main does not necessarily imply that the window
+        // has key focus... Writable? Yes." — a directly-settable boolean, the same
+        // "attribute IS the authoritative state" reasoning ui.set_window_minimized already
+        // established for kAXMinimizedAttribute. Reuses QAXWindowRolePolicy (Phase 2U)
+        // unmodified — the identical single-role allowlist (AXWindow only). Mutation is
+        // AXUIElementSetAttributeValue(kAXMainAttribute) only — never kAXRaiseAction, never
+        // kAXFocusedAttribute, never NSRunningApplication.activate(), never any window-ordering
+        // call of any kind; this capability makes NO claim about activation, focus, raise, or any
+        // visual/ordering effect — it reads and writes kAXMainAttribute alone. Never enumerates
+        // or mutates any window other than the exact resolved target — exclusivity among windows
+        // is owned entirely by the OS/application, never enforced agent-side. Idempotent:
+        // already-main is a verified no-op, no attribute write performed. See
+        // QBridgeAccessibility.setWindowMain and
+        // docs/PHASE_2X_SEMANTIC_WINDOW_MAIN_DESIGNATION.md for the full contract.
+        "ui.set_window_main": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

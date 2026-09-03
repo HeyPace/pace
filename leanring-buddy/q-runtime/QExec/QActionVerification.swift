@@ -266,6 +266,23 @@ public enum QVerificationStrategy: Sendable {
         targetIdentity: String,
         desiredValue: Double
     )
+    /// Phase 2X: re-resolves the same semantic `AXWindow` target a ui.set_window_main step just
+    /// mutated (or correctly no-op'd) and independently re-reads its own `kAXMainAttribute` — a
+    /// successful attribute-set call is never itself treated as proof of success. This strategy
+    /// makes NO claim about activation, focus, raise, or any visual/ordering effect — it compares
+    /// only `kAXMainAttribute`'s own observed value against `true` (this capability's contract
+    /// already guarantees the desired state is always `true` before this strategy is ever
+    /// constructed — select-only, by direct analogy to `axTabSelectionMatchesDesired`). An
+    /// unresolvable/ambiguous target after the change is `.failed`, not assumed success — a
+    /// window's disappearance after a set-main request is never automatically interpreted as
+    /// success; an unreadable main state is likewise `.failed`, never defaulted.
+    case windowMainStateMatchesDesired(
+        applicationName: String,
+        role: String,
+        matchIdentifier: String?,
+        matchTitle: String?,
+        targetIdentity: String
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -540,6 +557,37 @@ public final class QActionVerifier: Sendable {
             case .targetUnavailable:
                 return .failed(
                     reason: "Target scroll bar (role=\(role) orientation=\(orientation)) is no longer resolvable or role-qualified, for verification after the change.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+        case .windowMainStateMatchesDesired(let applicationName, let role, let matchIdentifier, let matchTitle, let targetIdentity):
+            let evidence = await QBridgeAccessibility.shared.observeWindowMainEvidence(
+                applicationName: applicationName,
+                role: role,
+                identifier: matchIdentifier,
+                title: matchTitle
+            )
+            switch evidence {
+            case .resolved(let currentMain):
+                if currentMain {
+                    return .verified(
+                        evidence: "target=\(targetIdentity) currentMain=\(currentMain) desiredMain=true status=verified"
+                    )
+                } else {
+                    return .failed(
+                        reason: "Target window (role=\(role)) is not reporting main=true after the change.",
+                        evidence: "target=\(targetIdentity) currentMain=\(currentMain) desiredMain=true status=failed"
+                    )
+                }
+            case .stateUnreadable:
+                return .failed(
+                    reason: "Target window (role=\(role)) current main state could not be read after the change — unreadable state fails closed.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            case .targetUnavailable:
+                return .failed(
+                    reason: "Target window (role=\(role)) is no longer resolvable or is ambiguous, for verification after the change.",
                     evidence: "target=\(targetIdentity) status=failed"
                 )
             }

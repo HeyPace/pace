@@ -727,6 +727,26 @@ public final class QPlanExecutor: Sendable {
                 targetIdentity: targetIdentity,
                 desiredValue: desiredValue
             )
+        } else if action.actionName == "ui.set_window_main",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let targetIdentity = result.outputData["targetIdentity"] {
+            // Reconstructed from the exact target-identifying arguments used to dispatch
+            // (applicationName/role/identifier/title), plus the targetIdentity captured at
+            // mutation time. desiredMain is deliberately NOT threaded through here: the
+            // capability contract guarantees desiredMain is always true (false is rejected
+            // before any AX call), so the verification strategy has nothing to branch on.
+            // Independent verification re-resolves the window fresh, re-validates its role,
+            // and re-reads kAXMainAttribute fresh — never trusting whatever
+            // executeSetWindowMain itself already observed.
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            return .windowMainStateMatchesDesired(
+                applicationName: applicationName,
+                role: role,
+                matchIdentifier: nonEmpty(action.arguments["identifier"]),
+                matchTitle: nonEmpty(action.arguments["title"]),
+                targetIdentity: targetIdentity
+            )
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

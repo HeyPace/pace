@@ -419,6 +419,43 @@ public final class QTaskRecoveryManager: Sendable {
                 }
             }
 
+        case "ui.set_window_main":
+            // Observation-first (Phase 2X): re-check whether the requested window already
+            // reports kAXMainAttribute == true before ever considering a replay. Reuses the
+            // EXACT SAME independent observation primitive
+            // (QBridgeAccessibility.observeWindowMainEvidence) QActionVerification's
+            // .windowMainStateMatchesDesired strategy uses — no parallel resolver. Unlike
+            // ui.set_window_minimized's bidirectional recovery, this capability's contract
+            // guarantees desiredMain is always `true` (false is rejected before any AX call and
+            // never reaches persisted step arguments as a resumable state), so there is nothing
+            // to compare against except `currentMain == true` itself — no directional filter
+            // needed, but also no `false` branch to recognize as "already correct". An
+            // unresolvable/ambiguous target or an unreadable main state does NOT trigger a blind
+            // replay of the AX attribute-set here — it falls through to `verified = false`, so a
+            // fresh execution requires both a brand-new QExecutionIdentity (per QPlanExecutor)
+            // AND a genuinely fresh user approval grant, since QApprovalCoordinator's in-memory
+            // one-time grants never survive a crash/restart (no persisted authorization is ever
+            // consulted here). This recovery branch makes no attempt to observe or reason about
+            // any other window's main state — it only re-resolves and re-reads the exact target
+            // window, mirroring the capability's own exclusivity-agnostic contract.
+            let mainWindowApplicationName = uncertainStep.arguments["applicationName"] ?? ""
+            let mainWindowRole = uncertainStep.arguments["role"] ?? ""
+            let mainWindowIdentifier = uncertainStep.arguments["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let mainWindowTitle = uncertainStep.arguments["title"].flatMap { $0.isEmpty ? nil : $0 }
+            if !mainWindowApplicationName.isEmpty, !mainWindowRole.isEmpty,
+               (mainWindowIdentifier != nil || mainWindowTitle != nil) {
+                let evidence = await QBridgeAccessibility.shared.observeWindowMainEvidence(
+                    applicationName: mainWindowApplicationName,
+                    role: mainWindowRole,
+                    identifier: mainWindowIdentifier,
+                    title: mainWindowTitle
+                )
+                if case .resolved(let currentMain) = evidence, currentMain == true {
+                    verified = true
+                    verifiedEvidence = "Observation verified: target window currentMain='\(currentMain)' desiredMain='true' status=verified"
+                }
+            }
+
         case "ui.set_application_hidden":
             // Observation-first (Phase 2V): re-check whether the requested application already
             // reports the requested desired hidden state before ever considering a replay.
