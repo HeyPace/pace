@@ -448,15 +448,26 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
             )
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+        let matchingApps = NSWorkspace.shared.runningApplications.filter {
             ($0.localizedName?.caseInsensitiveCompare(app) == .orderedSame) ||
             ($0.bundleIdentifier?.caseInsensitiveCompare(app) == .orderedSame)
-        }) else {
+        }
+
+        guard !matchingApps.isEmpty else {
             return QActionResult(
                 actionId: request.actionId,
                 success: true,
                 summary: "Application '\(app)' is not running; nothing to terminate.",
                 outputData: ["appName": app, "wasRunning": "false"]
+            )
+        }
+
+        guard matchingApps.count == 1, let runningApp = matchingApps.first else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Multiple running applications match the name '\(app)' — refusing to guess which process to terminate.",
+                error: "APP_AMBIGUOUS_MATCH"
             )
         }
 

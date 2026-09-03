@@ -1710,6 +1710,28 @@ extension QBridgeAccessibility {
     /// key (populated even where kAXTitleAttribute is empty — see docs/PHASE_2H_SEMANTIC_CLICK.md).
     private static let axIdentifierAttributeName = "AXIdentifier"
 
+    /// Resolves running applications matching the existing identity contract (case-insensitive
+    /// localized name OR case-insensitive bundle identifier).
+    /// Enforces the strict Q security invariant:
+    /// - Exactly 1 match: returns the matching NSRunningApplication
+    /// - 0 matches: throws `QAXInteractionError.applicationNotAvailable(applicationName)`
+    /// - >1 matches: throws `QAXInteractionError.ambiguousTarget(count: matchingApps.count)`
+    /// Never falls back to `.first` when multiple matches exist.
+    public static func resolveExactRunningApplication(named applicationName: String) throws -> NSRunningApplication {
+        let matchingApps = NSWorkspace.shared.runningApplications.filter {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }
+        guard !matchingApps.isEmpty else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+        guard matchingApps.count == 1 else {
+            throw QAXInteractionError.ambiguousTarget(count: matchingApps.count)
+        }
+        return matchingApps[0]
+    }
+
+
     /// Resolves exactly one semantic target, re-verifies it hasn't drifted since resolution, and
     /// presses it. Fails closed (throws QAXInteractionError) on every ambiguous, stale, disabled,
     /// unauthorized, or unsupported outcome — never falls back to coordinates or a CGEvent click.
@@ -1731,12 +1753,7 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
 
         let processIdentifier = runningApp.processIdentifier
 
@@ -1793,10 +1810,7 @@ extension QBridgeAccessibility {
         title: String?
     ) async -> QAXElementSnapshot? {
         guard AXIsProcessTrusted() else { return nil }
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else { return nil }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return nil }
 
         let processIdentifier = runningApp.processIdentifier
         return await Task.detached(priority: .userInitiated) {
@@ -1848,12 +1862,7 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
 
         let processIdentifier = runningApp.processIdentifier
 
@@ -1957,10 +1966,7 @@ extension QBridgeAccessibility {
         title: String?
     ) async -> (hash: String, length: Int)? {
         guard AXIsProcessTrusted() else { return nil }
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else { return nil }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return nil }
 
         let processIdentifier = runningApp.processIdentifier
         return await Task.detached(priority: .userInitiated) {
@@ -2017,12 +2023,7 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
 
         let processIdentifier = runningApp.processIdentifier
 
@@ -2097,12 +2098,7 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
 
         let processIdentifier = runningApp.processIdentifier
 
@@ -2211,10 +2207,7 @@ extension QBridgeAccessibility {
         title: String?
     ) async -> String? {
         guard AXIsProcessTrusted() else { return nil }
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else { return nil }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return nil }
 
         let processIdentifier = runningApp.processIdentifier
         return await Task.detached(priority: .userInitiated) {
@@ -2296,12 +2289,7 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
 
         let processIdentifier = runningApp.processIdentifier
 
@@ -2408,10 +2396,7 @@ extension QBridgeAccessibility {
         itemTitle: String
     ) async -> QMenuItemSelectionEvidence {
         guard AXIsProcessTrusted() else { return .applicationOrTargetUnavailable }
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else { return .applicationOrTargetUnavailable }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return .applicationOrTargetUnavailable }
 
         let processIdentifier = runningApp.processIdentifier
         return await Task.detached(priority: .userInitiated) {
@@ -2517,12 +2502,7 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
 
         let processIdentifier = runningApp.processIdentifier
 
@@ -2634,10 +2614,7 @@ extension QBridgeAccessibility {
         title: String?
     ) async -> QAXSliderValueEvidence {
         guard AXIsProcessTrusted() else { return .targetUnavailable }
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else { return .targetUnavailable }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return .targetUnavailable }
 
         let processIdentifier = runningApp.processIdentifier
         return await Task.detached(priority: .userInitiated) {
@@ -2698,12 +2675,7 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
 
         let processIdentifier = runningApp.processIdentifier
 
@@ -2762,10 +2734,7 @@ extension QBridgeAccessibility {
         title: String?
     ) async -> QAXFocusVerificationEvidence {
         guard AXIsProcessTrusted() else { return .targetUnavailable }
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else { return .targetUnavailable }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return .targetUnavailable }
 
         let processIdentifier = runningApp.processIdentifier
         return await Task.detached(priority: .userInitiated) {
@@ -2852,12 +2821,7 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
 
         let processIdentifier = runningApp.processIdentifier
 
@@ -2992,10 +2956,7 @@ extension QBridgeAccessibility {
         title: String?
     ) async -> QAXPopupValueEvidence {
         guard AXIsProcessTrusted() else { return .targetUnavailable }
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else { return .targetUnavailable }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return .targetUnavailable }
 
         let processIdentifier = runningApp.processIdentifier
         return await Task.detached(priority: .userInitiated) {
@@ -3055,12 +3016,7 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
 
         let processIdentifier = runningApp.processIdentifier
 
@@ -3156,10 +3112,7 @@ extension QBridgeAccessibility {
         title: String?
     ) async -> QAXDisclosureVerificationEvidence {
         guard AXIsProcessTrusted() else { return .targetUnavailable }
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else { return .targetUnavailable }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return .targetUnavailable }
 
         let processIdentifier = runningApp.processIdentifier
         return await Task.detached(priority: .userInitiated) {
@@ -3256,12 +3209,7 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
 
         let processIdentifier = runningApp.processIdentifier
 
@@ -3378,10 +3326,7 @@ extension QBridgeAccessibility {
         title: String?
     ) async -> QAXTabSelectionEvidence {
         guard AXIsProcessTrusted() else { return .targetUnavailable }
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else { return .targetUnavailable }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return .targetUnavailable }
 
         let processIdentifier = runningApp.processIdentifier
         return await Task.detached(priority: .userInitiated) {
@@ -3478,12 +3423,7 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
 
         let processIdentifier = runningApp.processIdentifier
 
@@ -3603,10 +3543,7 @@ extension QBridgeAccessibility {
         title: String?
     ) async -> QAXTableRowSelectionEvidence {
         guard AXIsProcessTrusted() else { return .targetUnavailable }
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else { return .targetUnavailable }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return .targetUnavailable }
 
         let processIdentifier = runningApp.processIdentifier
         return await Task.detached(priority: .userInitiated) {
@@ -3707,12 +3644,7 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
 
         let processIdentifier = runningApp.processIdentifier
 
@@ -3835,10 +3767,7 @@ extension QBridgeAccessibility {
         title: String?
     ) async -> QAXOutlineRowSelectionEvidence {
         guard AXIsProcessTrusted() else { return .targetUnavailable }
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else { return .targetUnavailable }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return .targetUnavailable }
 
         let processIdentifier = runningApp.processIdentifier
         return await Task.detached(priority: .userInitiated) {
@@ -3913,12 +3842,7 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
 
         let processIdentifier = runningApp.processIdentifier
 
@@ -4019,10 +3943,7 @@ extension QBridgeAccessibility {
         title: String?
     ) async -> QAXWindowMinimizedEvidence {
         guard AXIsProcessTrusted() else { return .targetUnavailable }
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else { return .targetUnavailable }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return .targetUnavailable }
 
         let processIdentifier = runningApp.processIdentifier
         return await Task.detached(priority: .userInitiated) {
@@ -4118,12 +4039,7 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
 
         let processIdentifier = runningApp.processIdentifier
 
@@ -4258,10 +4174,7 @@ extension QBridgeAccessibility {
     ) async -> QAXScrollPositionEvidence {
         guard AXIsProcessTrusted() else { return .targetUnavailable }
         guard let scrollBarAttribute = Self.scrollBarConvenienceAttribute(forOrientation: orientation) else { return .targetUnavailable }
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else { return .targetUnavailable }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return .targetUnavailable }
 
         let processIdentifier = runningApp.processIdentifier
         return await Task.detached(priority: .userInitiated) {
@@ -4345,12 +4258,7 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
 
         let processIdentifier = runningApp.processIdentifier
 
@@ -4442,10 +4350,7 @@ extension QBridgeAccessibility {
         title: String?
     ) async -> QAXWindowMainEvidence {
         guard AXIsProcessTrusted() else { return .targetUnavailable }
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else { return .targetUnavailable }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return .targetUnavailable }
 
         let processIdentifier = runningApp.processIdentifier
         return await Task.detached(priority: .userInitiated) {
@@ -4496,12 +4401,7 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
 
         let processIdentifier = runningApp.processIdentifier
         let absentTargetIdentity = "application=\(applicationName) role=\(role) identifier=\(identifier ?? "none") label=\(title ?? "none")"
@@ -4595,10 +4495,19 @@ extension QBridgeAccessibility {
         title: String?
     ) async -> QAXWindowCloseEvidence {
         guard AXIsProcessTrusted() else { return .permissionUnavailable }
-        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }) else { return .applicationNotRunning }
+        let runningApp: NSRunningApplication
+        do {
+            runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        } catch let axError as QAXInteractionError {
+            switch axError {
+            case .ambiguousTarget(let count):
+                return .ambiguousTarget(count: count)
+            default:
+                return .applicationNotRunning
+            }
+        } catch {
+            return .applicationNotRunning
+        }
 
         let processIdentifier = runningApp.processIdentifier
         return await Task.detached(priority: .userInitiated) {
@@ -4638,20 +4547,8 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        let matchingApps = NSWorkspace.shared.runningApplications.filter {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }
-        guard !matchingApps.isEmpty else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
-        // Exact application-identity ambiguity (more than one running process matches the same
-        // name) fails closed — never silently enumerates an arbitrary one of several matches.
-        guard matchingApps.count == 1 else {
-            throw QAXInteractionError.ambiguousTarget(count: matchingApps.count)
-        }
-
-        let processIdentifier = matchingApps[0].processIdentifier
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
 
         return try await Task.detached(priority: .userInitiated) {
             // A pure AX object-reference constructor — never activates, focuses, or raises the
@@ -4708,18 +4605,8 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.accessibilityPermissionDenied
         }
 
-        let matchingApps = NSWorkspace.shared.runningApplications.filter {
-            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
-            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
-        }
-        guard !matchingApps.isEmpty else {
-            throw QAXInteractionError.applicationNotAvailable(applicationName)
-        }
-        guard matchingApps.count == 1 else {
-            throw QAXInteractionError.ambiguousTarget(count: matchingApps.count)
-        }
-
-        let processIdentifier = matchingApps[0].processIdentifier
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
 
         return try await Task.detached(priority: .userInitiated) {
             let appElement = AXUIElementCreateApplication(processIdentifier)
