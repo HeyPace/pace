@@ -349,6 +349,10 @@ public enum QVerificationStrategy: Sendable {
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual sheet title or identifier.
     case sheetEnumerationSucceeded(applicationName: String, sheetCount: Int)
+    /// Phase 2AO: semantic sheet action control enumeration verification (Level 0, read-only). Success requires
+    /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
+    /// only, never any individual action control title or identifier.
+    case sheetActionEnumerationSucceeded(applicationName: String, actionCount: Int)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -809,6 +813,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Sheet dialog enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) sheetRole=AXSheet status=failed"
+                )
+            }
+
+        case .sheetActionEnumerationSucceeded(let applicationName, let actionCount):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) sheetActionRole=AXSheetAction actionCount=\(actionCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Sheet action enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) sheetActionRole=AXSheetAction status=failed"
                 )
             }
 

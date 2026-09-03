@@ -273,6 +273,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func listToolbarItems(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXToolbarMetadata
     func listSegmentedControlItems(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXSegmentedControlMetadata
     func listSheetDialogs(applicationName: String, windowTitle: String?, windowIdentifier: String?) async throws -> QAXSheetCollectionMetadata
+    func listSheetActions(applicationName: String, windowTitle: String?, windowIdentifier: String?, sheetTitle: String?, sheetIdentifier: String?) async throws -> QAXSheetActionCollectionMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -615,6 +616,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// Phase 2AN: the direct sheet count for a window exceeds this capability's
     /// defensive safe bound (16).
     case sheetCollectionExceedsSafeBound(Int)
+    /// Phase 2AO: the target's AX role is not on `QAXSheetActionRolePolicy.allowedRoles`
+    /// (`AXButton`, `AXCheckBox`, `AXRadioButton`, `AXPopUpButton`).
+    case disallowedSheetActionRole(String)
+    /// Phase 2AO: the direct action controls count for a sheet exceeds this capability's
+    /// defensive safe bound (16).
+    case sheetActionCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -774,6 +781,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not an allowed sheet target."
         case .sheetCollectionExceedsSafeBound(let count):
             return "Sheet collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .disallowedSheetActionRole(let role):
+            return "Target role '\(role)' is not an allowed sheet action target."
+        case .sheetActionCollectionExceedsSafeBound(let count):
+            return "Sheet action collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -858,6 +869,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .segmentedControlItemCollectionExceedsSafeBound: return "AX_SEGMENTED_CONTROL_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .disallowedSheetRole: return "AX_DISALLOWED_ROLE"
         case .sheetCollectionExceedsSafeBound: return "AX_SHEET_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .disallowedSheetActionRole: return "AX_DISALLOWED_ROLE"
+        case .sheetActionCollectionExceedsSafeBound: return "AX_SHEET_ACTION_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1315,6 +1328,21 @@ public enum QAXSheetRolePolicy {
     public static let allowedRoles: Set<String> = ["AXSheet"]
 
     public static func isAllowedSheetRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.list_sheet_actions` (Phase 2AO) may target.
+/// Direct action controls only — groups, texts, menus, combos, and generic containers are strictly excluded.
+public enum QAXSheetActionRolePolicy {
+    public static let allowedRoles: Set<String> = [
+        "AXButton",
+        "AXCheckBox",
+        "AXRadioButton",
+        "AXPopUpButton"
+    ]
+
+    public static func isAllowedSheetActionRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -2322,6 +2350,71 @@ public struct QAXSheetCollectionMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One sheet action control's safe, non-sensitive identity metadata, as returned by `ui.list_sheet_actions` (Phase 2AO).
+public struct QAXSheetActionMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let role: String
+    public let subrole: String?
+    public let isEnabled: Bool?
+    public let isSelected: Bool?
+    public let isFocused: Bool?
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        role: String,
+        subrole: String? = nil,
+        isEnabled: Bool? = nil,
+        isSelected: Bool? = nil,
+        isFocused: Bool? = nil
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.role = role
+        self.subrole = subrole
+        self.isEnabled = isEnabled
+        self.isSelected = isSelected
+        self.isFocused = isFocused
+    }
+}
+
+/// A sheet's safe, non-sensitive direct action controls metadata collection, as returned by `ui.list_sheet_actions` (Phase 2AO).
+/// Deliberately carries ONLY the fields this capability's contract allows — never raw `AXUIElement` references,
+/// never popup menus or arbitrary descendant trees.
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target reference;
+/// any subsequent action must independently perform its own fresh, exact target resolution.
+public struct QAXSheetActionCollectionMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let windowTitle: String?
+    public let windowIdentifier: String?
+    public let sheetTitle: String?
+    public let sheetIdentifier: String?
+    public let actionCount: Int
+    public let actions: [QAXSheetActionMetadata]
+
+    public init(
+        applicationName: String,
+        windowTitle: String?,
+        windowIdentifier: String?,
+        sheetTitle: String?,
+        sheetIdentifier: String?,
+        actionCount: Int,
+        actions: [QAXSheetActionMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.windowTitle = windowTitle
+        self.windowIdentifier = windowIdentifier
+        self.sheetTitle = sheetTitle
+        self.sheetIdentifier = sheetIdentifier
+        self.actionCount = actionCount
+        self.actions = actions
+    }
+}
+
 extension QBridgeAccessibility {
     private static let maxTraversalDepth = 12
     private static let maxTraversalNodes = 3_000
@@ -2373,6 +2466,8 @@ extension QBridgeAccessibility {
     private static let maxDirectSheetsCount = 16
     private static let axSheetsAttributeName = "AXSheets"
     private static let axModalAttributeName = "AXModal"
+    /// Phase 2AO: defensive bound on sheet direct action controls enumeration.
+    private static let maxDirectSheetActionsCount = 16
     private static let traversalTimeBudgetSeconds: CFAbsoluteTime = 1.5
     /// No `kAX...` Swift constant exists for this attribute; confirmed via direct empirical
     /// probing against real macOS apps that it is the stable, populated, raw-string identifier
@@ -6273,6 +6368,175 @@ extension QBridgeAccessibility {
                 windowIdentifier: verifiedWindow.identifier,
                 sheetCount: sheetsMetadata.count,
                 sheets: sheetsMetadata
+            )
+        }.value
+    }
+
+    /// Phase 2AO: semantic sheet action direct enumeration (Level 0, read-only). Enumerates direct action controls
+    /// (AXButton, AXCheckBox, AXRadioButton, AXPopUpButton) belonging to exactly ONE named AXSheet in an application window.
+    /// No mutation, no press, no focus, no approval, no recovery. Descendants inside groups or popup menus are strictly NOT traversed.
+    public func listSheetActions(
+        applicationName: String,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil,
+        sheetTitle: String? = nil,
+        sheetIdentifier: String? = nil
+    ) async throws -> QAXSheetActionCollectionMetadata {
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let windowMatches = Self.collectMatches(
+                root: appElement,
+                role: "AXWindow",
+                identifier: windowIdentifier,
+                title: windowTitle
+            )
+            guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+
+            let (targetWindow, windowSnapshot) = windowMatches[0]
+
+            guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                throw QAXInteractionError.staleTarget("target window element is no longer resolvable immediately before sheet action enumeration")
+            }
+            guard verifiedWindow == windowSnapshot else {
+                throw QAXInteractionError.staleTarget("target window identity changed between observation and sheet action enumeration")
+            }
+
+            var candidateSheets: [AXUIElement] = []
+            if let sheetsAttr = Self.axUIElementsAttribute(Self.axSheetsAttributeName, of: targetWindow) {
+                candidateSheets.append(contentsOf: sheetsAttr)
+            }
+            if let childElements = Self.childrenAttribute(of: targetWindow) {
+                candidateSheets.append(contentsOf: childElements)
+            }
+
+            var validSheets: [AXUIElement] = []
+            var seenSheetSnapshots: [QAXElementSnapshot] = []
+
+            for element in candidateSheets {
+                guard let role = Self.axStringAttribute(kAXRoleAttribute, of: element) else {
+                    continue
+                }
+                guard QAXSheetRolePolicy.isAllowedSheetRole(role) else {
+                    continue
+                }
+
+                let identifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: element)
+                let titleOrDesc = Self.axStringAttribute(kAXTitleAttribute, of: element)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: element)
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: element) ?? true
+                let snapshot = QAXElementSnapshot(role: role, identifier: identifier, titleOrDescription: titleOrDesc, isEnabled: isEnabled)
+                if !seenSheetSnapshots.contains(snapshot) {
+                    seenSheetSnapshots.append(snapshot)
+                    validSheets.append(element)
+                }
+            }
+
+            var matchedSheets: [AXUIElement] = []
+            for sheet in validSheets {
+                let identifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: sheet)
+                let titleOrDesc = Self.axStringAttribute(kAXTitleAttribute, of: sheet)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: sheet)
+
+                if let sheetIdentifier {
+                    if identifier == sheetIdentifier {
+                        matchedSheets.append(sheet)
+                    }
+                } else if let sheetTitle {
+                    if titleOrDesc == sheetTitle {
+                        matchedSheets.append(sheet)
+                    }
+                } else {
+                    matchedSheets.append(sheet)
+                }
+            }
+
+            guard !matchedSheets.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matchedSheets.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matchedSheets.count) }
+
+            let targetSheet = matchedSheets[0]
+
+            let resolvedSheetTitle = Self.axStringAttribute(kAXTitleAttribute, of: targetSheet)
+                ?? Self.axStringAttribute(kAXDescriptionAttribute, of: targetSheet)
+            let resolvedSheetIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: targetSheet)
+
+            guard let verifiedSheet = Self.snapshotIfMatches(targetSheet, role: "AXSheet", identifier: resolvedSheetIdentifier, title: resolvedSheetTitle) else {
+                throw QAXInteractionError.staleTarget("target sheet element is no longer resolvable immediately before action enumeration")
+            }
+
+            let rawChildElements = Self.childrenAttribute(of: targetSheet) ?? []
+
+            var validActionElements: [AXUIElement] = []
+
+            for childElement in rawChildElements {
+                guard let role = Self.axStringAttribute(kAXRoleAttribute, of: childElement) else {
+                    continue
+                }
+                guard QAXSheetActionRolePolicy.isAllowedSheetActionRole(role) else {
+                    continue
+                }
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: childElement)
+                guard subrole != Self.tabButtonSubrole else {
+                    continue
+                }
+                validActionElements.append(childElement)
+            }
+
+            guard validActionElements.count <= Self.maxDirectSheetActionsCount else {
+                throw QAXInteractionError.sheetActionCollectionExceedsSafeBound(validActionElements.count)
+            }
+
+            var actionsMetadata: [QAXSheetActionMetadata] = []
+            actionsMetadata.reserveCapacity(validActionElements.count)
+
+            for (index, actionElement) in validActionElements.enumerated() {
+                let actionTitle = Self.axStringAttribute(kAXTitleAttribute, of: actionElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: actionElement)
+                let actionIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: actionElement)
+                let role = Self.axStringAttribute(kAXRoleAttribute, of: actionElement) ?? "AXUnknown"
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: actionElement)
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: actionElement)
+                let isFocused = Self.axBoolAttribute(kAXFocusedAttribute, of: actionElement)
+
+                let isSelected: Bool?
+                if let state = Self.axCheckboxRadioState(of: actionElement) {
+                    isSelected = (state == .on)
+                } else if let selectedVal = Self.axBoolAttribute(kAXSelectedAttribute, of: actionElement) {
+                    isSelected = selectedVal
+                } else {
+                    isSelected = nil
+                }
+
+                actionsMetadata.append(
+                    QAXSheetActionMetadata(
+                        index: index,
+                        title: actionTitle,
+                        identifier: actionIdentifier,
+                        role: role,
+                        subrole: subrole,
+                        isEnabled: isEnabled,
+                        isSelected: isSelected,
+                        isFocused: isFocused
+                    )
+                )
+            }
+
+            return QAXSheetActionCollectionMetadata(
+                applicationName: applicationName,
+                windowTitle: verifiedWindow.titleOrDescription,
+                windowIdentifier: verifiedWindow.identifier,
+                sheetTitle: verifiedSheet.titleOrDescription,
+                sheetIdentifier: verifiedSheet.identifier,
+                actionCount: actionsMetadata.count,
+                actions: actionsMetadata
             )
         }.value
     }

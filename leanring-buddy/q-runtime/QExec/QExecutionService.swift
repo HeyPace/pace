@@ -213,6 +213,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_sheet_dialogs":
             result = await executeListSheetDialogs(request: request)
 
+        case "ui.list_sheet_actions":
+            result = await executeListSheetActions(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -3028,6 +3031,96 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing sheet dialogs: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2AO: executes read-only sheet direct action controls discovery.
+    /// Result summary carries aggregate counts only, never leaking individual button labels to durable storage.
+    private func executeListSheetActions(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        if let role = request.parameters["role"] {
+            guard QAXSheetActionRolePolicy.isAllowedSheetActionRole(role) else {
+                return QActionResult(
+                    actionId: request.actionId,
+                    success: false,
+                    summary: "Target role '\(role)' is not an allowed sheet action target.",
+                    error: "AX_DISALLOWED_ROLE"
+                )
+            }
+        }
+
+        let windowTitle = request.parameters["windowTitle"] ?? request.parameters["window"]
+        let windowIdentifier = request.parameters["windowIdentifier"] ?? request.parameters["windowId"]
+        let sheetTitle = request.parameters["sheetTitle"] ?? request.parameters["sheet"]
+        let sheetIdentifier = request.parameters["sheetIdentifier"] ?? request.parameters["sheetId"]
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listSheetActions(
+                applicationName: applicationName,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier,
+                sheetTitle: sheetTitle,
+                sheetIdentifier: sheetIdentifier
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "actionCount": "\(metadata.actionCount)"
+            ]
+            if let windowTitle = metadata.windowTitle {
+                outputData["windowTitle"] = windowTitle
+            }
+            if let windowIdentifier = metadata.windowIdentifier {
+                outputData["windowIdentifier"] = windowIdentifier
+            }
+            if let sheetTitle = metadata.sheetTitle {
+                outputData["sheetTitle"] = sheetTitle
+            }
+            if let sheetIdentifier = metadata.sheetIdentifier {
+                outputData["sheetIdentifier"] = sheetIdentifier
+            }
+
+            for action in metadata.actions {
+                let idx = action.index
+                outputData["action\(idx).index"] = "\(idx)"
+                outputData["action\(idx).title"] = action.title ?? ""
+                outputData["action\(idx).identifier"] = action.identifier ?? ""
+                outputData["action\(idx).role"] = action.role
+                outputData["action\(idx).subrole"] = action.subrole ?? ""
+                outputData["action\(idx).enabled"] = action.isEnabled.map { $0 ? "true" : "false" } ?? ""
+                outputData["action\(idx).selected"] = action.isSelected.map { $0 ? "true" : "false" } ?? "unknown"
+                outputData["action\(idx).focused"] = action.isFocused.map { $0 ? "true" : "false" } ?? ""
+            }
+
+            let sheetSuffix = metadata.sheetTitle.map { " (sheet: '\($0)')" } ?? ""
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(metadata.actionCount) direct action control(s) for sheet in application '\(applicationName)'\(sheetSuffix). This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing sheet actions: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

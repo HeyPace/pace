@@ -541,7 +541,16 @@ public struct QModelPlanParser: Sendable {
         // (maxDirectSheetsCount = 16). This is a POINT-IN-TIME SNAPSHOT ONLY:
         // result is informational and never enters durable persistence snapshots; every subsequent mutation
         // capability must independently perform its own fresh, exact target resolution.
-        "ui.list_sheet_dialogs": ("ui", .level0ReadOnly)
+        "ui.list_sheet_dialogs": ("ui", .level0ReadOnly),
+        // Phase 2AO: semantic sheet action enumeration — LEVEL 0 (READ-ONLY). Enumerates direct
+        // action controls (AXButton, AXCheckBox, AXRadioButton, AXPopUpButton) belonging to exactly
+        // ONE named AXSheet in an application window. No mutation, no press, no focus, no approval, no recovery.
+        // Application identity is resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication.
+        // Direct child controls only (descendant trees inside groups/menus are strictly excluded). Bounded by local defensive ceiling
+        // (maxDirectSheetActionsCount = 16). This is a POINT-IN-TIME SNAPSHOT ONLY:
+        // result is informational and never enters durable persistence snapshots; every subsequent mutation
+        // capability must independently perform its own fresh, exact target resolution.
+        "ui.list_sheet_actions": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.
