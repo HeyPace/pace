@@ -270,6 +270,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func listOutlineItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXOutlineMetadata
     func listTabItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXTabGroupMetadata
     func listRadioGroupItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXRadioGroupMetadata
+    func listToolbarItems(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXToolbarMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -594,6 +595,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// Phase 2AI: the direct radio item count for a radio group exceeds this capability's
     /// defensive safe bound (64).
     case radioItemCollectionExceedsSafeBound(Int)
+    /// Phase 2AK: the target's AX role is not on `QAXToolbarRolePolicy.allowedRoles`
+    /// (`AXToolbar` only).
+    case disallowedToolbarRole(String)
+    /// Phase 2AK: the direct toolbar item count for a toolbar exceeds this capability's
+    /// defensive safe bound (64).
+    case toolbarItemCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -741,6 +748,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not an allowed radio group target."
         case .radioItemCollectionExceedsSafeBound(let count):
             return "Radio item collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .disallowedToolbarRole(let role):
+            return "Target role '\(role)' is not an allowed toolbar target."
+        case .toolbarItemCollectionExceedsSafeBound(let count):
+            return "Toolbar item collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -819,6 +830,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .tabItemCollectionExceedsSafeBound: return "AX_TAB_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .disallowedRadioGroupRole: return "AX_DISALLOWED_ROLE"
         case .radioItemCollectionExceedsSafeBound: return "AX_RADIO_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .disallowedToolbarRole: return "AX_DISALLOWED_ROLE"
+        case .toolbarItemCollectionExceedsSafeBound: return "AX_TOOLBAR_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1247,6 +1260,15 @@ public enum QAXRadioGroupRolePolicy {
     public static let allowedRoles: Set<String> = ["AXRadioGroup"]
 
     public static func isAllowedRadioGroupRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.list_toolbar_items` (Phase 2AK) may target.
+public enum QAXToolbarRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXToolbar"]
+
+    public static func isAllowedToolbarRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -2074,6 +2096,70 @@ public struct QAXRadioGroupMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One toolbar item's safe, non-sensitive identity metadata, as returned by `ui.list_toolbar_items`
+/// (Phase 2AK).
+public struct QAXToolbarItemMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let role: String
+    public let subrole: String?
+    public let isEnabled: Bool?
+    public let isSelected: Bool?
+    public let help: String?
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        role: String,
+        subrole: String? = nil,
+        isEnabled: Bool? = nil,
+        isSelected: Bool? = nil,
+        help: String? = nil
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.role = role
+        self.subrole = subrole
+        self.isEnabled = isEnabled
+        self.isSelected = isSelected
+        self.help = help
+    }
+}
+
+/// A window toolbar's safe, non-sensitive direct items metadata, as returned by `ui.list_toolbar_items`
+/// (Phase 2AK). Deliberately carries ONLY the fields this capability's contract allows — never raw
+/// `AXUIElement` references, never arbitrary descendant trees.
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target
+/// reference; any subsequent mutation capability (`ui.click_element`, `ui.select_popup_item`) must
+/// independently perform its own fresh, exact target resolution.
+public struct QAXToolbarMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let windowTitle: String?
+    public let toolbarTitle: String?
+    public let toolbarIdentifier: String?
+    public let itemCount: Int
+    public let items: [QAXToolbarItemMetadata]
+
+    public init(
+        applicationName: String,
+        windowTitle: String?,
+        toolbarTitle: String?,
+        toolbarIdentifier: String?,
+        itemCount: Int,
+        items: [QAXToolbarItemMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.windowTitle = windowTitle
+        self.toolbarTitle = toolbarTitle
+        self.toolbarIdentifier = toolbarIdentifier
+        self.itemCount = itemCount
+        self.items = items
+    }
+}
+
 extension QBridgeAccessibility {
     private static let maxTraversalDepth = 12
     private static let maxTraversalNodes = 3_000
@@ -2100,6 +2186,21 @@ extension QBridgeAccessibility {
     private static let axTabsAttributeName = "AXTabs"
     /// Phase 2AI: defensive bound on radio group item enumeration.
     private static let maxDirectRadioItemsCount = 64
+    /// Phase 2AK: defensive bound on toolbar item enumeration.
+    private static let maxDirectToolbarItemsCount = 64
+    private static let allowedDirectToolbarItemRoles: Set<String> = [
+        "AXButton",
+        "AXPopUpButton",
+        "AXMenuButton",
+        "AXSearchField",
+        "AXSegmentedControl",
+        "AXRadioButton",
+        "AXCheckBox",
+        "AXGroup",
+        "AXTextField",
+        "AXComboBox",
+        "AXSlider"
+    ]
     private static let traversalTimeBudgetSeconds: CFAbsoluteTime = 1.5
     /// No `kAX...` Swift constant exists for this attribute; confirmed via direct empirical
     /// probing against real macOS apps that it is the stable, populated, raw-string identifier
@@ -5635,6 +5736,131 @@ extension QBridgeAccessibility {
                 radioGroupIdentifier: observedAtVerify.identifier,
                 itemCount: itemsMetadata.count,
                 selectedItemCount: selectedCount,
+                items: itemsMetadata
+            )
+        }.value
+    }
+
+    /// Phase 2AK: semantic toolbar direct item enumeration (Level 0, read-only). Enumerates direct semantic controls
+    /// belonging to exactly ONE named AXToolbar in an application window.
+    /// No mutation, no press, no approval, no recovery. Subtrees, menus, and popups are strictly NOT expanded.
+    public func listToolbarItems(
+        applicationName: String,
+        role: String = "AXToolbar",
+        identifier: String?,
+        title: String?,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil
+    ) async throws -> QAXToolbarMetadata {
+        guard QAXToolbarRolePolicy.isAllowedToolbarRole(role) else {
+            throw QAXInteractionError.disallowedToolbarRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            let resolvedWindowTitle: String?
+
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+                guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+                let (targetWindow, windowSnapshot) = windowMatches[0]
+                guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                    throw QAXInteractionError.staleTarget("target window element is no longer resolvable")
+                }
+                guard verifiedWindow == windowSnapshot else {
+                    throw QAXInteractionError.staleTarget("target window identity changed between observation and verification")
+                }
+                searchRoot = targetWindow
+                resolvedWindowTitle = verifiedWindow.titleOrDescription
+            } else {
+                searchRoot = appElement
+                resolvedWindowTitle = nil
+            }
+
+            let matches = Self.collectMatches(root: searchRoot, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target toolbar element is no longer resolvable immediately before enumeration")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target toolbar element identity changed between observation and enumeration")
+            }
+
+            let rawChildElements = Self.childrenAttribute(of: targetElement) ?? []
+
+            var validToolbarItemElements: [AXUIElement] = []
+            for childElement in rawChildElements {
+                guard let childRole = Self.axStringAttribute(kAXRoleAttribute, of: childElement) else {
+                    continue
+                }
+                guard Self.allowedDirectToolbarItemRoles.contains(childRole) else {
+                    continue
+                }
+                validToolbarItemElements.append(childElement)
+            }
+
+            guard validToolbarItemElements.count <= Self.maxDirectToolbarItemsCount else {
+                throw QAXInteractionError.toolbarItemCollectionExceedsSafeBound(validToolbarItemElements.count)
+            }
+
+            var itemsMetadata: [QAXToolbarItemMetadata] = []
+            itemsMetadata.reserveCapacity(validToolbarItemElements.count)
+
+            for (index, itemElement) in validToolbarItemElements.enumerated() {
+                let itemTitle = Self.axStringAttribute(kAXTitleAttribute, of: itemElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: itemElement)
+                let itemIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: itemElement)
+                let childRole = Self.axStringAttribute(kAXRoleAttribute, of: itemElement) ?? "AXUnknown"
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: itemElement)
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: itemElement)
+                let isSelected: Bool?
+                if let state = Self.axCheckboxRadioState(of: itemElement) {
+                    isSelected = (state == .on)
+                } else if let selectedVal = Self.axBoolAttribute(kAXSelectedAttribute, of: itemElement) {
+                    isSelected = selectedVal
+                } else {
+                    isSelected = nil
+                }
+                let help = Self.axStringAttribute(kAXHelpAttribute, of: itemElement)
+
+                itemsMetadata.append(
+                    QAXToolbarItemMetadata(
+                        index: index,
+                        title: itemTitle,
+                        identifier: itemIdentifier,
+                        role: childRole,
+                        subrole: subrole,
+                        isEnabled: isEnabled,
+                        isSelected: isSelected,
+                        help: help
+                    )
+                )
+            }
+
+            return QAXToolbarMetadata(
+                applicationName: applicationName,
+                windowTitle: resolvedWindowTitle,
+                toolbarTitle: observedAtVerify.titleOrDescription,
+                toolbarIdentifier: observedAtVerify.identifier,
+                itemCount: itemsMetadata.count,
                 items: itemsMetadata
             )
         }.value

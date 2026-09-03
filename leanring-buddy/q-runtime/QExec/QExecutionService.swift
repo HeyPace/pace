@@ -204,6 +204,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_radio_group_items":
             result = await executeListRadioGroupItems(request: request)
 
+        case "ui.list_toolbar_items":
+            result = await executeListToolbarItems(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -2765,6 +2768,94 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing radio group items: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2AK: executes read-only window toolbar direct item discovery.
+    /// Result summary carries aggregate counts only, never leaking individual toolbar button titles to durable storage.
+    private func executeListToolbarItems(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"] ?? "AXToolbar"
+        guard QAXToolbarRolePolicy.isAllowedToolbarRole(role) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target role '\(role)' is not an allowed toolbar target.",
+                error: "AX_DISALLOWED_ROLE"
+            )
+        }
+
+        let identifier = request.parameters["identifier"] ?? request.parameters["id"]
+        let title = request.parameters["title"] ?? request.parameters["label"]
+        let windowTitle = request.parameters["windowTitle"] ?? request.parameters["window"]
+        let windowIdentifier = request.parameters["windowIdentifier"] ?? request.parameters["windowId"]
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listToolbarItems(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "itemCount": "\(metadata.itemCount)"
+            ]
+            if let windowTitle = metadata.windowTitle {
+                outputData["windowTitle"] = windowTitle
+            }
+            if let toolbarTitle = metadata.toolbarTitle {
+                outputData["toolbarTitle"] = toolbarTitle
+            }
+            if let toolbarIdentifier = metadata.toolbarIdentifier {
+                outputData["toolbarIdentifier"] = toolbarIdentifier
+            }
+
+            for item in metadata.items {
+                let idx = item.index
+                outputData["item\(idx).index"] = "\(idx)"
+                outputData["item\(idx).title"] = item.title ?? ""
+                outputData["item\(idx).identifier"] = item.identifier ?? ""
+                outputData["item\(idx).role"] = item.role
+                outputData["item\(idx).subrole"] = item.subrole ?? ""
+                outputData["item\(idx).enabled"] = item.isEnabled.map { $0 ? "true" : "false" } ?? ""
+                outputData["item\(idx).selected"] = item.isSelected.map { $0 ? "true" : "false" } ?? "unknown"
+                outputData["item\(idx).help"] = item.help ?? ""
+            }
+
+            let windowSuffix = metadata.windowTitle.map { " (window: '\($0)')" } ?? ""
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(metadata.itemCount) toolbar item(s) for toolbar in application '\(applicationName)'\(windowSuffix). This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing toolbar items: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

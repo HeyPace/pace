@@ -337,6 +337,10 @@ public enum QVerificationStrategy: Sendable {
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual radio option title or identifier.
     case radioGroupEnumerationSucceeded(applicationName: String, itemCount: Int, selectedCount: Int)
+    /// Phase 2AK: semantic toolbar item enumeration verification (Level 0, read-only). Success requires
+    /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
+    /// only, never any individual toolbar button title or identifier.
+    case toolbarItemEnumerationSucceeded(applicationName: String, itemCount: Int)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -761,6 +765,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Radio group item enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) radioGroupRole=AXRadioGroup status=failed"
+                )
+            }
+
+        case .toolbarItemEnumerationSucceeded(let applicationName, let itemCount):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) toolbarRole=AXToolbar itemCount=\(itemCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Toolbar item enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) toolbarRole=AXToolbar status=failed"
                 )
             }
 

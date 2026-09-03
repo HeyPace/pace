@@ -842,6 +842,15 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual radio option title or identifier — this strategy only ever
             // carries aggregate counts, by design.
             return .radioGroupEnumerationSucceeded(applicationName: applicationName, itemCount: itemCount, selectedCount: selectedCount)
+        } else if action.actionName == "ui.list_toolbar_items",
+                  let applicationName = action.arguments["applicationName"],
+                  let itemCountString = result.outputData["itemCount"],
+                  let itemCount = Int(itemCountString) {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the item count captured at read time. Deliberately NOT threaded
+            // through here: any individual toolbar button title or identifier — this strategy only ever
+            // carries aggregate counts, by design.
+            return .toolbarItemEnumerationSucceeded(applicationName: applicationName, itemCount: itemCount)
         } else {
             return .customCheck(description: "Default step verification") { true }
         }
