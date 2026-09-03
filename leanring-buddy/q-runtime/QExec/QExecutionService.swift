@@ -192,6 +192,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_popup_items":
             result = await executeListPopupItems(request: request)
 
+        case "ui.list_table_rows":
+            result = await executeListTableRows(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -2394,6 +2397,95 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing pop-up items: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2AE: executes read-only table direct row discovery.
+    /// Result summary carries aggregate counts only, never leaking individual row titles to durable storage.
+    private func executeListTableRows(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"] ?? "AXTable"
+        guard QAXTableRolePolicy.isAllowedTableRole(role) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target role '\(role)' is not an allowed table target.",
+                error: "AX_DISALLOWED_ROLE"
+            )
+        }
+
+        let identifier = request.parameters["identifier"] ?? request.parameters["id"]
+        let title = request.parameters["title"] ?? request.parameters["label"]
+
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an identifier or title to match semantically.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listTableRows(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "rowCount": "\(metadata.rowCount)",
+                "selectedRowCount": "\(metadata.selectedRowCount)"
+            ]
+            if let tableTitle = metadata.tableTitle {
+                outputData["tableTitle"] = tableTitle
+            }
+            if let tableIdentifier = metadata.tableIdentifier {
+                outputData["tableIdentifier"] = tableIdentifier
+            }
+
+            for row in metadata.rows {
+                let idx = row.index
+                outputData["row\(idx).index"] = "\(idx)"
+                outputData["row\(idx).title"] = row.title ?? ""
+                outputData["row\(idx).identifier"] = row.identifier ?? ""
+                outputData["row\(idx).selected"] = row.isSelected.map { $0 ? "true" : "false" } ?? "unknown"
+                outputData["row\(idx).enabled"] = row.isEnabled.map { $0 ? "true" : "false" } ?? ""
+                outputData["row\(idx).role"] = row.role
+                outputData["row\(idx).subrole"] = row.subrole
+            }
+
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(metadata.rowCount) table row(s) for table in application '\(applicationName)' (selected rows: \(metadata.selectedRowCount)). This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing table rows: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

@@ -796,6 +796,17 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual popup item title or identifier — this strategy only ever
             // carries aggregate counts, by design.
             return .popupEnumerationSucceeded(applicationName: applicationName, itemCount: itemCount)
+        } else if action.actionName == "ui.list_table_rows",
+                  let applicationName = action.arguments["applicationName"],
+                  let rowCountString = result.outputData["rowCount"],
+                  let rowCount = Int(rowCountString),
+                  let selectedCountString = result.outputData["selectedRowCount"],
+                  let selectedCount = Int(selectedCountString) {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the row count and selected row count captured at read time. Deliberately NOT threaded
+            // through here: any individual row title or identifier — this strategy only ever
+            // carries aggregate counts, by design.
+            return .tableRowEnumerationSucceeded(applicationName: applicationName, rowCount: rowCount, selectedCount: selectedCount)
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

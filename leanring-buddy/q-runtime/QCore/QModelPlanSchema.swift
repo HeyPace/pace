@@ -478,7 +478,16 @@ public struct QModelPlanParser: Sendable {
         // (maxDirectPopupItemsCount = 128). This is a POINT-IN-TIME SNAPSHOT ONLY: result is informational
         // and never enters durable persistence snapshots; every subsequent mutation capability
         // (ui.select_popup_item) must independently perform its own fresh, exact target resolution.
-        "ui.list_popup_items": ("ui", .level0ReadOnly)
+        "ui.list_popup_items": ("ui", .level0ReadOnly),
+        // Phase 2AE: semantic table row enumeration — LEVEL 0 (READ-ONLY). Enumerates direct
+        // table rows belonging to exactly ONE named AXTable in an application via direct AXRow/AXTableRow
+        // children. No mutation, no press, no approval, no recovery. Application identity is
+        // resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication. Target
+        // must match AXTable role policy. Bounded by local defensive ceiling
+        // (maxDirectTableRowsCount = 128). This is a POINT-IN-TIME SNAPSHOT ONLY: result is informational
+        // and never enters durable persistence snapshots; every subsequent mutation capability
+        // (ui.select_table_row) must independently perform its own fresh, exact target resolution.
+        "ui.list_table_rows": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

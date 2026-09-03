@@ -266,6 +266,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func readFocusedElement() async throws -> QAccessibilityElementInfo?
     func listMenuItems(applicationName: String) async throws -> [QAXTopLevelMenuMetadata]
     func listPopupItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXPopupMenuMetadata
+    func listTableRows(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXTableMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -563,6 +564,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// Phase 2AA: the total menu item count across all menus exceeds this capability's
     /// defensive safe bound (512).
     case totalMenuItemCollectionExceedsSafeBound(Int)
+    /// Phase 2AE: the target's AX role is not on `QAXTableRolePolicy.allowedRoles`
+    /// (`AXTable` only).
+    case disallowedTableRole(String)
+    /// Phase 2AE: the direct table row count for a table exceeds this capability's
+    /// defensive safe bound (128).
+    case tableRowCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -692,6 +699,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Menu item collection count (\(count)) for a single menu exceeds this capability's defensive safe bound."
         case .totalMenuItemCollectionExceedsSafeBound(let count):
             return "Total menu item collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .disallowedTableRole(let role):
+            return "Target role '\(role)' is not an allowed table target."
+        case .tableRowCollectionExceedsSafeBound(let count):
+            return "Table row collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -761,6 +772,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .menuCollectionExceedsSafeBound: return "AX_MENU_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .menuItemCollectionExceedsSafeBound: return "AX_MENU_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .totalMenuItemCollectionExceedsSafeBound: return "AX_TOTAL_MENU_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .disallowedTableRole: return "AX_DISALLOWED_ROLE"
+        case .tableRowCollectionExceedsSafeBound: return "AX_TABLE_ROW_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1247,6 +1260,15 @@ public enum QAXTabSelectionEvidence: Sendable, Equatable {
     case targetUnavailable
 }
 
+/// Fail-closed allowlist of Accessibility roles `ui.list_table_rows` (Phase 2AE) may target.
+public enum QAXTableRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXTable"]
+
+    public static func isAllowedTableRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
 /// Fail-closed allowlist of Accessibility roles `ui.select_table_row` (Phase 2S) may target.
 ///
 /// Deliberately a SINGLE role, the narrowest write-capable policy in this codebase alongside
@@ -1727,6 +1749,67 @@ public struct QAXPopupMenuMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One table row's safe, non-sensitive identity metadata, as returned by `ui.list_table_rows`
+/// (Phase 2AE). Cell contents are strictly out of scope.
+public struct QAXTableRowItemMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let isSelected: Bool?
+    public let isEnabled: Bool?
+    public let role: String
+    public let subrole: String
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        isSelected: Bool?,
+        isEnabled: Bool?,
+        role: String = "AXRow",
+        subrole: String = "AXTableRow"
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.isSelected = isSelected
+        self.isEnabled = isEnabled
+        self.role = role
+        self.subrole = subrole
+    }
+}
+
+/// A table's safe, non-sensitive direct rows metadata, as returned by `ui.list_table_rows`
+/// (Phase 2AE). Deliberately carries ONLY the fields this capability's contract allows — never raw
+/// `AXUIElement` references, never arbitrary descendant trees, never cell contents.
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target
+/// reference; any subsequent mutation capability (`ui.select_table_row`) must independently perform
+/// its own fresh, exact target resolution.
+public struct QAXTableMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let tableTitle: String?
+    public let tableIdentifier: String?
+    public let rowCount: Int
+    public let selectedRowCount: Int
+    public let rows: [QAXTableRowItemMetadata]
+
+    public init(
+        applicationName: String,
+        tableTitle: String?,
+        tableIdentifier: String?,
+        rowCount: Int,
+        selectedRowCount: Int,
+        rows: [QAXTableRowItemMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.tableTitle = tableTitle
+        self.tableIdentifier = tableIdentifier
+        self.rowCount = rowCount
+        self.selectedRowCount = selectedRowCount
+        self.rows = rows
+    }
+}
+
 extension QBridgeAccessibility {
     private static let maxTraversalDepth = 12
     private static let maxTraversalNodes = 3_000
@@ -1741,6 +1824,8 @@ extension QBridgeAccessibility {
     private static let maxTotalMenuItemsCount = 512
     /// Phase 2AD: defensive bound on pop-up menu direct item enumeration.
     private static let maxDirectPopupItemsCount = 128
+    /// Phase 2AE: defensive bound on table direct row enumeration.
+    private static let maxDirectTableRowsCount = 128
     private static let traversalTimeBudgetSeconds: CFAbsoluteTime = 1.5
     /// No `kAX...` Swift constant exists for this attribute; confirmed via direct empirical
     /// probing against real macOS apps that it is the stable, populated, raw-string identifier
@@ -4837,6 +4922,112 @@ extension QBridgeAccessibility {
             return QAXPopupMenuMetadata(
                 selectedValue: currentValue,
                 items: itemsMetadata
+            )
+        }.value
+    }
+
+    /// Phase 2AE: semantic table row enumeration (Level 0, read-only). Enumerates direct rows
+    /// belonging to exactly ONE named AXTable in an application.
+    /// No mutation, no press, no approval, no recovery. Cells and submenus are strictly OUT OF SCOPE.
+    public func listTableRows(
+        applicationName: String,
+        role: String = "AXTable",
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXTableMetadata {
+        guard QAXTableRolePolicy.isAllowedTableRole(role) else {
+            throw QAXInteractionError.disallowedTableRole(role)
+        }
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target table element is no longer resolvable immediately before enumeration")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target table element identity changed between observation and enumeration")
+            }
+
+            var rawRowElements: [AXUIElement] = []
+            var rowsValue: CFTypeRef?
+            let copyResult = AXUIElementCopyAttributeValue(targetElement, "AXRows" as CFString, &rowsValue)
+            if copyResult == .success, let array = rowsValue as? [AXUIElement] {
+                rawRowElements = array
+            } else if let children = Self.childrenAttribute(of: targetElement) {
+                rawRowElements = children.filter {
+                    Self.axStringAttribute(kAXRoleAttribute, of: $0) == "AXRow"
+                }
+            }
+
+            var validRowElements: [AXUIElement] = []
+            for rowElement in rawRowElements {
+                guard Self.axStringAttribute(kAXRoleAttribute, of: rowElement) == "AXRow" else {
+                    continue
+                }
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: rowElement)
+                guard subrole != Self.outlineRowSubrole else {
+                    continue
+                }
+                if subrole == nil || subrole == Self.tableRowSubrole {
+                    validRowElements.append(rowElement)
+                }
+            }
+
+            guard validRowElements.count <= Self.maxDirectTableRowsCount else {
+                throw QAXInteractionError.tableRowCollectionExceedsSafeBound(validRowElements.count)
+            }
+
+            var rowsMetadata: [QAXTableRowItemMetadata] = []
+            rowsMetadata.reserveCapacity(validRowElements.count)
+            var selectedCount = 0
+
+            for (index, rowElement) in validRowElements.enumerated() {
+                let rowTitle = Self.axStringAttribute(kAXTitleAttribute, of: rowElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: rowElement)
+                let rowIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: rowElement)
+                let rowSelected = Self.axBoolAttribute(kAXSelectedAttribute, of: rowElement)
+                let rowEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: rowElement)
+
+                if rowSelected == true {
+                    selectedCount += 1
+                }
+
+                rowsMetadata.append(
+                    QAXTableRowItemMetadata(
+                        index: index,
+                        title: rowTitle,
+                        identifier: rowIdentifier,
+                        isSelected: rowSelected,
+                        isEnabled: rowEnabled,
+                        role: "AXRow",
+                        subrole: Self.tableRowSubrole
+                    )
+                )
+            }
+
+            return QAXTableMetadata(
+                applicationName: applicationName,
+                tableTitle: observedAtVerify.titleOrDescription,
+                tableIdentifier: observedAtVerify.identifier,
+                rowCount: rowsMetadata.count,
+                selectedRowCount: selectedCount,
+                rows: rowsMetadata
             )
         }.value
     }
