@@ -505,7 +505,16 @@ public struct QModelPlanParser: Sendable {
         // (maxDirectTabItemsCount = 64). This is a POINT-IN-TIME SNAPSHOT ONLY:
         // result is informational and never enters durable persistence snapshots; every subsequent mutation
         // capability (ui.select_tab) must independently perform its own fresh, exact target resolution.
-        "ui.list_tab_items": ("ui", .level0ReadOnly)
+        "ui.list_tab_items": ("ui", .level0ReadOnly),
+        // Phase 2AI: semantic radio group item enumeration — LEVEL 0 (READ-ONLY). Enumerates direct
+        // radio button options belonging to exactly ONE named AXRadioGroup in an application via direct AXRadioButton
+        // children (excluding AXTabButton subroles). No mutation, no press, no focus, no approval, no recovery.
+        // Application identity is resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication.
+        // Target must match AXRadioGroup role policy. Bounded by local defensive ceiling
+        // (maxDirectRadioItemsCount = 64). This is a POINT-IN-TIME SNAPSHOT ONLY:
+        // result is informational and never enters durable persistence snapshots; every subsequent mutation
+        // capability (ui.set_element_state) must independently perform its own fresh, exact target resolution.
+        "ui.list_radio_group_items": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

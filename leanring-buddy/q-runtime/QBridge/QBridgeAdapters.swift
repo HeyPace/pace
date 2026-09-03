@@ -269,6 +269,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func listTableRows(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXTableMetadata
     func listOutlineItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXOutlineMetadata
     func listTabItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXTabGroupMetadata
+    func listRadioGroupItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXRadioGroupMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -587,6 +588,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// Phase 2AH: the direct tab item count for a tab group exceeds this capability's
     /// defensive safe bound (64).
     case tabItemCollectionExceedsSafeBound(Int)
+    /// Phase 2AI: the target's AX role is not on `QAXRadioGroupRolePolicy.allowedRoles`
+    /// (`AXRadioGroup` only).
+    case disallowedRadioGroupRole(String)
+    /// Phase 2AI: the direct radio item count for a radio group exceeds this capability's
+    /// defensive safe bound (64).
+    case radioItemCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -730,6 +737,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not an allowed tab group target."
         case .tabItemCollectionExceedsSafeBound(let count):
             return "Tab item collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .disallowedRadioGroupRole(let role):
+            return "Target role '\(role)' is not an allowed radio group target."
+        case .radioItemCollectionExceedsSafeBound(let count):
+            return "Radio item collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -806,6 +817,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .outlineItemDepthExceedsSafeBound: return "AX_OUTLINE_ITEM_DEPTH_EXCEEDS_SAFE_BOUND"
         case .disallowedTabGroupRole: return "AX_DISALLOWED_ROLE"
         case .tabItemCollectionExceedsSafeBound: return "AX_TAB_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .disallowedRadioGroupRole: return "AX_DISALLOWED_ROLE"
+        case .radioItemCollectionExceedsSafeBound: return "AX_RADIO_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1225,6 +1238,15 @@ public enum QAXTabGroupRolePolicy {
     public static let allowedRoles: Set<String> = ["AXTabGroup"]
 
     public static func isAllowedTabGroupRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.list_radio_group_items` (Phase 2AI) may target.
+public enum QAXRadioGroupRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXRadioGroup"]
+
+    public static func isAllowedRadioGroupRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -1991,6 +2013,67 @@ public struct QAXTabGroupMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One radio item's safe, non-sensitive identity metadata, as returned by `ui.list_radio_group_items`
+/// (Phase 2AI).
+public struct QAXRadioGroupItemMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let isSelected: Bool?
+    public let isEnabled: Bool?
+    public let role: String
+    public let subrole: String?
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        isSelected: Bool?,
+        isEnabled: Bool?,
+        role: String = "AXRadioButton",
+        subrole: String? = nil
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.isSelected = isSelected
+        self.isEnabled = isEnabled
+        self.role = role
+        self.subrole = subrole
+    }
+}
+
+/// A radio group's safe, non-sensitive direct items metadata, as returned by `ui.list_radio_group_items`
+/// (Phase 2AI). Deliberately carries ONLY the fields this capability's contract allows — never raw
+/// `AXUIElement` references, never arbitrary descendant trees.
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target
+/// reference; any subsequent mutation capability (`ui.set_element_state`) must independently perform
+/// its own fresh, exact target resolution.
+public struct QAXRadioGroupMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let radioGroupTitle: String?
+    public let radioGroupIdentifier: String?
+    public let itemCount: Int
+    public let selectedItemCount: Int
+    public let items: [QAXRadioGroupItemMetadata]
+
+    public init(
+        applicationName: String,
+        radioGroupTitle: String?,
+        radioGroupIdentifier: String?,
+        itemCount: Int,
+        selectedItemCount: Int,
+        items: [QAXRadioGroupItemMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.radioGroupTitle = radioGroupTitle
+        self.radioGroupIdentifier = radioGroupIdentifier
+        self.itemCount = itemCount
+        self.selectedItemCount = selectedItemCount
+        self.items = items
+    }
+}
+
 extension QBridgeAccessibility {
     private static let maxTraversalDepth = 12
     private static let maxTraversalNodes = 3_000
@@ -2015,6 +2098,8 @@ extension QBridgeAccessibility {
     /// Phase 2AH: defensive bound on tab item enumeration.
     private static let maxDirectTabItemsCount = 64
     private static let axTabsAttributeName = "AXTabs"
+    /// Phase 2AI: defensive bound on radio group item enumeration.
+    private static let maxDirectRadioItemsCount = 64
     private static let traversalTimeBudgetSeconds: CFAbsoluteTime = 1.5
     /// No `kAX...` Swift constant exists for this attribute; confirmed via direct empirical
     /// probing against real macOS apps that it is the stable, populated, raw-string identifier
@@ -5443,6 +5528,111 @@ extension QBridgeAccessibility {
                 applicationName: applicationName,
                 tabGroupTitle: observedAtVerify.titleOrDescription,
                 tabGroupIdentifier: observedAtVerify.identifier,
+                itemCount: itemsMetadata.count,
+                selectedItemCount: selectedCount,
+                items: itemsMetadata
+            )
+        }.value
+    }
+
+    /// Phase 2AI: semantic radio group direct item enumeration (Level 0, read-only). Enumerates direct radio buttons
+    /// belonging to exactly ONE named AXRadioGroup in an application.
+    /// No mutation, no press, no approval, no recovery. Subtrees, other containers, and tabs are strictly OUT OF SCOPE.
+    public func listRadioGroupItems(
+        applicationName: String,
+        role: String = "AXRadioGroup",
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXRadioGroupMetadata {
+        guard QAXRadioGroupRolePolicy.isAllowedRadioGroupRole(role) else {
+            throw QAXInteractionError.disallowedRadioGroupRole(role)
+        }
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target radio group element is no longer resolvable immediately before enumeration")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target radio group element identity changed between observation and enumeration")
+            }
+
+            let rawChildElements = Self.childrenAttribute(of: targetElement) ?? []
+
+            var validRadioElements: [AXUIElement] = []
+            for childElement in rawChildElements {
+                guard Self.axStringAttribute(kAXRoleAttribute, of: childElement) == "AXRadioButton" else {
+                    continue
+                }
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: childElement)
+                guard subrole != Self.tabButtonSubrole else {
+                    continue
+                }
+                validRadioElements.append(childElement)
+            }
+
+            guard validRadioElements.count <= Self.maxDirectRadioItemsCount else {
+                throw QAXInteractionError.radioItemCollectionExceedsSafeBound(validRadioElements.count)
+            }
+
+            var itemsMetadata: [QAXRadioGroupItemMetadata] = []
+            itemsMetadata.reserveCapacity(validRadioElements.count)
+            var selectedCount = 0
+
+            for (index, radioElement) in validRadioElements.enumerated() {
+                let itemTitle = Self.axStringAttribute(kAXTitleAttribute, of: radioElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: radioElement)
+                let itemIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: radioElement)
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: radioElement)
+
+                let isSelected: Bool?
+                if let state = Self.axCheckboxRadioState(of: radioElement) {
+                    isSelected = (state == .on)
+                } else if let selectedVal = Self.axBoolAttribute(kAXSelectedAttribute, of: radioElement) {
+                    isSelected = selectedVal
+                } else {
+                    isSelected = nil
+                }
+
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: radioElement)
+
+                if isSelected == true {
+                    selectedCount += 1
+                }
+
+                itemsMetadata.append(
+                    QAXRadioGroupItemMetadata(
+                        index: index,
+                        title: itemTitle,
+                        identifier: itemIdentifier,
+                        isSelected: isSelected,
+                        isEnabled: isEnabled,
+                        role: "AXRadioButton",
+                        subrole: subrole
+                    )
+                )
+            }
+
+            return QAXRadioGroupMetadata(
+                applicationName: applicationName,
+                radioGroupTitle: observedAtVerify.titleOrDescription,
+                radioGroupIdentifier: observedAtVerify.identifier,
                 itemCount: itemsMetadata.count,
                 selectedItemCount: selectedCount,
                 items: itemsMetadata

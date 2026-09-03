@@ -831,6 +831,17 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual tab title or identifier — this strategy only ever
             // carries aggregate counts, by design.
             return .tabItemEnumerationSucceeded(applicationName: applicationName, tabCount: tabCount, selectedCount: selectedCount)
+        } else if action.actionName == "ui.list_radio_group_items",
+                  let applicationName = action.arguments["applicationName"],
+                  let itemCountString = result.outputData["itemCount"],
+                  let itemCount = Int(itemCountString),
+                  let selectedCountString = result.outputData["selectedItemCount"],
+                  let selectedCount = Int(selectedCountString) {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the item count and selected count captured at read time. Deliberately NOT threaded
+            // through here: any individual radio option title or identifier — this strategy only ever
+            // carries aggregate counts, by design.
+            return .radioGroupEnumerationSucceeded(applicationName: applicationName, itemCount: itemCount, selectedCount: selectedCount)
         } else {
             return .customCheck(description: "Default step verification") { true }
         }
