@@ -313,6 +313,10 @@ public enum QVerificationStrategy: Sendable {
     /// capability's own privacy contract that per-window content never crosses into persisted
     /// evidence text.
     case windowEnumerationSucceeded(applicationName: String, windowCount: Int)
+    /// Phase 2AA: semantic menu enumeration verification (Level 0, read-only). Success requires
+    /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
+    /// only, never any individual menu/item title or identifier.
+    case menuEnumerationSucceeded(applicationName: String, menuCount: Int, itemCount: Int)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -664,6 +668,18 @@ public final class QActionVerifier: Sendable {
             } else {
                 return .failed(
                     reason: "Window enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) status=failed"
+                )
+            }
+
+        case .menuEnumerationSucceeded(let applicationName, let menuCount, let itemCount):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) menuCount=\(menuCount) itemCount=\(itemCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Menu enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) status=failed"
                 )
             }

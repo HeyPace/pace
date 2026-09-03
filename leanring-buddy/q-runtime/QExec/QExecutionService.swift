@@ -186,6 +186,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_windows":
             result = await executeListWindows(request: request)
 
+        case "ui.list_menu_items":
+            result = await executeListMenuItems(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -2231,6 +2234,66 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing windows: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2AA: semantic menu enumeration (Level 0, read-only). Dispatches to
+    /// `QBridgeAccessibility.listMenuItems` and formats the structured metadata into outputData.
+    /// Result summary carries aggregate counts only, never leaking individual menu titles or item
+    /// titles to durable storage.
+    private func executeListMenuItems(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        do {
+            let menus = try await QBridgeAccessibility.shared.listMenuItems(applicationName: applicationName)
+            let totalItemsCount = menus.reduce(0) { $0 + $1.items.count }
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "topLevelMenuCount": "\(menus.count)",
+                "totalItemCount": "\(totalItemsCount)"
+            ]
+            for (menuIndex, menu) in menus.enumerated() {
+                outputData["menu\(menuIndex).title"] = menu.title ?? ""
+                outputData["menu\(menuIndex).identifier"] = menu.identifier ?? ""
+                outputData["menu\(menuIndex).enabled"] = menu.isEnabled.map { $0 ? "true" : "false" } ?? ""
+                outputData["menu\(menuIndex).role"] = menu.role
+                outputData["menu\(menuIndex).itemCount"] = "\(menu.items.count)"
+                for (itemIndex, item) in menu.items.enumerated() {
+                    outputData["menu\(menuIndex).item\(itemIndex).title"] = item.title ?? ""
+                    outputData["menu\(menuIndex).item\(itemIndex).identifier"] = item.identifier ?? ""
+                    outputData["menu\(menuIndex).item\(itemIndex).enabled"] = item.isEnabled.map { $0 ? "true" : "false" } ?? ""
+                    outputData["menu\(menuIndex).item\(itemIndex).role"] = item.role
+                }
+            }
+
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(menus.count) menu(s) and \(totalItemsCount) direct item(s) for application '\(applicationName)'. This is a point-in-time snapshot only — ordering is not meaningful, submenus are not traversed, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing menu items: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

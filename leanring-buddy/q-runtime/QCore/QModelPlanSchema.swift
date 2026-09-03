@@ -456,7 +456,20 @@ public struct QModelPlanParser: Sendable {
         // exact target resolution — this capability's output is never consulted as, or cached as,
         // execution authorization for anything. See QBridgeAccessibility.listWindows and
         // docs/PHASE_2Z_SEMANTIC_WINDOW_ENUMERATION.md for the full contract.
-        "ui.list_windows": ("ui", .level0ReadOnly)
+        "ui.list_windows": ("ui", .level0ReadOnly),
+        // Phase 2AA: semantic menu enumeration — LEVEL 0 (READ-ONLY). Enumerates top-level menus
+        // and direct menu items belonging to exactly ONE named, running application via
+        // kAXMenuBarAttribute — direct items only, never a recursive descent into submenus or arbitrary
+        // descendants. No mutation, no approval, no recovery: matches the classification and
+        // footprint of ui.list_windows (Phase 2Z). Application identity is resolved by EXACT
+        // localizedName/bundleIdentifier match; more than one running process matching the same name
+        // is ambiguous and fails closed. Validates expected AX roles (AXMenuBar, AXMenuBarItem/AXMenu,
+        // AXMenuItem). Bounded by local defensive ceilings (maxTopLevelMenuCount,
+        // maxDirectMenuItemsPerMenuCount, maxTotalMenuItemsCount). Array ordering is NEVER treated as
+        // meaningful or as authorization. This is a POINT-IN-TIME SNAPSHOT ONLY: result is informational
+        // and never enters durable persistence snapshots; every subsequent mutation capability
+        // (ui.select_menu_item) must independently perform its own fresh, exact target resolution.
+        "ui.list_menu_items": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

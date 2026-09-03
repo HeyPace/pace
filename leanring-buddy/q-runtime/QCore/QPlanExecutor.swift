@@ -776,6 +776,17 @@ public final class QPlanExecutor: Sendable {
             // resulting persisted evidence text) only ever carries an aggregate count, by design
             // (see docs/PHASE_2Z_SEMANTIC_WINDOW_ENUMERATION.md's privacy boundary).
             return .windowEnumerationSucceeded(applicationName: applicationName, windowCount: windowCount)
+        } else if action.actionName == "ui.list_menu_items",
+                  let applicationName = action.arguments["applicationName"],
+                  let menuCountString = result.outputData["topLevelMenuCount"],
+                  let menuCount = Int(menuCountString),
+                  let itemCountString = result.outputData["totalItemCount"],
+                  let itemCount = Int(itemCountString) {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the menu and item counts captured at read time. Deliberately NOT threaded
+            // through here: any individual menu/item title or identifier — this strategy only ever
+            // carries aggregate counts, by design.
+            return .menuEnumerationSucceeded(applicationName: applicationName, menuCount: menuCount, itemCount: itemCount)
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

@@ -264,6 +264,7 @@ public struct QAccessibilityElementInfo: Sendable {
 
 public protocol QBridgeAccessibilityProtocol: Sendable {
     func readFocusedElement() async throws -> QAccessibilityElementInfo?
+    func listMenuItems(applicationName: String) async throws -> [QAXTopLevelMenuMetadata]
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -552,6 +553,15 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// hostile or corrupted AX responder, even though a real application's window count is always
     /// naturally small. Fails closed rather than silently enumerating an unbounded collection.
     case windowCollectionExceedsSafeBound(Int)
+    /// Phase 2AA: the top-level menu count returned from the menu bar exceeds this capability's
+    /// defensive safe bound (32), BEFORE any menu items are read.
+    case menuCollectionExceedsSafeBound(Int)
+    /// Phase 2AA: the direct menu item count for a single menu exceeds this capability's
+    /// defensive safe bound (128).
+    case menuItemCollectionExceedsSafeBound(Int)
+    /// Phase 2AA: the total menu item count across all menus exceeds this capability's
+    /// defensive safe bound (512).
+    case totalMenuItemCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -675,6 +685,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "kAXWindowsAttribute returned a value that could not be read as a well-formed collection."
         case .windowCollectionExceedsSafeBound(let count):
             return "kAXWindowsAttribute returned \(count) elements, exceeding this capability's defensive safe bound."
+        case .menuCollectionExceedsSafeBound(let count):
+            return "Menu collection element count (\(count)) exceeds this capability's defensive safe bound."
+        case .menuItemCollectionExceedsSafeBound(let count):
+            return "Menu item collection count (\(count)) for a single menu exceeds this capability's defensive safe bound."
+        case .totalMenuItemCollectionExceedsSafeBound(let count):
+            return "Total menu item collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -741,6 +757,9 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .targetNotACloseButton: return "AX_TARGET_NOT_A_CLOSE_BUTTON"
         case .windowsCollectionMalformed: return "AX_WINDOWS_COLLECTION_MALFORMED"
         case .windowCollectionExceedsSafeBound: return "AX_WINDOW_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .menuCollectionExceedsSafeBound: return "AX_MENU_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .menuItemCollectionExceedsSafeBound: return "AX_MENU_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .totalMenuItemCollectionExceedsSafeBound: return "AX_TOTAL_MENU_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1635,6 +1654,44 @@ public struct QAXWindowMetadata: Sendable, Equatable {
     }
 }
 
+/// One menu item's safe, non-sensitive identity metadata, as returned by `ui.list_menu_items`
+/// (Phase 2AA). Submenus are strictly out of scope — represents only direct items of a top-level menu.
+public struct QAXMenuItemMetadata: Sendable, Equatable, Codable {
+    public let title: String?
+    public let identifier: String?
+    public let isEnabled: Bool?
+    public let role: String
+
+    public init(title: String?, identifier: String?, isEnabled: Bool?, role: String = "AXMenuItem") {
+        self.title = title
+        self.identifier = identifier
+        self.isEnabled = isEnabled
+        self.role = role
+    }
+}
+
+/// One top-level menu's safe, non-sensitive identity and direct items metadata, as returned by
+/// `ui.list_menu_items` (Phase 2AA). Deliberately carries ONLY the fields this capability's contract
+/// allows — never raw `AXUIElement` references, never arbitrary descendant trees, never submenus.
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target
+/// reference; any subsequent mutation capability (`ui.select_menu_item`) must independently perform
+/// its own fresh, exact target resolution.
+public struct QAXTopLevelMenuMetadata: Sendable, Equatable, Codable {
+    public let title: String?
+    public let identifier: String?
+    public let isEnabled: Bool?
+    public let role: String
+    public let items: [QAXMenuItemMetadata]
+
+    public init(title: String?, identifier: String?, isEnabled: Bool?, role: String = "AXMenuBarItem", items: [QAXMenuItemMetadata]) {
+        self.title = title
+        self.identifier = identifier
+        self.isEnabled = isEnabled
+        self.role = role
+        self.items = items
+    }
+}
+
 extension QBridgeAccessibility {
     private static let maxTraversalDepth = 12
     private static let maxTraversalNodes = 3_000
@@ -1643,6 +1700,10 @@ extension QBridgeAccessibility {
     /// always naturally small (a handful at most), so this exists purely as a safety bound
     /// against a hostile or corrupted AX responder, never expected to be reached in practice.
     private static let maxWindowEnumerationCount = 64
+    /// Phase 2AA: defensive bounds on menu enumeration counts.
+    private static let maxTopLevelMenuCount = 32
+    private static let maxDirectMenuItemsPerMenuCount = 128
+    private static let maxTotalMenuItemsCount = 512
     private static let traversalTimeBudgetSeconds: CFAbsoluteTime = 1.5
     /// No `kAX...` Swift constant exists for this attribute; confirmed via direct empirical
     /// probing against real macOS apps that it is the stable, populated, raw-string identifier
@@ -4636,6 +4697,121 @@ extension QBridgeAccessibility {
                 )
             }
             return metadata
+        }.value
+    }
+
+    /// Phase 2AA: semantic menu enumeration (Level 0, read-only). Enumerates top-level menus and
+    /// direct menu items belonging to exactly ONE named, running application via kAXMenuBarAttribute.
+    /// No mutation, no approval, no recovery. Submenus are strictly OUT OF SCOPE and never traversed.
+    public func listMenuItems(applicationName: String) async throws -> [QAXTopLevelMenuMetadata] {
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let matchingApps = NSWorkspace.shared.runningApplications.filter {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }
+        guard !matchingApps.isEmpty else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+        guard matchingApps.count == 1 else {
+            throw QAXInteractionError.ambiguousTarget(count: matchingApps.count)
+        }
+
+        let processIdentifier = matchingApps[0].processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            guard let menuBarElement = Self.axElementAttribute(kAXMenuBarAttribute as String, of: appElement),
+                  Self.axStringAttribute(kAXRoleAttribute, of: menuBarElement) == "AXMenuBar" else {
+                return []
+            }
+
+            guard let topLevelElements = Self.childrenAttribute(of: menuBarElement) else {
+                return []
+            }
+
+            guard topLevelElements.count <= Self.maxTopLevelMenuCount else {
+                throw QAXInteractionError.menuCollectionExceedsSafeBound(topLevelElements.count)
+            }
+
+            var topLevelMenus: [QAXTopLevelMenuMetadata] = []
+            topLevelMenus.reserveCapacity(topLevelElements.count)
+            var totalItemsCount = 0
+
+            for topElement in topLevelElements {
+                guard let topRole = Self.axStringAttribute(kAXRoleAttribute, of: topElement),
+                      (topRole == "AXMenuBarItem" || topRole == "AXMenu" || topRole == "AXMenuExtra") else {
+                    continue
+                }
+
+                let topTitle = Self.axStringAttribute(kAXTitleAttribute, of: topElement)
+                let topIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: topElement)
+                let topEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: topElement)
+
+                var itemElements: [AXUIElement] = []
+                if topRole == "AXMenuBarItem" {
+                    if let childMenus = Self.childrenAttribute(of: topElement) {
+                        for child in childMenus {
+                            if Self.axStringAttribute(kAXRoleAttribute, of: child) == "AXMenu" {
+                                if let directItems = Self.childrenAttribute(of: child) {
+                                    itemElements.append(contentsOf: directItems)
+                                }
+                            }
+                        }
+                    }
+                } else if topRole == "AXMenu" {
+                    if let directItems = Self.childrenAttribute(of: topElement) {
+                        itemElements.append(contentsOf: directItems)
+                    }
+                } else if topRole == "AXMenuExtra" {
+                    if let directItems = Self.childrenAttribute(of: topElement) {
+                        itemElements.append(contentsOf: directItems)
+                    }
+                }
+
+                guard itemElements.count <= Self.maxDirectMenuItemsPerMenuCount else {
+                    throw QAXInteractionError.menuItemCollectionExceedsSafeBound(itemElements.count)
+                }
+
+                var menuItemsMetadata: [QAXMenuItemMetadata] = []
+                menuItemsMetadata.reserveCapacity(itemElements.count)
+
+                for itemElement in itemElements {
+                    guard let itemRole = Self.axStringAttribute(kAXRoleAttribute, of: itemElement),
+                          itemRole == "AXMenuItem" else {
+                        continue
+                    }
+
+                    totalItemsCount += 1
+                    guard totalItemsCount <= Self.maxTotalMenuItemsCount else {
+                        throw QAXInteractionError.totalMenuItemCollectionExceedsSafeBound(totalItemsCount)
+                    }
+
+                    menuItemsMetadata.append(
+                        QAXMenuItemMetadata(
+                            title: Self.axStringAttribute(kAXTitleAttribute, of: itemElement),
+                            identifier: Self.axStringAttribute(Self.axIdentifierAttributeName, of: itemElement),
+                            isEnabled: Self.axBoolAttribute(kAXEnabledAttribute, of: itemElement),
+                            role: itemRole
+                        )
+                    )
+                }
+
+                topLevelMenus.append(
+                    QAXTopLevelMenuMetadata(
+                        title: topTitle,
+                        identifier: topIdentifier,
+                        isEnabled: topEnabled,
+                        role: topRole,
+                        items: menuItemsMetadata
+                    )
+                )
+            }
+
+            return topLevelMenus
         }.value
     }
 
