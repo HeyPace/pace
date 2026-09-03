@@ -383,6 +383,42 @@ public final class QTaskRecoveryManager: Sendable {
                 }
             }
 
+        case "ui.set_window_minimized":
+            // Observation-first (Phase 2U): re-check whether the requested window already reports
+            // the requested desired minimized state before ever considering a replay. Reuses the
+            // EXACT SAME independent observation primitive
+            // (QBridgeAccessibility.observeWindowMinimizedStateEvidence) QActionVerification's
+            // .axWindowMinimizedStateMatchesDesired strategy uses — no parallel resolver. An
+            // unresolvable/ambiguous target, an unreadable minimized state, or a resolvable-but-
+            // wrong-state one, does NOT trigger a blind replay of the AX attribute-set here — it
+            // falls through to `verified = false`, so a fresh execution requires both a brand-new
+            // QExecutionIdentity (per QPlanExecutor) AND a genuinely fresh user approval grant,
+            // since QApprovalCoordinator's in-memory one-time grants never survive a
+            // crash/restart (no persisted authorization is ever consulted here). Unlike
+            // ui.select_outline_row's one-way `desiredSelected=true` restriction, this
+            // capability's `desiredMinimized` is genuinely bidirectional — both `true` and
+            // `false` are valid, fully-resumable target states, so no directional filter is
+            // applied here.
+            let windowApplicationName = uncertainStep.arguments["applicationName"] ?? ""
+            let windowRole = uncertainStep.arguments["role"] ?? ""
+            let windowIdentifier = uncertainStep.arguments["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let windowTitle = uncertainStep.arguments["title"].flatMap { $0.isEmpty ? nil : $0 }
+            let windowDesiredMinimizedRaw = uncertainStep.arguments["desiredMinimized"] ?? ""
+            if !windowApplicationName.isEmpty, !windowRole.isEmpty,
+               let windowDesiredMinimized = Bool(windowDesiredMinimizedRaw),
+               (windowIdentifier != nil || windowTitle != nil) {
+                let evidence = await QBridgeAccessibility.shared.observeWindowMinimizedStateEvidence(
+                    applicationName: windowApplicationName,
+                    role: windowRole,
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                if case .resolved(let currentMinimized) = evidence, currentMinimized == windowDesiredMinimized {
+                    verified = true
+                    verifiedEvidence = "Observation verified: target window currentMinimized='\(currentMinimized)' desiredMinimized='\(windowDesiredMinimized)' status=verified"
+                }
+            }
+
         case "fs.write_sandbox":
             let path = uncertainStep.targetResources.first ?? uncertainStep.arguments["path"] ?? ""
             if !path.isEmpty && FileManager.default.fileExists(atPath: path) {

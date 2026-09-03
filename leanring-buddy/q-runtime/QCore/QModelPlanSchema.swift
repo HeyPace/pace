@@ -305,7 +305,29 @@ public struct QModelPlanParser: Sendable {
         // discipline every prior capability already establishes. Idempotent: already-selected is
         // a verified no-op, no press performed. See QBridgeAccessibility.selectOutlineRow and
         // docs/PHASE_2T_SEMANTIC_OUTLINE_ROW_SELECTION.md for the full contract.
-        "ui.select_outline_row": ("ui", .level2UserApproval)
+        "ui.select_outline_row": ("ui", .level2UserApproval),
+        // Phase 2U: semantic window minimized-state mutation — Level 2 (reversible local action,
+        // approval required). The first WINDOW-level capability in this codebase — every prior
+        // capability targets a control inside a window, never the window itself. Scoped to
+        // QAXWindowRolePolicy's single-role allowlist (`AXWindow` only). Confirmed directly
+        // against this SDK's authoritative AXAttributeConstants.h: `kAXMinimizedAttribute` is
+        // documented as "Whether a window is currently minimized to the dock... Writable? Yes." —
+        // a directly-settable boolean, the same "attribute IS the authoritative state" reasoning
+        // ui.set_slider_value already established for kAXValueAttribute, applied here to
+        // kAXMinimizedAttribute instead. Mutation is
+        // AXUIElementSetAttributeValue(kAXMinimizedAttribute) only — never
+        // AXUIElementPerformAction, never the read-only kAXMinimizeButtonAttribute convenience
+        // reference, never kAXRaiseAction (a real, defined action whose Apple header ships with
+        // an entirely empty @discussion block — no documented behavior exists for it, so it is
+        // never used anywhere in this capability). Unlike every prior row/tab-selection
+        // capability, `desiredMinimized` is genuinely bidirectional: BOTH "true" and "false" are
+        // fully supported, symmetric, idempotent target states — there is no one-way selection-
+        // only restriction here. This capability never activates, focuses, or raises the target
+        // application/window as a side effect. Idempotent in either direction: already-at-the-
+        // desired-state is a verified no-op, no attribute write performed. See
+        // QBridgeAccessibility.setWindowMinimizedState and
+        // docs/PHASE_2U_SEMANTIC_WINDOW_MINIMIZED_STATE.md for the full contract.
+        "ui.set_window_minimized": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

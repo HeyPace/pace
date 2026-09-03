@@ -168,6 +168,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.select_outline_row":
             result = await executeSelectOutlineRow(request: request)
 
+        case "ui.set_window_minimized":
+            result = await executeSetWindowMinimized(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -1633,6 +1636,102 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while selecting outline row: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2U: semantic window minimized-state mutation — Level 2 (reversible local action,
+    /// approval required). The first WINDOW-level capability in this codebase. Restricted to
+    /// `QAXWindowRolePolicy`'s single-role allowlist (`AXWindow` only). Mutation is
+    /// `AXUIElementSetAttributeValue(kAXMinimizedAttribute)` only — never
+    /// `AXUIElementPerformAction`, never CGEvent, keyboard, mouse, or coordinate interaction.
+    /// Unlike every prior row/tab-selection capability, `desiredMinimized` is genuinely
+    /// bidirectional here — both `"true"` and `"false"` are fully supported, symmetric target
+    /// states, so no early one-way rejection exists for either value (only a missing/malformed
+    /// value is rejected). Every `QAXInteractionError` failure mode — disallowed role, missing
+    /// criteria, permission absence, application absence, zero/ambiguous matches, an unreadable
+    /// current minimized state, a minimized-state drift — is caught here and converted into a
+    /// deterministic, non-throwing `QActionResult`; this method never fabricates success. Only the
+    /// small, non-secret minimized/not-minimized boolean and non-secret targeting metadata cross
+    /// this method's boundary — never a raw AX attribute dump, never the window's own content or
+    /// descendant AX tree. A `verificationStatus` claim is deliberately NOT made here — a
+    /// successful attribute-set call is not itself evidence the desired minimized state was
+    /// reached; that determination belongs solely to QPlanExecutor's independent
+    /// `.axWindowMinimizedStateMatchesDesired` verification step.
+    private func executeSetWindowMinimized(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+        guard let desiredMinimizedRaw = request.parameters["desiredMinimized"],
+              let desiredMinimized = Bool(desiredMinimizedRaw) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing or invalid 'desiredMinimized' parameter — must be exactly 'true' or 'false'.",
+                error: "desiredMinimized invalid"
+            )
+        }
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.setWindowMinimizedState(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                desiredMinimized: desiredMinimized
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Window minimized-state mutation attempted for \(outcome.targetIdentity): changeKind=\(outcome.changeKind.rawValue), previousMinimized=\(outcome.previousMinimized), currentMinimized=\(outcome.currentMinimized), desiredMinimized=\(desiredMinimized). Independent closed-loop verification pending.",
+                outputData: [
+                    "applicationName": applicationName,
+                    "role": role,
+                    "matchIdentifier": identifier ?? "",
+                    "matchTitle": title ?? "",
+                    "targetIdentity": outcome.targetIdentity,
+                    "changeKind": outcome.changeKind.rawValue,
+                    "previousMinimized": "\(outcome.previousMinimized)",
+                    "currentMinimized": "\(outcome.currentMinimized)",
+                    "desiredMinimized": "\(desiredMinimized)"
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while mutating window minimized state: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

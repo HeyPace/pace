@@ -487,6 +487,17 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// unconditionally, BEFORE any Accessibility Trust check or application resolution is even
     /// attempted, never treated as a blind toggle and never silently coerced to `true`.
     case outlineRowDeselectionUnsupported(String)
+    /// Phase 2U: the target's AX role is not on `QAXWindowRolePolicy.allowedRoles` (`AXWindow`
+    /// only). Thrown before any AX tree walk, mirroring every prior write-side role policy in
+    /// this codebase.
+    case disallowedWindowRole(String)
+    /// Phase 2U: `kAXMinimizedAttribute` could not be read from the target window, or could not
+    /// be interpreted as a clean boolean — without a reliably readable current state, idempotency
+    /// and the desired-state comparison cannot be established safely, so the operation is refused
+    /// rather than guessing. Unlike every prior explicit-desired-state capability in this
+    /// codebase, this state is NEVER inferred from window position, visibility, frontmost state,
+    /// Dock appearance, or title — `kAXMinimizedAttribute` is the sole authoritative source.
+    case windowMinimizedStateReadFailed
 
     public var description: String {
         switch self {
@@ -586,6 +597,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target outline row's current selected state could not be read."
         case .outlineRowDeselectionUnsupported(let reason):
             return "Refusing to deselect an outline row — this capability supports selection only: \(reason)"
+        case .disallowedWindowRole(let role):
+            return "Target role '\(role)' is not on the allowed window role list."
+        case .windowMinimizedStateReadFailed:
+            return "Target window's current minimized state could not be read."
         }
     }
 
@@ -640,6 +655,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .outlineContextUnavailable: return "AX_OUTLINE_CONTEXT_UNAVAILABLE"
         case .outlineRowSelectionStateReadFailed: return "AX_OUTLINE_ROW_SELECTION_STATE_READ_FAILED"
         case .outlineRowDeselectionUnsupported: return "AX_OUTLINE_ROW_DESELECTION_UNSUPPORTED"
+        case .disallowedWindowRole: return "AX_WINDOW_ROLE_NOT_ALLOWED"
+        case .windowMinimizedStateReadFailed: return "AX_WINDOW_MINIMIZED_STATE_READ_FAILED"
         }
     }
 }
@@ -1261,6 +1278,73 @@ public struct QAXOutlineRowSelectionOutcome: Sendable, Equatable {
 ///   `axTableRowSelectionMatchesDesired`'s conservative model.
 public enum QAXOutlineRowSelectionEvidence: Sendable, Equatable {
     case resolved(currentSelected: Bool)
+    case stateUnreadable
+    case targetUnavailable
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.set_window_minimized` (Phase 2U) may target.
+///
+/// Deliberately a SINGLE role — `AXWindow` (`kAXWindowRole`) — the first window-level (rather
+/// than per-element) capability in this codebase. `AXApplication`, `AXGroup`, `AXButton`, and any
+/// other role are refused outright; a sheet or other element only qualifies if it independently,
+/// genuinely reports role `AXWindow` itself (this policy does not special-case sheets — it simply
+/// checks the reported role, exactly like every other role policy in this codebase).
+public enum QAXWindowRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXWindow"]
+
+    public static func isAllowedWindowRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Whether a `setWindowMinimizedState` call actually performed an attribute write, or found the
+/// target already at the desired minimized state and correctly did nothing.
+public enum QAXWindowMinimizedChangeKind: String, Sendable, Equatable {
+    case alreadyDesired
+    case changed
+}
+
+/// The outcome of one `QBridgeAccessibility.setWindowMinimizedState` call. Carries only a small,
+/// non-sensitive boolean and non-secret targeting metadata — never a raw AX attribute dump, never
+/// the window's own content or descendant AX tree.
+public struct QAXWindowMinimizedOutcome: Sendable, Equatable {
+    public let changeKind: QAXWindowMinimizedChangeKind
+    public let previousMinimized: Bool
+    public let currentMinimized: Bool
+    public let desiredMinimized: Bool
+    public let targetIdentity: String
+
+    public init(
+        changeKind: QAXWindowMinimizedChangeKind,
+        previousMinimized: Bool,
+        currentMinimized: Bool,
+        desiredMinimized: Bool,
+        targetIdentity: String
+    ) {
+        self.changeKind = changeKind
+        self.previousMinimized = previousMinimized
+        self.currentMinimized = currentMinimized
+        self.desiredMinimized = desiredMinimized
+        self.targetIdentity = targetIdentity
+    }
+}
+
+/// The result of independently re-observing a window's `kAXMinimizedAttribute` after a
+/// `ui.set_window_minimized` dispatch, for the later closed-loop verification step (and for
+/// `QTaskRecoveryManager`'s observation-first recovery, which reuses this exact primitive).
+/// Authoritative state is read from `kAXMinimizedAttribute` alone — never inferred from window
+/// position, visibility, frontmost state, Dock appearance, or title.
+///
+/// - `.resolved(currentMinimized:)`: the target is still resolvable (role `AXWindow`) and its
+///   minimized state was read as a clean boolean.
+/// - `.stateUnreadable`: the target is resolvable but `kAXMinimizedAttribute` could not be read —
+///   treated as `.failed`, NEVER defaulted to either minimized or not-minimized.
+/// - `.targetUnavailable`: the target (or application) is no longer resolvable at all, or is
+///   ambiguous — physical state is uncertain; treated as `.failed`, mirroring every prior
+///   capability's conservative model. A window's disappearance after a minimize/restore request
+///   is NEVER automatically interpreted as success.
+public enum QAXWindowMinimizedEvidence: Sendable, Equatable {
+    case resolved(currentMinimized: Bool)
     case stateUnreadable
     case targetUnavailable
 }
@@ -3420,6 +3504,183 @@ extension QBridgeAccessibility {
                 return .stateUnreadable
             }
             return .resolved(currentSelected: currentSelected)
+        }.value
+    }
+
+    // MARK: - Semantic Window Minimized State (Phase 2U)
+    //
+    // ui.set_window_minimized — a Level 2, symmetric explicit-desired-state operation (unlike
+    // every prior row/tab-selection capability, BOTH `desiredMinimized=true` AND
+    // `desiredMinimized=false` are fully supported — there is no one-way restriction here) for
+    // exactly one semantically-identified window. The first WINDOW-level capability in this
+    // codebase — every prior capability targets a control inside a window, never the window
+    // itself. Confirmed directly against this SDK's authoritative AXAttributeConstants.h:
+    // `kAXMinimizedAttribute` is documented as "Whether a window is currently minimized to the
+    // dock... Writable? Yes." — a directly-settable boolean, the same "attribute IS the
+    // authoritative state" reasoning `ui.set_slider_value` already established for
+    // `kAXValueAttribute`, applied here to `kAXMinimizedAttribute` instead. Mutation is
+    // AXUIElementSetAttributeValue(kAXMinimizedAttribute, kCFBooleanTrue/kCFBooleanFalse) only —
+    // never AXUIElementPerformAction, never `kAXMinimizeButtonAttribute` (the read-only
+    // convenience reference to the titlebar minimize button), never `kAXRaiseAction` (a real,
+    // defined AX action, but one Apple's own header ships with an entirely empty `@discussion`
+    // block — no documented behavior exists for it, so it is never used here), never
+    // NSWindow/CGEvent/coordinate/AppleScript/shell interaction. This capability never activates,
+    // focuses, or raises the target application or window as a side effect — `AXUIElementCreate
+    // Application` is a pure AX object-reference constructor with no such effect, the same
+    // primitive every prior capability already uses without activating anything.
+
+    /// Resolves exactly one semantic `AXWindow` target and — unless it already reports the
+    /// desired `kAXMinimizedAttribute` state — writes it directly. Fails closed (throws
+    /// `QAXInteractionError`) on a disallowed role, missing criteria, permission absence,
+    /// application absence, zero/ambiguous matches, a stale target, an unreadable current
+    /// minimized state, or a state drift between resolution and dispatch — never falls back to
+    /// coordinates, CGEvent, or keyboard simulation, and never fabricates success. Idempotent in
+    /// BOTH directions: if the window's current `kAXMinimizedAttribute` already equals
+    /// `desiredMinimized` (true OR false), no `AXUIElementSetAttributeValue` call is made at all —
+    /// `changeKind: .alreadyDesired` is itself the deterministic, structural proof that no
+    /// mutation occurred (the same convention every prior idempotent AX capability in this
+    /// codebase already establishes).
+    public func setWindowMinimizedState(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?,
+        desiredMinimized: Bool
+    ) async throws -> QAXWindowMinimizedOutcome {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Role is validated as a search CRITERION, before any tree walk — an unauthorized role
+        // is refused outright rather than allowed to shape what gets searched for, mirroring
+        // every prior write-side role policy in this codebase.
+        guard QAXWindowRolePolicy.isAllowedWindowRole(role) else {
+            throw QAXInteractionError.disallowedWindowRole(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            // A pure AX object-reference constructor — never activates, focuses, or raises the
+            // target application, the same primitive every prior capability already uses without
+            // any such side effect.
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Identity observation binding: identical discipline to every prior AX mutation
+            // capability — re-read the SAME element reference immediately before any mutation
+            // and refuse on any drift.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and dispatch")
+            }
+
+            // Minimized-state-drift staleness check (mirroring setSliderValue's/selectTab's
+            // discipline): read kAXMinimizedAttribute once at resolution, once again immediately
+            // before dispatch, and refuse if they differ — the target may still be the exact same
+            // element by identity, but its minimized state already changed out from under this
+            // call. Authoritative source only — never inferred from position, visibility,
+            // frontmost state, Dock appearance, or title.
+            guard let minimizedAtSearch = Self.axBoolAttribute(kAXMinimizedAttribute, of: targetElement) else {
+                throw QAXInteractionError.windowMinimizedStateReadFailed
+            }
+            guard let minimizedAtVerify = Self.axBoolAttribute(kAXMinimizedAttribute, of: targetElement) else {
+                throw QAXInteractionError.windowMinimizedStateReadFailed
+            }
+            guard minimizedAtVerify == minimizedAtSearch else {
+                throw QAXInteractionError.valueDriftDetected("target window's minimized state changed between observation and dispatch")
+            }
+
+            let targetIdentity = "application=\(applicationName) role=\(role) identifier=\(observedAtVerify.identifier ?? "none") label=\(observedAtVerify.titleOrDescription ?? "none")"
+
+            guard minimizedAtVerify != desiredMinimized else {
+                // Idempotent no-op in EITHER direction: the window already reports the desired
+                // minimized state. No AX write is performed — an unnecessary mutation is itself
+                // something to avoid, and no approval is consumed for a mutation that was never
+                // needed.
+                return QAXWindowMinimizedOutcome(
+                    changeKind: .alreadyDesired,
+                    previousMinimized: minimizedAtVerify,
+                    currentMinimized: minimizedAtVerify,
+                    desiredMinimized: desiredMinimized,
+                    targetIdentity: targetIdentity
+                )
+            }
+
+            let setResult = AXUIElementSetAttributeValue(
+                targetElement,
+                kAXMinimizedAttribute as CFString,
+                desiredMinimized ? kCFBooleanTrue : kCFBooleanFalse
+            )
+            guard setResult == .success else {
+                throw QAXInteractionError.setValueFailed("AXError(\(setResult.rawValue))")
+            }
+
+            // Immediate ephemeral post-set read — provisional only; the authoritative check is
+            // the later, independent closed-loop verification step
+            // (QVerificationStrategy.axWindowMinimizedStateMatchesDesired), which re-resolves the
+            // target fresh rather than trusting this in-process observation.
+            let currentMinimizedAfterSet = Self.axBoolAttribute(kAXMinimizedAttribute, of: targetElement) ?? desiredMinimized
+
+            return QAXWindowMinimizedOutcome(
+                changeKind: .changed,
+                previousMinimized: minimizedAtVerify,
+                currentMinimized: currentMinimizedAfterSet,
+                desiredMinimized: desiredMinimized,
+                targetIdentity: targetIdentity
+            )
+        }.value
+    }
+
+    /// Best-effort, read-only re-resolution of the same match criteria used by
+    /// `setWindowMinimizedState`, used both by the later closed-loop verification step
+    /// (`QVerificationStrategy.axWindowMinimizedStateMatchesDesired`) and by
+    /// `QTaskRecoveryManager`'s observation-first recovery branch — the SAME primitive for both,
+    /// never a parallel resolver. Independently re-reads `kAXMinimizedAttribute` fresh — never
+    /// trusts whatever `setWindowMinimizedState` itself last observed. `.stateUnreadable` (the
+    /// attribute could not be read) is deliberately distinct from `.targetUnavailable` (the
+    /// target itself cannot be resolved or is ambiguous) for a clearer diagnostic, though both are
+    /// treated as `.failed` by verification — neither is ever coerced into a definite
+    /// minimized/not-minimized guess, and a window's disappearance is never automatically
+    /// interpreted as success.
+    public func observeWindowMinimizedStateEvidence(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async -> QAXWindowMinimizedEvidence {
+        guard AXIsProcessTrusted() else { return .targetUnavailable }
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else { return .targetUnavailable }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard matches.count == 1 else { return .targetUnavailable }
+            guard let currentMinimized = Self.axBoolAttribute(kAXMinimizedAttribute, of: matches[0].element) else {
+                return .stateUnreadable
+            }
+            return .resolved(currentMinimized: currentMinimized)
         }.value
     }
 
