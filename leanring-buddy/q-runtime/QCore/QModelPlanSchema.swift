@@ -400,7 +400,32 @@ public struct QModelPlanParser: Sendable {
         // already-main is a verified no-op, no attribute write performed. See
         // QBridgeAccessibility.setWindowMain and
         // docs/PHASE_2X_SEMANTIC_WINDOW_MAIN_DESIGNATION.md for the full contract.
-        "ui.set_window_main": ("ui", .level2UserApproval)
+        "ui.set_window_main": ("ui", .level2UserApproval),
+        // Phase 2Y: semantic window close — LEVEL 3 (HIGH RISK). Closes exactly ONE
+        // semantically-identified AXWindow by pressing its kAXCloseButtonAttribute-referenced
+        // close button (AXUIElementPerformAction(kAXPressAction)) — a genuinely ONE-WAY action,
+        // unlike every other window-level capability in this codebase (minimize/hide/main are all
+        // trivially reversible boolean-attribute writes). Classified Level 3 — the same tier as
+        // app.quit, whose blast radius this strictly narrows (one window, never the whole
+        // application) but whose irreversibility risk (potential data loss if the target
+        // application does not autosave) is comparably real; deliberately NOT downgraded to
+        // Level 2. This capability NEVER interacts with any save/discard sheet the press may
+        // cause to appear — it performs the single press and stops; any resulting dialog is left
+        // entirely to the human user. Verification is absence-based (a first for this codebase):
+        // success requires BOTH that the owning application is independently confirmed still
+        // running AND that the exact original window identity no longer resolves — application
+        // termination is never credited as a successful window close. Idempotent: if the exact
+        // target is already unresolvable at resolution time (with the application confirmed
+        // running), that is treated as an already-satisfied no-op; an ambiguous, inaccessible, or
+        // permission-denied resolution is NEVER folded into "absent." Reuses QAXWindowRolePolicy
+        // (Phase 2U) unmodified for the window search criterion; the close-button convenience
+        // reference's own role is independently re-validated as exactly AXButton before ever
+        // being pressed, by direct analogy to ui.set_scroll_position's targetNotAScrollBar check.
+        // Never enumerates or closes any window other than the exact resolved target; never calls
+        // NSRunningApplication.terminate() or any application-quit path. See
+        // QBridgeAccessibility.closeWindow and docs/PHASE_2Y_SEMANTIC_WINDOW_CLOSE.md for the
+        // full contract.
+        "ui.close_window": ("ui", .level3HighRisk)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

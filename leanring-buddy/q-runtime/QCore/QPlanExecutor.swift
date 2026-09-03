@@ -747,6 +747,25 @@ public final class QPlanExecutor: Sendable {
                 matchTitle: nonEmpty(action.arguments["title"]),
                 targetIdentity: targetIdentity
             )
+        } else if action.actionName == "ui.close_window",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let targetIdentity = result.outputData["targetIdentity"] {
+            // Reconstructed from the exact target-identifying arguments used to dispatch
+            // (applicationName/role/identifier/title), plus the targetIdentity captured at
+            // mutation time. Independent verification re-resolves the OWNING APPLICATION first
+            // (never conflating application termination with a genuine single-window close),
+            // then re-resolves the exact window identity fresh — never trusting whatever
+            // executeCloseWindow itself already observed, and never trusting the close-button
+            // press's own AXError return value as proof.
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            return .windowCloseVerified(
+                applicationName: applicationName,
+                role: role,
+                matchIdentifier: nonEmpty(action.arguments["identifier"]),
+                matchTitle: nonEmpty(action.arguments["title"]),
+                targetIdentity: targetIdentity
+            )
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

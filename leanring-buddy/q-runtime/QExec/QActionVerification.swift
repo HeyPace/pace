@@ -283,6 +283,22 @@ public enum QVerificationStrategy: Sendable {
         matchTitle: String?,
         targetIdentity: String
     )
+    /// Phase 2Y (`ui.close_window`, Level 3): ABSENCE-based verification — a first for this
+    /// codebase. Independently re-resolves the OWNING APPLICATION first (a fresh, separate
+    /// `NSRunningApplication` lookup), then independently re-resolves the exact original window
+    /// identity. `.verified` ONLY when the application is confirmed still running AND the exact
+    /// window no longer resolves — application termination is NEVER credited as a successful
+    /// window close (a categorically different outcome), and an ambiguous or unobservable
+    /// (permission-denied) result is NEVER folded into "absent." A close-button press's own
+    /// `AXError` return value is never itself treated as proof — this strategy is the sole source
+    /// of truth.
+    case windowCloseVerified(
+        applicationName: String,
+        role: String,
+        matchIdentifier: String?,
+        matchTitle: String?,
+        targetIdentity: String
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -588,6 +604,40 @@ public final class QActionVerifier: Sendable {
             case .targetUnavailable:
                 return .failed(
                     reason: "Target window (role=\(role)) is no longer resolvable or is ambiguous, for verification after the change.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+        case .windowCloseVerified(let applicationName, let role, let matchIdentifier, let matchTitle, let targetIdentity):
+            let evidence = await QBridgeAccessibility.shared.observeWindowCloseEvidence(
+                applicationName: applicationName,
+                role: role,
+                identifier: matchIdentifier,
+                title: matchTitle
+            )
+            switch evidence {
+            case .windowAbsentApplicationRunning:
+                return .verified(
+                    evidence: "target=\(targetIdentity) applicationRunning=true windowResolvable=false status=verified"
+                )
+            case .windowStillPresent:
+                return .failed(
+                    reason: "Target window (role=\(role)) still resolves after the close request — the close did not take effect (or a save/discard sheet is blocking it).",
+                    evidence: "target=\(targetIdentity) applicationRunning=true windowResolvable=true status=failed"
+                )
+            case .ambiguousTarget(let count):
+                return .failed(
+                    reason: "Target window criteria (role=\(role)) now match \(count) elements after the close request — physical state is uncertain, never assumed absent.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            case .applicationNotRunning:
+                return .failed(
+                    reason: "Owning application '\(applicationName)' is no longer running — application termination is never credited as a successful window close.",
+                    evidence: "target=\(targetIdentity) applicationRunning=false status=failed"
+                )
+            case .permissionUnavailable:
+                return .failed(
+                    reason: "Accessibility permission is unavailable — target window state could not be observed after the close request.",
                     evidence: "target=\(targetIdentity) status=failed"
                 )
             }

@@ -456,6 +456,41 @@ public final class QTaskRecoveryManager: Sendable {
                 }
             }
 
+        case "ui.close_window":
+            // Observation-first (Phase 2Y, Level 3): re-check whether the requested window is
+            // already absent — with its owning application independently confirmed still
+            // running — before ever considering a replay. Reuses the EXACT SAME independent
+            // observation primitive (QBridgeAccessibility.observeWindowCloseEvidence)
+            // QActionVerification's .windowCloseVerified strategy uses — no parallel resolver.
+            // Absence-based recovery is a first for this codebase: `verified = true` ONLY on
+            // `.windowAbsentApplicationRunning` — a still-resolvable window, an ambiguous match,
+            // an unrunning application, or an unobservable (permission-denied) state ALL fall
+            // through to `verified = false` here, per this capability's explicit contract that
+            // application termination must never be credited as a successful window close and
+            // that absence must never be assumed from an inability to observe. A still-resolvable
+            // window is NEVER blindly re-pressed here — a resumed retry requires a brand-new
+            // QExecutionIdentity (per QPlanExecutor), a genuinely fresh Level 3 approval grant
+            // (QApprovalCoordinator's in-memory one-time grants never survive a crash/restart, so
+            // no persisted authorization is ever consulted here), fresh target resolution, and
+            // fresh close-button resolution.
+            let closeWindowApplicationName = uncertainStep.arguments["applicationName"] ?? ""
+            let closeWindowRole = uncertainStep.arguments["role"] ?? ""
+            let closeWindowIdentifier = uncertainStep.arguments["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let closeWindowTitle = uncertainStep.arguments["title"].flatMap { $0.isEmpty ? nil : $0 }
+            if !closeWindowApplicationName.isEmpty, !closeWindowRole.isEmpty,
+               (closeWindowIdentifier != nil || closeWindowTitle != nil) {
+                let evidence = await QBridgeAccessibility.shared.observeWindowCloseEvidence(
+                    applicationName: closeWindowApplicationName,
+                    role: closeWindowRole,
+                    identifier: closeWindowIdentifier,
+                    title: closeWindowTitle
+                )
+                if case .windowAbsentApplicationRunning = evidence {
+                    verified = true
+                    verifiedEvidence = "Observation verified: applicationRunning=true windowResolvable=false status=verified"
+                }
+            }
+
         case "ui.set_application_hidden":
             // Observation-first (Phase 2V): re-check whether the requested application already
             // reports the requested desired hidden state before ever considering a replay.

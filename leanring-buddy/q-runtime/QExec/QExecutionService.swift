@@ -180,6 +180,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.set_window_main":
             result = await executeSetWindowMain(request: request)
 
+        case "ui.close_window":
+            result = await executeCloseWindow(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -2089,6 +2092,78 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while setting window main designation: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Level 3 (high risk, irreversible): closes exactly one semantically-identified window by
+    /// pressing its kAXCloseButtonAttribute-referenced close button. This method never interacts
+    /// with any save/discard dialog the press may cause to appear — it dispatches the single
+    /// press and returns; any resulting dialog is left entirely to the human user. The mutation's
+    /// own AXError return is never itself treated as proof — independent, absence-based
+    /// closed-loop verification (QVerificationStrategy.windowCloseVerified) is the sole source of
+    /// truth, wired separately in QPlanExecutor.
+    private func executeCloseWindow(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.closeWindow(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Window close mutation attempted for \(outcome.targetIdentity): changeKind=\(outcome.changeKind.rawValue). This capability never interacts with any save/discard dialog — any such dialog is left entirely to the user. Independent, absence-based closed-loop verification pending.",
+                outputData: [
+                    "applicationName": applicationName,
+                    "role": role,
+                    "matchIdentifier": identifier ?? "",
+                    "matchTitle": title ?? "",
+                    "targetIdentity": outcome.targetIdentity,
+                    "changeKind": outcome.changeKind.rawValue
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while closing window: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

@@ -528,6 +528,18 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// window without designating a replacement; the standard model is to make a DIFFERENT window
     /// main instead.
     case windowMainDeselectionUnsupported(String)
+    /// Phase 2Y: the target window's `kAXCloseButtonAttribute` convenience-reference attribute
+    /// could not be resolved — e.g. the window genuinely has no close button. This reference is
+    /// read-only and used for resolution only; it is never written. The mere absence of a close
+    /// button is a hard fail-closed condition — there is no fallback mechanism (no coordinates,
+    /// no keyboard shortcut, no menu item) this capability is permitted to try instead.
+    case closeButtonReferenceUnavailable
+    /// Phase 2Y: the element resolved via `kAXCloseButtonAttribute` does not itself report role
+    /// `AXButton` — the mere existence of the reference is never sufficient; its own
+    /// `kAXRoleAttribute` is independently re-validated before it is ever treated as a genuine,
+    /// pressable close button, by direct analogy to `ui.set_scroll_position`'s
+    /// `targetNotAScrollBar` check on its own convenience reference.
+    case targetNotACloseButton(String)
 
     public var description: String {
         switch self {
@@ -643,6 +655,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target window's current main state could not be read."
         case .windowMainDeselectionUnsupported(let reason):
             return "Refusing to un-main a window — this capability supports selection only: \(reason)"
+        case .closeButtonReferenceUnavailable:
+            return "No close-button reference could be resolved from the target window."
+        case .targetNotACloseButton(let role):
+            return "Element resolved via kAXCloseButtonAttribute is not role AXButton (got '\(role)')."
         }
     }
 
@@ -705,6 +721,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .targetNotAScrollBar: return "AX_TARGET_NOT_A_SCROLL_BAR"
         case .windowMainStateReadFailed: return "AX_WINDOW_MAIN_STATE_READ_FAILED"
         case .windowMainDeselectionUnsupported: return "AX_WINDOW_MAIN_DESELECTION_UNSUPPORTED"
+        case .closeButtonReferenceUnavailable: return "AX_CLOSE_BUTTON_REFERENCE_UNAVAILABLE"
+        case .targetNotACloseButton: return "AX_TARGET_NOT_A_CLOSE_BUTTON"
         }
     }
 }
@@ -1519,6 +1537,59 @@ public enum QAXWindowMainEvidence: Sendable, Equatable {
     case resolved(currentMain: Bool)
     case stateUnreadable
     case targetUnavailable
+}
+
+/// Whether a `closeWindow` call actually performed a close-button press, or found the target
+/// window already unresolvable (by the exact same identity criteria, with the owning application
+/// confirmed running) and correctly did nothing — the one-way analog of
+/// `QAXWindowMinimizedChangeKind`'s/`QAXWindowMainChangeKind`'s `.alreadyDesired` for a capability
+/// whose "already satisfied" state is absence rather than a boolean attribute value.
+public enum QAXWindowCloseChangeKind: String, Sendable, Equatable {
+    case alreadyAbsent
+    case closeRequested
+}
+
+/// The outcome of one `QBridgeAccessibility.closeWindow` call. Carries only non-sensitive
+/// targeting metadata — never window contents, never dialog/sheet text.
+public struct QAXWindowCloseOutcome: Sendable, Equatable {
+    public let changeKind: QAXWindowCloseChangeKind
+    public let targetIdentity: String
+
+    public init(changeKind: QAXWindowCloseChangeKind, targetIdentity: String) {
+        self.changeKind = changeKind
+        self.targetIdentity = targetIdentity
+    }
+}
+
+/// The result of independently re-observing whether a target window still exists after a
+/// `ui.close_window` dispatch, for the later closed-loop verification step (and for
+/// `QTaskRecoveryManager`'s observation-first recovery, which reuses this exact primitive).
+/// This is deliberately a five-way, NEVER-collapsed result — absence must be distinguishable from
+/// every flavor of "we don't know," and application termination must be distinguishable from a
+/// genuine single-window close:
+///
+/// - `.windowAbsentApplicationRunning`: the owning application was independently confirmed still
+///   running, AND the exact original window identity no longer resolves. This is the ONLY
+///   evidence value verification/recovery may treat as success — closing exactly one window,
+///   with its application surviving, is the entire contract.
+/// - `.windowStillPresent`: the exact original window identity still resolves (uniquely) — the
+///   close did not (yet, or ever) take effect. This also covers the case where a save/discard
+///   sheet is blocking the close: the parent window (or its sheet-bearing identity) remains
+///   resolvable, so this is correctly `.failed`, never silently treated as progress.
+/// - `.ambiguousTarget(count:)`: more than one element now matches the same criteria — physical
+///   state is uncertain; NEVER treated as absence.
+/// - `.applicationNotRunning`: the owning application itself could not be re-resolved as running.
+///   Per this capability's explicit contract, this is NEVER credited as a successful close — the
+///   application may have quit or crashed, a categorically different outcome this capability must
+///   never claim credit for.
+/// - `.permissionUnavailable`: Accessibility Trust is not granted — physical state cannot be
+///   observed at all; NEVER treated as absence.
+public enum QAXWindowCloseEvidence: Sendable, Equatable {
+    case windowAbsentApplicationRunning
+    case windowStillPresent
+    case ambiguousTarget(count: Int)
+    case applicationNotRunning
+    case permissionUnavailable
 }
 
 extension QBridgeAccessibility {
@@ -4276,6 +4347,161 @@ extension QBridgeAccessibility {
                 return .stateUnreadable
             }
             return .resolved(currentMain: currentMain)
+        }.value
+    }
+
+    /// Resolves exactly one semantic `AXWindow` target, follows its documented
+    /// `kAXCloseButtonAttribute` convenience-reference to the actual close button, independently
+    /// re-validates that element's own role as exactly `AXButton`, and presses it via
+    /// `AXUIElementPerformAction(kAXPressAction)` — a ONE-WAY, high-risk (Level 3) action. This
+    /// capability never mutates any window attribute directly (there is no writable "closed"
+    /// attribute), never enumerates sibling windows, never closes more than the one exact target,
+    /// and never interacts with any save/discard dialog the press may cause to appear — the
+    /// press is the entire mutation; everything after it is independent observation only. Fails
+    /// closed on a disallowed role, missing criteria, permission absence, application absence, an
+    /// ambiguous target, a stale target, an unresolvable/misqualified close-button reference, or a
+    /// disabled close button — never falls back to coordinates, CGEvent, keyboard shortcuts
+    /// (Cmd+W), AppleScript, or shell. Idempotent: if the exact target window is ALREADY
+    /// unresolvable at resolution time — with the owning application independently confirmed
+    /// running via a fresh `NSRunningApplication` lookup moments earlier — `changeKind:
+    /// .alreadyAbsent` is returned with NO `AXUIElementPerformAction` call at all; this is
+    /// deliberately distinguished from every other failure path (ambiguous, permission-denied,
+    /// application-absent), which all still throw rather than being folded into "absent."
+    public func closeWindow(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXWindowCloseOutcome {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Role is validated as a search CRITERION, before any tree walk — an unauthorized role
+        // is refused outright rather than allowed to shape what gets searched for, mirroring
+        // every prior write-side role policy in this codebase.
+        guard QAXWindowRolePolicy.isAllowedWindowRole(role) else {
+            throw QAXInteractionError.disallowedWindowRole(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+
+        let processIdentifier = runningApp.processIdentifier
+        let absentTargetIdentity = "application=\(applicationName) role=\(role) identifier=\(identifier ?? "none") label=\(title ?? "none")"
+
+        return try await Task.detached(priority: .userInitiated) {
+            // A pure AX object-reference constructor — never activates, focuses, or raises the
+            // target application, the same primitive every prior capability already uses without
+            // any such side effect.
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else {
+                // Idempotent absence: the owning application was confirmed running moments ago
+                // (fresh pid lookup, above), and the EXACT SAME identity criteria the later
+                // closed-loop verification step will independently re-use already find zero
+                // matches right now — genuine, safely-established absence, never an inability to
+                // observe. No AXUIElementPerformAction call is made at all.
+                return QAXWindowCloseOutcome(changeKind: .alreadyAbsent, targetIdentity: absentTargetIdentity)
+            }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (windowElement, observedAtSearch) = matches[0]
+
+            // Identity observation binding: identical discipline to every prior AX mutation
+            // capability — re-read the SAME element reference immediately before any mutation
+            // and refuse on any drift.
+            guard let observedAtVerify = Self.snapshotIfMatches(windowElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target window is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target window identity changed between observation and dispatch")
+            }
+
+            let targetIdentity = "application=\(applicationName) role=\(role) identifier=\(observedAtVerify.identifier ?? "none") label=\(observedAtVerify.titleOrDescription ?? "none")"
+
+            // Resolve the actual close button via the documented, read-only convenience-reference
+            // attribute — resolution only, never mutated itself. Its absence is a hard
+            // fail-closed condition: there is no fallback mechanism (no coordinates, no keyboard
+            // shortcut, no menu item) this capability is permitted to try instead.
+            guard let closeButtonElement = Self.axElementAttribute(kAXCloseButtonAttribute, of: windowElement) else {
+                throw QAXInteractionError.closeButtonReferenceUnavailable
+            }
+
+            // The mandatory, non-negotiable role gate: the mere existence of the convenience
+            // reference is never sufficient — its own kAXRoleAttribute must independently report
+            // exactly AXButton before it is ever treated as a genuine, pressable close button.
+            guard let closeButtonRole = Self.axStringAttribute(kAXRoleAttribute, of: closeButtonElement), closeButtonRole == "AXButton" else {
+                throw QAXInteractionError.targetNotACloseButton(Self.axStringAttribute(kAXRoleAttribute, of: closeButtonElement) ?? "none")
+            }
+
+            let closeButtonEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: closeButtonElement) ?? true
+            guard closeButtonEnabled else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            // The ONE, single mutation this capability ever performs — exactly one
+            // AXUIElementPerformAction(kAXPressAction) call on the close button, never on the
+            // window itself, never kAXCloseAction (no such window action exists), never repeated.
+            // Its return value is NOT treated as proof of success — the caller's independent,
+            // absence-based closed-loop verification step (observeWindowCloseEvidence) is the
+            // sole source of truth. No automatic retry on any outcome, successful or not.
+            let pressResult = AXUIElementPerformAction(closeButtonElement, kAXPressAction as CFString)
+            switch pressResult {
+            case .success:
+                break
+            case .actionUnsupported:
+                throw QAXInteractionError.actionUnsupported
+            default:
+                throw QAXInteractionError.pressFailed("AXError(\(pressResult.rawValue))")
+            }
+
+            return QAXWindowCloseOutcome(changeKind: .closeRequested, targetIdentity: targetIdentity)
+        }.value
+    }
+
+    /// Best-effort, read-only re-observation of whether the exact same target-window criteria
+    /// used by `closeWindow` still resolve, used both by the later closed-loop verification step
+    /// (`QVerificationStrategy.windowCloseVerified`) and by `QTaskRecoveryManager`'s
+    /// observation-first recovery branch — the SAME primitive for both, never a parallel
+    /// resolver. Independently re-resolves the OWNING APPLICATION first, via a genuinely fresh,
+    /// separate `NSRunningApplication` lookup — application termination and a genuine
+    /// single-window close are NEVER conflated; only `.windowAbsentApplicationRunning`
+    /// (application confirmed running AND the exact window no longer resolves) may ever be
+    /// treated as success by a caller. `.ambiguousTarget` and `.permissionUnavailable` are
+    /// deliberately distinct from both success and plain "still present" — neither is ever
+    /// coerced into an absence conclusion.
+    public func observeWindowCloseEvidence(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async -> QAXWindowCloseEvidence {
+        guard AXIsProcessTrusted() else { return .permissionUnavailable }
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else { return .applicationNotRunning }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            if matches.isEmpty {
+                return .windowAbsentApplicationRunning
+            } else if matches.count == 1 {
+                return .windowStillPresent
+            } else {
+                return .ambiguousTarget(count: matches.count)
+            }
         }.value
     }
 
