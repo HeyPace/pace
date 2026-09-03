@@ -704,6 +704,29 @@ public final class QPlanExecutor: Sendable {
                 targetProcessIdentifier: pid_t(targetProcessIdentifier),
                 desiredHidden: desiredHidden
             )
+        } else if action.actionName == "ui.set_scroll_position",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let orientation = action.arguments["orientation"],
+                  let targetIdentity = result.outputData["targetIdentity"],
+                  let desiredValueString = action.arguments["desiredValue"],
+                  let desiredValue = Double(desiredValueString) {
+            // Reconstructed from the exact arguments used to dispatch, plus the safe (plain
+            // numeric metadata, never masked) outputData QExecutionService captured at
+            // position-change time — the independent verification step re-resolves the ENTIRE
+            // identity chain (scroll area -> orientation convenience-reference -> scroll bar
+            // role) fresh and compares its current value against the desired value directly,
+            // never trusting whatever executeSetScrollPosition itself already observed.
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            return .scrollPositionMatchesDesired(
+                applicationName: applicationName,
+                role: role,
+                matchIdentifier: nonEmpty(action.arguments["identifier"]),
+                matchTitle: nonEmpty(action.arguments["title"]),
+                orientation: orientation,
+                targetIdentity: targetIdentity,
+                desiredValue: desiredValue
+            )
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

@@ -249,6 +249,23 @@ public enum QVerificationStrategy: Sendable {
         targetProcessIdentifier: pid_t,
         desiredHidden: Bool
     )
+    /// Phase 2W: re-resolves the ENTIRE semantic identity chain a `ui.set_scroll_position` step
+    /// just mutated (or correctly no-op'd) — the `AXScrollArea`, then the orientation
+    /// convenience-reference, then the scroll bar's own role — fresh, and independently re-reads
+    /// its `kAXValueAttribute`, comparing it against `desiredValue` using the identical
+    /// `sliderValuesAreEqual` tolerance rule `axSliderValueMatchesDesired` already established. A
+    /// successful attribute-set call is never itself treated as proof of success. An
+    /// unresolvable/misqualified target anywhere in the chain, or an internally-inconsistent
+    /// post-change range, is `.failed`, never assumed successful.
+    case scrollPositionMatchesDesired(
+        applicationName: String,
+        role: String,
+        matchIdentifier: String?,
+        matchTitle: String?,
+        orientation: String,
+        targetIdentity: String,
+        desiredValue: Double
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -491,6 +508,38 @@ public final class QActionVerifier: Sendable {
             case .targetUnavailable:
                 return .failed(
                     reason: "Target element (role=\(role)) is no longer resolvable for verification after the change.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+        case .scrollPositionMatchesDesired(let applicationName, let role, let matchIdentifier, let matchTitle, let orientation, let targetIdentity, let desiredValue):
+            let evidence = await QBridgeAccessibility.shared.observeScrollPositionEvidence(
+                applicationName: applicationName,
+                role: role,
+                identifier: matchIdentifier,
+                title: matchTitle,
+                orientation: orientation
+            )
+            switch evidence {
+            case .resolved(let currentValue):
+                if QBridgeAccessibility.sliderValuesAreEqual(currentValue, desiredValue) {
+                    return .verified(
+                        evidence: "target=\(targetIdentity) currentValue=\(currentValue) desiredValue=\(desiredValue) status=verified"
+                    )
+                } else {
+                    return .failed(
+                        reason: "Target scroll bar (role=\(role) orientation=\(orientation)) current position does not match the desired position after the change.",
+                        evidence: "target=\(targetIdentity) currentValue=\(currentValue) desiredValue=\(desiredValue) status=failed"
+                    )
+                }
+            case .rangeInvalid(let currentValue):
+                return .failed(
+                    reason: "Target scroll bar (role=\(role) orientation=\(orientation)) reported an internally inconsistent range after the change — verification cannot be trusted.",
+                    evidence: "target=\(targetIdentity) currentValue=\(currentValue) status=failed"
+                )
+            case .targetUnavailable:
+                return .failed(
+                    reason: "Target scroll bar (role=\(role) orientation=\(orientation)) is no longer resolvable or role-qualified, for verification after the change.",
                     evidence: "target=\(targetIdentity) status=failed"
                 )
             }

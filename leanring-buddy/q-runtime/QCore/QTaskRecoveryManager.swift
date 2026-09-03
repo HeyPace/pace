@@ -449,6 +449,44 @@ public final class QTaskRecoveryManager: Sendable {
                 }
             }
 
+        case "ui.set_scroll_position":
+            // Observation-first (Phase 2W): re-check whether the requested scroll bar already
+            // reports the requested desired position before ever considering a replay. Reuses the
+            // EXACT SAME independent observation primitive
+            // (QBridgeAccessibility.observeScrollPositionEvidence) QActionVerification's
+            // .scrollPositionMatchesDesired strategy uses — no parallel resolver — which itself
+            // re-resolves the ENTIRE identity chain (scroll area -> orientation
+            // convenience-reference -> scroll bar role) fresh, and compares using the identical
+            // sliderValuesAreEqual tolerance rule ui.set_slider_value already established. An
+            // unresolvable/misqualified target anywhere in the chain, an internally-inconsistent
+            // range, or a resolvable-but-wrong-position one, does NOT trigger a blind replay of
+            // the AX attribute-set here — it falls through to `verified = false`, so a fresh
+            // execution requires both a brand-new QExecutionIdentity (per QPlanExecutor) AND a
+            // genuinely fresh user approval grant, since QApprovalCoordinator's in-memory
+            // one-time grants never survive a crash/restart (no persisted authorization is ever
+            // consulted here).
+            let scrollAppName = uncertainStep.arguments["applicationName"] ?? ""
+            let scrollRole = uncertainStep.arguments["role"] ?? ""
+            let scrollIdentifier = uncertainStep.arguments["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let scrollTitle = uncertainStep.arguments["title"].flatMap { $0.isEmpty ? nil : $0 }
+            let scrollOrientation = uncertainStep.arguments["orientation"] ?? ""
+            let scrollDesiredValueRaw = uncertainStep.arguments["desiredValue"] ?? ""
+            if !scrollAppName.isEmpty, !scrollRole.isEmpty,
+               !scrollOrientation.isEmpty, let scrollDesiredValue = Double(scrollDesiredValueRaw), scrollDesiredValue.isFinite,
+               (scrollIdentifier != nil || scrollTitle != nil) {
+                let evidence = await QBridgeAccessibility.shared.observeScrollPositionEvidence(
+                    applicationName: scrollAppName,
+                    role: scrollRole,
+                    identifier: scrollIdentifier,
+                    title: scrollTitle,
+                    orientation: scrollOrientation
+                )
+                if case .resolved(let currentValue) = evidence, QBridgeAccessibility.sliderValuesAreEqual(currentValue, scrollDesiredValue) {
+                    verified = true
+                    verifiedEvidence = "Observation verified: target scroll bar currentValue='\(currentValue)' desiredValue='\(scrollDesiredValue)' status=verified"
+                }
+            }
+
         case "fs.write_sandbox":
             let path = uncertainStep.targetResources.first ?? uncertainStep.arguments["path"] ?? ""
             if !path.isEmpty && FileManager.default.fileExists(atPath: path) {

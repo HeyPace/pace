@@ -352,7 +352,33 @@ public struct QModelPlanParser: Sendable {
         // `hide()`/`unhide()` call is made at all, and no approval is consumed for a mutation
         // that was never needed. See QExecutionService.executeSetApplicationHidden and
         // docs/PHASE_2V_SEMANTIC_APPLICATION_HIDDEN_STATE.md for the full contract.
-        "ui.set_application_hidden": ("app", .level2UserApproval)
+        "ui.set_application_hidden": ("app", .level2UserApproval),
+        // Phase 2W: semantic scroll position — Level 2 (reversible local action, approval
+        // required). Sets the ABSOLUTE numeric position of exactly one semantically-identified
+        // scroll bar — never scroll-by-delta, never scroll-to-visible, never scroll-to-text,
+        // never scroll-wheel/mouse/keyboard/coordinate simulation. Confirmed directly against
+        // this SDK's authoritative AXAttributeConstants.h: `kAXValueAttribute`'s own discussion
+        // block explicitly names scroll bars — "a kAXScrollBar's kAXValueAttribute is writable
+        // because it allows an efficient way for the user to get to a specific position" — and
+        // `kAXMinValueAttribute`/`kAXMaxValueAttribute`'s own discussion blocks explicitly name
+        // "sliders and scroll bars" together as their intended use case, the same range-bound
+        // pattern `ui.set_slider_value` already established and this capability reuses verbatim
+        // (including its exact `sliderValuesAreEqual` tolerance rule) rather than duplicating a
+        // subtly different one. The target scroll bar is never searched for directly — raw
+        // `AXScrollBar` elements are commonly unlabeled — resolution anchors on the containing
+        // `AXScrollArea` (`QAXScrollAreaRolePolicy`'s only allowed role), resolved via the exact
+        // same exact-match resolver every prior capability uses, plus an explicit, never-inferred
+        // `orientation` parameter ("horizontal"/"vertical"), then follows the documented
+        // read-only convenience-reference attribute (`kAXHorizontalScrollBarAttribute`/
+        // `kAXVerticalScrollBarAttribute` — resolution only, NEVER mutated) to the actual scroll
+        // bar, whose own `kAXRoleAttribute` is independently re-validated as exactly
+        // `AXScrollBar` before ever being treated as genuine. Mutation is
+        // AXUIElementSetAttributeValue(kAXValueAttribute) only — never
+        // kAXIncrementAction/kAXDecrementAction/kAXPressAction. Idempotent: already-at-the-
+        // desired-position (within tolerance) is a verified no-op, no attribute write performed.
+        // See QBridgeAccessibility.setScrollPosition and
+        // docs/PHASE_2W_SEMANTIC_SCROLL_POSITION.md for the full contract.
+        "ui.set_scroll_position": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

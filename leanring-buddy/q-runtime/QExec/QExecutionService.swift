@@ -174,6 +174,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.set_application_hidden":
             result = await executeSetApplicationHidden(request: request)
 
+        case "ui.set_scroll_position":
+            result = await executeSetScrollPosition(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -1859,5 +1862,127 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 "changeKind": "changed"
             ]
         )
+    }
+
+    /// Phase 2W: semantic scroll position — Level 2 (reversible local action, approval required).
+    /// Sets the ABSOLUTE numeric position of exactly one semantically-identified scroll bar —
+    /// never scroll-by-delta, never scroll-to-visible, never scroll-wheel/mouse/keyboard/
+    /// coordinate interaction. Restricted to `QAXScrollAreaRolePolicy`'s single-role allowlist
+    /// (`AXScrollArea` only) as the SEARCH criterion; the actual scroll bar is resolved via the
+    /// explicit `orientation` parameter and independently role-validated inside
+    /// `QBridgeAccessibility.setScrollPosition` itself. Mutation is
+    /// `AXUIElementSetAttributeValue(kAXValueAttribute)` only — never
+    /// `kAXIncrementAction`/`kAXDecrementAction`/`kAXPressAction`. Every `QAXInteractionError`
+    /// failure mode — disallowed scroll-area role, invalid orientation, an unresolvable or
+    /// misqualified scroll-bar reference, missing criteria, permission absence, application
+    /// absence, zero/ambiguous matches, disabled/stale target, non-finite/out-of-range
+    /// `desiredValue`, unreadable/inconsistent range, value/range drift — is caught here and
+    /// converted into a deterministic, non-throwing `QActionResult`; this method never fabricates
+    /// success. Only the small, non-secret numeric position/range and non-secret targeting
+    /// metadata cross this method's boundary — never scrolled content, never a screenshot, never
+    /// document text. A `verificationStatus` claim is deliberately NOT made here — a successful
+    /// attribute-set call is not itself evidence the desired position was reached; that
+    /// determination belongs solely to QPlanExecutor's independent
+    /// `.scrollPositionMatchesDesired` verification step.
+    private func executeSetScrollPosition(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+        guard let orientation = request.parameters["orientation"], !orientation.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'orientation' parameter — must be exactly 'horizontal' or 'vertical'.",
+                error: "orientation missing"
+            )
+        }
+        guard orientation == "horizontal" || orientation == "vertical" else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Invalid 'orientation' parameter '\(orientation)' — must be exactly 'horizontal' or 'vertical'; never inferred.",
+                error: "AX_INVALID_ORIENTATION"
+            )
+        }
+        // Swift's Double(String) init parses "nan"/"inf"/"infinity" as valid (non-finite)
+        // Doubles — the explicit .isFinite check below is what actually rejects them, not the
+        // parse itself.
+        guard let desiredValueRaw = request.parameters["desiredValue"],
+              let desiredValue = Double(desiredValueRaw),
+              desiredValue.isFinite else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing or invalid 'desiredValue' parameter — must be a finite numeric value.",
+                error: "desiredValue invalid"
+            )
+        }
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.setScrollPosition(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                orientation: orientation,
+                desiredValue: desiredValue
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Scroll position change attempted for \(outcome.targetIdentity): changeKind=\(outcome.changeKind.rawValue), previousValue=\(outcome.previousValue), currentValue=\(outcome.currentValue), desiredValue=\(outcome.desiredValue), range=[\(outcome.minValue), \(outcome.maxValue)]. Independent closed-loop verification pending.",
+                outputData: [
+                    "applicationName": applicationName,
+                    "role": role,
+                    "matchIdentifier": identifier ?? "",
+                    "matchTitle": title ?? "",
+                    "orientation": orientation,
+                    "targetIdentity": outcome.targetIdentity,
+                    "changeKind": outcome.changeKind.rawValue,
+                    "previousValue": "\(outcome.previousValue)",
+                    "currentValue": "\(outcome.currentValue)",
+                    "desiredValue": "\(outcome.desiredValue)",
+                    "minValue": "\(outcome.minValue)",
+                    "maxValue": "\(outcome.maxValue)"
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while setting scroll position: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
     }
 }

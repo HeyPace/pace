@@ -498,6 +498,24 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// codebase, this state is NEVER inferred from window position, visibility, frontmost state,
     /// Dock appearance, or title — `kAXMinimizedAttribute` is the sole authoritative source.
     case windowMinimizedStateReadFailed
+    /// Phase 2W: the target's AX role is not on `QAXScrollAreaRolePolicy.allowedRoles`
+    /// (`AXScrollArea` only). Thrown before any AX tree walk, mirroring every prior write-side
+    /// role policy in this codebase.
+    case disallowedScrollAreaRole(String)
+    /// Phase 2W: `orientation` was not exactly `"horizontal"` or `"vertical"` — never inferred
+    /// from arbitrary metadata, never defaulted. Thrown before any AX call is even attempted.
+    case invalidOrientation(String)
+    /// Phase 2W: the requested convenience-reference attribute
+    /// (`kAXHorizontalScrollBarAttribute`/`kAXVerticalScrollBarAttribute`) could not be resolved
+    /// from the target `AXScrollArea` — e.g. no scroll bar exists for that orientation because
+    /// scrolling isn't currently needed in that direction. This reference is read-only and used
+    /// for resolution only; it is never written.
+    case scrollBarReferenceUnavailable(String)
+    /// Phase 2W: the element resolved via the orientation convenience-reference attribute does
+    /// not itself report role `AXScrollBar` — the mere existence of the reference is never
+    /// sufficient; its own `kAXRoleAttribute` is independently re-validated before it is ever
+    /// treated as a genuine scroll bar target.
+    case targetNotAScrollBar(String)
 
     public var description: String {
         switch self {
@@ -601,6 +619,14 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not on the allowed window role list."
         case .windowMinimizedStateReadFailed:
             return "Target window's current minimized state could not be read."
+        case .disallowedScrollAreaRole(let role):
+            return "Target role '\(role)' is not on the allowed scroll-area role list."
+        case .invalidOrientation(let orientation):
+            return "Invalid orientation '\(orientation)' — must be exactly 'horizontal' or 'vertical'."
+        case .scrollBarReferenceUnavailable(let orientation):
+            return "No \(orientation) scroll bar reference could be resolved from the target scroll area."
+        case .targetNotAScrollBar(let role):
+            return "Target resolved via the orientation convenience-reference attribute is not role AXScrollBar (got '\(role)')."
         }
     }
 
@@ -657,6 +683,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .outlineRowDeselectionUnsupported: return "AX_OUTLINE_ROW_DESELECTION_UNSUPPORTED"
         case .disallowedWindowRole: return "AX_WINDOW_ROLE_NOT_ALLOWED"
         case .windowMinimizedStateReadFailed: return "AX_WINDOW_MINIMIZED_STATE_READ_FAILED"
+        case .disallowedScrollAreaRole: return "AX_SCROLL_AREA_ROLE_NOT_ALLOWED"
+        case .invalidOrientation: return "AX_INVALID_ORIENTATION"
+        case .scrollBarReferenceUnavailable: return "AX_SCROLL_BAR_REFERENCE_UNAVAILABLE"
+        case .targetNotAScrollBar: return "AX_TARGET_NOT_A_SCROLL_BAR"
         }
     }
 }
@@ -1346,6 +1376,80 @@ public struct QAXWindowMinimizedOutcome: Sendable, Equatable {
 public enum QAXWindowMinimizedEvidence: Sendable, Equatable {
     case resolved(currentMinimized: Bool)
     case stateUnreadable
+    case targetUnavailable
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.set_scroll_position` (Phase 2W) may target as
+/// its SEARCH criterion — `AXScrollArea` only. The actual mutation target (a genuine
+/// `AXScrollBar`) is never searched for directly; it is resolved via a deterministic
+/// convenience-reference attribute (`kAXHorizontalScrollBarAttribute`/
+/// `kAXVerticalScrollBarAttribute`) from the resolved scroll area, and its own role is
+/// independently re-validated (`QAXInteractionError.targetNotAScrollBar`) before ever being
+/// treated as genuine — the mere existence of the reference is never sufficient.
+public enum QAXScrollAreaRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXScrollArea"]
+
+    public static func isAllowedScrollAreaRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Whether a `setScrollPosition` call actually performed a value write, or found the target
+/// already at the desired position and correctly did nothing.
+public enum QAXScrollPositionChangeKind: String, Sendable, Equatable {
+    case alreadyDesired
+    case changed
+}
+
+/// The outcome of one `QBridgeAccessibility.setScrollPosition` call. Numeric values are carried
+/// directly (not hashed) — per the same Phase 2M precedent `ui.set_slider_value` already
+/// established, a scroll position is not sensitive free-form content.
+public struct QAXScrollPositionOutcome: Sendable, Equatable {
+    public let changeKind: QAXScrollPositionChangeKind
+    public let previousValue: Double
+    public let currentValue: Double
+    public let desiredValue: Double
+    public let minValue: Double
+    public let maxValue: Double
+    public let targetIdentity: String
+
+    public init(
+        changeKind: QAXScrollPositionChangeKind,
+        previousValue: Double,
+        currentValue: Double,
+        desiredValue: Double,
+        minValue: Double,
+        maxValue: Double,
+        targetIdentity: String
+    ) {
+        self.changeKind = changeKind
+        self.previousValue = previousValue
+        self.currentValue = currentValue
+        self.desiredValue = desiredValue
+        self.minValue = minValue
+        self.maxValue = maxValue
+        self.targetIdentity = targetIdentity
+    }
+}
+
+/// The result of independently re-observing a scroll bar's `kAXValueAttribute` after a
+/// `ui.set_scroll_position` dispatch, for the later closed-loop verification step (and for
+/// `QTaskRecoveryManager`'s observation-first recovery, which reuses this exact primitive).
+/// Re-resolves the ENTIRE identity chain fresh — scroll area, then the orientation
+/// convenience-reference, then the scroll bar's own role — never trusts a cached element
+/// reference. Structurally identical to `QAXSliderValueEvidence`.
+///
+/// - `.resolved(currentValue:)`: the full chain remains resolvable and role-qualified, and its
+///   range is internally consistent.
+/// - `.rangeInvalid(currentValue:)`: resolvable but its reported range is no longer internally
+///   consistent, or the value falls outside it — verification cannot be trusted; treated as
+///   `.failed`, never assumed successful.
+/// - `.targetUnavailable`: any link in the chain (scroll area, convenience reference, or role
+///   qualification) is no longer resolvable — physical state is uncertain; treated as `.failed`,
+///   never assumed successful.
+public enum QAXScrollPositionEvidence: Sendable, Equatable {
+    case resolved(currentValue: Double)
+    case rangeInvalid(currentValue: Double)
     case targetUnavailable
 }
 
@@ -3681,6 +3785,256 @@ extension QBridgeAccessibility {
                 return .stateUnreadable
             }
             return .resolved(currentMinimized: currentMinimized)
+        }.value
+    }
+
+    // MARK: - Semantic Scroll Position (Phase 2W)
+    //
+    // ui.set_scroll_position — a Level 2, absolute-value operation (never scroll-by-delta, never
+    // scroll-to-visible, never scroll-wheel simulation) for exactly one semantically-identified
+    // scroll bar. Confirmed directly against this SDK's authoritative AXAttributeConstants.h:
+    // `kAXValueAttribute`'s own discussion block explicitly names scroll bars — "a kAXScrollBar's
+    // kAXValueAttribute is writable because it allows an efficient way for the user to get to a
+    // specific position" — and `kAXMinValueAttribute`/`kAXMaxValueAttribute`'s own discussion
+    // blocks explicitly name "sliders and scroll bars" together as their intended use case. The
+    // target scroll bar is never searched for directly (raw `AXScrollBar` elements are commonly
+    // unlabeled) — resolution anchors on the more commonly-labeled containing `AXScrollArea`
+    // (`QAXScrollAreaRolePolicy`'s only allowed role) plus an explicit, never-inferred
+    // `orientation` parameter, then follows the documented read-only convenience-reference
+    // attribute (`kAXHorizontalScrollBarAttribute`/`kAXVerticalScrollBarAttribute` — resolution
+    // only, NEVER mutated) to the actual scroll bar, whose own `kAXRoleAttribute` is independently
+    // re-validated as exactly `AXScrollBar` before ever being treated as genuine — the mere
+    // existence of the reference is never sufficient. Mutation is
+    // AXUIElementSetAttributeValue(kAXValueAttribute) only — the same primitive
+    // `ui.set_slider_value` already uses, reusing that capability's own proven range-validation
+    // and `sliderValuesAreEqual` tolerance logic verbatim rather than duplicating a subtly
+    // different rule. Never `kAXIncrementAction`/`kAXDecrementAction`/`kAXPressAction`, never
+    // CGEvent, scroll-wheel, keyboard, mouse, or coordinate interaction.
+
+    /// The exact `kAXRoleAttribute` value the element resolved via the orientation
+    /// convenience-reference attribute must report before ever being treated as a genuine scroll
+    /// bar. Never a model-configurable input — hard-coded, non-negotiable part of
+    /// `ui.set_scroll_position`'s own contract.
+    fileprivate static let scrollBarRole = "AXScrollBar"
+
+    /// Maps an explicit, never-inferred orientation string to the exact, SDK-confirmed read-only
+    /// convenience-reference attribute name that resolves the corresponding scroll bar from a
+    /// scroll area. Returns `nil` for anything other than exactly `"horizontal"`/`"vertical"` —
+    /// fails closed rather than guessing.
+    fileprivate nonisolated static func scrollBarConvenienceAttribute(forOrientation orientation: String) -> String? {
+        switch orientation {
+        case "horizontal": return kAXHorizontalScrollBarAttribute as String
+        case "vertical": return kAXVerticalScrollBarAttribute as String
+        default: return nil
+        }
+    }
+
+    /// Resolves exactly one semantic `AXScrollArea` target, follows its documented orientation
+    /// convenience-reference to the actual scroll bar, independently re-validates that element's
+    /// own role as exactly `AXScrollBar`, validates `desiredValue` against the scroll bar's own
+    /// reported `[minValue, maxValue]` range using STRICT (non-tolerant) comparison — a hard
+    /// security boundary — re-verifies value/range immediately before dispatch, and sets the
+    /// value via `AXUIElementSetAttributeValue` only if it differs (tolerantly, via
+    /// `sliderValuesAreEqual`) from the current value. Fails closed on a disallowed scroll-area
+    /// role, an invalid orientation, an unresolvable/misqualified scroll-bar reference,
+    /// non-finite `desiredValue`, unreadable/inconsistent range, an out-of-range request, or any
+    /// staleness. Never falls back to coordinates, CGEvent, scroll-wheel, keyboard, or mouse
+    /// simulation.
+    public func setScrollPosition(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?,
+        orientation: String,
+        desiredValue: Double
+    ) async throws -> QAXScrollPositionOutcome {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard desiredValue.isFinite else {
+            throw QAXInteractionError.invalidDesiredValue("desiredValue must be a finite number, got \(desiredValue)")
+        }
+        // Role is validated as a search CRITERION, before any tree walk — an unauthorized role
+        // is refused outright rather than allowed to shape what gets searched for, mirroring
+        // every prior write-side role policy in this codebase.
+        guard QAXScrollAreaRolePolicy.isAllowedScrollAreaRole(role) else {
+            throw QAXInteractionError.disallowedScrollAreaRole(role)
+        }
+        // Orientation is explicit and never inferred — validated before any AX call is even
+        // attempted.
+        guard let scrollBarAttribute = Self.scrollBarConvenienceAttribute(forOrientation: orientation) else {
+            throw QAXInteractionError.invalidOrientation(orientation)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (scrollAreaElement, observedAtSearch) = matches[0]
+
+            // Identity observation binding: identical discipline to every prior AX mutation
+            // capability — re-read the SAME element reference immediately before any mutation
+            // and refuse on any drift.
+            guard let observedAtVerify = Self.snapshotIfMatches(scrollAreaElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target scroll area is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target scroll area identity changed between observation and dispatch")
+            }
+
+            // Resolve the actual scroll bar via the documented, read-only convenience-reference
+            // attribute — resolution only, never mutated itself.
+            guard let scrollBarElement = Self.axElementAttribute(scrollBarAttribute, of: scrollAreaElement) else {
+                throw QAXInteractionError.scrollBarReferenceUnavailable(orientation)
+            }
+
+            // The mandatory, non-negotiable role gate: the mere existence of the convenience
+            // reference is never sufficient — its own kAXRoleAttribute must independently report
+            // exactly AXScrollBar before it is ever treated as a genuine scroll bar target.
+            guard let scrollBarRole = Self.axStringAttribute(kAXRoleAttribute, of: scrollBarElement), scrollBarRole == Self.scrollBarRole else {
+                throw QAXInteractionError.targetNotAScrollBar(Self.axStringAttribute(kAXRoleAttribute, of: scrollBarElement) ?? "none")
+            }
+
+            let scrollBarEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: scrollBarElement) ?? true
+            guard scrollBarEnabled else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            // Range discovery — read BEFORE any mutation decision, and before desiredValue is
+            // validated against it, on the resolved SCROLL BAR (never the scroll area).
+            guard let minValueAtSearch = Self.axDoubleAttribute(kAXMinValueAttribute as String, of: scrollBarElement),
+                  let maxValueAtSearch = Self.axDoubleAttribute(kAXMaxValueAttribute as String, of: scrollBarElement) else {
+                throw QAXInteractionError.rangeReadFailed
+            }
+            guard minValueAtSearch <= maxValueAtSearch else {
+                throw QAXInteractionError.invalidRange("minValue (\(minValueAtSearch)) is greater than maxValue (\(maxValueAtSearch))")
+            }
+            guard let currentValueAtSearch = Self.axDoubleAttribute(kAXValueAttribute as String, of: scrollBarElement) else {
+                throw QAXInteractionError.valueReadFailed
+            }
+            guard currentValueAtSearch >= minValueAtSearch, currentValueAtSearch <= maxValueAtSearch else {
+                throw QAXInteractionError.invalidRange("current value (\(currentValueAtSearch)) is outside the reported range [\(minValueAtSearch), \(maxValueAtSearch)]")
+            }
+
+            // SECURITY BOUNDARY: strict, non-tolerant range check. Never widened by
+            // sliderValuesAreEqual's tolerance — an out-of-range request is refused exactly at
+            // its true boundary, not a tolerance-expanded one.
+            guard desiredValue >= minValueAtSearch, desiredValue <= maxValueAtSearch else {
+                throw QAXInteractionError.desiredValueOutOfRange("desiredValue (\(desiredValue)) is outside the allowed range [\(minValueAtSearch), \(maxValueAtSearch)]")
+            }
+
+            // Value/range-drift re-check immediately before dispatch, on the SAME scroll-bar
+            // element reference — refuses on ANY drift in current value, minValue, or maxValue
+            // (tolerant comparison: this is asking "did anything actually change", not
+            // re-validating a boundary).
+            guard let minValueAtVerify = Self.axDoubleAttribute(kAXMinValueAttribute as String, of: scrollBarElement),
+                  let maxValueAtVerify = Self.axDoubleAttribute(kAXMaxValueAttribute as String, of: scrollBarElement),
+                  let currentValueAtVerify = Self.axDoubleAttribute(kAXValueAttribute as String, of: scrollBarElement) else {
+                throw QAXInteractionError.valueReadFailed
+            }
+            guard Self.sliderValuesAreEqual(minValueAtVerify, minValueAtSearch),
+                  Self.sliderValuesAreEqual(maxValueAtVerify, maxValueAtSearch),
+                  Self.sliderValuesAreEqual(currentValueAtVerify, currentValueAtSearch) else {
+                throw QAXInteractionError.valueDriftDetected("target scroll bar's value or range changed between observation and dispatch")
+            }
+
+            let targetIdentity = "application=\(applicationName) role=\(role) identifier=\(observedAtVerify.identifier ?? "none") label=\(observedAtVerify.titleOrDescription ?? "none") orientation=\(orientation)"
+
+            guard !Self.sliderValuesAreEqual(currentValueAtVerify, desiredValue) else {
+                // Idempotent no-op: already at the desired position. No AX write is performed.
+                return QAXScrollPositionOutcome(
+                    changeKind: .alreadyDesired,
+                    previousValue: currentValueAtVerify,
+                    currentValue: currentValueAtVerify,
+                    desiredValue: desiredValue,
+                    minValue: minValueAtVerify,
+                    maxValue: maxValueAtVerify,
+                    targetIdentity: targetIdentity
+                )
+            }
+
+            let setResult = AXUIElementSetAttributeValue(scrollBarElement, kAXValueAttribute as CFString, NSNumber(value: desiredValue))
+            guard setResult == .success else {
+                throw QAXInteractionError.setValueFailed("AXError(\(setResult.rawValue))")
+            }
+
+            // Immediate ephemeral post-set read — provisional only; the authoritative check is
+            // the later, independent closed-loop verification step
+            // (QVerificationStrategy.scrollPositionMatchesDesired), which re-resolves the FULL
+            // identity chain fresh rather than trusting this in-process observation.
+            let currentValueAfterSet = Self.axDoubleAttribute(kAXValueAttribute as String, of: scrollBarElement) ?? desiredValue
+
+            return QAXScrollPositionOutcome(
+                changeKind: .changed,
+                previousValue: currentValueAtVerify,
+                currentValue: currentValueAfterSet,
+                desiredValue: desiredValue,
+                minValue: minValueAtVerify,
+                maxValue: maxValueAtVerify,
+                targetIdentity: targetIdentity
+            )
+        }.value
+    }
+
+    /// Best-effort, read-only re-resolution of the same match criteria used by
+    /// `setScrollPosition`, used both by the later closed-loop verification step
+    /// (`QVerificationStrategy.scrollPositionMatchesDesired`) and by `QTaskRecoveryManager`'s
+    /// observation-first recovery branch — the SAME primitive for both, never a parallel
+    /// resolver. Re-resolves the ENTIRE identity chain fresh — scroll area, then the orientation
+    /// convenience-reference, then the scroll bar's own role — never trusts a cached element
+    /// reference. Also re-validates that the target's range remains internally consistent — a
+    /// `.rangeInvalid` result means verification cannot be trusted, exactly like an unresolvable
+    /// target.
+    public func observeScrollPositionEvidence(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?,
+        orientation: String
+    ) async -> QAXScrollPositionEvidence {
+        guard AXIsProcessTrusted() else { return .targetUnavailable }
+        guard let scrollBarAttribute = Self.scrollBarConvenienceAttribute(forOrientation: orientation) else { return .targetUnavailable }
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }) else { return .targetUnavailable }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard matches.count == 1 else { return .targetUnavailable }
+            guard let scrollBarElement = Self.axElementAttribute(scrollBarAttribute, of: matches[0].element) else {
+                return .targetUnavailable
+            }
+            guard let scrollBarRole = Self.axStringAttribute(kAXRoleAttribute, of: scrollBarElement), scrollBarRole == Self.scrollBarRole else {
+                return .targetUnavailable
+            }
+            guard let currentValue = Self.axDoubleAttribute(kAXValueAttribute as String, of: scrollBarElement),
+                  let minValue = Self.axDoubleAttribute(kAXMinValueAttribute as String, of: scrollBarElement),
+                  let maxValue = Self.axDoubleAttribute(kAXMaxValueAttribute as String, of: scrollBarElement) else {
+                return .targetUnavailable
+            }
+            guard minValue <= maxValue, currentValue >= minValue, currentValue <= maxValue else {
+                return .rangeInvalid(currentValue: currentValue)
+            }
+            return .resolved(currentValue: currentValue)
         }.value
     }
 
