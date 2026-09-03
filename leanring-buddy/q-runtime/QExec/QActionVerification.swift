@@ -299,6 +299,20 @@ public enum QVerificationStrategy: Sendable {
         matchTitle: String?,
         targetIdentity: String
     )
+    /// Phase 2Z (`ui.list_windows`, Level 0): read-only verification. Unlike every mutation
+    /// capability's verification — which exists specifically to independently re-observe a real
+    /// side effect, never trusting the mutation call's own return value — a stateless enumeration
+    /// has no separate physical state to re-observe after the fact: the read's own success/
+    /// failure, established entirely inside `QBridgeAccessibility.listWindows` (exact application
+    /// resolution, a successfully-read and well-formed windows collection, per-element role
+    /// validation), already IS the ground truth. This strategy deliberately checks the execution
+    /// result's own `success` flag as a genuine, meaningful assertion — never a bare `{ true }`
+    /// bypass — so a step that somehow reached verification without a successful read is still
+    /// correctly reported `.failed`. Its evidence string carries only the application name and a
+    /// window COUNT, never any individual window's title/identifier — consistent with this
+    /// capability's own privacy contract that per-window content never crosses into persisted
+    /// evidence text.
+    case windowEnumerationSucceeded(applicationName: String, windowCount: Int)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -639,6 +653,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Accessibility permission is unavailable — target window state could not be observed after the close request.",
                     evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+        case .windowEnumerationSucceeded(let applicationName, let windowCount):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) windowCount=\(windowCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Window enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) status=failed"
                 )
             }
 

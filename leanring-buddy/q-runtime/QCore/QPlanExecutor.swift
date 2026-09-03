@@ -766,6 +766,16 @@ public final class QPlanExecutor: Sendable {
                 matchTitle: nonEmpty(action.arguments["title"]),
                 targetIdentity: targetIdentity
             )
+        } else if action.actionName == "ui.list_windows",
+                  let applicationName = action.arguments["applicationName"],
+                  let windowCountString = result.outputData["windowCount"],
+                  let windowCount = Int(windowCountString) {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the windowCount captured at read time. Deliberately NOT threaded
+            // through here: any individual window's title/identifier — this strategy (and its
+            // resulting persisted evidence text) only ever carries an aggregate count, by design
+            // (see docs/PHASE_2Z_SEMANTIC_WINDOW_ENUMERATION.md's privacy boundary).
+            return .windowEnumerationSucceeded(applicationName: applicationName, windowCount: windowCount)
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

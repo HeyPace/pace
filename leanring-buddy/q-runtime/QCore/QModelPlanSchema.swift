@@ -425,7 +425,38 @@ public struct QModelPlanParser: Sendable {
         // NSRunningApplication.terminate() or any application-quit path. See
         // QBridgeAccessibility.closeWindow and docs/PHASE_2Y_SEMANTIC_WINDOW_CLOSE.md for the
         // full contract.
-        "ui.close_window": ("ui", .level3HighRisk)
+        "ui.close_window": ("ui", .level3HighRisk),
+        // Phase 2Z: semantic window enumeration — LEVEL 0 (READ-ONLY). Enumerates the windows
+        // belonging to exactly ONE named, running application via kAXWindowsAttribute — a direct
+        // child read only, never a recursive descent into any returned window's own descendants.
+        // No mutation, no approval, no recovery: matches the classification and architectural
+        // footprint of every other Level 0 capability in this table (system.running_apps,
+        // ui.read_element_value, accessibility.read) exactly — none of which have a dedicated
+        // QPlanExecutor verification-strategy branch or QTaskRecoveryManager recovery branch,
+        // since a read that does not throw IS its own result. Application identity is resolved by
+        // EXACT localizedName/bundleIdentifier match; more than one running process matching the
+        // same name is ambiguous and fails closed (reuses the generic
+        // QAXInteractionError.ambiguousTarget case). Only elements whose own kAXRoleAttribute
+        // reports exactly AXWindow are included; every other metadata field
+        // (title/identifier/minimized/main) is independently optional — a missing one is never an
+        // error and never excludes the window. The raw returned collection's size is checked
+        // against a defensive maximum (QBridgeAccessibility.maxWindowEnumerationCount) before any
+        // per-element read, even though a real application's window count is always naturally
+        // small. Array ordering is NEVER treated as meaningful — no frontmost/z-order/main-window
+        // inference is ever drawn from position. This is a POINT-IN-TIME SNAPSHOT ONLY: the
+        // result is never itself an actionable target reference, and is deliberately never
+        // threaded into durable persistence (QDurablePlanStepSnapshot has no outputData field at
+        // all — confirmed by direct source inspection — so the structured per-window list this
+        // capability returns structurally cannot reach disk; QActionResult.summary is
+        // deliberately kept to an aggregate count only, never embedding individual window titles,
+        // so the one string field that DOES cross into durable resultSummary/verifiedEvidence/
+        // audit-log persistence stays free of per-window content on this capability's own side of
+        // that boundary too). Every subsequent mutation capability (ui.set_window_minimized,
+        // ui.set_window_main, ui.close_window, etc.) must independently perform its own fresh,
+        // exact target resolution — this capability's output is never consulted as, or cached as,
+        // execution authorization for anything. See QBridgeAccessibility.listWindows and
+        // docs/PHASE_2Z_SEMANTIC_WINDOW_ENUMERATION.md for the full contract.
+        "ui.list_windows": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

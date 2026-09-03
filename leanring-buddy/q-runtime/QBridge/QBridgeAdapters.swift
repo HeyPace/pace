@@ -540,6 +540,18 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// pressable close button, by direct analogy to `ui.set_scroll_position`'s
     /// `targetNotAScrollBar` check on its own convenience reference.
     case targetNotACloseButton(String)
+    /// Phase 2Z: `AXUIElementCopyAttributeValue(kAXWindowsAttribute)` succeeded but the returned
+    /// value could not be cast to `[AXUIElement]` — the returned value is treated as untrusted
+    /// external data, never assumed to be a well-formed array merely because the copy call itself
+    /// reported success. Distinct from a genuinely absent/empty windows attribute (a legitimate,
+    /// non-error state for a headless/background-only application), which returns an empty list
+    /// rather than throwing.
+    case windowsCollectionMalformed
+    /// Phase 2Z: the raw `kAXWindowsAttribute` array's element count exceeds this capability's
+    /// defensive maximum, BEFORE any per-element metadata is read — a safety bound against a
+    /// hostile or corrupted AX responder, even though a real application's window count is always
+    /// naturally small. Fails closed rather than silently enumerating an unbounded collection.
+    case windowCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -659,6 +671,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "No close-button reference could be resolved from the target window."
         case .targetNotACloseButton(let role):
             return "Element resolved via kAXCloseButtonAttribute is not role AXButton (got '\(role)')."
+        case .windowsCollectionMalformed:
+            return "kAXWindowsAttribute returned a value that could not be read as a well-formed collection."
+        case .windowCollectionExceedsSafeBound(let count):
+            return "kAXWindowsAttribute returned \(count) elements, exceeding this capability's defensive safe bound."
         }
     }
 
@@ -723,6 +739,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .windowMainDeselectionUnsupported: return "AX_WINDOW_MAIN_DESELECTION_UNSUPPORTED"
         case .closeButtonReferenceUnavailable: return "AX_CLOSE_BUTTON_REFERENCE_UNAVAILABLE"
         case .targetNotACloseButton: return "AX_TARGET_NOT_A_CLOSE_BUTTON"
+        case .windowsCollectionMalformed: return "AX_WINDOWS_COLLECTION_MALFORMED"
+        case .windowCollectionExceedsSafeBound: return "AX_WINDOW_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1592,9 +1610,39 @@ public enum QAXWindowCloseEvidence: Sendable, Equatable {
     case permissionUnavailable
 }
 
+/// One window's safe, non-sensitive identity metadata, as returned by `ui.list_windows`
+/// (Phase 2Z). Deliberately carries ONLY the fields this capability's contract allows — never a
+/// raw `AXUIElement` reference (no internal AX object pointer is ever exposed to a caller), never
+/// window contents, never descendant labels. Every field except `role` (mandatory — only
+/// `AXWindow`-role elements are ever included at all) is independently optional: a missing
+/// `title`/`identifier`/`minimized`/`main` reflects that specific attribute being unavailable for
+/// that window, and is NEVER itself a reason to exclude the window or fail the whole enumeration.
+/// This is a POINT-IN-TIME SNAPSHOT — by the time a caller acts on it, any field may already be
+/// stale; it is informational only and is NEVER itself a resolved, actionable target reference —
+/// any subsequent mutation capability (`ui.set_window_minimized`, `ui.set_window_main`,
+/// `ui.close_window`, etc.) must independently perform its own fresh, exact target resolution.
+public struct QAXWindowMetadata: Sendable, Equatable {
+    public let title: String?
+    public let identifier: String?
+    public let minimized: Bool?
+    public let main: Bool?
+
+    public init(title: String?, identifier: String?, minimized: Bool?, main: Bool?) {
+        self.title = title
+        self.identifier = identifier
+        self.minimized = minimized
+        self.main = main
+    }
+}
+
 extension QBridgeAccessibility {
     private static let maxTraversalDepth = 12
     private static let maxTraversalNodes = 3_000
+    /// Phase 2Z: a defensive maximum on the RAW `kAXWindowsAttribute` array's element count,
+    /// checked BEFORE any per-element metadata is read — a real application's window count is
+    /// always naturally small (a handful at most), so this exists purely as a safety bound
+    /// against a hostile or corrupted AX responder, never expected to be reached in practice.
+    private static let maxWindowEnumerationCount = 64
     private static let traversalTimeBudgetSeconds: CFAbsoluteTime = 1.5
     /// No `kAX...` Swift constant exists for this attribute; confirmed via direct empirical
     /// probing against real macOS apps that it is the stable, populated, raw-string identifier
@@ -4502,6 +4550,92 @@ extension QBridgeAccessibility {
             } else {
                 return .ambiguousTarget(count: matches.count)
             }
+        }.value
+    }
+
+    /// Enumerates the windows belonging to exactly ONE named, running application (Phase 2Z,
+    /// `ui.list_windows`) — READ-ONLY, no mutation of any kind. Resolves the application by EXACT
+    /// `localizedName`/`bundleIdentifier` match; more than one running process matching the same
+    /// name is treated as ambiguous and fails closed (never silently acts on an arbitrary one).
+    /// Reads `kAXWindowsAttribute` — a DIRECT CHILD enumeration only, never a recursive descent
+    /// into any returned window's own descendants. The returned value is treated as untrusted
+    /// external data: a failed/absent attribute read is a legitimate empty result (e.g. a
+    /// headless/background-only application genuinely has no windows), but a value that cannot be
+    /// read as `[AXUIElement]` is a hard failure (`.windowsCollectionMalformed`) — never silently
+    /// coerced into an empty list. The raw collection's size is checked against a defensive
+    /// maximum BEFORE any per-element read. Only elements whose OWN `kAXRoleAttribute` reports
+    /// exactly `AXWindow` are included — a wrong-role or malformed element is silently excluded,
+    /// never causing the whole enumeration to fail. Every other metadata field
+    /// (title/identifier/minimized/main) is independently optional — a missing one is never an
+    /// error and never excludes the window. Array ordering is never treated as meaningful (no
+    /// frontmost/z-order/main-window inference of any kind is ever drawn from position). This is
+    /// a point-in-time snapshot only — it is never itself an actionable target reference; every
+    /// subsequent mutation capability must perform its own fresh, independent, exact target
+    /// resolution.
+    public func listWindows(applicationName: String) async throws -> [QAXWindowMetadata] {
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let matchingApps = NSWorkspace.shared.runningApplications.filter {
+            ($0.localizedName?.caseInsensitiveCompare(applicationName) == .orderedSame) ||
+            ($0.bundleIdentifier?.caseInsensitiveCompare(applicationName) == .orderedSame)
+        }
+        guard !matchingApps.isEmpty else {
+            throw QAXInteractionError.applicationNotAvailable(applicationName)
+        }
+        // Exact application-identity ambiguity (more than one running process matches the same
+        // name) fails closed — never silently enumerates an arbitrary one of several matches.
+        guard matchingApps.count == 1 else {
+            throw QAXInteractionError.ambiguousTarget(count: matchingApps.count)
+        }
+
+        let processIdentifier = matchingApps[0].processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            // A pure AX object-reference constructor — never activates, focuses, or raises the
+            // target application, the same primitive every prior capability already uses without
+            // any such side effect.
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            var windowsValue: CFTypeRef?
+            let copyResult = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsValue)
+            guard copyResult == .success, let windowsValue else {
+                // A failed or absent kAXWindowsAttribute read is a legitimate, valid state for an
+                // application with no windows at all (e.g. a headless/background-only agent) —
+                // an empty result, never an error.
+                return []
+            }
+            guard let windowsArray = windowsValue as? [AXUIElement] else {
+                // The returned value is treated as untrusted external data — success from the
+                // copy call is never itself sufficient proof of a well-formed collection.
+                throw QAXInteractionError.windowsCollectionMalformed
+            }
+            guard windowsArray.count <= Self.maxWindowEnumerationCount else {
+                throw QAXInteractionError.windowCollectionExceedsSafeBound(windowsArray.count)
+            }
+
+            var metadata: [QAXWindowMetadata] = []
+            metadata.reserveCapacity(windowsArray.count)
+            for windowElement in windowsArray {
+                // DIRECT CHILD ONLY: exactly one attribute read (kAXRoleAttribute) per returned
+                // element to validate it, then at most four more direct attribute reads for
+                // metadata — never a descent into this element's own children/descendants.
+                guard let role = Self.axStringAttribute(kAXRoleAttribute, of: windowElement), role == "AXWindow" else {
+                    // A wrong-role or malformed element is silently excluded — never causes the
+                    // whole enumeration to fail merely because one returned item is not genuine.
+                    continue
+                }
+                metadata.append(
+                    QAXWindowMetadata(
+                        title: Self.axStringAttribute(kAXTitleAttribute, of: windowElement),
+                        identifier: Self.axStringAttribute(Self.axIdentifierAttributeName, of: windowElement),
+                        minimized: Self.axBoolAttribute(kAXMinimizedAttribute, of: windowElement),
+                        main: Self.axBoolAttribute(kAXMainAttribute, of: windowElement)
+                    )
+                )
+            }
+            return metadata
         }.value
     }
 

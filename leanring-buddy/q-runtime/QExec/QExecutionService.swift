@@ -183,6 +183,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.close_window":
             result = await executeCloseWindow(request: request)
 
+        case "ui.list_windows":
+            result = await executeListWindows(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -2164,6 +2167,70 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while closing window: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Level 0 (read-only, no approval): enumerates the windows belonging to exactly one named,
+    /// running application. NO mutation, NO recovery — matches the architectural footprint of
+    /// every other Level 0 capability in this file exactly.
+    ///
+    /// PRIVACY BOUNDARY (Phase 2Z, section 6): the per-window metadata built into `outputData`
+    /// below exists only in this in-memory `QActionResult` for the CURRENT turn's immediate
+    /// reasoning. `QDurablePlanStepSnapshot` — the actual durable, disk-persisted form a completed
+    /// step is converted into — has NO `outputData` field at all (confirmed by direct inspection
+    /// of `QDurablePlanStepSnapshot.init(from:)` in `QDurablePlanSnapshot.swift`: it only reads
+    /// `step.result.summary` and `step.result.verifiedEvidence`, both `String`, never
+    /// `step.result.outputData`), so this structured per-window list structurally cannot reach
+    /// durable storage, audit logs, replanning state, or long-term memory through the generic
+    /// persistence pipeline — no new redaction machinery is needed for a field the architecture
+    /// never serializes in the first place. `summary` — the one string field that DOES cross into
+    /// `resultSummary`/`verifiedEvidence`/audit-log persistence — is therefore deliberately kept
+    /// to an aggregate window COUNT only; it never embeds any individual window's title or
+    /// identifier, so even that boundary stays clean on this capability's own side.
+    private func executeListWindows(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        do {
+            let windows = try await QBridgeAccessibility.shared.listWindows(applicationName: applicationName)
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "windowCount": "\(windows.count)"
+            ]
+            for (index, window) in windows.enumerated() {
+                outputData["window\(index).title"] = window.title ?? ""
+                outputData["window\(index).identifier"] = window.identifier ?? ""
+                outputData["window\(index).minimized"] = window.minimized.map { $0 ? "true" : "false" } ?? ""
+                outputData["window\(index).main"] = window.main.map { $0 ? "true" : "false" } ?? ""
+            }
+
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(windows.count) window(s) for application '\(applicationName)'. This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing windows: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }
