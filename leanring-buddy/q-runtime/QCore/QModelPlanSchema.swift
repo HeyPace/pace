@@ -487,7 +487,16 @@ public struct QModelPlanParser: Sendable {
         // (maxDirectTableRowsCount = 128). This is a POINT-IN-TIME SNAPSHOT ONLY: result is informational
         // and never enters durable persistence snapshots; every subsequent mutation capability
         // (ui.select_table_row) must independently perform its own fresh, exact target resolution.
-        "ui.list_table_rows": ("ui", .level0ReadOnly)
+        "ui.list_table_rows": ("ui", .level0ReadOnly),
+        // Phase 2AF: semantic outline item enumeration — LEVEL 0 (READ-ONLY). Enumerates direct
+        // outline rows belonging to exactly ONE named AXOutline in an application via direct AXRow/AXOutlineRow
+        // children. No mutation, no press, no open, no approval, no recovery. Application identity is
+        // resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication. Target
+        // must match AXOutline role policy. Bounded by local defensive ceiling
+        // (maxDirectOutlineItemsCount = 128, maxOutlineDepth = 12). This is a POINT-IN-TIME SNAPSHOT ONLY:
+        // result is informational and never enters durable persistence snapshots; every subsequent mutation
+        // capability (ui.select_outline_row) must independently perform its own fresh, exact target resolution.
+        "ui.list_outline_items": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

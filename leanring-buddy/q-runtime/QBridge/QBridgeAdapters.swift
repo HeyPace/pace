@@ -267,6 +267,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func listMenuItems(applicationName: String) async throws -> [QAXTopLevelMenuMetadata]
     func listPopupItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXPopupMenuMetadata
     func listTableRows(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXTableMetadata
+    func listOutlineItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXOutlineMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -570,6 +571,15 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// Phase 2AE: the direct table row count for a table exceeds this capability's
     /// defensive safe bound (128).
     case tableRowCollectionExceedsSafeBound(Int)
+    /// Phase 2AF: the target's AX role is not on `QAXOutlineRolePolicy.allowedRoles`
+    /// (`AXOutline` only).
+    case disallowedOutlineRole(String)
+    /// Phase 2AF: the direct outline item count for an outline exceeds this capability's
+    /// defensive safe bound (128).
+    case outlineItemCollectionExceedsSafeBound(Int)
+    /// Phase 2AF: an outline item's disclosure depth exceeds this capability's
+    /// defensive safe maximum depth (12).
+    case outlineItemDepthExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -703,6 +713,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not an allowed table target."
         case .tableRowCollectionExceedsSafeBound(let count):
             return "Table row collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .disallowedOutlineRole(let role):
+            return "Target role '\(role)' is not an allowed outline target."
+        case .outlineItemCollectionExceedsSafeBound(let count):
+            return "Outline item collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .outlineItemDepthExceedsSafeBound(let depth):
+            return "Outline item depth (\(depth)) exceeds safe maximum depth."
         }
     }
 
@@ -774,6 +790,9 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .totalMenuItemCollectionExceedsSafeBound: return "AX_TOTAL_MENU_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .disallowedTableRole: return "AX_DISALLOWED_ROLE"
         case .tableRowCollectionExceedsSafeBound: return "AX_TABLE_ROW_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .disallowedOutlineRole: return "AX_DISALLOWED_ROLE"
+        case .outlineItemCollectionExceedsSafeBound: return "AX_OUTLINE_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .outlineItemDepthExceedsSafeBound: return "AX_OUTLINE_ITEM_DEPTH_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1338,6 +1357,15 @@ public enum QAXTableRowSelectionEvidence: Sendable, Equatable {
     case targetUnavailable
 }
 
+/// Fail-closed allowlist of Accessibility roles `ui.list_outline_items` (Phase 2AF) may target.
+public enum QAXOutlineRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXOutline"]
+
+    public static func isAllowedOutlineRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
 /// Fail-closed allowlist of Accessibility roles `ui.select_outline_row` (Phase 2T) may target.
 ///
 /// Deliberately a SINGLE role — the identical base role `QAXTableRowRolePolicy` uses, since
@@ -1810,6 +1838,76 @@ public struct QAXTableMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One outline item's safe, non-sensitive identity metadata, as returned by `ui.list_outline_items`
+/// (Phase 2AF). Cell contents are strictly out of scope.
+public struct QAXOutlineRowItemMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let depth: Int
+    public let isExpanded: Bool?
+    public let isSelected: Bool?
+    public let isEnabled: Bool?
+    public let role: String
+    public let subrole: String
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        depth: Int,
+        isExpanded: Bool?,
+        isSelected: Bool?,
+        isEnabled: Bool?,
+        role: String = "AXRow",
+        subrole: String = "AXOutlineRow"
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.depth = depth
+        self.isExpanded = isExpanded
+        self.isSelected = isSelected
+        self.isEnabled = isEnabled
+        self.role = role
+        self.subrole = subrole
+    }
+}
+
+/// An outline's safe, non-sensitive direct items metadata, as returned by `ui.list_outline_items`
+/// (Phase 2AF). Deliberately carries ONLY the fields this capability's contract allows — never raw
+/// `AXUIElement` references, never arbitrary descendant trees, never cell contents.
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target
+/// reference; any subsequent mutation capability (`ui.select_outline_row`) must independently perform
+/// its own fresh, exact target resolution.
+public struct QAXOutlineMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let outlineTitle: String?
+    public let outlineIdentifier: String?
+    public let itemCount: Int
+    public let selectedItemCount: Int
+    public let expandedItemCount: Int
+    public let items: [QAXOutlineRowItemMetadata]
+
+    public init(
+        applicationName: String,
+        outlineTitle: String?,
+        outlineIdentifier: String?,
+        itemCount: Int,
+        selectedItemCount: Int,
+        expandedItemCount: Int,
+        items: [QAXOutlineRowItemMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.outlineTitle = outlineTitle
+        self.outlineIdentifier = outlineIdentifier
+        self.itemCount = itemCount
+        self.selectedItemCount = selectedItemCount
+        self.expandedItemCount = expandedItemCount
+        self.items = items
+    }
+}
+
 extension QBridgeAccessibility {
     private static let maxTraversalDepth = 12
     private static let maxTraversalNodes = 3_000
@@ -1826,6 +1924,11 @@ extension QBridgeAccessibility {
     private static let maxDirectPopupItemsCount = 128
     /// Phase 2AE: defensive bound on table direct row enumeration.
     private static let maxDirectTableRowsCount = 128
+    /// Phase 2AF: defensive bounds on outline item enumeration.
+    private static let maxDirectOutlineItemsCount = 128
+    private static let maxOutlineDepth = 12
+    private static let axDisclosureLevelAttributeName = "AXDisclosureLevel"
+    private static let axDisclosingAttributeName = "AXDisclosing"
     private static let traversalTimeBudgetSeconds: CFAbsoluteTime = 1.5
     /// No `kAX...` Swift constant exists for this attribute; confirmed via direct empirical
     /// probing against real macOS apps that it is the stable, populated, raw-string identifier
@@ -5030,6 +5133,139 @@ extension QBridgeAccessibility {
                 rows: rowsMetadata
             )
         }.value
+    }
+
+    /// Phase 2AF: semantic outline item enumeration (Level 0, read-only). Enumerates direct rows
+    /// belonging to exactly ONE named AXOutline in an application.
+    /// No mutation, no press, no approval, no recovery. Cells and arbitrary subtrees are strictly OUT OF SCOPE.
+    public func listOutlineItems(
+        applicationName: String,
+        role: String = "AXOutline",
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXOutlineMetadata {
+        guard QAXOutlineRolePolicy.isAllowedOutlineRole(role) else {
+            throw QAXInteractionError.disallowedOutlineRole(role)
+        }
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target outline element is no longer resolvable immediately before enumeration")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target outline element identity changed between observation and enumeration")
+            }
+
+            var rawRowElements: [AXUIElement] = []
+            var rowsValue: CFTypeRef?
+            let copyResult = AXUIElementCopyAttributeValue(targetElement, "AXRows" as CFString, &rowsValue)
+            if copyResult == .success, let array = rowsValue as? [AXUIElement] {
+                rawRowElements = array
+            } else if let children = Self.childrenAttribute(of: targetElement) {
+                rawRowElements = children.filter {
+                    Self.axStringAttribute(kAXRoleAttribute, of: $0) == "AXRow"
+                }
+            }
+
+            var validRowElements: [AXUIElement] = []
+            for rowElement in rawRowElements {
+                guard Self.axStringAttribute(kAXRoleAttribute, of: rowElement) == "AXRow" else {
+                    continue
+                }
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: rowElement)
+                guard subrole != Self.tableRowSubrole else {
+                    continue
+                }
+                if subrole == nil || subrole == Self.outlineRowSubrole {
+                    validRowElements.append(rowElement)
+                }
+            }
+
+            guard validRowElements.count <= Self.maxDirectOutlineItemsCount else {
+                throw QAXInteractionError.outlineItemCollectionExceedsSafeBound(validRowElements.count)
+            }
+
+            var itemsMetadata: [QAXOutlineRowItemMetadata] = []
+            itemsMetadata.reserveCapacity(validRowElements.count)
+            var selectedCount = 0
+            var expandedCount = 0
+
+            for (index, rowElement) in validRowElements.enumerated() {
+                let depthInt: Int
+                if let depthVal = Self.axIntAttribute(Self.axDisclosureLevelAttributeName, of: rowElement) {
+                    depthInt = depthVal
+                } else {
+                    depthInt = 0
+                }
+
+                guard depthInt <= Self.maxOutlineDepth else {
+                    throw QAXInteractionError.outlineItemDepthExceedsSafeBound(depthInt)
+                }
+
+                let itemTitle = Self.axStringAttribute(kAXTitleAttribute, of: rowElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: rowElement)
+                let itemIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: rowElement)
+                let isExpanded = Self.axBoolAttribute(Self.axDisclosingAttributeName, of: rowElement)
+                let isSelected = Self.axBoolAttribute(kAXSelectedAttribute, of: rowElement)
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: rowElement)
+
+                if isSelected == true {
+                    selectedCount += 1
+                }
+                if isExpanded == true {
+                    expandedCount += 1
+                }
+
+                itemsMetadata.append(
+                    QAXOutlineRowItemMetadata(
+                        index: index,
+                        title: itemTitle,
+                        identifier: itemIdentifier,
+                        depth: depthInt,
+                        isExpanded: isExpanded,
+                        isSelected: isSelected,
+                        isEnabled: isEnabled,
+                        role: "AXRow",
+                        subrole: Self.outlineRowSubrole
+                    )
+                )
+            }
+
+            return QAXOutlineMetadata(
+                applicationName: applicationName,
+                outlineTitle: observedAtVerify.titleOrDescription,
+                outlineIdentifier: observedAtVerify.identifier,
+                itemCount: itemsMetadata.count,
+                selectedItemCount: selectedCount,
+                expandedItemCount: expandedCount,
+                items: itemsMetadata
+            )
+        }.value
+    }
+
+    private static func axIntAttribute(_ attribute: String, of element: AXUIElement) -> Int? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+        guard result == .success, let value else { return nil }
+        guard let numberValue = value as? NSNumber else { return nil }
+        return numberValue.intValue
     }
 
     /// Reads a numeric (`NSNumber`-boxed) AX attribute as a `Double` — distinct from

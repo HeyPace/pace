@@ -325,6 +325,10 @@ public enum QVerificationStrategy: Sendable {
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual row title or identifier.
     case tableRowEnumerationSucceeded(applicationName: String, rowCount: Int, selectedCount: Int)
+    /// Phase 2AF: semantic outline item enumeration verification (Level 0, read-only). Success requires
+    /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
+    /// only, never any individual outline item title or identifier.
+    case outlineItemEnumerationSucceeded(applicationName: String, itemCount: Int, selectedCount: Int, expandedCount: Int)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -713,6 +717,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Table row enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) tableRole=AXTable status=failed"
+                )
+            }
+
+        case .outlineItemEnumerationSucceeded(let applicationName, let itemCount, let selectedCount, let expandedCount):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) outlineRole=AXOutline itemCount=\(itemCount) selectedCount=\(selectedCount) expandedCount=\(expandedCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Outline item enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) outlineRole=AXOutline status=failed"
                 )
             }
 
