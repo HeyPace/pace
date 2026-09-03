@@ -820,6 +820,17 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual outline item title or identifier — this strategy only ever
             // carries aggregate counts, by design.
             return .outlineItemEnumerationSucceeded(applicationName: applicationName, itemCount: itemCount, selectedCount: selectedCount, expandedCount: expandedCount)
+        } else if action.actionName == "ui.list_tab_items",
+                  let applicationName = action.arguments["applicationName"],
+                  let tabCountString = result.outputData["itemCount"],
+                  let tabCount = Int(tabCountString),
+                  let selectedCountString = result.outputData["selectedItemCount"],
+                  let selectedCount = Int(selectedCountString) {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the tab count and selected count captured at read time. Deliberately NOT threaded
+            // through here: any individual tab title or identifier — this strategy only ever
+            // carries aggregate counts, by design.
+            return .tabItemEnumerationSucceeded(applicationName: applicationName, tabCount: tabCount, selectedCount: selectedCount)
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

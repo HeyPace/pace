@@ -198,6 +198,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_outline_items":
             result = await executeListOutlineItems(request: request)
 
+        case "ui.list_tab_items":
+            result = await executeListTabItems(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -2581,6 +2584,95 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing outline items: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2AH: executes read-only tab group direct item discovery.
+    /// Result summary carries aggregate counts only, never leaking individual tab titles to durable storage.
+    private func executeListTabItems(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"] ?? "AXTabGroup"
+        guard QAXTabGroupRolePolicy.isAllowedTabGroupRole(role) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target role '\(role)' is not an allowed tab group target.",
+                error: "AX_DISALLOWED_ROLE"
+            )
+        }
+
+        let identifier = request.parameters["identifier"] ?? request.parameters["id"]
+        let title = request.parameters["title"] ?? request.parameters["label"]
+
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an identifier or title to match semantically.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listTabItems(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "itemCount": "\(metadata.itemCount)",
+                "selectedItemCount": "\(metadata.selectedItemCount)"
+            ]
+            if let tabGroupTitle = metadata.tabGroupTitle {
+                outputData["tabGroupTitle"] = tabGroupTitle
+            }
+            if let tabGroupIdentifier = metadata.tabGroupIdentifier {
+                outputData["tabGroupIdentifier"] = tabGroupIdentifier
+            }
+
+            for item in metadata.items {
+                let idx = item.index
+                outputData["item\(idx).index"] = "\(idx)"
+                outputData["item\(idx).title"] = item.title ?? ""
+                outputData["item\(idx).identifier"] = item.identifier ?? ""
+                outputData["item\(idx).selected"] = item.isSelected.map { $0 ? "true" : "false" } ?? "unknown"
+                outputData["item\(idx).enabled"] = item.isEnabled.map { $0 ? "true" : "false" } ?? ""
+                outputData["item\(idx).role"] = item.role
+                outputData["item\(idx).subrole"] = item.subrole
+            }
+
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(metadata.itemCount) tab item(s) for tab group in application '\(applicationName)' (selected: \(metadata.selectedItemCount)). This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing tab items: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

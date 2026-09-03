@@ -268,6 +268,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func listPopupItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXPopupMenuMetadata
     func listTableRows(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXTableMetadata
     func listOutlineItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXOutlineMetadata
+    func listTabItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXTabGroupMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -580,6 +581,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// Phase 2AF: an outline item's disclosure depth exceeds this capability's
     /// defensive safe maximum depth (12).
     case outlineItemDepthExceedsSafeBound(Int)
+    /// Phase 2AH: the target's AX role is not on `QAXTabGroupRolePolicy.allowedRoles`
+    /// (`AXTabGroup` only).
+    case disallowedTabGroupRole(String)
+    /// Phase 2AH: the direct tab item count for a tab group exceeds this capability's
+    /// defensive safe bound (64).
+    case tabItemCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -719,6 +726,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Outline item collection count (\(count)) exceeds this capability's defensive safe bound."
         case .outlineItemDepthExceedsSafeBound(let depth):
             return "Outline item depth (\(depth)) exceeds safe maximum depth."
+        case .disallowedTabGroupRole(let role):
+            return "Target role '\(role)' is not an allowed tab group target."
+        case .tabItemCollectionExceedsSafeBound(let count):
+            return "Tab item collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -793,6 +804,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .disallowedOutlineRole: return "AX_DISALLOWED_ROLE"
         case .outlineItemCollectionExceedsSafeBound: return "AX_OUTLINE_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .outlineItemDepthExceedsSafeBound: return "AX_OUTLINE_ITEM_DEPTH_EXCEEDS_SAFE_BOUND"
+        case .disallowedTabGroupRole: return "AX_DISALLOWED_ROLE"
+        case .tabItemCollectionExceedsSafeBound: return "AX_TAB_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1207,6 +1220,15 @@ public enum QAXDisclosureVerificationEvidence: Sendable, Equatable {
 
 /// Fail-closed allowlist of Accessibility roles `ui.select_tab` (Phase 2R) may target.
 ///
+/// Fail-closed allowlist of Accessibility roles `ui.list_tab_items` (Phase 2AH) may target.
+public enum QAXTabGroupRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXTabGroup"]
+
+    public static func isAllowedTabGroupRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
 /// **Important empirical finding** (see docs/PHASE_2R_SEMANTIC_TAB_SELECTION.md's Known
 /// limitations for the full account): there is no standalone "AXTab" role anywhere in macOS's
 /// Accessibility API — confirmed directly against this SDK's authoritative
@@ -1908,6 +1930,67 @@ public struct QAXOutlineMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One tab item's safe, non-sensitive identity metadata, as returned by `ui.list_tab_items`
+/// (Phase 2AH). Pane contents are strictly out of scope.
+public struct QAXTabItemMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let isSelected: Bool?
+    public let isEnabled: Bool?
+    public let role: String
+    public let subrole: String
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        isSelected: Bool?,
+        isEnabled: Bool?,
+        role: String = "AXRadioButton",
+        subrole: String = "AXTabButton"
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.isSelected = isSelected
+        self.isEnabled = isEnabled
+        self.role = role
+        self.subrole = subrole
+    }
+}
+
+/// A tab group's safe, non-sensitive direct items metadata, as returned by `ui.list_tab_items`
+/// (Phase 2AH). Deliberately carries ONLY the fields this capability's contract allows — never raw
+/// `AXUIElement` references, never arbitrary descendant trees, never pane contents.
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target
+/// reference; any subsequent mutation capability (`ui.select_tab`) must independently perform
+/// its own fresh, exact target resolution.
+public struct QAXTabGroupMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let tabGroupTitle: String?
+    public let tabGroupIdentifier: String?
+    public let itemCount: Int
+    public let selectedItemCount: Int
+    public let items: [QAXTabItemMetadata]
+
+    public init(
+        applicationName: String,
+        tabGroupTitle: String?,
+        tabGroupIdentifier: String?,
+        itemCount: Int,
+        selectedItemCount: Int,
+        items: [QAXTabItemMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.tabGroupTitle = tabGroupTitle
+        self.tabGroupIdentifier = tabGroupIdentifier
+        self.itemCount = itemCount
+        self.selectedItemCount = selectedItemCount
+        self.items = items
+    }
+}
+
 extension QBridgeAccessibility {
     private static let maxTraversalDepth = 12
     private static let maxTraversalNodes = 3_000
@@ -1929,6 +2012,9 @@ extension QBridgeAccessibility {
     private static let maxOutlineDepth = 12
     private static let axDisclosureLevelAttributeName = "AXDisclosureLevel"
     private static let axDisclosingAttributeName = "AXDisclosing"
+    /// Phase 2AH: defensive bound on tab item enumeration.
+    private static let maxDirectTabItemsCount = 64
+    private static let axTabsAttributeName = "AXTabs"
     private static let traversalTimeBudgetSeconds: CFAbsoluteTime = 1.5
     /// No `kAX...` Swift constant exists for this attribute; confirmed via direct empirical
     /// probing against real macOS apps that it is the stable, populated, raw-string identifier
@@ -5255,6 +5341,110 @@ extension QBridgeAccessibility {
                 itemCount: itemsMetadata.count,
                 selectedItemCount: selectedCount,
                 expandedItemCount: expandedCount,
+                items: itemsMetadata
+            )
+        }.value
+    }
+
+    /// Phase 2AH: semantic tab item enumeration (Level 0, read-only). Enumerates direct tab items
+    /// belonging to exactly ONE named AXTabGroup in an application.
+    /// No mutation, no press, no approval, no recovery. Panes and arbitrary subtrees are strictly OUT OF SCOPE.
+    public func listTabItems(
+        applicationName: String,
+        role: String = "AXTabGroup",
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXTabGroupMetadata {
+        guard QAXTabGroupRolePolicy.isAllowedTabGroupRole(role) else {
+            throw QAXInteractionError.disallowedTabGroupRole(role)
+        }
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target tab group element is no longer resolvable immediately before enumeration")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target tab group element identity changed between observation and enumeration")
+            }
+
+            var rawTabElements: [AXUIElement] = []
+            var tabsValue: CFTypeRef?
+            let copyResult = AXUIElementCopyAttributeValue(targetElement, Self.axTabsAttributeName as CFString, &tabsValue)
+            if copyResult == .success, let array = tabsValue as? [AXUIElement] {
+                rawTabElements = array
+            } else if let children = Self.childrenAttribute(of: targetElement) {
+                rawTabElements = children.filter {
+                    Self.axStringAttribute(kAXRoleAttribute, of: $0) == "AXRadioButton" &&
+                    Self.axStringAttribute(kAXSubroleAttribute, of: $0) == Self.tabButtonSubrole
+                }
+            }
+
+            var validTabElements: [AXUIElement] = []
+            for tabElement in rawTabElements {
+                guard Self.axStringAttribute(kAXRoleAttribute, of: tabElement) == "AXRadioButton" else {
+                    continue
+                }
+                guard Self.axStringAttribute(kAXSubroleAttribute, of: tabElement) == Self.tabButtonSubrole else {
+                    continue
+                }
+                validTabElements.append(tabElement)
+            }
+
+            guard validTabElements.count <= Self.maxDirectTabItemsCount else {
+                throw QAXInteractionError.tabItemCollectionExceedsSafeBound(validTabElements.count)
+            }
+
+            var itemsMetadata: [QAXTabItemMetadata] = []
+            itemsMetadata.reserveCapacity(validTabElements.count)
+            var selectedCount = 0
+
+            for (index, tabElement) in validTabElements.enumerated() {
+                let itemTitle = Self.axStringAttribute(kAXTitleAttribute, of: tabElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: tabElement)
+                let itemIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: tabElement)
+                let isSelected = Self.axBoolAttribute(kAXSelectedAttribute, of: tabElement)
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: tabElement)
+
+                if isSelected == true {
+                    selectedCount += 1
+                }
+
+                itemsMetadata.append(
+                    QAXTabItemMetadata(
+                        index: index,
+                        title: itemTitle,
+                        identifier: itemIdentifier,
+                        isSelected: isSelected,
+                        isEnabled: isEnabled,
+                        role: "AXRadioButton",
+                        subrole: Self.tabButtonSubrole
+                    )
+                )
+            }
+
+            return QAXTabGroupMetadata(
+                applicationName: applicationName,
+                tabGroupTitle: observedAtVerify.titleOrDescription,
+                tabGroupIdentifier: observedAtVerify.identifier,
+                itemCount: itemsMetadata.count,
+                selectedItemCount: selectedCount,
                 items: itemsMetadata
             )
         }.value

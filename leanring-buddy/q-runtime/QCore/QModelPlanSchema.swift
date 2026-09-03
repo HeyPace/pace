@@ -496,7 +496,16 @@ public struct QModelPlanParser: Sendable {
         // (maxDirectOutlineItemsCount = 128, maxOutlineDepth = 12). This is a POINT-IN-TIME SNAPSHOT ONLY:
         // result is informational and never enters durable persistence snapshots; every subsequent mutation
         // capability (ui.select_outline_row) must independently perform its own fresh, exact target resolution.
-        "ui.list_outline_items": ("ui", .level0ReadOnly)
+        "ui.list_outline_items": ("ui", .level0ReadOnly),
+        // Phase 2AH: semantic tab item enumeration — LEVEL 0 (READ-ONLY). Enumerates direct
+        // tab items belonging to exactly ONE named AXTabGroup in an application via direct AXRadioButton/AXTabButton
+        // children. No mutation, no press, no focus, no approval, no recovery. Application identity is
+        // resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication. Target
+        // must match AXTabGroup role policy. Bounded by local defensive ceiling
+        // (maxDirectTabItemsCount = 64). This is a POINT-IN-TIME SNAPSHOT ONLY:
+        // result is informational and never enters durable persistence snapshots; every subsequent mutation
+        // capability (ui.select_tab) must independently perform its own fresh, exact target resolution.
+        "ui.list_tab_items": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.
