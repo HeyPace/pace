@@ -862,6 +862,15 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual segment title or identifier — this strategy only ever
             // carries aggregate counts, by design.
             return .segmentedControlEnumerationSucceeded(applicationName: applicationName, itemCount: itemCount, selectedCount: selectedCount)
+        } else if action.actionName == "ui.list_sheet_dialogs",
+                  let applicationName = action.arguments["applicationName"],
+                  let sheetCountString = result.outputData["sheetCount"],
+                  let sheetCount = Int(sheetCountString) {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the sheet count captured at read time. Deliberately NOT threaded
+            // through here: any individual sheet title or identifier — this strategy only ever
+            // carries aggregate counts, by design.
+            return .sheetEnumerationSucceeded(applicationName: applicationName, sheetCount: sheetCount)
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

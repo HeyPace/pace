@@ -210,6 +210,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_segmented_control_items":
             result = await executeListSegmentedControlItems(request: request)
 
+        case "ui.list_sheet_dialogs":
+            result = await executeListSheetDialogs(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -2947,6 +2950,84 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing segmented control items: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2AN: executes read-only window direct sheet discovery.
+    /// Result summary carries aggregate counts only, never leaking individual sheet titles to durable storage.
+    private func executeListSheetDialogs(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        if let role = request.parameters["role"] {
+            guard QAXSheetRolePolicy.isAllowedSheetRole(role) else {
+                return QActionResult(
+                    actionId: request.actionId,
+                    success: false,
+                    summary: "Target role '\(role)' is not an allowed sheet target.",
+                    error: "AX_DISALLOWED_ROLE"
+                )
+            }
+        }
+
+        let windowTitle = request.parameters["windowTitle"] ?? request.parameters["window"]
+        let windowIdentifier = request.parameters["windowIdentifier"] ?? request.parameters["windowId"]
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listSheetDialogs(
+                applicationName: applicationName,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "sheetCount": "\(metadata.sheetCount)"
+            ]
+            if let windowTitle = metadata.windowTitle {
+                outputData["windowTitle"] = windowTitle
+            }
+            if let windowIdentifier = metadata.windowIdentifier {
+                outputData["windowIdentifier"] = windowIdentifier
+            }
+
+            for sheet in metadata.sheets {
+                let idx = sheet.index
+                outputData["sheet\(idx).index"] = "\(idx)"
+                outputData["sheet\(idx).title"] = sheet.title ?? ""
+                outputData["sheet\(idx).identifier"] = sheet.identifier ?? ""
+                outputData["sheet\(idx).role"] = sheet.role
+                outputData["sheet\(idx).subrole"] = sheet.subrole ?? ""
+                outputData["sheet\(idx).modal"] = sheet.isModal.map { $0 ? "true" : "false" } ?? "unknown"
+            }
+
+            let windowSuffix = metadata.windowTitle.map { " (window: '\($0)')" } ?? ""
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(metadata.sheetCount) sheet(s) for window in application '\(applicationName)'\(windowSuffix). This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing sheet dialogs: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

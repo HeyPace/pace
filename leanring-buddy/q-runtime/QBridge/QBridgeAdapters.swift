@@ -272,6 +272,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func listRadioGroupItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXRadioGroupMetadata
     func listToolbarItems(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXToolbarMetadata
     func listSegmentedControlItems(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXSegmentedControlMetadata
+    func listSheetDialogs(applicationName: String, windowTitle: String?, windowIdentifier: String?) async throws -> QAXSheetCollectionMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -608,6 +609,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// Phase 2AM: the direct segment count for a segmented control exceeds this capability's
     /// defensive safe bound (32).
     case segmentedControlItemCollectionExceedsSafeBound(Int)
+    /// Phase 2AN: the target's AX role is not on `QAXSheetRolePolicy.allowedRoles`
+    /// (`AXSheet` only).
+    case disallowedSheetRole(String)
+    /// Phase 2AN: the direct sheet count for a window exceeds this capability's
+    /// defensive safe bound (16).
+    case sheetCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -763,6 +770,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not an allowed segmented control target."
         case .segmentedControlItemCollectionExceedsSafeBound(let count):
             return "Segmented control item collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .disallowedSheetRole(let role):
+            return "Target role '\(role)' is not an allowed sheet target."
+        case .sheetCollectionExceedsSafeBound(let count):
+            return "Sheet collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -845,6 +856,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .toolbarItemCollectionExceedsSafeBound: return "AX_TOOLBAR_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .disallowedSegmentedControlRole: return "AX_DISALLOWED_ROLE"
         case .segmentedControlItemCollectionExceedsSafeBound: return "AX_SEGMENTED_CONTROL_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .disallowedSheetRole: return "AX_DISALLOWED_ROLE"
+        case .sheetCollectionExceedsSafeBound: return "AX_SHEET_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1292,6 +1305,16 @@ public enum QAXSegmentedControlRolePolicy {
     public static let allowedRoles: Set<String> = ["AXSegmentedControl"]
 
     public static func isAllowedSegmentedControlRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.list_sheet_dialogs` (Phase 2AN) may target.
+/// Canonical role only — AXDialog and generic containers are strictly excluded.
+public enum QAXSheetRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXSheet"]
+
+    public static func isAllowedSheetRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -2246,6 +2269,59 @@ public struct QAXSegmentedControlMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One sheet's safe, non-sensitive identity metadata, as returned by `ui.list_sheet_dialogs` (Phase 2AN).
+public struct QAXSheetMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let role: String
+    public let subrole: String?
+    public let isModal: Bool?
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        role: String,
+        subrole: String? = nil,
+        isModal: Bool? = nil
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.role = role
+        self.subrole = subrole
+        self.isModal = isModal
+    }
+}
+
+/// A window's safe, non-sensitive direct sheets metadata collection, as returned by `ui.list_sheet_dialogs` (Phase 2AN).
+/// Deliberately carries ONLY the fields this capability's contract allows — never raw `AXUIElement` references,
+/// never sheet buttons or descendant trees.
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target reference;
+/// any subsequent action must independently perform its own fresh, exact target resolution.
+public struct QAXSheetCollectionMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let windowTitle: String?
+    public let windowIdentifier: String?
+    public let sheetCount: Int
+    public let sheets: [QAXSheetMetadata]
+
+    public init(
+        applicationName: String,
+        windowTitle: String?,
+        windowIdentifier: String?,
+        sheetCount: Int,
+        sheets: [QAXSheetMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.windowTitle = windowTitle
+        self.windowIdentifier = windowIdentifier
+        self.sheetCount = sheetCount
+        self.sheets = sheets
+    }
+}
+
 extension QBridgeAccessibility {
     private static let maxTraversalDepth = 12
     private static let maxTraversalNodes = 3_000
@@ -2293,6 +2369,10 @@ extension QBridgeAccessibility {
         "AXRadioButton",
         "AXButton"
     ]
+    /// Phase 2AN: defensive bound on sheet enumeration.
+    private static let maxDirectSheetsCount = 16
+    private static let axSheetsAttributeName = "AXSheets"
+    private static let axModalAttributeName = "AXModal"
     private static let traversalTimeBudgetSeconds: CFAbsoluteTime = 1.5
     /// No `kAX...` Swift constant exists for this attribute; confirmed via direct empirical
     /// probing against real macOS apps that it is the stable, populated, raw-string identifier
@@ -6092,6 +6172,111 @@ extension QBridgeAccessibility {
         }.value
     }
 
+    /// Phase 2AN: semantic sheet direct enumeration (Level 0, read-only). Enumerates direct AXSheet elements
+    /// attached to exactly ONE named AXWindow in an application.
+    /// No mutation, no press, no approval, no recovery. Descendant buttons, fields, and groups are strictly NOT traversed.
+    public func listSheetDialogs(
+        applicationName: String,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil
+    ) async throws -> QAXSheetCollectionMetadata {
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let windowMatches = Self.collectMatches(
+                root: appElement,
+                role: "AXWindow",
+                identifier: windowIdentifier,
+                title: windowTitle
+            )
+            guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+
+            let (targetWindow, windowSnapshot) = windowMatches[0]
+
+            guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                throw QAXInteractionError.staleTarget("target window element is no longer resolvable immediately before sheet enumeration")
+            }
+            guard verifiedWindow == windowSnapshot else {
+                throw QAXInteractionError.staleTarget("target window identity changed between observation and sheet enumeration")
+            }
+
+            var candidateElements: [AXUIElement] = []
+
+            if let sheetsAttr = Self.axUIElementsAttribute(Self.axSheetsAttributeName, of: targetWindow) {
+                candidateElements.append(contentsOf: sheetsAttr)
+            }
+
+            if let childElements = Self.childrenAttribute(of: targetWindow) {
+                candidateElements.append(contentsOf: childElements)
+            }
+
+            var validSheetElements: [AXUIElement] = []
+            var seenSnapshots: [QAXElementSnapshot] = []
+
+            for element in candidateElements {
+                guard let role = Self.axStringAttribute(kAXRoleAttribute, of: element) else {
+                    continue
+                }
+                guard QAXSheetRolePolicy.isAllowedSheetRole(role) else {
+                    continue
+                }
+
+                let identifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: element)
+                let titleOrDesc = Self.axStringAttribute(kAXTitleAttribute, of: element)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: element)
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: element) ?? true
+                let snapshot = QAXElementSnapshot(role: role, identifier: identifier, titleOrDescription: titleOrDesc, isEnabled: isEnabled)
+                if !seenSnapshots.contains(snapshot) {
+                    seenSnapshots.append(snapshot)
+                    validSheetElements.append(element)
+                }
+            }
+
+            guard validSheetElements.count <= Self.maxDirectSheetsCount else {
+                throw QAXInteractionError.sheetCollectionExceedsSafeBound(validSheetElements.count)
+            }
+
+            var sheetsMetadata: [QAXSheetMetadata] = []
+            sheetsMetadata.reserveCapacity(validSheetElements.count)
+
+            for (index, sheetElement) in validSheetElements.enumerated() {
+                let sheetTitle = Self.axStringAttribute(kAXTitleAttribute, of: sheetElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: sheetElement)
+                let sheetIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: sheetElement)
+                let role = Self.axStringAttribute(kAXRoleAttribute, of: sheetElement) ?? "AXSheet"
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: sheetElement)
+                let isModal = Self.axBoolAttribute(Self.axModalAttributeName, of: sheetElement)
+
+                sheetsMetadata.append(
+                    QAXSheetMetadata(
+                        index: index,
+                        title: sheetTitle,
+                        identifier: sheetIdentifier,
+                        role: role,
+                        subrole: subrole,
+                        isModal: isModal
+                    )
+                )
+            }
+
+            return QAXSheetCollectionMetadata(
+                applicationName: applicationName,
+                windowTitle: verifiedWindow.titleOrDescription,
+                windowIdentifier: verifiedWindow.identifier,
+                sheetCount: sheetsMetadata.count,
+                sheets: sheetsMetadata
+            )
+        }.value
+    }
+
     private static func axIntAttribute(_ attribute: String, of element: AXUIElement) -> Int? {
         var value: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
@@ -6183,8 +6368,12 @@ extension QBridgeAccessibility {
     }
 
     fileprivate nonisolated static func childrenAttribute(of element: AXUIElement) -> [AXUIElement]? {
+        axUIElementsAttribute(kAXChildrenAttribute as String, of: element)
+    }
+
+    fileprivate nonisolated static func axUIElementsAttribute(_ attribute: String, of element: AXUIElement) -> [AXUIElement]? {
         var value: CFTypeRef?
-        let result = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value)
+        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
         guard result == .success, let array = value as? [AXUIElement] else { return nil }
         return array
     }

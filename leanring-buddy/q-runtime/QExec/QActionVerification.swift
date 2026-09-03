@@ -345,6 +345,10 @@ public enum QVerificationStrategy: Sendable {
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual segment title or identifier.
     case segmentedControlEnumerationSucceeded(applicationName: String, itemCount: Int, selectedCount: Int)
+    /// Phase 2AN: semantic sheet dialog enumeration verification (Level 0, read-only). Success requires
+    /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
+    /// only, never any individual sheet title or identifier.
+    case sheetEnumerationSucceeded(applicationName: String, sheetCount: Int)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -793,6 +797,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Segmented control item enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) segmentedControlRole=AXSegmentedControl status=failed"
+                )
+            }
+
+        case .sheetEnumerationSucceeded(let applicationName, let sheetCount):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) sheetRole=AXSheet sheetCount=\(sheetCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Sheet dialog enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) sheetRole=AXSheet status=failed"
                 )
             }
 

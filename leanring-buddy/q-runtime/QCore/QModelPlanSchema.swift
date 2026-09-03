@@ -532,7 +532,16 @@ public struct QModelPlanParser: Sendable {
         // (maxDirectSegmentsCount = 32). This is a POINT-IN-TIME SNAPSHOT ONLY:
         // result is informational and never enters durable persistence snapshots; every subsequent mutation
         // capability must independently perform its own fresh, exact target resolution.
-        "ui.list_segmented_control_items": ("ui", .level0ReadOnly)
+        "ui.list_segmented_control_items": ("ui", .level0ReadOnly),
+        // Phase 2AN: semantic sheet dialog enumeration — LEVEL 0 (READ-ONLY). Enumerates direct
+        // AXSheet elements attached to exactly ONE named AXWindow in an application via kAXSheetsAttribute
+        // and direct children. No mutation, no press, no focus, no approval, no recovery.
+        // Application identity is resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication.
+        // Target must match AXSheet canonical role policy (AXDialog is strictly excluded). Bounded by local defensive ceiling
+        // (maxDirectSheetsCount = 16). This is a POINT-IN-TIME SNAPSHOT ONLY:
+        // result is informational and never enters durable persistence snapshots; every subsequent mutation
+        // capability must independently perform its own fresh, exact target resolution.
+        "ui.list_sheet_dialogs": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.
