@@ -265,6 +265,7 @@ public struct QAccessibilityElementInfo: Sendable {
 public protocol QBridgeAccessibilityProtocol: Sendable {
     func readFocusedElement() async throws -> QAccessibilityElementInfo?
     func listMenuItems(applicationName: String) async throws -> [QAXTopLevelMenuMetadata]
+    func listPopupItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXPopupMenuMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -1692,6 +1693,40 @@ public struct QAXTopLevelMenuMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One pop-up menu item's safe, non-sensitive identity metadata, as returned by `ui.list_popup_items`
+/// (Phase 2AD). Submenus are strictly out of scope — represents only direct items of a pop-up button's menu.
+public struct QAXPopupItemMetadata: Sendable, Equatable, Codable {
+    public let title: String?
+    public let identifier: String?
+    public let isEnabled: Bool?
+    public let isSelected: Bool
+    public let role: String
+
+    public init(title: String?, identifier: String?, isEnabled: Bool?, isSelected: Bool, role: String = "AXMenuItem") {
+        self.title = title
+        self.identifier = identifier
+        self.isEnabled = isEnabled
+        self.isSelected = isSelected
+        self.role = role
+    }
+}
+
+/// A pop-up button's safe, non-sensitive direct items metadata, as returned by `ui.list_popup_items`
+/// (Phase 2AD). Deliberately carries ONLY the fields this capability's contract allows — never raw
+/// `AXUIElement` references, never arbitrary descendant trees, never submenus.
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target
+/// reference; any subsequent mutation capability (`ui.select_popup_item`) must independently perform
+/// its own fresh, exact target resolution.
+public struct QAXPopupMenuMetadata: Sendable, Equatable, Codable {
+    public let selectedValue: String?
+    public let items: [QAXPopupItemMetadata]
+
+    public init(selectedValue: String?, items: [QAXPopupItemMetadata]) {
+        self.selectedValue = selectedValue
+        self.items = items
+    }
+}
+
 extension QBridgeAccessibility {
     private static let maxTraversalDepth = 12
     private static let maxTraversalNodes = 3_000
@@ -1704,6 +1739,8 @@ extension QBridgeAccessibility {
     private static let maxTopLevelMenuCount = 32
     private static let maxDirectMenuItemsPerMenuCount = 128
     private static let maxTotalMenuItemsCount = 512
+    /// Phase 2AD: defensive bound on pop-up menu direct item enumeration.
+    private static let maxDirectPopupItemsCount = 128
     private static let traversalTimeBudgetSeconds: CFAbsoluteTime = 1.5
     /// No `kAX...` Swift constant exists for this attribute; confirmed via direct empirical
     /// probing against real macOS apps that it is the stable, populated, raw-string identifier
@@ -4699,6 +4736,108 @@ extension QBridgeAccessibility {
             }
 
             return topLevelMenus
+        }.value
+    }
+
+    /// Phase 2AD: semantic pop-up menu item enumeration (Level 0, read-only). Enumerates direct menu
+    /// items belonging to exactly ONE named AXPopUpButton in an application.
+    /// No mutation, no press, no open, no approval, no recovery. Submenus are strictly OUT OF SCOPE.
+    public func listPopupItems(
+        applicationName: String,
+        role: String = "AXPopUpButton",
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXPopupMenuMetadata {
+        guard QAXPopupRolePolicy.isAllowedPopupRole(role) else {
+            throw QAXInteractionError.disallowedPopupRole(role)
+        }
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target pop-up element is no longer resolvable immediately before enumeration")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target pop-up element identity changed between observation and enumeration")
+            }
+
+            let currentValue = Self.axStringAttribute(kAXValueAttribute, of: targetElement)
+
+            // Direct children of AXPopUpButton: find direct AXMenu child
+            var candidateMenus: [AXUIElement] = []
+            if let children = Self.childrenAttribute(of: targetElement) {
+                for child in children {
+                    if Self.axStringAttribute(kAXRoleAttribute, of: child) == "AXMenu" {
+                        candidateMenus.append(child)
+                    }
+                }
+            }
+
+            guard candidateMenus.count <= 1 else {
+                throw QAXInteractionError.ambiguousTarget(count: candidateMenus.count)
+            }
+
+            guard let menuElement = candidateMenus.first else {
+                return QAXPopupMenuMetadata(selectedValue: currentValue, items: [])
+            }
+
+            guard let rawMenuItems = Self.childrenAttribute(of: menuElement) else {
+                return QAXPopupMenuMetadata(selectedValue: currentValue, items: [])
+            }
+
+            let menuItemElements = rawMenuItems.filter {
+                Self.axStringAttribute(kAXRoleAttribute, of: $0) == "AXMenuItem"
+            }
+
+            guard menuItemElements.count <= Self.maxDirectPopupItemsCount else {
+                throw QAXInteractionError.menuItemCollectionExceedsSafeBound(menuItemElements.count)
+            }
+
+            var itemsMetadata: [QAXPopupItemMetadata] = []
+            itemsMetadata.reserveCapacity(menuItemElements.count)
+
+            for itemElement in menuItemElements {
+                let itemTitle = Self.axStringAttribute(kAXTitleAttribute, of: itemElement)
+                let itemIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: itemElement)
+                let itemEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: itemElement)
+                let isSelected: Bool
+                if let currentValue, let itemTitle, !currentValue.isEmpty, itemTitle == currentValue {
+                    isSelected = true
+                } else {
+                    isSelected = false
+                }
+
+                itemsMetadata.append(
+                    QAXPopupItemMetadata(
+                        title: itemTitle,
+                        identifier: itemIdentifier,
+                        isEnabled: itemEnabled,
+                        isSelected: isSelected,
+                        role: "AXMenuItem"
+                    )
+                )
+            }
+
+            return QAXPopupMenuMetadata(
+                selectedValue: currentValue,
+                items: itemsMetadata
+            )
         }.value
     }
 

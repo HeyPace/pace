@@ -189,6 +189,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_menu_items":
             result = await executeListMenuItems(request: request)
 
+        case "ui.list_popup_items":
+            result = await executeListPopupItems(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -2305,6 +2308,92 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing menu items: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2AD: executes read-only pop-up menu direct item discovery.
+    /// Result summary carries aggregate counts only, never leaking individual item titles to durable storage.
+    private func executeListPopupItems(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"] ?? "AXPopUpButton"
+        guard QAXPopupRolePolicy.isAllowedPopupRole(role) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target role '\(role)' is not an allowed pop-up button target.",
+                error: "AX_DISALLOWED_ROLE"
+            )
+        }
+
+        let identifier = request.parameters["identifier"] ?? request.parameters["id"]
+        let title = request.parameters["title"] ?? request.parameters["label"]
+
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an identifier or title to match semantically.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listPopupItems(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "selectedValue": metadata.selectedValue ?? "",
+                "itemCount": "\(metadata.items.count)"
+            ]
+            if let identifier {
+                outputData["identifier"] = identifier
+            }
+            if let title {
+                outputData["title"] = title
+            }
+
+            for (itemIndex, item) in metadata.items.enumerated() {
+                outputData["item\(itemIndex).title"] = item.title ?? ""
+                outputData["item\(itemIndex).identifier"] = item.identifier ?? ""
+                outputData["item\(itemIndex).enabled"] = item.isEnabled.map { $0 ? "true" : "false" } ?? ""
+                outputData["item\(itemIndex).selected"] = item.isSelected ? "true" : "false"
+                outputData["item\(itemIndex).role"] = item.role
+            }
+
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(metadata.items.count) popup item(s) (current value: '\(metadata.selectedValue ?? "none")') for application '\(applicationName)'. This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing pop-up items: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

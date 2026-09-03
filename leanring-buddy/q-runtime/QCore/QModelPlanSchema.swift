@@ -469,7 +469,16 @@ public struct QModelPlanParser: Sendable {
         // meaningful or as authorization. This is a POINT-IN-TIME SNAPSHOT ONLY: result is informational
         // and never enters durable persistence snapshots; every subsequent mutation capability
         // (ui.select_menu_item) must independently perform its own fresh, exact target resolution.
-        "ui.list_menu_items": ("ui", .level0ReadOnly)
+        "ui.list_menu_items": ("ui", .level0ReadOnly),
+        // Phase 2AD: semantic pop-up menu item enumeration — LEVEL 0 (READ-ONLY). Enumerates direct
+        // menu items belonging to exactly ONE named AXPopUpButton in an application via direct AXMenu
+        // children. No mutation, no press, no open, no approval, no recovery. Application identity is
+        // resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication. Target
+        // must match AXPopUpButton role policy. Bounded by local defensive ceiling
+        // (maxDirectPopupItemsCount = 128). This is a POINT-IN-TIME SNAPSHOT ONLY: result is informational
+        // and never enters durable persistence snapshots; every subsequent mutation capability
+        // (ui.select_popup_item) must independently perform its own fresh, exact target resolution.
+        "ui.list_popup_items": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

@@ -317,6 +317,10 @@ public enum QVerificationStrategy: Sendable {
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual menu/item title or identifier.
     case menuEnumerationSucceeded(applicationName: String, menuCount: Int, itemCount: Int)
+    /// Phase 2AD: semantic pop-up menu item enumeration verification (Level 0, read-only). Success requires
+    /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
+    /// only, never any individual popup item title or identifier.
+    case popupEnumerationSucceeded(applicationName: String, itemCount: Int)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -681,6 +685,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Menu enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) status=failed"
+                )
+            }
+
+        case .popupEnumerationSucceeded(let applicationName, let itemCount):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) popupRole=AXPopUpButton itemCount=\(itemCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Pop-up menu item enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) popupRole=AXPopUpButton status=failed"
                 )
             }
 
