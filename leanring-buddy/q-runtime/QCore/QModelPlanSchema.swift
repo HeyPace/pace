@@ -580,7 +580,18 @@ public struct QModelPlanParser: Sendable {
         // (maxDirectSplitPanesCount = 16). This is a POINT-IN-TIME SNAPSHOT ONLY:
         // result is informational and never enters durable persistence snapshots; every subsequent mutation
         // capability must independently perform its own fresh, exact target resolution.
-        "ui.list_split_panes": ("ui", .level0ReadOnly)
+        "ui.list_split_panes": ("ui", .level0ReadOnly),
+        // Phase 2AU: semantic split view divider position mutation — LEVEL 2 (REVERSIBLE, APPROVAL REQUIRED).
+        // Sets the numeric divider position of exactly ONE semantically-identified AXSplitter within an AXSplitGroup
+        // in a named application window via AXUIElementSetAttributeValue(kAXValueAttribute) only — never mouse dragging,
+        // coordinate simulation, CGEvent, or physical input. Target splitter is resolved via application name, optional
+        // window scoping, optional split group scoping, and 0-indexed splitterIndex (default 0). Validates that the
+        // desiredPosition is a finite Double within the splitter's own reported kAXMinValueAttribute / kAXMaxValueAttribute range.
+        // Validates that the attribute is settable before mutation. Idempotent: if current position already matches desiredPosition
+        // within tolerance (abs(current - desired) <= tolerance), returns success immediately as a verified no-op.
+        // Protected by stale-target & drift checks, and verified via independent closed-loop observation of fresh kAXValueAttribute.
+        // Requires explicit single-use approval bound to QExecutionIdentity.
+        "ui.set_splitter_position": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

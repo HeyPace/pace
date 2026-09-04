@@ -225,6 +225,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.select_segmented_control_item":
             result = await executeSelectSegmentedControlItem(request: request)
 
+        case "ui.set_splitter_position":
+            result = await executeSetSplitterPosition(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -3409,6 +3412,126 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while selecting segmented control item: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2AU: semantic split view divider position mutation (Level 2, approval required).
+    /// Sets the numeric divider position of exactly ONE semantically-identified `AXSplitter` within an `AXSplitGroup`
+    /// in a named application window via `AXUIElementSetAttributeValue(kAXValueAttribute)`.
+    private func executeSetSplitterPosition(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        guard let desiredPositionString = request.parameters["desiredPosition"] ?? request.parameters["position"] ?? request.parameters["value"],
+              let desiredPosition = Double(desiredPositionString), desiredPosition.isFinite else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing or invalid required 'desiredPosition' parameter (must be a finite numeric value).",
+                error: "AX_INVALID_DESIRED_VALUE"
+            )
+        }
+
+        let splitterIndex: Int
+        if let idxString = request.parameters["splitterIndex"] ?? request.parameters["index"] ?? request.parameters["dividerIndex"] {
+            guard let parsedIdx = Int(idxString), parsedIdx >= 0 else {
+                return QActionResult(
+                    actionId: request.actionId,
+                    success: false,
+                    summary: "Invalid 'splitterIndex' parameter: '\(idxString)' (must be non-negative integer).",
+                    error: "AX_INVALID_SPLITTER_INDEX"
+                )
+            }
+            splitterIndex = parsedIdx
+        } else {
+            splitterIndex = 0
+        }
+
+        let tolerance: Double
+        if let tolString = request.parameters["tolerance"] {
+            guard let parsedTol = Double(tolString), parsedTol >= 0.0, parsedTol.isFinite else {
+                return QActionResult(
+                    actionId: request.actionId,
+                    success: false,
+                    summary: "Invalid 'tolerance' parameter: '\(tolString)' (must be non-negative finite number).",
+                    error: "AX_INVALID_SPLITTER_TOLERANCE"
+                )
+            }
+            tolerance = parsedTol
+        } else {
+            tolerance = 0.5
+        }
+
+        let role = request.parameters["role"] ?? "AXSplitter"
+        guard QAXSplitterRolePolicy.isAllowedSplitterRole(role) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target role '\(role)' is not an allowed splitter target.",
+                error: "AX_SPLITTER_ROLE_NOT_ALLOWED"
+            )
+        }
+
+        let splitGroupIdentifier = request.parameters["splitGroupIdentifier"] ?? request.parameters["identifier"] ?? request.parameters["id"]
+        let splitGroupTitle = request.parameters["splitGroupTitle"] ?? request.parameters["title"] ?? request.parameters["label"]
+        let windowTitle = request.parameters["windowTitle"] ?? request.parameters["window"]
+        let windowIdentifier = request.parameters["windowIdentifier"] ?? request.parameters["windowId"]
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.setSplitterPosition(
+                applicationName: applicationName,
+                desiredPosition: desiredPosition,
+                splitterIndex: splitterIndex,
+                tolerance: tolerance,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier,
+                splitGroupIdentifier: splitGroupIdentifier,
+                splitGroupTitle: splitGroupTitle,
+                role: role
+            )
+
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Splitter position mutation attempted for \(outcome.targetIdentity): changeKind=\(outcome.changeKind.rawValue), previousPosition=\(outcome.previousPosition), currentPosition=\(outcome.currentPosition), desiredPosition=\(desiredPosition), tolerance=\(tolerance). Independent closed-loop verification pending.",
+                outputData: [
+                    "applicationName": applicationName,
+                    "role": role,
+                    "targetIdentity": outcome.targetIdentity,
+                    "changeKind": outcome.changeKind.rawValue,
+                    "previousPosition": "\(outcome.previousPosition)",
+                    "currentPosition": "\(outcome.currentPosition)",
+                    "desiredPosition": "\(desiredPosition)",
+                    "minValue": "\(outcome.minValue)",
+                    "maxValue": "\(outcome.maxValue)",
+                    "splitterIndex": "\(splitterIndex)",
+                    "tolerance": "\(tolerance)",
+                    "windowTitle": windowTitle ?? "",
+                    "windowIdentifier": windowIdentifier ?? "",
+                    "splitGroupIdentifier": splitGroupIdentifier ?? "",
+                    "splitGroupTitle": splitGroupTitle ?? ""
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while setting splitter position: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

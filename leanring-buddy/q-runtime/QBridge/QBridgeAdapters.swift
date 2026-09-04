@@ -645,6 +645,21 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// Phase 2AT: the direct pane count for a split group exceeds this capability's
     /// defensive safe bound (16).
     case splitPaneCollectionExceedsSafeBound(Int)
+    /// Phase 2AU: the target's AX role is not on `QAXSplitterRolePolicy.allowedRoles`
+    /// (`AXSplitter` only).
+    case disallowedSplitterRole(String)
+    /// Phase 2AU: requested splitter index is out of bounds for the target split group.
+    case invalidSplitterIndex(Int, availableCount: Int)
+    /// Phase 2AU: requested splitter position is out of the target splitter's min/max range.
+    case splitterPositionOutOfRange(requested: Double, min: Double, max: Double)
+    /// Phase 2AU: target splitter's value attribute is not settable.
+    case splitterPositionNotSettable
+    /// Phase 2AU: target child element is not a valid splitter.
+    case targetNotASplitter(String)
+    /// Phase 2AU: requested splitter tolerance is invalid (must be non-negative).
+    case invalidSplitterTolerance(Double)
+    /// Phase 2AU: requested splitter position is invalid (must be a finite number).
+    case invalidDesiredPosition(String)
 
     public var description: String {
         switch self {
@@ -824,6 +839,20 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not an allowed split group target."
         case .splitPaneCollectionExceedsSafeBound(let count):
             return "Split pane collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .disallowedSplitterRole(let role):
+            return "Target role '\(role)' is not an allowed splitter target."
+        case .invalidSplitterIndex(let index, let availableCount):
+            return "Splitter index \(index) is out of range (available count: \(availableCount))."
+        case .splitterPositionOutOfRange(let requested, let min, let max):
+            return "Requested splitter position \(requested) is out of range [\(min), \(max)]."
+        case .splitterPositionNotSettable:
+            return "Target splitter position attribute is not writable."
+        case .targetNotASplitter(let role):
+            return "Target element is not a splitter (role: \(role))."
+        case .invalidSplitterTolerance(let tol):
+            return "Splitter tolerance must be non-negative, got \(tol)."
+        case .invalidDesiredPosition(let reason):
+            return "Invalid desired splitter position: \(reason)"
         }
     }
 
@@ -918,6 +947,13 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .windowFullScreenNotWritable: return "AX_WINDOW_FULL_SCREEN_NOT_WRITABLE"
         case .disallowedSplitGroupRole: return "AX_DISALLOWED_ROLE"
         case .splitPaneCollectionExceedsSafeBound: return "AX_SPLIT_PANE_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .disallowedSplitterRole: return "AX_SPLITTER_ROLE_NOT_ALLOWED"
+        case .invalidSplitterIndex: return "AX_INVALID_SPLITTER_INDEX"
+        case .splitterPositionOutOfRange: return "AX_SPLITTER_POSITION_OUT_OF_RANGE"
+        case .splitterPositionNotSettable: return "AX_SPLITTER_POSITION_NOT_SETTABLE"
+        case .targetNotASplitter: return "AX_TARGET_NOT_A_SPLITTER"
+        case .invalidSplitterTolerance: return "AX_INVALID_SPLITTER_TOLERANCE"
+        case .invalidDesiredPosition: return "AX_INVALID_DESIRED_POSITION"
         }
     }
 }
@@ -1401,6 +1437,16 @@ public enum QAXSplitGroupRolePolicy {
     public static let allowedRoles: Set<String> = ["AXSplitGroup"]
 
     public static func isAllowedSplitGroupRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.set_splitter_position` (Phase 2AU) may target.
+/// Canonical role only — the `AXSplitter` divider element between split panes within an `AXSplitGroup`.
+public enum QAXSplitterRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXSplitter"]
+
+    public static func isAllowedSplitterRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -2401,6 +2447,54 @@ public struct QAXSplitGroupMetadata: Sendable, Equatable, Codable {
         self.paneCount = paneCount
         self.panes = panes
     }
+}
+
+/// Whether a `setSplitterPosition` call actually performed a value write, or found the target
+/// already at the desired position (within tolerance) and correctly did nothing.
+public enum QAXSplitterChangeKind: String, Sendable, Equatable {
+    case alreadyDesired
+    case changed
+}
+
+/// The outcome of one `QBridgeAccessibility.setSplitterPosition` call.
+public struct QAXSplitterPositionOutcome: Sendable, Equatable {
+    public let changeKind: QAXSplitterChangeKind
+    public let previousPosition: Double
+    public let currentPosition: Double
+    public let desiredPosition: Double
+    public let minValue: Double
+    public let maxValue: Double
+    public let splitterIndex: Int
+    public let targetIdentity: String
+
+    public init(
+        changeKind: QAXSplitterChangeKind,
+        previousPosition: Double,
+        currentPosition: Double,
+        desiredPosition: Double,
+        minValue: Double,
+        maxValue: Double,
+        splitterIndex: Int,
+        targetIdentity: String
+    ) {
+        self.changeKind = changeKind
+        self.previousPosition = previousPosition
+        self.currentPosition = currentPosition
+        self.desiredPosition = desiredPosition
+        self.minValue = minValue
+        self.maxValue = maxValue
+        self.splitterIndex = splitterIndex
+        self.targetIdentity = targetIdentity
+    }
+}
+
+/// The result of independently re-observing a splitter's `kAXValueAttribute` after a
+/// `ui.set_splitter_position` dispatch, for the later closed-loop verification step (and for
+/// `QTaskRecoveryManager`'s observation-first recovery, which reuses this exact primitive).
+public enum QAXSplitterPositionEvidence: Sendable, Equatable {
+    case resolved(currentPosition: Double)
+    case rangeInvalid(currentPosition: Double)
+    case targetUnavailable
 }
 
 /// One segment item's safe, non-sensitive identity metadata, as returned by `ui.list_segmented_control_items`
@@ -6572,6 +6666,264 @@ extension QBridgeAccessibility {
                 paneCount: panesMetadata.count,
                 panes: panesMetadata
             )
+        }.value
+    }
+
+    /// Compares two numeric splitter divider positions within an explicit floating-point tolerance (default 0.5 points).
+    public static func splitterPositionsAreEqual(_ a: Double, _ b: Double, tolerance: Double = 0.5) -> Bool {
+        abs(a - b) <= tolerance
+    }
+
+    /// Phase 2AU: semantic split view divider position mutation (Level 2, approval required).
+    /// Sets the numeric divider position of exactly ONE semantically-identified `AXSplitter` within an `AXSplitGroup`
+    /// in a named application window via `AXUIElementSetAttributeValue(kAXValueAttribute)`.
+    /// Never uses mouse dragging, coordinate simulation, CGEvent, or physical input.
+    public func setSplitterPosition(
+        applicationName: String,
+        desiredPosition: Double,
+        splitterIndex: Int = 0,
+        tolerance: Double = 0.5,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil,
+        splitGroupIdentifier: String? = nil,
+        splitGroupTitle: String? = nil,
+        role: String = "AXSplitter"
+    ) async throws -> QAXSplitterPositionOutcome {
+        guard desiredPosition.isFinite else {
+            throw QAXInteractionError.invalidDesiredPosition("desiredPosition must be a finite number, got \(desiredPosition)")
+        }
+        guard tolerance >= 0.0 && tolerance.isFinite else {
+            throw QAXInteractionError.invalidSplitterTolerance(tolerance)
+        }
+        guard splitterIndex >= 0 else {
+            throw QAXInteractionError.invalidSplitterIndex(splitterIndex, availableCount: 0)
+        }
+        guard QAXSplitterRolePolicy.isAllowedSplitterRole(role) else {
+            throw QAXInteractionError.disallowedSplitterRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            let resolvedWindowTitle: String?
+
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+                guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+                let (targetWindow, windowSnapshot) = windowMatches[0]
+                guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                    throw QAXInteractionError.staleTarget("target window element is no longer resolvable")
+                }
+                guard verifiedWindow == windowSnapshot else {
+                    throw QAXInteractionError.staleTarget("target window identity changed between observation and verification")
+                }
+                searchRoot = targetWindow
+                resolvedWindowTitle = verifiedWindow.titleOrDescription
+            } else {
+                searchRoot = appElement
+                resolvedWindowTitle = nil
+            }
+
+            let splitGroupMatches = Self.collectMatches(
+                root: searchRoot,
+                role: "AXSplitGroup",
+                identifier: splitGroupIdentifier,
+                title: splitGroupTitle
+            )
+            guard !splitGroupMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard splitGroupMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: splitGroupMatches.count) }
+
+            let (splitGroupElement, observedSplitGroup) = splitGroupMatches[0]
+
+            guard let verifiedSplitGroup = Self.snapshotIfMatches(splitGroupElement, role: "AXSplitGroup", identifier: splitGroupIdentifier, title: splitGroupTitle) else {
+                throw QAXInteractionError.staleTarget("target split group element is no longer resolvable immediately before splitter resolution")
+            }
+            guard verifiedSplitGroup == observedSplitGroup else {
+                throw QAXInteractionError.staleTarget("target split group element identity changed between observation and verification")
+            }
+
+            let rawChildren = Self.childrenAttribute(of: splitGroupElement) ?? []
+            var splitters: [AXUIElement] = rawChildren.filter {
+                Self.axStringAttribute(kAXRoleAttribute, of: $0) == Self.splitterRole
+            }
+            if splitters.isEmpty {
+                if let rawSplitters = Self.axUIElementsAttribute(kAXSplittersAttribute as String, of: splitGroupElement) {
+                    splitters = rawSplitters
+                }
+            }
+
+            guard !splitters.isEmpty else {
+                throw QAXInteractionError.noMatchingElement
+            }
+            guard splitterIndex < splitters.count else {
+                throw QAXInteractionError.invalidSplitterIndex(splitterIndex, availableCount: splitters.count)
+            }
+
+            let splitterElement = splitters[splitterIndex]
+
+            guard let splitterRole = Self.axStringAttribute(kAXRoleAttribute, of: splitterElement) else {
+                throw QAXInteractionError.noMatchingElement
+            }
+            guard QAXSplitterRolePolicy.isAllowedSplitterRole(splitterRole) else {
+                throw QAXInteractionError.disallowedSplitterRole(splitterRole)
+            }
+
+            var isSettable: DarwinBoolean = false
+            let settableResult = AXUIElementIsAttributeSettable(splitterElement, kAXValueAttribute as CFString, &isSettable)
+            guard settableResult == .success, isSettable.boolValue else {
+                throw QAXInteractionError.splitterPositionNotSettable
+            }
+
+            let minVal = Self.axDoubleAttribute(kAXMinValueAttribute as String, of: splitterElement) ?? 0.0
+            let maxVal = Self.axDoubleAttribute(kAXMaxValueAttribute as String, of: splitterElement)
+            if let maxVal = maxVal, minVal > maxVal {
+                throw QAXInteractionError.invalidRange("Splitter minValue (\(minVal)) exceeds maxValue (\(maxVal))")
+            }
+            if desiredPosition < minVal || (maxVal != nil && desiredPosition > maxVal!) {
+                throw QAXInteractionError.splitterPositionOutOfRange(
+                    requested: desiredPosition,
+                    min: minVal,
+                    max: maxVal ?? .infinity
+                )
+            }
+
+            guard let currentPosition = Self.axDoubleAttribute(kAXValueAttribute as String, of: splitterElement) else {
+                throw QAXInteractionError.valueReadFailed
+            }
+
+            let targetIdentity = "application=\(applicationName) window=\(resolvedWindowTitle ?? "default") splitGroup=\(verifiedSplitGroup.titleOrDescription ?? verifiedSplitGroup.identifier ?? "default") splitterIndex=\(splitterIndex)"
+
+            if Self.splitterPositionsAreEqual(currentPosition, desiredPosition, tolerance: tolerance) {
+                return QAXSplitterPositionOutcome(
+                    changeKind: .alreadyDesired,
+                    previousPosition: currentPosition,
+                    currentPosition: currentPosition,
+                    desiredPosition: desiredPosition,
+                    minValue: minVal,
+                    maxValue: maxVal ?? minVal,
+                    splitterIndex: splitterIndex,
+                    targetIdentity: targetIdentity
+                )
+            }
+
+            let axValue = NSNumber(value: desiredPosition) as CFTypeRef
+            let setResult = AXUIElementSetAttributeValue(splitterElement, kAXValueAttribute as CFString, axValue)
+            guard setResult == .success else {
+                throw QAXInteractionError.setValueFailed("AXError(\(setResult.rawValue)) while writing splitter position (\(desiredPosition))")
+            }
+
+            guard let observedPosition = Self.axDoubleAttribute(kAXValueAttribute as String, of: splitterElement) else {
+                throw QAXInteractionError.valueReadFailed
+            }
+
+            guard Self.splitterPositionsAreEqual(observedPosition, desiredPosition, tolerance: tolerance) else {
+                throw QAXInteractionError.valueDriftDetected("Observed splitter position \(observedPosition) does not match requested position \(desiredPosition) within tolerance \(tolerance)")
+            }
+
+            return QAXSplitterPositionOutcome(
+                changeKind: .changed,
+                previousPosition: currentPosition,
+                currentPosition: observedPosition,
+                desiredPosition: desiredPosition,
+                minValue: minVal,
+                maxValue: maxVal ?? minVal,
+                splitterIndex: splitterIndex,
+                targetIdentity: targetIdentity
+            )
+        }.value
+    }
+
+    /// Best-effort, read-only re-observation of a target splitter's position used for independent closed-loop
+    /// verification and observe-first recovery.
+    public func reobserveSplitterPosition(
+        applicationName: String,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil,
+        splitGroupIdentifier: String? = nil,
+        splitGroupTitle: String? = nil,
+        splitterIndex: Int = 0
+    ) async -> QAXSplitterPositionEvidence {
+        guard AXIsProcessTrusted() else {
+            return .targetUnavailable
+        }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else {
+            return .targetUnavailable
+        }
+        let processIdentifier = runningApp.processIdentifier
+
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard windowMatches.count == 1 else { return .targetUnavailable }
+                searchRoot = windowMatches[0].0
+            } else {
+                searchRoot = appElement
+            }
+
+            let splitGroupMatches = Self.collectMatches(
+                root: searchRoot,
+                role: "AXSplitGroup",
+                identifier: splitGroupIdentifier,
+                title: splitGroupTitle
+            )
+            guard splitGroupMatches.count == 1 else { return .targetUnavailable }
+            let splitGroupElement = splitGroupMatches[0].0
+
+            let rawChildren = Self.childrenAttribute(of: splitGroupElement) ?? []
+            var splitters: [AXUIElement] = rawChildren.filter {
+                Self.axStringAttribute(kAXRoleAttribute, of: $0) == Self.splitterRole
+            }
+            if splitters.isEmpty {
+                if let rawSplitters = Self.axUIElementsAttribute(kAXSplittersAttribute as String, of: splitGroupElement) {
+                    splitters = rawSplitters
+                }
+            }
+
+            guard splitterIndex >= 0 && splitterIndex < splitters.count else {
+                return .targetUnavailable
+            }
+            let splitterElement = splitters[splitterIndex]
+            guard let role = Self.axStringAttribute(kAXRoleAttribute, of: splitterElement),
+                  QAXSplitterRolePolicy.isAllowedSplitterRole(role) else {
+                return .targetUnavailable
+            }
+
+            let minVal = Self.axDoubleAttribute(kAXMinValueAttribute as String, of: splitterElement) ?? 0.0
+            let maxVal = Self.axDoubleAttribute(kAXMaxValueAttribute as String, of: splitterElement)
+            if let maxVal = maxVal, minVal > maxVal {
+                return .rangeInvalid(currentPosition: minVal)
+            }
+
+            guard let currentVal = Self.axDoubleAttribute(kAXValueAttribute as String, of: splitterElement) else {
+                return .targetUnavailable
+            }
+
+            if let maxVal = maxVal, (currentVal < minVal - 0.001 || currentVal > maxVal + 0.001) {
+                return .rangeInvalid(currentPosition: currentVal)
+            }
+
+            return .resolved(currentPosition: currentVal)
         }.value
     }
 

@@ -621,6 +621,37 @@ public final class QTaskRecoveryManager: Sendable {
                 }
             }
 
+        case "ui.set_splitter_position":
+            // Observation-first (Phase 2AU): re-check whether the requested splitter already
+            // reports the desired position before ever considering a replay. Reuses the
+            // EXACT SAME independent observation primitive (QBridgeAccessibility.reobserveSplitterPosition).
+            let splitterAppName = uncertainStep.arguments["applicationName"] ?? ""
+            let splitterDesiredPosRaw = uncertainStep.arguments["desiredPosition"] ?? uncertainStep.arguments["position"] ?? uncertainStep.arguments["value"] ?? ""
+            let splitterIndexRaw = uncertainStep.arguments["splitterIndex"] ?? uncertainStep.arguments["index"] ?? uncertainStep.arguments["dividerIndex"] ?? "0"
+            let splitterToleranceRaw = uncertainStep.arguments["tolerance"] ?? "0.5"
+            let splitterWinTitle = uncertainStep.arguments["windowTitle"].flatMap { $0.isEmpty ? nil : $0 } ?? uncertainStep.arguments["window"].flatMap { $0.isEmpty ? nil : $0 }
+            let splitterWinId = uncertainStep.arguments["windowIdentifier"].flatMap { $0.isEmpty ? nil : $0 } ?? uncertainStep.arguments["windowId"].flatMap { $0.isEmpty ? nil : $0 }
+            let splitterGroupId = uncertainStep.arguments["splitGroupIdentifier"].flatMap { $0.isEmpty ? nil : $0 } ?? uncertainStep.arguments["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let splitterGroupTitle = uncertainStep.arguments["splitGroupTitle"].flatMap { $0.isEmpty ? nil : $0 } ?? uncertainStep.arguments["title"].flatMap { $0.isEmpty ? nil : $0 }
+
+            if !splitterAppName.isEmpty,
+               let splitterDesiredPos = Double(splitterDesiredPosRaw), splitterDesiredPos.isFinite,
+               let splitterIdx = Int(splitterIndexRaw), splitterIdx >= 0,
+               let splitterTol = Double(splitterToleranceRaw), splitterTol >= 0.0, splitterTol.isFinite {
+                let evidence = await QBridgeAccessibility.shared.reobserveSplitterPosition(
+                    applicationName: splitterAppName,
+                    windowTitle: splitterWinTitle,
+                    windowIdentifier: splitterWinId,
+                    splitGroupIdentifier: splitterGroupId,
+                    splitGroupTitle: splitterGroupTitle,
+                    splitterIndex: splitterIdx
+                )
+                if case .resolved(let currentPosition) = evidence, QBridgeAccessibility.splitterPositionsAreEqual(currentPosition, splitterDesiredPos, tolerance: splitterTol) {
+                    verified = true
+                    verifiedEvidence = "Observation verified: target splitter currentPosition='\(currentPosition)' desiredPosition='\(splitterDesiredPos)' tolerance='\(splitterTol)' status=verified"
+                }
+            }
+
         case "fs.write_sandbox":
             let path = uncertainStep.targetResources.first ?? uncertainStep.arguments["path"] ?? ""
             if !path.isEmpty && FileManager.default.fileExists(atPath: path) {

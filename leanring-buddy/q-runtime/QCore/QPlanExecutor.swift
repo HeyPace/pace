@@ -927,6 +927,32 @@ public final class QPlanExecutor: Sendable {
                 targetIdentity: targetIdentity,
                 desiredSelected: desiredSelected
             )
+        } else if action.actionName == "ui.set_splitter_position",
+                  let applicationName = action.arguments["applicationName"],
+                  let targetIdentity = result.outputData["targetIdentity"] {
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            let desiredPositionRaw = action.arguments["desiredPosition"] ?? action.arguments["position"] ?? action.arguments["value"] ?? result.outputData["desiredPosition"] ?? "0"
+            let desiredPosition = Double(desiredPositionRaw) ?? 0.0
+            let toleranceRaw = action.arguments["tolerance"] ?? result.outputData["tolerance"] ?? "0.5"
+            let tolerance = Double(toleranceRaw) ?? 0.5
+            let splitterIndexRaw = action.arguments["splitterIndex"] ?? action.arguments["index"] ?? action.arguments["dividerIndex"] ?? result.outputData["splitterIndex"] ?? "0"
+            let splitterIndex = Int(splitterIndexRaw) ?? 0
+            let splitGroupId = nonEmpty(action.arguments["splitGroupIdentifier"]) ?? nonEmpty(action.arguments["identifier"]) ?? nonEmpty(result.outputData["splitGroupIdentifier"])
+            let splitGroupTitle = nonEmpty(action.arguments["splitGroupTitle"]) ?? nonEmpty(action.arguments["title"]) ?? nonEmpty(result.outputData["splitGroupTitle"])
+            let windowTitle = nonEmpty(action.arguments["windowTitle"]) ?? nonEmpty(action.arguments["window"]) ?? nonEmpty(result.outputData["windowTitle"])
+            let windowIdentifier = nonEmpty(action.arguments["windowIdentifier"]) ?? nonEmpty(action.arguments["windowId"]) ?? nonEmpty(result.outputData["windowIdentifier"])
+
+            return .splitterPositionMatchesDesired(
+                applicationName: applicationName,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier,
+                splitGroupIdentifier: splitGroupId,
+                splitGroupTitle: splitGroupTitle,
+                splitterIndex: splitterIndex,
+                desiredPosition: desiredPosition,
+                tolerance: tolerance,
+                targetIdentity: targetIdentity
+            )
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

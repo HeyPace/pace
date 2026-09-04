@@ -281,6 +281,19 @@ public enum QVerificationStrategy: Sendable {
         targetIdentity: String,
         desiredValue: Double
     )
+    /// Phase 2AU: re-resolves the target splitter within its split group in a named application window,
+    /// independently re-reads its kAXValueAttribute, and compares it against desiredPosition within tolerance.
+    case splitterPositionMatchesDesired(
+        applicationName: String,
+        windowTitle: String?,
+        windowIdentifier: String?,
+        splitGroupIdentifier: String?,
+        splitGroupTitle: String?,
+        splitterIndex: Int,
+        desiredPosition: Double,
+        tolerance: Double,
+        targetIdentity: String
+    )
     /// Phase 2X: re-resolves the same semantic `AXWindow` target a ui.set_window_main step just
     /// mutated (or correctly no-op'd) and independently re-reads its own `kAXMainAttribute` — a
     /// successful attribute-set call is never itself treated as proof of success. This strategy
@@ -1177,6 +1190,39 @@ public final class QActionVerifier: Sendable {
             case .targetUnavailable:
                 return .failed(
                     reason: "Target segmented control item (role=\(role)) is no longer resolvable, ambiguous, or no longer role-qualified, for verification after the selection.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+        case .splitterPositionMatchesDesired(let applicationName, let windowTitle, let windowIdentifier, let splitGroupIdentifier, let splitGroupTitle, let splitterIndex, let desiredPosition, let tolerance, let targetIdentity):
+            let evidence = await QBridgeAccessibility.shared.reobserveSplitterPosition(
+                applicationName: applicationName,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier,
+                splitGroupIdentifier: splitGroupIdentifier,
+                splitGroupTitle: splitGroupTitle,
+                splitterIndex: splitterIndex
+            )
+            switch evidence {
+            case .resolved(let currentPosition):
+                if QBridgeAccessibility.splitterPositionsAreEqual(currentPosition, desiredPosition, tolerance: tolerance) {
+                    return .verified(
+                        evidence: "target=\(targetIdentity) currentPosition=\(currentPosition) desiredPosition=\(desiredPosition) tolerance=\(tolerance) status=verified"
+                    )
+                } else {
+                    return .failed(
+                        reason: "Target splitter (index=\(splitterIndex)) current position (\(currentPosition)) does not match desired position (\(desiredPosition)) within tolerance (\(tolerance)).",
+                        evidence: "target=\(targetIdentity) currentPosition=\(currentPosition) desiredPosition=\(desiredPosition) tolerance=\(tolerance) status=failed"
+                    )
+                }
+            case .rangeInvalid(let currentPosition):
+                return .failed(
+                    reason: "Target splitter (index=\(splitterIndex)) reported an internally inconsistent range or position (\(currentPosition)) after mutation.",
+                    evidence: "target=\(targetIdentity) currentPosition=\(currentPosition) status=failed"
+                )
+            case .targetUnavailable:
+                return .failed(
+                    reason: "Target splitter (index=\(splitterIndex)) is no longer resolvable or role-qualified for verification.",
                     evidence: "target=\(targetIdentity) status=failed"
                 )
             }
