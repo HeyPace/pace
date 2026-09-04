@@ -171,6 +171,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.set_window_minimized":
             result = await executeSetWindowMinimized(request: request)
 
+        case "ui.set_window_full_screen":
+            result = await executeSetWindowFullScreen(request: request)
+
         case "ui.set_application_hidden":
             result = await executeSetApplicationHidden(request: request)
 
@@ -1791,6 +1794,93 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while mutating window minimized state: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    // MARK: - Phase 2AS: Semantic Window Full-Screen State (Level 2)
+
+    /// Level 2 (reversible local action, approval required): sets exactly one semantically-identified
+    /// AXWindow's full-screen state to an explicit desiredFullScreen ("true"/"false").
+    private func executeSetWindowFullScreen(request: QActionRequest) async -> QActionResult {
+        let applicationName = request.parameters["applicationName"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter for window full-screen state mutation.",
+                error: "AX_MISSING_APPLICATION_NAME"
+            )
+        }
+
+        let role = request.parameters["role"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter for window full-screen state mutation — must be 'AXWindow'.",
+                error: "AX_MISSING_ROLE"
+            )
+        }
+
+        let identifier = request.parameters["identifier"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = request.parameters["title"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (identifier != nil && !identifier!.isEmpty) || (title != nil && !title!.isEmpty) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing window match criteria — at least one of 'identifier' or 'title' must be provided.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        let desiredFullScreenRaw = request.parameters["desiredFullScreen"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let desiredFullScreen = Bool(desiredFullScreenRaw) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing or invalid 'desiredFullScreen' parameter — must be exactly 'true' or 'false'.",
+                error: "desiredFullScreen invalid"
+            )
+        }
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.setWindowFullScreenState(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                desiredFullScreen: desiredFullScreen
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Window full-screen state mutation attempted for \(outcome.targetIdentity): changeKind=\(outcome.changeKind.rawValue), previousFullScreen=\(outcome.previousFullScreen), currentFullScreen=\(outcome.currentFullScreen), desiredFullScreen=\(desiredFullScreen). Independent closed-loop verification pending.",
+                outputData: [
+                    "applicationName": applicationName,
+                    "role": role,
+                    "matchIdentifier": identifier ?? "",
+                    "matchTitle": title ?? "",
+                    "targetIdentity": outcome.targetIdentity,
+                    "changeKind": outcome.changeKind.rawValue,
+                    "previousFullScreen": "\(outcome.previousFullScreen)",
+                    "currentFullScreen": "\(outcome.currentFullScreen)",
+                    "desiredFullScreen": "\(desiredFullScreen)"
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while mutating window full-screen state: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

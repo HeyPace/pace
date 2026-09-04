@@ -509,6 +509,14 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// codebase, this state is NEVER inferred from window position, visibility, frontmost state,
     /// Dock appearance, or title — `kAXMinimizedAttribute` is the sole authoritative source.
     case windowMinimizedStateReadFailed
+    /// Phase 2AS: `kAXFullScreenAttribute` ("AXFullScreen") could not be read from the target window,
+    /// or could not be interpreted as a clean boolean — without a reliably readable current state,
+    /// idempotency and the desired-state comparison cannot be established safely, so the operation
+    /// is refused rather than guessing.
+    case windowFullScreenStateReadFailed
+    /// Phase 2AS: the target window's `kAXFullScreenAttribute` ("AXFullScreen") is reported as
+    /// not settable / not writable by macOS Accessibility API — cannot perform mutation safely.
+    case windowFullScreenNotWritable(String)
     /// Phase 2W: the target's AX role is not on `QAXScrollAreaRolePolicy.allowedRoles`
     /// (`AXScrollArea` only). Thrown before any AX tree walk, mirroring every prior write-side
     /// role policy in this codebase.
@@ -802,6 +810,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not on the allowed segment role list."
         case .targetNotASegment(let reason):
             return "Target is not a valid segmented control item: \(reason)"
+        case .windowFullScreenStateReadFailed:
+            return "Failed to read the target window's full-screen state (kAXFullScreenAttribute / AXFullScreen)."
+        case .windowFullScreenNotWritable(let reason):
+            return "Target window's full-screen attribute is not writable: \(reason)"
         }
     }
 
@@ -892,6 +904,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .segmentDeselectionUnsupported: return "AX_SEGMENT_DESELECTION_UNSUPPORTED"
         case .disallowedSegmentRole: return "AX_SEGMENT_ROLE_NOT_ALLOWED"
         case .targetNotASegment: return "AX_TARGET_NOT_A_SEGMENT"
+        case .windowFullScreenStateReadFailed: return "AX_WINDOW_FULL_SCREEN_STATE_READ_FAILED"
+        case .windowFullScreenNotWritable: return "AX_WINDOW_FULL_SCREEN_NOT_WRITABLE"
         }
     }
 }
@@ -1784,6 +1798,55 @@ public struct QAXWindowMainOutcome: Sendable, Equatable {
 ///   capability's conservative model.
 public enum QAXWindowMainEvidence: Sendable, Equatable {
     case resolved(currentMain: Bool)
+    case stateUnreadable
+    case targetUnavailable
+}
+
+/// Whether a `setWindowFullScreenState` call actually performed an attribute write, or found the
+/// target already at the desired full-screen state and correctly did nothing.
+public enum QAXWindowFullScreenChangeKind: String, Sendable, Equatable {
+    case alreadyDesired
+    case changed
+}
+
+/// The outcome of one `QBridgeAccessibility.setWindowFullScreenState` call. Carries only a small,
+/// non-sensitive boolean and non-secret targeting metadata — never a raw AX attribute dump, never
+/// the window's own content.
+public struct QAXWindowFullScreenOutcome: Sendable, Equatable {
+    public let changeKind: QAXWindowFullScreenChangeKind
+    public let previousFullScreen: Bool
+    public let currentFullScreen: Bool
+    public let desiredFullScreen: Bool
+    public let targetIdentity: String
+
+    public init(
+        changeKind: QAXWindowFullScreenChangeKind,
+        previousFullScreen: Bool,
+        currentFullScreen: Bool,
+        desiredFullScreen: Bool,
+        targetIdentity: String
+    ) {
+        self.changeKind = changeKind
+        self.previousFullScreen = previousFullScreen
+        self.currentFullScreen = currentFullScreen
+        self.desiredFullScreen = desiredFullScreen
+        self.targetIdentity = targetIdentity
+    }
+}
+
+/// The result of independently re-observing a window's `kAXFullScreenAttribute` ("AXFullScreen") after a
+/// `ui.set_window_full_screen` dispatch, for the later closed-loop verification step (and for
+/// `QTaskRecoveryManager`'s observation-first recovery, which reuses this exact primitive).
+/// Authoritative state is read from `kAXFullScreenAttribute` alone.
+///
+/// - `.resolved(currentFullScreen:)`: the target is still resolvable (role `AXWindow`) and its full-screen
+///   state was read as a clean boolean.
+/// - `.stateUnreadable`: the target is resolvable but `kAXFullScreenAttribute` could not be read —
+///   treated as `.failed`, NEVER defaulted to either `true` or `false`.
+/// - `.targetUnavailable`: the target (or application) is no longer resolvable at all, or is
+///   ambiguous — physical state is uncertain; treated as `.failed`.
+public enum QAXWindowFullScreenEvidence: Sendable, Equatable {
+    case resolved(currentFullScreen: Bool)
     case stateUnreadable
     case targetUnavailable
 }
@@ -5183,6 +5246,125 @@ extension QBridgeAccessibility {
         }.value
     }
 
+    // MARK: - Semantic Window Full-Screen State (Phase 2AS)
+    //
+    // ui.set_window_full_screen — a Level 2, symmetric explicit-desired-state operation (unlike
+    // ui.set_window_main, both true and false are fully supported) for exactly one
+    // semantically-identified window. Confirmed against macOS AX API: kAXFullScreenAttribute
+    // ("AXFullScreen") is documented as a boolean attribute indicating full-screen space state.
+    // Mutation is AXUIElementSetAttributeValue(axFullScreenAttribute) only — never
+    // NSWindow.toggleFullScreen(), never coordinate clicks on green zoom button, never
+    // Cmd+Ctrl+F shortcuts, never CGEvent. Idempotent in either direction: already-at-desired-state
+    // is a verified no-op, no attribute write performed.
+    public func setWindowFullScreenState(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?,
+        desiredFullScreen: Bool
+    ) async throws -> QAXWindowFullScreenOutcome {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard QAXWindowRolePolicy.isAllowedWindowRole(role) else {
+            throw QAXInteractionError.disallowedWindowRole(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and dispatch")
+            }
+
+            guard let fullScreenAtSearch = Self.axBoolAttribute(Self.axFullScreenAttribute, of: targetElement) else {
+                throw QAXInteractionError.windowFullScreenStateReadFailed
+            }
+            guard let fullScreenAtVerify = Self.axBoolAttribute(Self.axFullScreenAttribute, of: targetElement) else {
+                throw QAXInteractionError.windowFullScreenStateReadFailed
+            }
+            guard fullScreenAtVerify == fullScreenAtSearch else {
+                throw QAXInteractionError.valueDriftDetected("target window's full-screen state changed between observation and dispatch")
+            }
+
+            let targetIdentity = "application=\(applicationName) role=\(role) identifier=\(observedAtVerify.identifier ?? "none") label=\(observedAtVerify.titleOrDescription ?? "none")"
+
+            guard fullScreenAtVerify != desiredFullScreen else {
+                return QAXWindowFullScreenOutcome(
+                    changeKind: .alreadyDesired,
+                    previousFullScreen: fullScreenAtVerify,
+                    currentFullScreen: fullScreenAtVerify,
+                    desiredFullScreen: desiredFullScreen,
+                    targetIdentity: targetIdentity
+                )
+            }
+
+            guard Self.axIsAttributeSettable(Self.axFullScreenAttribute, of: targetElement) else {
+                throw QAXInteractionError.windowFullScreenNotWritable("AXFullScreen attribute is not settable for target window")
+            }
+
+            let setResult = AXUIElementSetAttributeValue(
+                targetElement,
+                Self.axFullScreenAttribute as CFString,
+                desiredFullScreen ? kCFBooleanTrue : kCFBooleanFalse
+            )
+            guard setResult == .success else {
+                throw QAXInteractionError.setValueFailed("AXError(\(setResult.rawValue))")
+            }
+
+            let currentFullScreenAfterSet = Self.axBoolAttribute(Self.axFullScreenAttribute, of: targetElement) ?? desiredFullScreen
+
+            return QAXWindowFullScreenOutcome(
+                changeKind: .changed,
+                previousFullScreen: fullScreenAtVerify,
+                currentFullScreen: currentFullScreenAfterSet,
+                desiredFullScreen: desiredFullScreen,
+                targetIdentity: targetIdentity
+            )
+        }.value
+    }
+
+    /// Best-effort, read-only re-resolution of the same match criteria used by `setWindowFullScreenState`,
+    /// used both by the later closed-loop verification step
+    /// (`QVerificationStrategy.axWindowFullScreenMatchesDesired`) and by `QTaskRecoveryManager`'s
+    /// observation-first recovery branch. Independently re-reads `kAXFullScreenAttribute` fresh.
+    public func observeWindowFullScreenStateEvidence(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async -> QAXWindowFullScreenEvidence {
+        guard AXIsProcessTrusted() else { return .targetUnavailable }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return .targetUnavailable }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard matches.count == 1 else { return .targetUnavailable }
+            guard let currentFullScreen = Self.axBoolAttribute(Self.axFullScreenAttribute, of: matches[0].element) else {
+                return .stateUnreadable
+            }
+            return .resolved(currentFullScreen: currentFullScreen)
+        }.value
+    }
+
     /// Resolves exactly one semantic `AXWindow` target, follows its documented
     /// `kAXCloseButtonAttribute` convenience-reference to the actual close button, independently
     /// re-validates that element's own role as exactly `AXButton`, and presses it via
@@ -6998,6 +7180,15 @@ extension QBridgeAccessibility {
         let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
         guard result == .success else { return nil }
         return value as? Bool
+    }
+
+    fileprivate static let axFullScreenAttribute = "AXFullScreen"
+
+    fileprivate nonisolated static func axIsAttributeSettable(_ attribute: String, of element: AXUIElement) -> Bool {
+        var settable: DarwinBoolean = false
+        let result = AXUIElementIsAttributeSettable(element, attribute as CFString, &settable)
+        guard result == .success else { return false }
+        return settable.boolValue
     }
 
     /// Hex-encoded SHA-256 digest — the only representation of a text-entry value ever allowed

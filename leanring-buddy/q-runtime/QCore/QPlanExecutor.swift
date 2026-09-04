@@ -688,6 +688,21 @@ public final class QPlanExecutor: Sendable {
                 targetIdentity: targetIdentity,
                 desiredMinimized: desiredMinimized
             )
+        } else if action.actionName == "ui.set_window_full_screen",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let targetIdentity = result.outputData["targetIdentity"],
+                  let desiredFullScreenRaw = action.arguments["desiredFullScreen"],
+                  let desiredFullScreen = Bool(desiredFullScreenRaw) {
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            return .axWindowFullScreenMatchesDesired(
+                applicationName: applicationName,
+                role: role,
+                matchIdentifier: nonEmpty(action.arguments["identifier"]),
+                matchTitle: nonEmpty(action.arguments["title"]),
+                targetIdentity: targetIdentity,
+                desiredFullScreen: desiredFullScreen
+            )
         } else if action.actionName == "ui.set_application_hidden",
                   let applicationName = action.arguments["applicationName"],
                   let targetProcessIdentifierString = result.outputData["targetProcessIdentifier"],

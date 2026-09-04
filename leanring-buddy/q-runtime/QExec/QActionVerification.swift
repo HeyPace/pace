@@ -231,6 +231,21 @@ public enum QVerificationStrategy: Sendable {
         targetIdentity: String,
         desiredMinimized: Bool
     )
+    /// Phase 2AS: re-resolves the same semantic `AXWindow` target a ui.set_window_full_screen step
+    /// just mutated (or correctly no-op'd) and independently re-reads its own
+    /// `kAXFullScreenAttribute` ("AXFullScreen") — a successful attribute-set call is never itself
+    /// treated as proof of success; this is the closed-loop check that supplies the real evidence.
+    /// `desiredFullScreen` is genuinely bidirectional — both `true` and `false` are valid,
+    /// fully-verified target states. An unresolvable/ambiguous target after the change is `.failed`,
+    /// not assumed success; an unreadable full-screen state is likewise `.failed`, never defaulted.
+    case axWindowFullScreenMatchesDesired(
+        applicationName: String,
+        role: String,
+        matchIdentifier: String?,
+        matchTitle: String?,
+        targetIdentity: String,
+        desiredFullScreen: Bool
+    )
     /// Phase 2V: re-resolves the same running application (by stable `processIdentifier`, never
     /// `localizedName`, which a same-named replacement process could otherwise satisfy) a
     /// ui.set_application_hidden step just mutated (or correctly no-op'd) and independently
@@ -1056,6 +1071,37 @@ public final class QActionVerifier: Sendable {
             case .stateUnreadable:
                 return .failed(
                     reason: "Target window (role=\(role)) current minimized state could not be read after the mutation — unreadable state fails closed.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            case .targetUnavailable:
+                return .failed(
+                    reason: "Target window (role=\(role)) is no longer resolvable or is ambiguous, for verification after the mutation.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+        case .axWindowFullScreenMatchesDesired(let applicationName, let role, let matchIdentifier, let matchTitle, let targetIdentity, let desiredFullScreen):
+            let evidence = await QBridgeAccessibility.shared.observeWindowFullScreenStateEvidence(
+                applicationName: applicationName,
+                role: role,
+                identifier: matchIdentifier,
+                title: matchTitle
+            )
+            switch evidence {
+            case .resolved(let currentFullScreen):
+                if currentFullScreen == desiredFullScreen {
+                    return .verified(
+                        evidence: "target=\(targetIdentity) currentFullScreen=\(currentFullScreen) desiredFullScreen=\(desiredFullScreen) status=verified"
+                    )
+                } else {
+                    return .failed(
+                        reason: "Target window (role=\(role)) current full-screen state does not match the desired state after the mutation.",
+                        evidence: "target=\(targetIdentity) currentFullScreen=\(currentFullScreen) desiredFullScreen=\(desiredFullScreen) status=failed"
+                    )
+                }
+            case .stateUnreadable:
+                return .failed(
+                    reason: "Target window (role=\(role)) current full-screen state could not be read after the mutation — unreadable state fails closed.",
                     evidence: "target=\(targetIdentity) status=failed"
                 )
             case .targetUnavailable:

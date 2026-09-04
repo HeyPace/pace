@@ -556,7 +556,21 @@ public struct QModelPlanParser: Sendable {
         // Direct segment roles: AXRadioButton or AXButton (AXTabButton is strictly excluded). Deselection is unsupported.
         // Idempotent (already desired selection is a no-op). Protected by stale-target & drift checks,
         // and verified via closed-loop observation. Requires explicit single-use approval.
-        "ui.select_segmented_control_item": ("ui", .level2UserApproval)
+        "ui.select_segmented_control_item": ("ui", .level2UserApproval),
+        // Phase 2AS: semantic window full-screen state mutation — Level 2 (reversible local action,
+        // approval required). Sets exactly one semantically-identified AXWindow's full-screen state
+        // to an explicit desiredFullScreen ("true"/"false" — never a blind toggle), resolved via
+        // QBridgeAccessibility.resolveExactRunningApplication and exact window matching. Scoped to
+        // QAXWindowRolePolicy's single-role allowlist (AXWindow only). Confirmed against macOS AX
+        // API: kAXFullScreenAttribute ("AXFullScreen") is an authoritative boolean attribute on
+        // AXWindow elements. Mutation is AXUIElementSetAttributeValue(kAXFullScreenAttribute)
+        // only — never NSWindow.toggleFullScreen(), never green traffic-light coordinate clicks,
+        // never Cmd+Ctrl+F shortcuts, never CGEvent/mouse/keyboard simulation. Validates that the
+        // attribute is settable/writable before mutation. Symmetrically supports both directions
+        // (true -> false and false -> true). Idempotent: already-at-the-desired-state is a
+        // verified no-op, no AX write performed. Protected by stale-target & drift checks, and
+        // verified via closed-loop observation. Requires explicit single-use approval.
+        "ui.set_window_full_screen": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

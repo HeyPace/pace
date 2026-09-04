@@ -419,6 +419,36 @@ public final class QTaskRecoveryManager: Sendable {
                 }
             }
 
+        case "ui.set_window_full_screen":
+            // Observation-first (Phase 2AS): re-check whether the requested window already reports
+            // the requested desired full-screen state before ever considering a replay. Reuses the
+            // EXACT SAME independent observation primitive
+            // (QBridgeAccessibility.observeWindowFullScreenStateEvidence) QActionVerification's
+            // .axWindowFullScreenMatchesDesired strategy uses — no parallel resolver. An
+            // unresolvable/ambiguous target, an unreadable full-screen state, or a resolvable-but-
+            // wrong-state one, does NOT trigger a blind replay of the AX attribute-set here — it
+            // falls through to `verified = false`, so a fresh execution requires both a brand-new
+            // QExecutionIdentity (per QPlanExecutor) AND a genuinely fresh user approval grant.
+            let windowApplicationName = uncertainStep.arguments["applicationName"] ?? ""
+            let windowRole = uncertainStep.arguments["role"] ?? ""
+            let windowIdentifier = uncertainStep.arguments["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let windowTitle = uncertainStep.arguments["title"].flatMap { $0.isEmpty ? nil : $0 }
+            let windowDesiredFullScreenRaw = uncertainStep.arguments["desiredFullScreen"] ?? ""
+            if !windowApplicationName.isEmpty, !windowRole.isEmpty,
+               let windowDesiredFullScreen = Bool(windowDesiredFullScreenRaw),
+               (windowIdentifier != nil || windowTitle != nil) {
+                let evidence = await QBridgeAccessibility.shared.observeWindowFullScreenStateEvidence(
+                    applicationName: windowApplicationName,
+                    role: windowRole,
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                if case .resolved(let currentFullScreen) = evidence, currentFullScreen == windowDesiredFullScreen {
+                    verified = true
+                    verifiedEvidence = "Observation verified: target window currentFullScreen='\(currentFullScreen)' desiredFullScreen='\(windowDesiredFullScreen)' status=verified"
+                }
+            }
+
         case "ui.set_window_main":
             // Observation-first (Phase 2X): re-check whether the requested window already
             // reports kAXMainAttribute == true before ever considering a replay. Reuses the
