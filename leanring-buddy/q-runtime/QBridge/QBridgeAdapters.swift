@@ -279,6 +279,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func listPopovers(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXPopoverCollectionMetadata
     func listColorWells(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXColorWellCollectionMetadata
     func listProgressIndicators(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXProgressIndicatorCollectionMetadata
+    func listLevelIndicators(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXLevelIndicatorCollectionMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -680,6 +681,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     case disallowedProgressIndicatorRole(String)
     /// Phase 2AY: the direct progress indicator count exceeds this capability's defensive safe bound (32).
     case progressIndicatorCollectionExceedsSafeBound(Int)
+    /// Phase 2AZ: the target's AX role is not on `QAXLevelIndicatorRolePolicy.allowedRoles` (`AXLevelIndicator`, `AXRelevanceIndicator`).
+    case disallowedLevelIndicatorRole(String)
+    /// Phase 2AZ: the direct level indicator count exceeds this capability's defensive safe bound (32).
+    case levelIndicatorCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -889,6 +894,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not an allowed progress indicator target."
         case .progressIndicatorCollectionExceedsSafeBound(let count):
             return "Progress indicator collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .disallowedLevelIndicatorRole(let role):
+            return "Target role '\(role)' is not an allowed level indicator target."
+        case .levelIndicatorCollectionExceedsSafeBound(let count):
+            return "Level indicator collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -998,6 +1007,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .colorWellCollectionExceedsSafeBound: return "AX_COLOR_WELL_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .disallowedProgressIndicatorRole: return "AX_DISALLOWED_ROLE"
         case .progressIndicatorCollectionExceedsSafeBound: return "AX_PROGRESS_INDICATOR_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .disallowedLevelIndicatorRole: return "AX_DISALLOWED_ROLE"
+        case .levelIndicatorCollectionExceedsSafeBound: return "AX_LEVEL_INDICATOR_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1531,6 +1542,16 @@ public enum QAXProgressIndicatorRolePolicy {
     public static let allowedRoles: Set<String> = ["AXProgressIndicator", "AXBusyIndicator"]
 
     public static func isAllowedProgressIndicatorRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.list_level_indicators` (Phase 2AZ) may target.
+/// Canonical roles: `AXLevelIndicator` (level/capacity/rating gauge) and `AXRelevanceIndicator` (relevance/ranking meter).
+public enum QAXLevelIndicatorRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXLevelIndicator", "AXRelevanceIndicator"]
+
+    public static func isAllowedLevelIndicatorRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -2744,6 +2765,68 @@ public struct QAXProgressIndicatorCollectionMetadata: Sendable, Equatable, Codab
     }
 }
 
+/// One level indicator's safe, non-sensitive identity metadata, as returned by `ui.list_level_indicators` (Phase 2AZ).
+public struct QAXLevelIndicatorMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let role: String
+    public let subrole: String?
+    public let value: Double?
+    public let minValue: Double?
+    public let maxValue: Double?
+    public let warningValue: Double?
+    public let criticalValue: Double?
+    public let isEnabled: Bool?
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        role: String,
+        subrole: String? = nil,
+        value: Double? = nil,
+        minValue: Double? = nil,
+        maxValue: Double? = nil,
+        warningValue: Double? = nil,
+        criticalValue: Double? = nil,
+        isEnabled: Bool? = nil
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.role = role
+        self.subrole = subrole
+        self.value = value
+        self.minValue = minValue
+        self.maxValue = maxValue
+        self.warningValue = warningValue
+        self.criticalValue = criticalValue
+        self.isEnabled = isEnabled
+    }
+}
+
+/// A collection of safe, non-sensitive direct level indicators metadata, as returned by `ui.list_level_indicators` (Phase 2AZ).
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target reference.
+public struct QAXLevelIndicatorCollectionMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let windowTitle: String?
+    public let indicatorCount: Int
+    public let indicators: [QAXLevelIndicatorMetadata]
+
+    public init(
+        applicationName: String,
+        windowTitle: String?,
+        indicatorCount: Int,
+        indicators: [QAXLevelIndicatorMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.windowTitle = windowTitle
+        self.indicatorCount = indicatorCount
+        self.indicators = indicators
+    }
+}
+
 /// Whether a `setSplitterPosition` call actually performed a value write, or found the target
 /// already at the desired position (within tolerance) and correctly did nothing.
 public enum QAXSplitterChangeKind: String, Sendable, Equatable {
@@ -3066,6 +3149,7 @@ extension QBridgeAccessibility {
     private static let maxDirectPopoversCount = 16
     private static let maxDirectColorWellsCount = 32
     private static let maxDirectProgressIndicatorsCount = 32
+    private static let maxDirectLevelIndicatorsCount = 32
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -7521,6 +7605,159 @@ extension QBridgeAccessibility {
             }
 
             return QAXProgressIndicatorCollectionMetadata(
+                applicationName: applicationName,
+                windowTitle: resolvedWindowTitle,
+                indicatorCount: indicatorsMetadata.count,
+                indicators: indicatorsMetadata
+            )
+        }.value
+    }
+
+    /// Phase 2AZ: semantic level indicator direct enumeration (Level 0, read-only).
+    /// Enumerates direct AXLevelIndicator and AXRelevanceIndicator elements belonging to an application window or view hierarchy.
+    /// No mutation, no press, no focus, no approval, no recovery.
+    public func listLevelIndicators(
+        applicationName: String,
+        role: String? = nil,
+        identifier: String? = nil,
+        title: String? = nil,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil
+    ) async throws -> QAXLevelIndicatorCollectionMetadata {
+        if let role = role {
+            guard QAXLevelIndicatorRolePolicy.isAllowedLevelIndicatorRole(role) else {
+                throw QAXInteractionError.disallowedLevelIndicatorRole(role)
+            }
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            let resolvedWindowTitle: String?
+
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+                guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+                let (targetWindow, windowSnapshot) = windowMatches[0]
+                guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                    throw QAXInteractionError.staleTarget("target window element is no longer resolvable")
+                }
+                guard verifiedWindow == windowSnapshot else {
+                    throw QAXInteractionError.staleTarget("target window identity changed between observation and verification")
+                }
+                searchRoot = targetWindow
+                resolvedWindowTitle = verifiedWindow.titleOrDescription
+            } else {
+                searchRoot = appElement
+                resolvedWindowTitle = nil
+            }
+
+            var candidateIndicators: [AXUIElement] = []
+            var seenSnapshots: [QAXElementSnapshot] = []
+
+            func scanForLevelIndicators(_ element: AXUIElement, depth: Int) {
+                guard depth <= 8, candidateIndicators.count <= Self.maxDirectLevelIndicatorsCount + 1 else { return }
+                if let elementRole = Self.axStringAttribute(kAXRoleAttribute, of: element),
+                   QAXLevelIndicatorRolePolicy.isAllowedLevelIndicatorRole(elementRole) {
+                    let elementIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: element)
+                    let elementTitleOrDesc = Self.axStringAttribute(kAXTitleAttribute, of: element)
+                        ?? Self.axStringAttribute(kAXDescriptionAttribute, of: element)
+                    let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: element) ?? true
+                    let snapshot = QAXElementSnapshot(role: elementRole, identifier: elementIdentifier, titleOrDescription: elementTitleOrDesc, isEnabled: isEnabled)
+                    if !seenSnapshots.contains(snapshot) {
+                        seenSnapshots.append(snapshot)
+                        candidateIndicators.append(element)
+                    }
+                }
+                guard let children = Self.childrenAttribute(of: element) else { return }
+                for child in children {
+                    scanForLevelIndicators(child, depth: depth + 1)
+                }
+            }
+
+            scanForLevelIndicators(searchRoot, depth: 0)
+            if searchRoot != appElement {
+                scanForLevelIndicators(appElement, depth: 0)
+            }
+
+            var filteredIndicators: [AXUIElement] = []
+            for li in candidateIndicators {
+                let liRole = Self.axStringAttribute(kAXRoleAttribute, of: li) ?? ""
+                if let role = role, liRole != role {
+                    continue
+                }
+                let liId = Self.axStringAttribute(Self.axIdentifierAttributeName, of: li)
+                let liTitle = Self.axStringAttribute(kAXTitleAttribute, of: li)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: li)
+
+                if let identifier = identifier, let title = title {
+                    if liId == identifier && liTitle == title {
+                        filteredIndicators.append(li)
+                    }
+                } else if let identifier = identifier {
+                    if liId == identifier {
+                        filteredIndicators.append(li)
+                    }
+                } else if let title = title {
+                    if liTitle == title {
+                        filteredIndicators.append(li)
+                    }
+                } else {
+                    filteredIndicators.append(li)
+                }
+            }
+
+            guard filteredIndicators.count <= Self.maxDirectLevelIndicatorsCount else {
+                throw QAXInteractionError.levelIndicatorCollectionExceedsSafeBound(filteredIndicators.count)
+            }
+
+            var indicatorsMetadata: [QAXLevelIndicatorMetadata] = []
+            indicatorsMetadata.reserveCapacity(filteredIndicators.count)
+
+            for (index, liElement) in filteredIndicators.enumerated() {
+                let liTitle = Self.axStringAttribute(kAXTitleAttribute, of: liElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: liElement)
+                let liIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: liElement)
+                let liRole = Self.axStringAttribute(kAXRoleAttribute, of: liElement) ?? "AXLevelIndicator"
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: liElement)
+                let value = Self.axDoubleAttribute(kAXValueAttribute, of: liElement)
+                let minValue = Self.axDoubleAttribute(kAXMinValueAttribute, of: liElement)
+                let maxValue = Self.axDoubleAttribute(kAXMaxValueAttribute, of: liElement)
+                let warningValue = Self.axDoubleAttribute(kAXWarningValueAttribute, of: liElement)
+                let criticalValue = Self.axDoubleAttribute(kAXCriticalValueAttribute, of: liElement)
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: liElement)
+
+                indicatorsMetadata.append(
+                    QAXLevelIndicatorMetadata(
+                        index: index,
+                        title: liTitle,
+                        identifier: liIdentifier,
+                        role: liRole,
+                        subrole: subrole,
+                        value: value,
+                        minValue: minValue,
+                        maxValue: maxValue,
+                        warningValue: warningValue,
+                        criticalValue: criticalValue,
+                        isEnabled: isEnabled
+                    )
+                )
+            }
+
+            return QAXLevelIndicatorCollectionMetadata(
                 applicationName: applicationName,
                 windowTitle: resolvedWindowTitle,
                 indicatorCount: indicatorsMetadata.count,

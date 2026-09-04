@@ -911,6 +911,15 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual value, title, or identifier — this strategy only ever
             // carries aggregate counts, by design.
             return .progressIndicatorEnumerationSucceeded(applicationName: applicationName, indicatorCount: indicatorCount)
+        } else if action.actionName == "ui.list_level_indicators",
+                  let applicationName = action.arguments["applicationName"],
+                  let indicatorCountString = result.outputData["indicatorCount"],
+                  let indicatorCount = Int(indicatorCountString) {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the indicator count captured at read time. Deliberately NOT threaded
+            // through here: any individual value, title, or identifier — this strategy only ever
+            // carries aggregate counts, by design.
+            return .levelIndicatorEnumerationSucceeded(applicationName: applicationName, indicatorCount: indicatorCount)
         } else if action.actionName == "ui.list_segmented_control_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

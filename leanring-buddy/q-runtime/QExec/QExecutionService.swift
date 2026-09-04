@@ -240,6 +240,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_progress_indicators":
             result = await executeListProgressIndicators(request: request)
 
+        case "ui.list_level_indicators":
+            result = await executeListLevelIndicators(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -3397,6 +3400,95 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing progress indicators: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2AZ: executes read-only level indicator direct discovery & observation.
+    /// Result summary carries aggregate counts only, never leaking individual values or titles to durable storage.
+    private func executeListLevelIndicators(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"]
+        if let role = role {
+            guard QAXLevelIndicatorRolePolicy.isAllowedLevelIndicatorRole(role) else {
+                return QActionResult(
+                    actionId: request.actionId,
+                    success: false,
+                    summary: "Target role '\(role)' is not an allowed level indicator target.",
+                    error: "AX_DISALLOWED_ROLE"
+                )
+            }
+        }
+
+        let identifier = request.parameters["levelIndicatorIdentifier"] ?? request.parameters["identifier"] ?? request.parameters["id"]
+        let title = request.parameters["levelIndicatorTitle"] ?? request.parameters["title"] ?? request.parameters["label"]
+        let windowTitle = request.parameters["windowTitle"] ?? request.parameters["window"]
+        let windowIdentifier = request.parameters["windowIdentifier"] ?? request.parameters["windowId"]
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listLevelIndicators(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "indicatorCount": "\(metadata.indicatorCount)"
+            ]
+            if let role = role {
+                outputData["role"] = role
+            }
+            if let windowTitle = metadata.windowTitle {
+                outputData["windowTitle"] = windowTitle
+            }
+
+            for li in metadata.indicators {
+                let idx = li.index
+                outputData["indicator\(idx).index"] = "\(idx)"
+                outputData["indicator\(idx).title"] = li.title ?? ""
+                outputData["indicator\(idx).identifier"] = li.identifier ?? ""
+                outputData["indicator\(idx).role"] = li.role
+                outputData["indicator\(idx).subrole"] = li.subrole ?? ""
+                outputData["indicator\(idx).value"] = li.value.map { "\($0)" } ?? ""
+                outputData["indicator\(idx).minValue"] = li.minValue.map { "\($0)" } ?? ""
+                outputData["indicator\(idx).maxValue"] = li.maxValue.map { "\($0)" } ?? ""
+                outputData["indicator\(idx).warningValue"] = li.warningValue.map { "\($0)" } ?? ""
+                outputData["indicator\(idx).criticalValue"] = li.criticalValue.map { "\($0)" } ?? ""
+                outputData["indicator\(idx).enabled"] = li.isEnabled.map { $0 ? "true" : "false" } ?? ""
+            }
+
+            let windowSuffix = metadata.windowTitle.map { " (window: '\($0)')" } ?? ""
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(metadata.indicatorCount) level indicator(s) in application '\(applicationName)'\(windowSuffix). This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing level indicators: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }
