@@ -278,6 +278,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func listBrowserColumns(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXBrowserColumnCollectionMetadata
     func listPopovers(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXPopoverCollectionMetadata
     func listColorWells(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXColorWellCollectionMetadata
+    func listProgressIndicators(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXProgressIndicatorCollectionMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -675,6 +676,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     case disallowedColorWellRole(String)
     /// Phase 2AX: the direct color well count exceeds this capability's defensive safe bound (32).
     case colorWellCollectionExceedsSafeBound(Int)
+    /// Phase 2AY: the target's AX role is not on `QAXProgressIndicatorRolePolicy.allowedRoles` (`AXProgressIndicator`, `AXBusyIndicator`).
+    case disallowedProgressIndicatorRole(String)
+    /// Phase 2AY: the direct progress indicator count exceeds this capability's defensive safe bound (32).
+    case progressIndicatorCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -880,6 +885,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not an allowed color well target."
         case .colorWellCollectionExceedsSafeBound(let count):
             return "Color well collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .disallowedProgressIndicatorRole(let role):
+            return "Target role '\(role)' is not an allowed progress indicator target."
+        case .progressIndicatorCollectionExceedsSafeBound(let count):
+            return "Progress indicator collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -987,6 +996,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .popoverCollectionExceedsSafeBound: return "AX_POPOVER_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .disallowedColorWellRole: return "AX_DISALLOWED_ROLE"
         case .colorWellCollectionExceedsSafeBound: return "AX_COLOR_WELL_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .disallowedProgressIndicatorRole: return "AX_DISALLOWED_ROLE"
+        case .progressIndicatorCollectionExceedsSafeBound: return "AX_PROGRESS_INDICATOR_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1510,6 +1521,16 @@ public enum QAXColorWellRolePolicy {
     public static let allowedRoles: Set<String> = ["AXColorWell"]
 
     public static func isAllowedColorWellRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.list_progress_indicators` (Phase 2AY) may target.
+/// Canonical roles: `AXProgressIndicator` (determinate/bar) and `AXBusyIndicator` (indeterminate/spinner).
+public enum QAXProgressIndicatorRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXProgressIndicator", "AXBusyIndicator"]
+
+    public static func isAllowedProgressIndicatorRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -2664,6 +2685,65 @@ public struct QAXColorWellCollectionMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One progress indicator's safe, non-sensitive identity metadata, as returned by `ui.list_progress_indicators` (Phase 2AY).
+public struct QAXProgressIndicatorMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let role: String
+    public let subrole: String?
+    public let value: Double?
+    public let minValue: Double?
+    public let maxValue: Double?
+    public let isBusy: Bool?
+    public let isEnabled: Bool?
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        role: String,
+        subrole: String? = nil,
+        value: Double? = nil,
+        minValue: Double? = nil,
+        maxValue: Double? = nil,
+        isBusy: Bool? = nil,
+        isEnabled: Bool? = nil
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.role = role
+        self.subrole = subrole
+        self.value = value
+        self.minValue = minValue
+        self.maxValue = maxValue
+        self.isBusy = isBusy
+        self.isEnabled = isEnabled
+    }
+}
+
+/// A collection of safe, non-sensitive direct progress indicators metadata, as returned by `ui.list_progress_indicators` (Phase 2AY).
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target reference.
+public struct QAXProgressIndicatorCollectionMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let windowTitle: String?
+    public let indicatorCount: Int
+    public let indicators: [QAXProgressIndicatorMetadata]
+
+    public init(
+        applicationName: String,
+        windowTitle: String?,
+        indicatorCount: Int,
+        indicators: [QAXProgressIndicatorMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.windowTitle = windowTitle
+        self.indicatorCount = indicatorCount
+        self.indicators = indicators
+    }
+}
+
 /// Whether a `setSplitterPosition` call actually performed a value write, or found the target
 /// already at the desired position (within tolerance) and correctly did nothing.
 public enum QAXSplitterChangeKind: String, Sendable, Equatable {
@@ -2985,6 +3065,7 @@ extension QBridgeAccessibility {
     private static let maxDirectBrowserColumnsCount = 32
     private static let maxDirectPopoversCount = 16
     private static let maxDirectColorWellsCount = 32
+    private static let maxDirectProgressIndicatorsCount = 32
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -7293,6 +7374,157 @@ extension QBridgeAccessibility {
                 windowTitle: resolvedWindowTitle,
                 colorWellCount: colorWellsMetadata.count,
                 colorWells: colorWellsMetadata
+            )
+        }.value
+    }
+
+    /// Phase 2AY: semantic progress indicator direct enumeration (Level 0, read-only).
+    /// Enumerates direct AXProgressIndicator and AXBusyIndicator elements belonging to an application window or view hierarchy.
+    /// No mutation, no press, no focus, no approval, no recovery.
+    public func listProgressIndicators(
+        applicationName: String,
+        role: String? = nil,
+        identifier: String? = nil,
+        title: String? = nil,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil
+    ) async throws -> QAXProgressIndicatorCollectionMetadata {
+        if let role = role {
+            guard QAXProgressIndicatorRolePolicy.isAllowedProgressIndicatorRole(role) else {
+                throw QAXInteractionError.disallowedProgressIndicatorRole(role)
+            }
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            let resolvedWindowTitle: String?
+
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+                guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+                let (targetWindow, windowSnapshot) = windowMatches[0]
+                guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                    throw QAXInteractionError.staleTarget("target window element is no longer resolvable")
+                }
+                guard verifiedWindow == windowSnapshot else {
+                    throw QAXInteractionError.staleTarget("target window identity changed between observation and verification")
+                }
+                searchRoot = targetWindow
+                resolvedWindowTitle = verifiedWindow.titleOrDescription
+            } else {
+                searchRoot = appElement
+                resolvedWindowTitle = nil
+            }
+
+            var candidateIndicators: [AXUIElement] = []
+            var seenSnapshots: [QAXElementSnapshot] = []
+
+            func scanForProgressIndicators(_ element: AXUIElement, depth: Int) {
+                guard depth <= 8, candidateIndicators.count <= Self.maxDirectProgressIndicatorsCount + 1 else { return }
+                if let elementRole = Self.axStringAttribute(kAXRoleAttribute, of: element),
+                   QAXProgressIndicatorRolePolicy.isAllowedProgressIndicatorRole(elementRole) {
+                    let elementIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: element)
+                    let elementTitleOrDesc = Self.axStringAttribute(kAXTitleAttribute, of: element)
+                        ?? Self.axStringAttribute(kAXDescriptionAttribute, of: element)
+                    let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: element) ?? true
+                    let snapshot = QAXElementSnapshot(role: elementRole, identifier: elementIdentifier, titleOrDescription: elementTitleOrDesc, isEnabled: isEnabled)
+                    if !seenSnapshots.contains(snapshot) {
+                        seenSnapshots.append(snapshot)
+                        candidateIndicators.append(element)
+                    }
+                }
+                guard let children = Self.childrenAttribute(of: element) else { return }
+                for child in children {
+                    scanForProgressIndicators(child, depth: depth + 1)
+                }
+            }
+
+            scanForProgressIndicators(searchRoot, depth: 0)
+            if searchRoot != appElement {
+                scanForProgressIndicators(appElement, depth: 0)
+            }
+
+            var filteredIndicators: [AXUIElement] = []
+            for pi in candidateIndicators {
+                let piRole = Self.axStringAttribute(kAXRoleAttribute, of: pi) ?? ""
+                if let role = role, piRole != role {
+                    continue
+                }
+                let piId = Self.axStringAttribute(Self.axIdentifierAttributeName, of: pi)
+                let piTitle = Self.axStringAttribute(kAXTitleAttribute, of: pi)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: pi)
+
+                if let identifier = identifier, let title = title {
+                    if piId == identifier && piTitle == title {
+                        filteredIndicators.append(pi)
+                    }
+                } else if let identifier = identifier {
+                    if piId == identifier {
+                        filteredIndicators.append(pi)
+                    }
+                } else if let title = title {
+                    if piTitle == title {
+                        filteredIndicators.append(pi)
+                    }
+                } else {
+                    filteredIndicators.append(pi)
+                }
+            }
+
+            guard filteredIndicators.count <= Self.maxDirectProgressIndicatorsCount else {
+                throw QAXInteractionError.progressIndicatorCollectionExceedsSafeBound(filteredIndicators.count)
+            }
+
+            var indicatorsMetadata: [QAXProgressIndicatorMetadata] = []
+            indicatorsMetadata.reserveCapacity(filteredIndicators.count)
+
+            for (index, piElement) in filteredIndicators.enumerated() {
+                let piTitle = Self.axStringAttribute(kAXTitleAttribute, of: piElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: piElement)
+                let piIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: piElement)
+                let piRole = Self.axStringAttribute(kAXRoleAttribute, of: piElement) ?? "AXProgressIndicator"
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: piElement)
+                let value = Self.axDoubleAttribute(kAXValueAttribute, of: piElement)
+                let minValue = Self.axDoubleAttribute(kAXMinValueAttribute, of: piElement)
+                let maxValue = Self.axDoubleAttribute(kAXMaxValueAttribute, of: piElement)
+                let isBusy = (piRole == "AXBusyIndicator")
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: piElement)
+
+                indicatorsMetadata.append(
+                    QAXProgressIndicatorMetadata(
+                        index: index,
+                        title: piTitle,
+                        identifier: piIdentifier,
+                        role: piRole,
+                        subrole: subrole,
+                        value: value,
+                        minValue: minValue,
+                        maxValue: maxValue,
+                        isBusy: isBusy,
+                        isEnabled: isEnabled
+                    )
+                )
+            }
+
+            return QAXProgressIndicatorCollectionMetadata(
+                applicationName: applicationName,
+                windowTitle: resolvedWindowTitle,
+                indicatorCount: indicatorsMetadata.count,
+                indicators: indicatorsMetadata
             )
         }.value
     }

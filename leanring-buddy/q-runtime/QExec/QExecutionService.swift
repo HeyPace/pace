@@ -237,6 +237,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_color_wells":
             result = await executeListColorWells(request: request)
 
+        case "ui.list_progress_indicators":
+            result = await executeListProgressIndicators(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -3306,6 +3309,94 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing color wells: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2AY: executes read-only progress indicator direct discovery & observation.
+    /// Result summary carries aggregate counts only, never leaking individual values or titles to durable storage.
+    private func executeListProgressIndicators(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"]
+        if let role = role {
+            guard QAXProgressIndicatorRolePolicy.isAllowedProgressIndicatorRole(role) else {
+                return QActionResult(
+                    actionId: request.actionId,
+                    success: false,
+                    summary: "Target role '\(role)' is not an allowed progress indicator target.",
+                    error: "AX_DISALLOWED_ROLE"
+                )
+            }
+        }
+
+        let identifier = request.parameters["progressIndicatorIdentifier"] ?? request.parameters["identifier"] ?? request.parameters["id"]
+        let title = request.parameters["progressIndicatorTitle"] ?? request.parameters["title"] ?? request.parameters["label"]
+        let windowTitle = request.parameters["windowTitle"] ?? request.parameters["window"]
+        let windowIdentifier = request.parameters["windowIdentifier"] ?? request.parameters["windowId"]
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listProgressIndicators(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "indicatorCount": "\(metadata.indicatorCount)"
+            ]
+            if let role = role {
+                outputData["role"] = role
+            }
+            if let windowTitle = metadata.windowTitle {
+                outputData["windowTitle"] = windowTitle
+            }
+
+            for pi in metadata.indicators {
+                let idx = pi.index
+                outputData["indicator\(idx).index"] = "\(idx)"
+                outputData["indicator\(idx).title"] = pi.title ?? ""
+                outputData["indicator\(idx).identifier"] = pi.identifier ?? ""
+                outputData["indicator\(idx).role"] = pi.role
+                outputData["indicator\(idx).subrole"] = pi.subrole ?? ""
+                outputData["indicator\(idx).value"] = pi.value.map { "\($0)" } ?? ""
+                outputData["indicator\(idx).minValue"] = pi.minValue.map { "\($0)" } ?? ""
+                outputData["indicator\(idx).maxValue"] = pi.maxValue.map { "\($0)" } ?? ""
+                outputData["indicator\(idx).isBusy"] = pi.isBusy.map { $0 ? "true" : "false" } ?? ""
+                outputData["indicator\(idx).enabled"] = pi.isEnabled.map { $0 ? "true" : "false" } ?? ""
+            }
+
+            let windowSuffix = metadata.windowTitle.map { " (window: '\($0)')" } ?? ""
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(metadata.indicatorCount) progress indicator(s) in application '\(applicationName)'\(windowSuffix). This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing progress indicators: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

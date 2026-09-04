@@ -385,6 +385,10 @@ public enum QVerificationStrategy: Sendable {
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual color value, title, or identifier.
     case colorWellEnumerationSucceeded(applicationName: String, colorWellCount: Int)
+    /// Phase 2AY: semantic progress indicator enumeration verification (Level 0, read-only). Success requires
+    /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
+    /// only, never any individual value, title, or identifier.
+    case progressIndicatorEnumerationSucceeded(applicationName: String, indicatorCount: Int)
     /// Phase 2AM: semantic segmented control item enumeration verification (Level 0, read-only). Success requires
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual segment title or identifier.
@@ -895,6 +899,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Color well enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) colorWellRole=AXColorWell status=failed"
+                )
+            }
+
+        case .progressIndicatorEnumerationSucceeded(let applicationName, let indicatorCount):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) indicatorRole=AXProgressIndicator indicatorCount=\(indicatorCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Progress indicator enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) indicatorRole=AXProgressIndicator status=failed"
                 )
             }
 
