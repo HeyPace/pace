@@ -570,7 +570,17 @@ public struct QModelPlanParser: Sendable {
         // (true -> false and false -> true). Idempotent: already-at-the-desired-state is a
         // verified no-op, no AX write performed. Protected by stale-target & drift checks, and
         // verified via closed-loop observation. Requires explicit single-use approval.
-        "ui.set_window_full_screen": ("ui", .level2UserApproval)
+        "ui.set_window_full_screen": ("ui", .level2UserApproval),
+        // Phase 2AT: semantic split view pane enumeration — LEVEL 0 (READ-ONLY). Enumerates direct
+        // panes belonging to exactly ONE named AXSplitGroup in an application window via direct
+        // children, excluding AXSplitter divider elements between panes. No mutation, no press,
+        // no focus, no approval, no recovery.
+        // Application identity is resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication.
+        // Target must match AXSplitGroup canonical role policy. Bounded by local defensive ceiling
+        // (maxDirectSplitPanesCount = 16). This is a POINT-IN-TIME SNAPSHOT ONLY:
+        // result is informational and never enters durable persistence snapshots; every subsequent mutation
+        // capability must independently perform its own fresh, exact target resolution.
+        "ui.list_split_panes": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

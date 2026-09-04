@@ -639,6 +639,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     case disallowedSegmentRole(String)
     /// Phase 2AQ: target child element is not a valid segmented control item.
     case targetNotASegment(String)
+    /// Phase 2AT: the target's AX role is not on `QAXSplitGroupRolePolicy.allowedRoles`
+    /// (`AXSplitGroup` only).
+    case disallowedSplitGroupRole(String)
+    /// Phase 2AT: the direct pane count for a split group exceeds this capability's
+    /// defensive safe bound (16).
+    case splitPaneCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -814,6 +820,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Failed to read the target window's full-screen state (kAXFullScreenAttribute / AXFullScreen)."
         case .windowFullScreenNotWritable(let reason):
             return "Target window's full-screen attribute is not writable: \(reason)"
+        case .disallowedSplitGroupRole(let role):
+            return "Target role '\(role)' is not an allowed split group target."
+        case .splitPaneCollectionExceedsSafeBound(let count):
+            return "Split pane collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -906,6 +916,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .targetNotASegment: return "AX_TARGET_NOT_A_SEGMENT"
         case .windowFullScreenStateReadFailed: return "AX_WINDOW_FULL_SCREEN_STATE_READ_FAILED"
         case .windowFullScreenNotWritable: return "AX_WINDOW_FULL_SCREEN_NOT_WRITABLE"
+        case .disallowedSplitGroupRole: return "AX_DISALLOWED_ROLE"
+        case .splitPaneCollectionExceedsSafeBound: return "AX_SPLIT_PANE_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1378,6 +1390,17 @@ public enum QAXSheetActionRolePolicy {
     ]
 
     public static func isAllowedSheetActionRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.list_split_panes` (Phase 2AT) may target.
+/// Canonical role only — the split group container itself, never an individual pane or the
+/// `AXSplitter` divider between panes.
+public enum QAXSplitGroupRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXSplitGroup"]
+
+    public static func isAllowedSplitGroupRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -2318,6 +2341,68 @@ public struct QAXToolbarMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One split pane's safe, non-sensitive identity metadata, as returned by `ui.list_split_panes`
+/// (Phase 2AT). A "pane" is any direct child of an `AXSplitGroup` other than the `AXSplitter`
+/// divider elements between panes — pane content roles are inherently unbounded (`AXGroup`,
+/// `AXScrollArea`, `AXOutline`, `AXTable`, etc. are all valid pane contents), so unlike toolbar or
+/// segmented control items this capability does not filter by a fixed role allowlist beyond
+/// excluding the divider itself.
+public struct QAXSplitPaneItemMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let role: String
+    public let subrole: String?
+    public let isEnabled: Bool?
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        role: String,
+        subrole: String? = nil,
+        isEnabled: Bool? = nil
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.role = role
+        self.subrole = subrole
+        self.isEnabled = isEnabled
+    }
+}
+
+/// A split group's safe, non-sensitive direct panes metadata, as returned by `ui.list_split_panes`
+/// (Phase 2AT). Deliberately carries ONLY the fields this capability's contract allows — never raw
+/// `AXUIElement` references, never a pane's own descendant subtree.
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target
+/// reference; any subsequent mutation capability must independently perform its own fresh, exact
+/// target resolution.
+public struct QAXSplitGroupMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let windowTitle: String?
+    public let splitGroupTitle: String?
+    public let splitGroupIdentifier: String?
+    public let paneCount: Int
+    public let panes: [QAXSplitPaneItemMetadata]
+
+    public init(
+        applicationName: String,
+        windowTitle: String?,
+        splitGroupTitle: String?,
+        splitGroupIdentifier: String?,
+        paneCount: Int,
+        panes: [QAXSplitPaneItemMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.windowTitle = windowTitle
+        self.splitGroupTitle = splitGroupTitle
+        self.splitGroupIdentifier = splitGroupIdentifier
+        self.paneCount = paneCount
+        self.panes = panes
+    }
+}
+
 /// One segment item's safe, non-sensitive identity metadata, as returned by `ui.list_segmented_control_items`
 /// (Phase 2AM).
 public struct QAXSegmentedControlItemMetadata: Sendable, Equatable, Codable {
@@ -2586,6 +2671,11 @@ extension QBridgeAccessibility {
     private static let axModalAttributeName = "AXModal"
     /// Phase 2AO: defensive bound on sheet direct action controls enumeration.
     private static let maxDirectSheetActionsCount = 16
+    /// Phase 2AT: defensive bound on split pane enumeration.
+    private static let maxDirectSplitPanesCount = 16
+    /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
+    /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
+    private static let splitterRole = "AXSplitter"
     private static let traversalTimeBudgetSeconds: CFAbsoluteTime = 1.5
     /// No `kAX...` Swift constant exists for this attribute; confirmed via direct empirical
     /// probing against real macOS apps that it is the stable, populated, raw-string identifier
@@ -6366,6 +6456,121 @@ extension QBridgeAccessibility {
                 toolbarIdentifier: observedAtVerify.identifier,
                 itemCount: itemsMetadata.count,
                 items: itemsMetadata
+            )
+        }.value
+    }
+
+    /// Phase 2AT: semantic split view pane direct enumeration (Level 0, read-only). Enumerates direct
+    /// panes belonging to exactly ONE named AXSplitGroup in an application window.
+    /// No mutation, no press, no approval, no recovery. The `AXSplitter` divider elements between panes
+    /// are strictly excluded — a pane's own descendant subtree is strictly NOT expanded.
+    public func listSplitPanes(
+        applicationName: String,
+        role: String = "AXSplitGroup",
+        identifier: String?,
+        title: String?,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil
+    ) async throws -> QAXSplitGroupMetadata {
+        guard QAXSplitGroupRolePolicy.isAllowedSplitGroupRole(role) else {
+            throw QAXInteractionError.disallowedSplitGroupRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            let resolvedWindowTitle: String?
+
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+                guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+                let (targetWindow, windowSnapshot) = windowMatches[0]
+                guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                    throw QAXInteractionError.staleTarget("target window element is no longer resolvable")
+                }
+                guard verifiedWindow == windowSnapshot else {
+                    throw QAXInteractionError.staleTarget("target window identity changed between observation and verification")
+                }
+                searchRoot = targetWindow
+                resolvedWindowTitle = verifiedWindow.titleOrDescription
+            } else {
+                searchRoot = appElement
+                resolvedWindowTitle = nil
+            }
+
+            let matches = Self.collectMatches(root: searchRoot, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target split group element is no longer resolvable immediately before enumeration")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target split group element identity changed between observation and enumeration")
+            }
+
+            let rawChildElements = Self.childrenAttribute(of: targetElement) ?? []
+
+            var validPaneElements: [AXUIElement] = []
+            for childElement in rawChildElements {
+                guard let childRole = Self.axStringAttribute(kAXRoleAttribute, of: childElement) else {
+                    continue
+                }
+                guard childRole != Self.splitterRole else {
+                    continue
+                }
+                validPaneElements.append(childElement)
+            }
+
+            guard validPaneElements.count <= Self.maxDirectSplitPanesCount else {
+                throw QAXInteractionError.splitPaneCollectionExceedsSafeBound(validPaneElements.count)
+            }
+
+            var panesMetadata: [QAXSplitPaneItemMetadata] = []
+            panesMetadata.reserveCapacity(validPaneElements.count)
+
+            for (index, paneElement) in validPaneElements.enumerated() {
+                let paneTitle = Self.axStringAttribute(kAXTitleAttribute, of: paneElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: paneElement)
+                let paneIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: paneElement)
+                let childRole = Self.axStringAttribute(kAXRoleAttribute, of: paneElement) ?? "AXUnknown"
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: paneElement)
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: paneElement)
+
+                panesMetadata.append(
+                    QAXSplitPaneItemMetadata(
+                        index: index,
+                        title: paneTitle,
+                        identifier: paneIdentifier,
+                        role: childRole,
+                        subrole: subrole,
+                        isEnabled: isEnabled
+                    )
+                )
+            }
+
+            return QAXSplitGroupMetadata(
+                applicationName: applicationName,
+                windowTitle: resolvedWindowTitle,
+                splitGroupTitle: observedAtVerify.titleOrDescription,
+                splitGroupIdentifier: observedAtVerify.identifier,
+                paneCount: panesMetadata.count,
+                panes: panesMetadata
             )
         }.value
     }

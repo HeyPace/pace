@@ -210,6 +210,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_toolbar_items":
             result = await executeListToolbarItems(request: request)
 
+        case "ui.list_split_panes":
+            result = await executeListSplitPanes(request: request)
+
         case "ui.list_segmented_control_items":
             result = await executeListSegmentedControlItems(request: request)
 
@@ -2958,6 +2961,92 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing toolbar items: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2AT: executes read-only split view pane direct discovery.
+    /// Result summary carries aggregate counts only, never leaking individual pane titles to durable storage.
+    private func executeListSplitPanes(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"] ?? "AXSplitGroup"
+        guard QAXSplitGroupRolePolicy.isAllowedSplitGroupRole(role) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target role '\(role)' is not an allowed split group target.",
+                error: "AX_DISALLOWED_ROLE"
+            )
+        }
+
+        let identifier = request.parameters["identifier"] ?? request.parameters["id"]
+        let title = request.parameters["title"] ?? request.parameters["label"]
+        let windowTitle = request.parameters["windowTitle"] ?? request.parameters["window"]
+        let windowIdentifier = request.parameters["windowIdentifier"] ?? request.parameters["windowId"]
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listSplitPanes(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "paneCount": "\(metadata.paneCount)"
+            ]
+            if let windowTitle = metadata.windowTitle {
+                outputData["windowTitle"] = windowTitle
+            }
+            if let splitGroupTitle = metadata.splitGroupTitle {
+                outputData["splitGroupTitle"] = splitGroupTitle
+            }
+            if let splitGroupIdentifier = metadata.splitGroupIdentifier {
+                outputData["splitGroupIdentifier"] = splitGroupIdentifier
+            }
+
+            for pane in metadata.panes {
+                let idx = pane.index
+                outputData["pane\(idx).index"] = "\(idx)"
+                outputData["pane\(idx).title"] = pane.title ?? ""
+                outputData["pane\(idx).identifier"] = pane.identifier ?? ""
+                outputData["pane\(idx).role"] = pane.role
+                outputData["pane\(idx).subrole"] = pane.subrole ?? ""
+                outputData["pane\(idx).enabled"] = pane.isEnabled.map { $0 ? "true" : "false" } ?? ""
+            }
+
+            let windowSuffix = metadata.windowTitle.map { " (window: '\($0)')" } ?? ""
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(metadata.paneCount) split pane(s) for split group in application '\(applicationName)'\(windowSuffix). This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing split panes: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }
