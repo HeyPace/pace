@@ -276,6 +276,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func listSheetDialogs(applicationName: String, windowTitle: String?, windowIdentifier: String?) async throws -> QAXSheetCollectionMetadata
     func listSheetActions(applicationName: String, windowTitle: String?, windowIdentifier: String?, sheetTitle: String?, sheetIdentifier: String?) async throws -> QAXSheetActionCollectionMetadata
     func listBrowserColumns(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXBrowserColumnCollectionMetadata
+    func listPopovers(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXPopoverCollectionMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -665,6 +666,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     case disallowedBrowserRole(String)
     /// Phase 2AV: the direct column count for a browser exceeds this capability's defensive safe bound (32).
     case browserColumnCollectionExceedsSafeBound(Int)
+    /// Phase 2AW: the target's AX role is not on `QAXPopoverRolePolicy.allowedRoles` (`AXPopover` only).
+    case disallowedPopoverRole(String)
+    /// Phase 2AW: the direct popovers count exceeds this capability's defensive safe bound (16).
+    case popoverCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -862,6 +867,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not an allowed browser target."
         case .browserColumnCollectionExceedsSafeBound(let count):
             return "Browser column collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .disallowedPopoverRole(let role):
+            return "Target role '\(role)' is not an allowed popover target."
+        case .popoverCollectionExceedsSafeBound(let count):
+            return "Popover collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -965,6 +974,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .invalidDesiredPosition: return "AX_INVALID_DESIRED_POSITION"
         case .disallowedBrowserRole: return "AX_DISALLOWED_ROLE"
         case .browserColumnCollectionExceedsSafeBound: return "AX_BROWSER_COLUMN_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .disallowedPopoverRole: return "AX_DISALLOWED_ROLE"
+        case .popoverCollectionExceedsSafeBound: return "AX_POPOVER_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1468,6 +1479,16 @@ public enum QAXBrowserRolePolicy {
     public static let allowedRoles: Set<String> = ["AXBrowser"]
 
     public static func isAllowedBrowserRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.list_popovers` (Phase 2AW) may target.
+/// Canonical role only — the popover container itself.
+public enum QAXPopoverRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXPopover"]
+
+    public static func isAllowedPopoverRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -2525,6 +2546,53 @@ public struct QAXBrowserColumnCollectionMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One popover's safe, non-sensitive identity metadata, as returned by `ui.list_popovers` (Phase 2AW).
+public struct QAXPopoverMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let role: String
+    public let subrole: String?
+    public let isModal: Bool?
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        role: String,
+        subrole: String? = nil,
+        isModal: Bool? = nil
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.role = role
+        self.subrole = subrole
+        self.isModal = isModal
+    }
+}
+
+/// A collection of safe, non-sensitive direct popovers metadata, as returned by `ui.list_popovers` (Phase 2AW).
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target reference.
+public struct QAXPopoverCollectionMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let windowTitle: String?
+    public let popoverCount: Int
+    public let popovers: [QAXPopoverMetadata]
+
+    public init(
+        applicationName: String,
+        windowTitle: String?,
+        popoverCount: Int,
+        popovers: [QAXPopoverMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.windowTitle = windowTitle
+        self.popoverCount = popoverCount
+        self.popovers = popovers
+    }
+}
+
 /// Whether a `setSplitterPosition` call actually performed a value write, or found the target
 /// already at the desired position (within tolerance) and correctly did nothing.
 public enum QAXSplitterChangeKind: String, Sendable, Equatable {
@@ -2844,6 +2912,7 @@ extension QBridgeAccessibility {
     /// Phase 2AT: defensive bound on split pane enumeration.
     private static let maxDirectSplitPanesCount = 16
     private static let maxDirectBrowserColumnsCount = 32
+    private static let maxDirectPopoversCount = 16
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -6874,6 +6943,145 @@ extension QBridgeAccessibility {
                 browserIdentifier: observedAtVerify.identifier,
                 columnCount: columnsMetadata.count,
                 columns: columnsMetadata
+            )
+        }.value
+    }
+
+    /// Phase 2AW: semantic popover container direct enumeration (Level 0, read-only).
+    /// Enumerates direct AXPopover elements belonging to an application window or application root.
+    /// No mutation, no press, no focus, no approval, no recovery.
+    public func listPopovers(
+        applicationName: String,
+        role: String = "AXPopover",
+        identifier: String? = nil,
+        title: String? = nil,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil
+    ) async throws -> QAXPopoverCollectionMetadata {
+        guard QAXPopoverRolePolicy.isAllowedPopoverRole(role) else {
+            throw QAXInteractionError.disallowedPopoverRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            let resolvedWindowTitle: String?
+
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+                guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+                let (targetWindow, windowSnapshot) = windowMatches[0]
+                guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                    throw QAXInteractionError.staleTarget("target window element is no longer resolvable")
+                }
+                guard verifiedWindow == windowSnapshot else {
+                    throw QAXInteractionError.staleTarget("target window identity changed between observation and verification")
+                }
+                searchRoot = targetWindow
+                resolvedWindowTitle = verifiedWindow.titleOrDescription
+            } else {
+                searchRoot = appElement
+                resolvedWindowTitle = nil
+            }
+
+            var candidateElements: [AXUIElement] = []
+            if let childElements = Self.childrenAttribute(of: searchRoot) {
+                candidateElements.append(contentsOf: childElements)
+            }
+            if searchRoot != appElement, let appChildren = Self.childrenAttribute(of: appElement) {
+                candidateElements.append(contentsOf: appChildren)
+            }
+
+            var validPopoverElements: [AXUIElement] = []
+            var seenSnapshots: [QAXElementSnapshot] = []
+
+            for element in candidateElements {
+                guard let elementRole = Self.axStringAttribute(kAXRoleAttribute, of: element) else {
+                    continue
+                }
+                guard QAXPopoverRolePolicy.isAllowedPopoverRole(elementRole) else {
+                    continue
+                }
+
+                let elementIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: element)
+                let elementTitleOrDesc = Self.axStringAttribute(kAXTitleAttribute, of: element)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: element)
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: element) ?? true
+                let snapshot = QAXElementSnapshot(role: elementRole, identifier: elementIdentifier, titleOrDescription: elementTitleOrDesc, isEnabled: isEnabled)
+                if !seenSnapshots.contains(snapshot) {
+                    seenSnapshots.append(snapshot)
+                    validPopoverElements.append(element)
+                }
+            }
+
+            var filteredPopovers: [AXUIElement] = []
+            for pop in validPopoverElements {
+                let pId = Self.axStringAttribute(Self.axIdentifierAttributeName, of: pop)
+                let pTitle = Self.axStringAttribute(kAXTitleAttribute, of: pop)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: pop)
+
+                if let identifier = identifier, let title = title {
+                    if pId == identifier && pTitle == title {
+                        filteredPopovers.append(pop)
+                    }
+                } else if let identifier = identifier {
+                    if pId == identifier {
+                        filteredPopovers.append(pop)
+                    }
+                } else if let title = title {
+                    if pTitle == title {
+                        filteredPopovers.append(pop)
+                    }
+                } else {
+                    filteredPopovers.append(pop)
+                }
+            }
+
+            guard filteredPopovers.count <= Self.maxDirectPopoversCount else {
+                throw QAXInteractionError.popoverCollectionExceedsSafeBound(filteredPopovers.count)
+            }
+
+            var popoversMetadata: [QAXPopoverMetadata] = []
+            popoversMetadata.reserveCapacity(filteredPopovers.count)
+
+            for (index, popElement) in filteredPopovers.enumerated() {
+                let popTitle = Self.axStringAttribute(kAXTitleAttribute, of: popElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: popElement)
+                let popIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: popElement)
+                let popRole = Self.axStringAttribute(kAXRoleAttribute, of: popElement) ?? "AXPopover"
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: popElement)
+                let isModal = Self.axBoolAttribute(Self.axModalAttributeName, of: popElement)
+
+                popoversMetadata.append(
+                    QAXPopoverMetadata(
+                        index: index,
+                        title: popTitle,
+                        identifier: popIdentifier,
+                        role: popRole,
+                        subrole: subrole,
+                        isModal: isModal
+                    )
+                )
+            }
+
+            return QAXPopoverCollectionMetadata(
+                applicationName: applicationName,
+                windowTitle: resolvedWindowTitle,
+                popoverCount: popoversMetadata.count,
+                popovers: popoversMetadata
             )
         }.value
     }

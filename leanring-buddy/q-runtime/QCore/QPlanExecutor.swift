@@ -884,6 +884,15 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual column title or identifier — this strategy only ever
             // carries aggregate counts, by design.
             return .browserColumnEnumerationSucceeded(applicationName: applicationName, columnCount: columnCount)
+        } else if action.actionName == "ui.list_popovers",
+                  let applicationName = action.arguments["applicationName"],
+                  let popoverCountString = result.outputData["popoverCount"],
+                  let popoverCount = Int(popoverCountString) {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the popover count captured at read time. Deliberately NOT threaded
+            // through here: any individual popover title or identifier — this strategy only ever
+            // carries aggregate counts, by design.
+            return .popoverEnumerationSucceeded(applicationName: applicationName, popoverCount: popoverCount)
         } else if action.actionName == "ui.list_segmented_control_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

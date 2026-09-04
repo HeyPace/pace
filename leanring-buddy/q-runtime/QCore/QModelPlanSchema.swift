@@ -600,7 +600,16 @@ public struct QModelPlanParser: Sendable {
         // (maxDirectBrowserColumnsCount = 32). This is a POINT-IN-TIME SNAPSHOT ONLY:
         // result is informational and never enters durable persistence snapshots; every subsequent mutation
         // capability must independently perform its own fresh, exact target resolution.
-        "ui.list_browser_columns": ("ui", .level0ReadOnly)
+        "ui.list_browser_columns": ("ui", .level0ReadOnly),
+        // Phase 2AW: semantic popover container enumeration — LEVEL 0 (READ-ONLY). Enumerates direct
+        // AXPopover elements belonging to an application window or application root in a named application.
+        // No mutation, no press, no focus, no approval, no recovery.
+        // Application identity is resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication.
+        // Target must match AXPopover canonical role policy. Bounded by local defensive ceiling
+        // (maxDirectPopoversCount = 16). This is a POINT-IN-TIME SNAPSHOT ONLY:
+        // result is informational and never enters durable persistence snapshots; every subsequent mutation
+        // capability must independently perform its own fresh, exact target resolution.
+        "ui.list_popovers": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

@@ -231,6 +231,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_browser_columns":
             result = await executeListBrowserColumns(request: request)
 
+        case "ui.list_popovers":
+            result = await executeListPopovers(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -3139,6 +3142,86 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing browser columns: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2AW: executes read-only popover container direct discovery.
+    /// Result summary carries aggregate counts only, never leaking individual popover titles to durable storage.
+    private func executeListPopovers(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"] ?? "AXPopover"
+        guard QAXPopoverRolePolicy.isAllowedPopoverRole(role) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target role '\(role)' is not an allowed popover target.",
+                error: "AX_DISALLOWED_ROLE"
+            )
+        }
+
+        let identifier = request.parameters["popoverIdentifier"] ?? request.parameters["identifier"] ?? request.parameters["id"]
+        let title = request.parameters["popoverTitle"] ?? request.parameters["title"] ?? request.parameters["label"]
+        let windowTitle = request.parameters["windowTitle"] ?? request.parameters["window"]
+        let windowIdentifier = request.parameters["windowIdentifier"] ?? request.parameters["windowId"]
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listPopovers(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "popoverCount": "\(metadata.popoverCount)"
+            ]
+            if let windowTitle = metadata.windowTitle {
+                outputData["windowTitle"] = windowTitle
+            }
+
+            for pop in metadata.popovers {
+                let idx = pop.index
+                outputData["popover\(idx).index"] = "\(idx)"
+                outputData["popover\(idx).title"] = pop.title ?? ""
+                outputData["popover\(idx).identifier"] = pop.identifier ?? ""
+                outputData["popover\(idx).role"] = pop.role
+                outputData["popover\(idx).subrole"] = pop.subrole ?? ""
+                outputData["popover\(idx).modal"] = pop.isModal.map { $0 ? "true" : "false" } ?? ""
+            }
+
+            let windowSuffix = metadata.windowTitle.map { " (window: '\($0)')" } ?? ""
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(metadata.popoverCount) popover(s) in application '\(applicationName)'\(windowSuffix). This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing popovers: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }
