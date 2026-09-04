@@ -381,6 +381,10 @@ public enum QVerificationStrategy: Sendable {
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual popover title or identifier.
     case popoverEnumerationSucceeded(applicationName: String, popoverCount: Int)
+    /// Phase 2AX: semantic color well enumeration verification (Level 0, read-only). Success requires
+    /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
+    /// only, never any individual color value, title, or identifier.
+    case colorWellEnumerationSucceeded(applicationName: String, colorWellCount: Int)
     /// Phase 2AM: semantic segmented control item enumeration verification (Level 0, read-only). Success requires
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual segment title or identifier.
@@ -879,6 +883,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Popover enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) popoverRole=AXPopover status=failed"
+                )
+            }
+
+        case .colorWellEnumerationSucceeded(let applicationName, let colorWellCount):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) colorWellRole=AXColorWell colorWellCount=\(colorWellCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Color well enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) colorWellRole=AXColorWell status=failed"
                 )
             }
 

@@ -609,7 +609,16 @@ public struct QModelPlanParser: Sendable {
         // (maxDirectPopoversCount = 16). This is a POINT-IN-TIME SNAPSHOT ONLY:
         // result is informational and never enters durable persistence snapshots; every subsequent mutation
         // capability must independently perform its own fresh, exact target resolution.
-        "ui.list_popovers": ("ui", .level0ReadOnly)
+        "ui.list_popovers": ("ui", .level0ReadOnly),
+        // Phase 2AX: semantic color well enumeration — LEVEL 0 (READ-ONLY). Enumerates direct
+        // AXColorWell elements belonging to an application window or view hierarchy in a named application.
+        // No mutation, no press, no focus, no approval, no recovery.
+        // Application identity is resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication.
+        // Target must match AXColorWell canonical role policy. Bounded by local defensive ceiling
+        // (maxDirectColorWellsCount = 32). This is a POINT-IN-TIME SNAPSHOT ONLY:
+        // result is informational and never enters durable persistence snapshots; every subsequent mutation
+        // capability must independently perform its own fresh, exact target resolution.
+        "ui.list_color_wells": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

@@ -234,6 +234,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_popovers":
             result = await executeListPopovers(request: request)
 
+        case "ui.list_color_wells":
+            result = await executeListColorWells(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -3222,6 +3225,87 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing popovers: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2AX: executes read-only color well direct discovery.
+    /// Result summary carries aggregate counts only, never leaking individual color values or titles to durable storage.
+    private func executeListColorWells(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"] ?? "AXColorWell"
+        guard QAXColorWellRolePolicy.isAllowedColorWellRole(role) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target role '\(role)' is not an allowed color well target.",
+                error: "AX_DISALLOWED_ROLE"
+            )
+        }
+
+        let identifier = request.parameters["colorWellIdentifier"] ?? request.parameters["identifier"] ?? request.parameters["id"]
+        let title = request.parameters["colorWellTitle"] ?? request.parameters["title"] ?? request.parameters["label"]
+        let windowTitle = request.parameters["windowTitle"] ?? request.parameters["window"]
+        let windowIdentifier = request.parameters["windowIdentifier"] ?? request.parameters["windowId"]
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listColorWells(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "colorWellCount": "\(metadata.colorWellCount)"
+            ]
+            if let windowTitle = metadata.windowTitle {
+                outputData["windowTitle"] = windowTitle
+            }
+
+            for cw in metadata.colorWells {
+                let idx = cw.index
+                outputData["colorWell\(idx).index"] = "\(idx)"
+                outputData["colorWell\(idx).title"] = cw.title ?? ""
+                outputData["colorWell\(idx).identifier"] = cw.identifier ?? ""
+                outputData["colorWell\(idx).role"] = cw.role
+                outputData["colorWell\(idx).subrole"] = cw.subrole ?? ""
+                outputData["colorWell\(idx).value"] = cw.value ?? ""
+                outputData["colorWell\(idx).enabled"] = cw.isEnabled.map { $0 ? "true" : "false" } ?? ""
+            }
+
+            let windowSuffix = metadata.windowTitle.map { " (window: '\($0)')" } ?? ""
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(metadata.colorWellCount) color well(s) in application '\(applicationName)'\(windowSuffix). This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing color wells: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

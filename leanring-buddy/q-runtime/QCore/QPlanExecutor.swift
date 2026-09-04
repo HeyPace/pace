@@ -893,6 +893,15 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual popover title or identifier — this strategy only ever
             // carries aggregate counts, by design.
             return .popoverEnumerationSucceeded(applicationName: applicationName, popoverCount: popoverCount)
+        } else if action.actionName == "ui.list_color_wells",
+                  let applicationName = action.arguments["applicationName"],
+                  let colorWellCountString = result.outputData["colorWellCount"],
+                  let colorWellCount = Int(colorWellCountString) {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the color well count captured at read time. Deliberately NOT threaded
+            // through here: any individual color value, title, or identifier — this strategy only ever
+            // carries aggregate counts, by design.
+            return .colorWellEnumerationSucceeded(applicationName: applicationName, colorWellCount: colorWellCount)
         } else if action.actionName == "ui.list_segmented_control_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

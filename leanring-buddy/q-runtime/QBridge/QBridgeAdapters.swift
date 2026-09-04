@@ -277,6 +277,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func listSheetActions(applicationName: String, windowTitle: String?, windowIdentifier: String?, sheetTitle: String?, sheetIdentifier: String?) async throws -> QAXSheetActionCollectionMetadata
     func listBrowserColumns(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXBrowserColumnCollectionMetadata
     func listPopovers(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXPopoverCollectionMetadata
+    func listColorWells(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXColorWellCollectionMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -670,6 +671,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     case disallowedPopoverRole(String)
     /// Phase 2AW: the direct popovers count exceeds this capability's defensive safe bound (16).
     case popoverCollectionExceedsSafeBound(Int)
+    /// Phase 2AX: the target's AX role is not on `QAXColorWellRolePolicy.allowedRoles` (`AXColorWell` only).
+    case disallowedColorWellRole(String)
+    /// Phase 2AX: the direct color well count exceeds this capability's defensive safe bound (32).
+    case colorWellCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -871,6 +876,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not an allowed popover target."
         case .popoverCollectionExceedsSafeBound(let count):
             return "Popover collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .disallowedColorWellRole(let role):
+            return "Target role '\(role)' is not an allowed color well target."
+        case .colorWellCollectionExceedsSafeBound(let count):
+            return "Color well collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -976,6 +985,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .browserColumnCollectionExceedsSafeBound: return "AX_BROWSER_COLUMN_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .disallowedPopoverRole: return "AX_DISALLOWED_ROLE"
         case .popoverCollectionExceedsSafeBound: return "AX_POPOVER_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .disallowedColorWellRole: return "AX_DISALLOWED_ROLE"
+        case .colorWellCollectionExceedsSafeBound: return "AX_COLOR_WELL_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1489,6 +1500,16 @@ public enum QAXPopoverRolePolicy {
     public static let allowedRoles: Set<String> = ["AXPopover"]
 
     public static func isAllowedPopoverRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.list_color_wells` (Phase 2AX) may target.
+/// Canonical role only — the color well control itself.
+public enum QAXColorWellRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXColorWell"]
+
+    public static func isAllowedColorWellRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -2593,6 +2614,56 @@ public struct QAXPopoverCollectionMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One color well's safe, non-sensitive identity metadata, as returned by `ui.list_color_wells` (Phase 2AX).
+public struct QAXColorWellMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let role: String
+    public let subrole: String?
+    public let value: String?
+    public let isEnabled: Bool?
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        role: String,
+        subrole: String? = nil,
+        value: String? = nil,
+        isEnabled: Bool? = nil
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.role = role
+        self.subrole = subrole
+        self.value = value
+        self.isEnabled = isEnabled
+    }
+}
+
+/// A collection of safe, non-sensitive direct color wells metadata, as returned by `ui.list_color_wells` (Phase 2AX).
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target reference.
+public struct QAXColorWellCollectionMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let windowTitle: String?
+    public let colorWellCount: Int
+    public let colorWells: [QAXColorWellMetadata]
+
+    public init(
+        applicationName: String,
+        windowTitle: String?,
+        colorWellCount: Int,
+        colorWells: [QAXColorWellMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.windowTitle = windowTitle
+        self.colorWellCount = colorWellCount
+        self.colorWells = colorWells
+    }
+}
+
 /// Whether a `setSplitterPosition` call actually performed a value write, or found the target
 /// already at the desired position (within tolerance) and correctly did nothing.
 public enum QAXSplitterChangeKind: String, Sendable, Equatable {
@@ -2913,6 +2984,7 @@ extension QBridgeAccessibility {
     private static let maxDirectSplitPanesCount = 16
     private static let maxDirectBrowserColumnsCount = 32
     private static let maxDirectPopoversCount = 16
+    private static let maxDirectColorWellsCount = 32
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -7082,6 +7154,145 @@ extension QBridgeAccessibility {
                 windowTitle: resolvedWindowTitle,
                 popoverCount: popoversMetadata.count,
                 popovers: popoversMetadata
+            )
+        }.value
+    }
+
+    /// Phase 2AX: semantic color well direct enumeration (Level 0, read-only).
+    /// Enumerates direct AXColorWell elements belonging to an application window or view hierarchy.
+    /// No mutation, no press, no focus, no approval, no recovery.
+    public func listColorWells(
+        applicationName: String,
+        role: String = "AXColorWell",
+        identifier: String? = nil,
+        title: String? = nil,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil
+    ) async throws -> QAXColorWellCollectionMetadata {
+        guard QAXColorWellRolePolicy.isAllowedColorWellRole(role) else {
+            throw QAXInteractionError.disallowedColorWellRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            let resolvedWindowTitle: String?
+
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+                guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+                let (targetWindow, windowSnapshot) = windowMatches[0]
+                guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                    throw QAXInteractionError.staleTarget("target window element is no longer resolvable")
+                }
+                guard verifiedWindow == windowSnapshot else {
+                    throw QAXInteractionError.staleTarget("target window identity changed between observation and verification")
+                }
+                searchRoot = targetWindow
+                resolvedWindowTitle = verifiedWindow.titleOrDescription
+            } else {
+                searchRoot = appElement
+                resolvedWindowTitle = nil
+            }
+
+            var candidateColorWells: [AXUIElement] = []
+            var seenSnapshots: [QAXElementSnapshot] = []
+
+            func scanForColorWells(_ element: AXUIElement, depth: Int) {
+                guard depth <= 8, candidateColorWells.count <= Self.maxDirectColorWellsCount + 1 else { return }
+                if let elementRole = Self.axStringAttribute(kAXRoleAttribute, of: element),
+                   QAXColorWellRolePolicy.isAllowedColorWellRole(elementRole) {
+                    let elementIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: element)
+                    let elementTitleOrDesc = Self.axStringAttribute(kAXTitleAttribute, of: element)
+                        ?? Self.axStringAttribute(kAXDescriptionAttribute, of: element)
+                    let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: element) ?? true
+                    let snapshot = QAXElementSnapshot(role: elementRole, identifier: elementIdentifier, titleOrDescription: elementTitleOrDesc, isEnabled: isEnabled)
+                    if !seenSnapshots.contains(snapshot) {
+                        seenSnapshots.append(snapshot)
+                        candidateColorWells.append(element)
+                    }
+                }
+                guard let children = Self.childrenAttribute(of: element) else { return }
+                for child in children {
+                    scanForColorWells(child, depth: depth + 1)
+                }
+            }
+
+            scanForColorWells(searchRoot, depth: 0)
+            if searchRoot != appElement {
+                scanForColorWells(appElement, depth: 0)
+            }
+
+            var filteredColorWells: [AXUIElement] = []
+            for cw in candidateColorWells {
+                let cwId = Self.axStringAttribute(Self.axIdentifierAttributeName, of: cw)
+                let cwTitle = Self.axStringAttribute(kAXTitleAttribute, of: cw)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: cw)
+
+                if let identifier = identifier, let title = title {
+                    if cwId == identifier && cwTitle == title {
+                        filteredColorWells.append(cw)
+                    }
+                } else if let identifier = identifier {
+                    if cwId == identifier {
+                        filteredColorWells.append(cw)
+                    }
+                } else if let title = title {
+                    if cwTitle == title {
+                        filteredColorWells.append(cw)
+                    }
+                } else {
+                    filteredColorWells.append(cw)
+                }
+            }
+
+            guard filteredColorWells.count <= Self.maxDirectColorWellsCount else {
+                throw QAXInteractionError.colorWellCollectionExceedsSafeBound(filteredColorWells.count)
+            }
+
+            var colorWellsMetadata: [QAXColorWellMetadata] = []
+            colorWellsMetadata.reserveCapacity(filteredColorWells.count)
+
+            for (index, cwElement) in filteredColorWells.enumerated() {
+                let cwTitle = Self.axStringAttribute(kAXTitleAttribute, of: cwElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: cwElement)
+                let cwIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: cwElement)
+                let cwRole = Self.axStringAttribute(kAXRoleAttribute, of: cwElement) ?? "AXColorWell"
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: cwElement)
+                let value = Self.axStringAttribute(kAXValueAttribute, of: cwElement)
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: cwElement)
+
+                colorWellsMetadata.append(
+                    QAXColorWellMetadata(
+                        index: index,
+                        title: cwTitle,
+                        identifier: cwIdentifier,
+                        role: cwRole,
+                        subrole: subrole,
+                        value: value,
+                        isEnabled: isEnabled
+                    )
+                )
+            }
+
+            return QAXColorWellCollectionMetadata(
+                applicationName: applicationName,
+                windowTitle: resolvedWindowTitle,
+                colorWellCount: colorWellsMetadata.count,
+                colorWells: colorWellsMetadata
             )
         }.value
     }
