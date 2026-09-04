@@ -228,6 +228,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.set_splitter_position":
             result = await executeSetSplitterPosition(request: request)
 
+        case "ui.list_browser_columns":
+            result = await executeListBrowserColumns(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -3050,6 +3053,92 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing split panes: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2AV: executes read-only multi-column browser direct column discovery.
+    /// Result summary carries aggregate counts only, never leaking individual column titles to durable storage.
+    private func executeListBrowserColumns(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"] ?? "AXBrowser"
+        guard QAXBrowserRolePolicy.isAllowedBrowserRole(role) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target role '\(role)' is not an allowed browser target.",
+                error: "AX_DISALLOWED_ROLE"
+            )
+        }
+
+        let identifier = request.parameters["browserIdentifier"] ?? request.parameters["identifier"] ?? request.parameters["id"]
+        let title = request.parameters["browserTitle"] ?? request.parameters["title"] ?? request.parameters["label"]
+        let windowTitle = request.parameters["windowTitle"] ?? request.parameters["window"]
+        let windowIdentifier = request.parameters["windowIdentifier"] ?? request.parameters["windowId"]
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listBrowserColumns(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "columnCount": "\(metadata.columnCount)"
+            ]
+            if let windowTitle = metadata.windowTitle {
+                outputData["windowTitle"] = windowTitle
+            }
+            if let browserTitle = metadata.browserTitle {
+                outputData["browserTitle"] = browserTitle
+            }
+            if let browserIdentifier = metadata.browserIdentifier {
+                outputData["browserIdentifier"] = browserIdentifier
+            }
+
+            for col in metadata.columns {
+                let idx = col.index
+                outputData["column\(idx).index"] = "\(idx)"
+                outputData["column\(idx).title"] = col.title ?? ""
+                outputData["column\(idx).identifier"] = col.identifier ?? ""
+                outputData["column\(idx).role"] = col.role
+                outputData["column\(idx).subrole"] = col.subrole ?? ""
+                outputData["column\(idx).enabled"] = col.isEnabled.map { $0 ? "true" : "false" } ?? ""
+            }
+
+            let windowSuffix = metadata.windowTitle.map { " (window: '\($0)')" } ?? ""
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(metadata.columnCount) browser column(s) for browser in application '\(applicationName)'\(windowSuffix). This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing browser columns: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

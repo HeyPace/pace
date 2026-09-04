@@ -373,6 +373,10 @@ public enum QVerificationStrategy: Sendable {
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual pane title or identifier.
     case splitPaneEnumerationSucceeded(applicationName: String, paneCount: Int)
+    /// Phase 2AV: semantic multi-column browser enumeration verification (Level 0, read-only). Success requires
+    /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
+    /// only, never any individual column title or identifier.
+    case browserColumnEnumerationSucceeded(applicationName: String, columnCount: Int)
     /// Phase 2AM: semantic segmented control item enumeration verification (Level 0, read-only). Success requires
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual segment title or identifier.
@@ -847,6 +851,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Split pane enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) splitGroupRole=AXSplitGroup status=failed"
+                )
+            }
+
+        case .browserColumnEnumerationSucceeded(let applicationName, let columnCount):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) browserRole=AXBrowser columnCount=\(columnCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Browser column enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) browserRole=AXBrowser status=failed"
                 )
             }
 

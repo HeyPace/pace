@@ -591,7 +591,16 @@ public struct QModelPlanParser: Sendable {
         // within tolerance (abs(current - desired) <= tolerance), returns success immediately as a verified no-op.
         // Protected by stale-target & drift checks, and verified via independent closed-loop observation of fresh kAXValueAttribute.
         // Requires explicit single-use approval bound to QExecutionIdentity.
-        "ui.set_splitter_position": ("ui", .level2UserApproval)
+        "ui.set_splitter_position": ("ui", .level2UserApproval),
+        // Phase 2AV: semantic multi-column browser enumeration — LEVEL 0 (READ-ONLY). Enumerates direct
+        // columns belonging to exactly ONE named AXBrowser in an application window via direct
+        // children (kAXColumnsAttribute or AXColumn children). No mutation, no press, no focus, no approval, no recovery.
+        // Application identity is resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication.
+        // Target must match AXBrowser canonical role policy. Bounded by local defensive ceiling
+        // (maxDirectBrowserColumnsCount = 32). This is a POINT-IN-TIME SNAPSHOT ONLY:
+        // result is informational and never enters durable persistence snapshots; every subsequent mutation
+        // capability must independently perform its own fresh, exact target resolution.
+        "ui.list_browser_columns": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

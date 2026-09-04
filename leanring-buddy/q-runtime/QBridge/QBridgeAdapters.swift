@@ -275,6 +275,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func selectSegmentedControlItem(applicationName: String, role: String, controlIdentifier: String?, controlTitle: String?, windowTitle: String?, windowIdentifier: String?, segmentIdentifier: String?, segmentTitle: String?, desiredSelected: Bool) async throws -> QAXSegmentedControlSelectionOutcome
     func listSheetDialogs(applicationName: String, windowTitle: String?, windowIdentifier: String?) async throws -> QAXSheetCollectionMetadata
     func listSheetActions(applicationName: String, windowTitle: String?, windowIdentifier: String?, sheetTitle: String?, sheetIdentifier: String?) async throws -> QAXSheetActionCollectionMetadata
+    func listBrowserColumns(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXBrowserColumnCollectionMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -660,6 +661,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     case invalidSplitterTolerance(Double)
     /// Phase 2AU: requested splitter position is invalid (must be a finite number).
     case invalidDesiredPosition(String)
+    /// Phase 2AV: the target's AX role is not on `QAXBrowserRolePolicy.allowedRoles` (`AXBrowser` only).
+    case disallowedBrowserRole(String)
+    /// Phase 2AV: the direct column count for a browser exceeds this capability's defensive safe bound (32).
+    case browserColumnCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -853,6 +858,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Splitter tolerance must be non-negative, got \(tol)."
         case .invalidDesiredPosition(let reason):
             return "Invalid desired splitter position: \(reason)"
+        case .disallowedBrowserRole(let role):
+            return "Target role '\(role)' is not an allowed browser target."
+        case .browserColumnCollectionExceedsSafeBound(let count):
+            return "Browser column collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -954,6 +963,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .targetNotASplitter: return "AX_TARGET_NOT_A_SPLITTER"
         case .invalidSplitterTolerance: return "AX_INVALID_SPLITTER_TOLERANCE"
         case .invalidDesiredPosition: return "AX_INVALID_DESIRED_POSITION"
+        case .disallowedBrowserRole: return "AX_DISALLOWED_ROLE"
+        case .browserColumnCollectionExceedsSafeBound: return "AX_BROWSER_COLUMN_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1447,6 +1458,16 @@ public enum QAXSplitterRolePolicy {
     public static let allowedRoles: Set<String> = ["AXSplitter"]
 
     public static func isAllowedSplitterRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.list_browser_columns` (Phase 2AV) may target.
+/// Canonical role only — the multi-column browser container itself.
+public enum QAXBrowserRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXBrowser"]
+
+    public static func isAllowedBrowserRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -2449,6 +2470,61 @@ public struct QAXSplitGroupMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One browser column's safe, non-sensitive identity metadata, as returned by `ui.list_browser_columns` (Phase 2AV).
+public struct QAXBrowserColumnMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let role: String
+    public let subrole: String?
+    public let isEnabled: Bool?
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        role: String,
+        subrole: String? = nil,
+        isEnabled: Bool? = nil
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.role = role
+        self.subrole = subrole
+        self.isEnabled = isEnabled
+    }
+}
+
+/// A multi-column browser's safe, non-sensitive direct columns metadata, as returned by `ui.list_browser_columns`
+/// (Phase 2AV). Deliberately carries ONLY the fields this capability's contract allows — never raw
+/// `AXUIElement` references, never arbitrary descendant trees.
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target reference.
+public struct QAXBrowserColumnCollectionMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let windowTitle: String?
+    public let browserTitle: String?
+    public let browserIdentifier: String?
+    public let columnCount: Int
+    public let columns: [QAXBrowserColumnMetadata]
+
+    public init(
+        applicationName: String,
+        windowTitle: String?,
+        browserTitle: String?,
+        browserIdentifier: String?,
+        columnCount: Int,
+        columns: [QAXBrowserColumnMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.windowTitle = windowTitle
+        self.browserTitle = browserTitle
+        self.browserIdentifier = browserIdentifier
+        self.columnCount = columnCount
+        self.columns = columns
+    }
+}
+
 /// Whether a `setSplitterPosition` call actually performed a value write, or found the target
 /// already at the desired position (within tolerance) and correctly did nothing.
 public enum QAXSplitterChangeKind: String, Sendable, Equatable {
@@ -2767,6 +2843,8 @@ extension QBridgeAccessibility {
     private static let maxDirectSheetActionsCount = 16
     /// Phase 2AT: defensive bound on split pane enumeration.
     private static let maxDirectSplitPanesCount = 16
+    private static let maxDirectBrowserColumnsCount = 32
+    private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
     private static let splitterRole = "AXSplitter"
@@ -6665,6 +6743,137 @@ extension QBridgeAccessibility {
                 splitGroupIdentifier: observedAtVerify.identifier,
                 paneCount: panesMetadata.count,
                 panes: panesMetadata
+            )
+        }.value
+    }
+
+    /// Phase 2AV: semantic multi-column browser direct column enumeration (Level 0, read-only).
+    /// Enumerates direct AXColumn elements belonging to exactly ONE named AXBrowser in an application window.
+    /// No mutation, no press, no focus, no approval, no recovery.
+    public func listBrowserColumns(
+        applicationName: String,
+        role: String = "AXBrowser",
+        identifier: String? = nil,
+        title: String? = nil,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil
+    ) async throws -> QAXBrowserColumnCollectionMetadata {
+        guard QAXBrowserRolePolicy.isAllowedBrowserRole(role) else {
+            throw QAXInteractionError.disallowedBrowserRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            let resolvedWindowTitle: String?
+
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+                guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+                let (targetWindow, windowSnapshot) = windowMatches[0]
+                guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                    throw QAXInteractionError.staleTarget("target window element is no longer resolvable")
+                }
+                guard verifiedWindow == windowSnapshot else {
+                    throw QAXInteractionError.staleTarget("target window identity changed between observation and verification")
+                }
+                searchRoot = targetWindow
+                resolvedWindowTitle = verifiedWindow.titleOrDescription
+            } else {
+                searchRoot = appElement
+                resolvedWindowTitle = nil
+            }
+
+            let matches = Self.collectMatches(root: searchRoot, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target browser element is no longer resolvable immediately before enumeration")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target browser element identity changed between observation and enumeration")
+            }
+
+            var candidateElements: [AXUIElement] = []
+            if let colsAttr = Self.axUIElementsAttribute(Self.axColumnsAttributeName, of: targetElement) {
+                candidateElements.append(contentsOf: colsAttr)
+            }
+            if let childElements = Self.childrenAttribute(of: targetElement) {
+                candidateElements.append(contentsOf: childElements)
+            }
+
+            var validColumnElements: [AXUIElement] = []
+            var seenSnapshots: [QAXElementSnapshot] = []
+
+            for element in candidateElements {
+                guard let elementRole = Self.axStringAttribute(kAXRoleAttribute, of: element) else {
+                    continue
+                }
+                guard elementRole == "AXColumn" else {
+                    continue
+                }
+
+                let elementIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: element)
+                let elementTitleOrDesc = Self.axStringAttribute(kAXTitleAttribute, of: element)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: element)
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: element) ?? true
+                let snapshot = QAXElementSnapshot(role: elementRole, identifier: elementIdentifier, titleOrDescription: elementTitleOrDesc, isEnabled: isEnabled)
+                if !seenSnapshots.contains(snapshot) {
+                    seenSnapshots.append(snapshot)
+                    validColumnElements.append(element)
+                }
+            }
+
+            guard validColumnElements.count <= Self.maxDirectBrowserColumnsCount else {
+                throw QAXInteractionError.browserColumnCollectionExceedsSafeBound(validColumnElements.count)
+            }
+
+            var columnsMetadata: [QAXBrowserColumnMetadata] = []
+            columnsMetadata.reserveCapacity(validColumnElements.count)
+
+            for (index, colElement) in validColumnElements.enumerated() {
+                let colTitle = Self.axStringAttribute(kAXTitleAttribute, of: colElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: colElement)
+                let colIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: colElement)
+                let colRole = Self.axStringAttribute(kAXRoleAttribute, of: colElement) ?? "AXColumn"
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: colElement)
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: colElement)
+
+                columnsMetadata.append(
+                    QAXBrowserColumnMetadata(
+                        index: index,
+                        title: colTitle,
+                        identifier: colIdentifier,
+                        role: colRole,
+                        subrole: subrole,
+                        isEnabled: isEnabled
+                    )
+                )
+            }
+
+            return QAXBrowserColumnCollectionMetadata(
+                applicationName: applicationName,
+                windowTitle: resolvedWindowTitle,
+                browserTitle: observedAtVerify.titleOrDescription,
+                browserIdentifier: observedAtVerify.identifier,
+                columnCount: columnsMetadata.count,
+                columns: columnsMetadata
             )
         }.value
     }

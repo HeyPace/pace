@@ -875,6 +875,15 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual pane title or identifier — this strategy only ever
             // carries aggregate counts, by design.
             return .splitPaneEnumerationSucceeded(applicationName: applicationName, paneCount: paneCount)
+        } else if action.actionName == "ui.list_browser_columns",
+                  let applicationName = action.arguments["applicationName"],
+                  let columnCountString = result.outputData["columnCount"],
+                  let columnCount = Int(columnCountString) {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the column count captured at read time. Deliberately NOT threaded
+            // through here: any individual column title or identifier — this strategy only ever
+            // carries aggregate counts, by design.
+            return .browserColumnEnumerationSucceeded(applicationName: applicationName, columnCount: columnCount)
         } else if action.actionName == "ui.list_segmented_control_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],
