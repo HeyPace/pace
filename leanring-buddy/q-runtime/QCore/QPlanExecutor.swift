@@ -938,6 +938,15 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual value, title, or identifier — this strategy only ever
             // carries aggregate counts, by design.
             return .comboBoxEnumerationSucceeded(applicationName: applicationName, comboBoxCount: comboBoxCount)
+        } else if action.actionName == "ui.list_rulers",
+                  let applicationName = action.arguments["applicationName"],
+                  let rulerCountString = result.outputData["rulerCount"],
+                  let rulerCount = Int(rulerCountString) {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the ruler count captured at read time. Deliberately NOT threaded
+            // through here: any individual title, unit, or identifier — this strategy only ever
+            // carries aggregate counts, by design.
+            return .rulerEnumerationSucceeded(applicationName: applicationName, rulerCount: rulerCount)
         } else if action.actionName == "ui.list_segmented_control_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

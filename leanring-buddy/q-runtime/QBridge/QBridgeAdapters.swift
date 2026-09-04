@@ -282,6 +282,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func listLevelIndicators(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXLevelIndicatorCollectionMetadata
     func listIncrementors(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXIncrementorCollectionMetadata
     func listComboBoxes(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXComboBoxCollectionMetadata
+    func listRulers(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXRulerCollectionMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -695,6 +696,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     case disallowedComboBoxRole(String)
     /// Phase 2BB: the direct combo box count exceeds this capability's defensive safe bound (32).
     case comboBoxCollectionExceedsSafeBound(Int)
+    /// Phase 2BC: the target's AX role is not on `QAXRulerRolePolicy.allowedRoles` (`AXRuler` only).
+    case disallowedRulerRole(String)
+    /// Phase 2BC: the direct ruler count exceeds this capability's defensive safe bound (32).
+    case rulerCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -916,6 +921,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not an allowed combo box target."
         case .comboBoxCollectionExceedsSafeBound(let count):
             return "Combo box collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .disallowedRulerRole(let role):
+            return "Target role '\(role)' is not an allowed ruler target."
+        case .rulerCollectionExceedsSafeBound(let count):
+            return "Ruler collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -1031,6 +1040,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .incrementorCollectionExceedsSafeBound: return "AX_INCREMENTOR_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .disallowedComboBoxRole: return "AX_DISALLOWED_ROLE"
         case .comboBoxCollectionExceedsSafeBound: return "AX_COMBO_BOX_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .disallowedRulerRole: return "AX_DISALLOWED_ROLE"
+        case .rulerCollectionExceedsSafeBound: return "AX_RULER_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1594,6 +1605,16 @@ public enum QAXComboBoxRolePolicy {
     public static let allowedRoles: Set<String> = ["AXComboBox"]
 
     public static func isAllowedComboBoxRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.list_rulers` (Phase 2BC) may target.
+/// Canonical roles: `AXRuler` (ruler view).
+public enum QAXRulerRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXRuler"]
+
+    public static func isAllowedRulerRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -2981,6 +3002,62 @@ public struct QAXComboBoxCollectionMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One ruler's safe, non-sensitive identity metadata, as returned by `ui.list_rulers` (Phase 2BC).
+public struct QAXRulerMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let role: String
+    public let subrole: String?
+    public let orientation: String?
+    public let unitDescription: String?
+    public let markerCount: Int?
+    public let isEnabled: Bool?
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        role: String,
+        subrole: String? = nil,
+        orientation: String? = nil,
+        unitDescription: String? = nil,
+        markerCount: Int? = nil,
+        isEnabled: Bool? = nil
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.role = role
+        self.subrole = subrole
+        self.orientation = orientation
+        self.unitDescription = unitDescription
+        self.markerCount = markerCount
+        self.isEnabled = isEnabled
+    }
+}
+
+/// A collection of safe, non-sensitive direct rulers metadata, as returned by `ui.list_rulers` (Phase 2BC).
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target reference.
+public struct QAXRulerCollectionMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let windowTitle: String?
+    public let rulerCount: Int
+    public let rulers: [QAXRulerMetadata]
+
+    public init(
+        applicationName: String,
+        windowTitle: String?,
+        rulerCount: Int,
+        rulers: [QAXRulerMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.windowTitle = windowTitle
+        self.rulerCount = rulerCount
+        self.rulers = rulers
+    }
+}
+
 /// Whether a `setSplitterPosition` call actually performed a value write, or found the target
 /// already at the desired position (within tolerance) and correctly did nothing.
 public enum QAXSplitterChangeKind: String, Sendable, Equatable {
@@ -3306,6 +3383,7 @@ extension QBridgeAccessibility {
     private static let maxDirectLevelIndicatorsCount = 32
     private static let maxDirectIncrementorsCount = 32
     private static let maxDirectComboBoxesCount = 32
+    private static let maxDirectRulersCount = 32
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -8217,6 +8295,156 @@ extension QBridgeAccessibility {
                 windowTitle: resolvedWindowTitle,
                 comboBoxCount: comboBoxesMetadata.count,
                 comboBoxes: comboBoxesMetadata
+            )
+        }.value
+    }
+
+    /// Phase 2BC: semantic ruler direct enumeration (Level 0, read-only).
+    /// Enumerates direct AXRuler elements belonging to an application window or view hierarchy.
+    /// No mutation, no marker repositioning, no approval, no recovery.
+    public func listRulers(
+        applicationName: String,
+        role: String? = nil,
+        identifier: String? = nil,
+        title: String? = nil,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil
+    ) async throws -> QAXRulerCollectionMetadata {
+        if let role = role {
+            guard QAXRulerRolePolicy.isAllowedRulerRole(role) else {
+                throw QAXInteractionError.disallowedRulerRole(role)
+            }
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            let resolvedWindowTitle: String?
+
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+                guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+                let (targetWindow, windowSnapshot) = windowMatches[0]
+                guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                    throw QAXInteractionError.staleTarget("target window element is no longer resolvable")
+                }
+                guard verifiedWindow == windowSnapshot else {
+                    throw QAXInteractionError.staleTarget("target window identity changed between observation and verification")
+                }
+                searchRoot = targetWindow
+                resolvedWindowTitle = verifiedWindow.titleOrDescription
+            } else {
+                searchRoot = appElement
+                resolvedWindowTitle = nil
+            }
+
+            var candidateRulers: [AXUIElement] = []
+            var seenSnapshots: [QAXElementSnapshot] = []
+
+            func scanForRulers(_ element: AXUIElement, depth: Int) {
+                guard depth <= 8, candidateRulers.count <= Self.maxDirectRulersCount + 1 else { return }
+                if let elementRole = Self.axStringAttribute(kAXRoleAttribute, of: element),
+                   QAXRulerRolePolicy.isAllowedRulerRole(elementRole) {
+                    let elementIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: element)
+                    let elementTitleOrDesc = Self.axStringAttribute(kAXTitleAttribute, of: element)
+                        ?? Self.axStringAttribute(kAXDescriptionAttribute, of: element)
+                    let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: element) ?? true
+                    let snapshot = QAXElementSnapshot(role: elementRole, identifier: elementIdentifier, titleOrDescription: elementTitleOrDesc, isEnabled: isEnabled)
+                    if !seenSnapshots.contains(snapshot) {
+                        seenSnapshots.append(snapshot)
+                        candidateRulers.append(element)
+                    }
+                }
+                guard let children = Self.childrenAttribute(of: element) else { return }
+                for child in children {
+                    scanForRulers(child, depth: depth + 1)
+                }
+            }
+
+            scanForRulers(searchRoot, depth: 0)
+            if searchRoot != appElement {
+                scanForRulers(appElement, depth: 0)
+            }
+
+            var filteredRulers: [AXUIElement] = []
+            for ruler in candidateRulers {
+                let rulerRole = Self.axStringAttribute(kAXRoleAttribute, of: ruler) ?? ""
+                if let role = role, rulerRole != role {
+                    continue
+                }
+                let rulerId = Self.axStringAttribute(Self.axIdentifierAttributeName, of: ruler)
+                let rulerTitle = Self.axStringAttribute(kAXTitleAttribute, of: ruler)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: ruler)
+
+                if let identifier = identifier, let title = title {
+                    if rulerId == identifier && rulerTitle == title {
+                        filteredRulers.append(ruler)
+                    }
+                } else if let identifier = identifier {
+                    if rulerId == identifier {
+                        filteredRulers.append(ruler)
+                    }
+                } else if let title = title {
+                    if rulerTitle == title {
+                        filteredRulers.append(ruler)
+                    }
+                } else {
+                    filteredRulers.append(ruler)
+                }
+            }
+
+            guard filteredRulers.count <= Self.maxDirectRulersCount else {
+                throw QAXInteractionError.rulerCollectionExceedsSafeBound(filteredRulers.count)
+            }
+
+            var rulersMetadata: [QAXRulerMetadata] = []
+            rulersMetadata.reserveCapacity(filteredRulers.count)
+
+            for (index, rulerElement) in filteredRulers.enumerated() {
+                let rulerTitle = Self.axStringAttribute(kAXTitleAttribute, of: rulerElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: rulerElement)
+                let rulerIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: rulerElement)
+                let rulerRole = Self.axStringAttribute(kAXRoleAttribute, of: rulerElement) ?? "AXRuler"
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: rulerElement)
+                let orientation = Self.axStringAttribute(kAXOrientationAttribute, of: rulerElement)
+                let unitDescription = Self.axStringAttribute(kAXUnitDescriptionAttribute, of: rulerElement)
+                let markerChildren = Self.childrenAttribute(of: rulerElement)
+                let markerCount = markerChildren?.count
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: rulerElement)
+
+                rulersMetadata.append(
+                    QAXRulerMetadata(
+                        index: index,
+                        title: rulerTitle,
+                        identifier: rulerIdentifier,
+                        role: rulerRole,
+                        subrole: subrole,
+                        orientation: orientation,
+                        unitDescription: unitDescription,
+                        markerCount: markerCount,
+                        isEnabled: isEnabled
+                    )
+                )
+            }
+
+            return QAXRulerCollectionMetadata(
+                applicationName: applicationName,
+                windowTitle: resolvedWindowTitle,
+                rulerCount: rulersMetadata.count,
+                rulers: rulersMetadata
             )
         }.value
     }
