@@ -405,6 +405,10 @@ public enum QVerificationStrategy: Sendable {
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual value, title, or identifier.
     case rulerEnumerationSucceeded(applicationName: String, rulerCount: Int)
+    /// Phase 2BD: semantic combo box item enumeration verification (Level 0, read-only). Success requires
+    /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
+    /// only, never any individual item title or value.
+    case comboBoxItemEnumerationSucceeded(applicationName: String, itemCount: Int)
     /// Phase 2AM: semantic segmented control item enumeration verification (Level 0, read-only). Success requires
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual segment title or identifier.
@@ -975,6 +979,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Ruler enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) rulerRole=AXRuler status=failed"
+                )
+            }
+
+        case .comboBoxItemEnumerationSucceeded(let applicationName, let itemCount):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) comboBoxRole=AXComboBox itemCount=\(itemCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Combo box item enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) comboBoxRole=AXComboBox status=failed"
                 )
             }
 

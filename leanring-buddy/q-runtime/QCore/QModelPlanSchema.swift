@@ -663,7 +663,16 @@ public struct QModelPlanParser: Sendable {
         // (maxDirectRulersCount = 32). This is a POINT-IN-TIME SNAPSHOT ONLY:
         // result is informational and never enters durable persistence snapshots; every subsequent mutation
         // capability must independently perform its own fresh, exact target resolution.
-        "ui.list_rulers": ("ui", .level0ReadOnly)
+        "ui.list_rulers": ("ui", .level0ReadOnly),
+        // Phase 2BD: semantic combo box item enumeration — LEVEL 0 (READ-ONLY). Enumerates child items
+        // belonging to exactly ONE named AXComboBox in an application.
+        // No mutation, no selection change, no text entry, no approval, no recovery.
+        // Application identity is resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication.
+        // Target must match AXComboBox canonical role policy. Bounded by local defensive ceiling
+        // (maxDirectComboBoxItemsCount = 128). This is a POINT-IN-TIME SNAPSHOT ONLY:
+        // result is informational and never enters durable persistence snapshots; every subsequent mutation
+        // capability must independently perform its own fresh, exact target resolution.
+        "ui.list_combo_box_items": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

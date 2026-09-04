@@ -252,6 +252,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_rulers":
             result = await executeListRulers(request: request)
 
+        case "ui.list_combo_box_items":
+            result = await executeListComboBoxItems(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -3763,6 +3766,111 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
             )
         }
     }
+
+    /// Phase 2BD: executes read-only combo box items direct discovery & observation.
+    /// Result summary carries aggregate counts only, never leaking individual item titles to durable storage.
+    private func executeListComboBoxItems(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"]
+        if let role = role {
+            guard QAXComboBoxRolePolicy.isAllowedComboBoxRole(role) else {
+                return QActionResult(
+                    actionId: request.actionId,
+                    success: false,
+                    summary: "Target role '\(role)' is not an allowed combo box target.",
+                    error: "AX_DISALLOWED_ROLE"
+                )
+            }
+        }
+
+        let identifier = request.parameters["comboBoxIdentifier"] ?? request.parameters["identifier"] ?? request.parameters["id"]
+        let title = request.parameters["comboBoxTitle"] ?? request.parameters["title"] ?? request.parameters["label"]
+        let windowTitle = request.parameters["windowTitle"] ?? request.parameters["window"]
+        let windowIdentifier = request.parameters["windowIdentifier"] ?? request.parameters["windowId"]
+
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an identifier or title to match semantically.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listComboBoxItems(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "itemCount": "\(metadata.itemCount)",
+                "comboBoxRole": metadata.comboBoxRole
+            ]
+            if let id = metadata.comboBoxIdentifier {
+                outputData["comboBoxIdentifier"] = id
+            }
+            if let t = metadata.comboBoxTitle {
+                outputData["comboBoxTitle"] = t
+            }
+            if let windowTitle = metadata.windowTitle {
+                outputData["windowTitle"] = windowTitle
+            }
+            if let isEnabled = metadata.isEnabled {
+                outputData["isEnabled"] = isEnabled ? "true" : "false"
+            }
+            if let isExpanded = metadata.isExpanded {
+                outputData["isExpanded"] = isExpanded ? "true" : "false"
+            }
+            if let selectedValue = metadata.selectedValue {
+                outputData["selectedValue"] = selectedValue
+            }
+
+            for item in metadata.items {
+                let idx = item.index
+                outputData["item\(idx).index"] = "\(idx)"
+                outputData["item\(idx).title"] = item.title
+                outputData["item\(idx).selected"] = item.isSelected ? "true" : "false"
+            }
+
+            let windowSuffix = metadata.windowTitle.map { " (window: '\($0)')" } ?? ""
+            let targetDesc = metadata.comboBoxTitle ?? metadata.comboBoxIdentifier ?? "combo box"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(metadata.itemCount) item(s) in combo box '\(targetDesc)' of application '\(applicationName)'\(windowSuffix). This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing combo box items: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
 
     /// Phase 2AM: executes read-only segmented control direct segment discovery.
     /// Result summary carries aggregate counts only, never leaking individual segment titles to durable storage.
