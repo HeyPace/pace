@@ -397,6 +397,10 @@ public enum QVerificationStrategy: Sendable {
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual value, title, or identifier.
     case incrementorEnumerationSucceeded(applicationName: String, incrementorCount: Int)
+    /// Phase 2BB: semantic combo box enumeration verification (Level 0, read-only). Success requires
+    /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
+    /// only, never any individual value, title, or identifier.
+    case comboBoxEnumerationSucceeded(applicationName: String, comboBoxCount: Int)
     /// Phase 2AM: semantic segmented control item enumeration verification (Level 0, read-only). Success requires
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual segment title or identifier.
@@ -943,6 +947,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Incrementor enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) incrementorRole=AXIncrementor status=failed"
+                )
+            }
+
+        case .comboBoxEnumerationSucceeded(let applicationName, let comboBoxCount):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) comboBoxRole=AXComboBox comboBoxCount=\(comboBoxCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Combo box enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) comboBoxRole=AXComboBox status=failed"
                 )
             }
 

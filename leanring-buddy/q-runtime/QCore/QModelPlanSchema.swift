@@ -645,7 +645,16 @@ public struct QModelPlanParser: Sendable {
         // (maxDirectIncrementorsCount = 32). This is a POINT-IN-TIME SNAPSHOT ONLY:
         // result is informational and never enters durable persistence snapshots; every subsequent mutation
         // capability must independently perform its own fresh, exact target resolution.
-        "ui.list_incrementors": ("ui", .level0ReadOnly)
+        "ui.list_incrementors": ("ui", .level0ReadOnly),
+        // Phase 2BB: semantic combo box enumeration — LEVEL 0 (READ-ONLY). Enumerates direct
+        // AXComboBox elements belonging to an application window or view hierarchy.
+        // No mutation, no selection change, no text entry, no approval, no recovery.
+        // Application identity is resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication.
+        // Target must match AXComboBox canonical role policy. Bounded by local defensive ceiling
+        // (maxDirectComboBoxesCount = 32). This is a POINT-IN-TIME SNAPSHOT ONLY:
+        // result is informational and never enters durable persistence snapshots; every subsequent mutation
+        // capability must independently perform its own fresh, exact target resolution.
+        "ui.list_combo_boxes": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

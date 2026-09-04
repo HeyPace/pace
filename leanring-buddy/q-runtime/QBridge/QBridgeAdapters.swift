@@ -281,6 +281,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func listProgressIndicators(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXProgressIndicatorCollectionMetadata
     func listLevelIndicators(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXLevelIndicatorCollectionMetadata
     func listIncrementors(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXIncrementorCollectionMetadata
+    func listComboBoxes(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXComboBoxCollectionMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -690,6 +691,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     case disallowedIncrementorRole(String)
     /// Phase 2BA: the direct incrementor count exceeds this capability's defensive safe bound (32).
     case incrementorCollectionExceedsSafeBound(Int)
+    /// Phase 2BB: the target's AX role is not on `QAXComboBoxRolePolicy.allowedRoles` (`AXComboBox` only).
+    case disallowedComboBoxRole(String)
+    /// Phase 2BB: the direct combo box count exceeds this capability's defensive safe bound (32).
+    case comboBoxCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -907,6 +912,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not an allowed incrementor target."
         case .incrementorCollectionExceedsSafeBound(let count):
             return "Incrementor collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .disallowedComboBoxRole(let role):
+            return "Target role '\(role)' is not an allowed combo box target."
+        case .comboBoxCollectionExceedsSafeBound(let count):
+            return "Combo box collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -1020,6 +1029,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .levelIndicatorCollectionExceedsSafeBound: return "AX_LEVEL_INDICATOR_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .disallowedIncrementorRole: return "AX_DISALLOWED_ROLE"
         case .incrementorCollectionExceedsSafeBound: return "AX_INCREMENTOR_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .disallowedComboBoxRole: return "AX_DISALLOWED_ROLE"
+        case .comboBoxCollectionExceedsSafeBound: return "AX_COMBO_BOX_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1573,6 +1584,16 @@ public enum QAXIncrementorRolePolicy {
     public static let allowedRoles: Set<String> = ["AXIncrementor"]
 
     public static func isAllowedIncrementorRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.list_combo_boxes` (Phase 2BB) may target.
+/// Canonical roles: `AXComboBox` (combo box control).
+public enum QAXComboBoxRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXComboBox"]
+
+    public static func isAllowedComboBoxRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -2904,6 +2925,62 @@ public struct QAXIncrementorCollectionMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One combo box's safe, non-sensitive identity metadata, as returned by `ui.list_combo_boxes` (Phase 2BB).
+public struct QAXComboBoxMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let role: String
+    public let subrole: String?
+    public let value: String?
+    public let placeholderValue: String?
+    public let isEnabled: Bool?
+    public let isSettable: Bool?
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        role: String,
+        subrole: String? = nil,
+        value: String? = nil,
+        placeholderValue: String? = nil,
+        isEnabled: Bool? = nil,
+        isSettable: Bool? = nil
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.role = role
+        self.subrole = subrole
+        self.value = value
+        self.placeholderValue = placeholderValue
+        self.isEnabled = isEnabled
+        self.isSettable = isSettable
+    }
+}
+
+/// A collection of safe, non-sensitive direct combo boxes metadata, as returned by `ui.list_combo_boxes` (Phase 2BB).
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target reference.
+public struct QAXComboBoxCollectionMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let windowTitle: String?
+    public let comboBoxCount: Int
+    public let comboBoxes: [QAXComboBoxMetadata]
+
+    public init(
+        applicationName: String,
+        windowTitle: String?,
+        comboBoxCount: Int,
+        comboBoxes: [QAXComboBoxMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.windowTitle = windowTitle
+        self.comboBoxCount = comboBoxCount
+        self.comboBoxes = comboBoxes
+    }
+}
+
 /// Whether a `setSplitterPosition` call actually performed a value write, or found the target
 /// already at the desired position (within tolerance) and correctly did nothing.
 public enum QAXSplitterChangeKind: String, Sendable, Equatable {
@@ -3228,6 +3305,7 @@ extension QBridgeAccessibility {
     private static let maxDirectProgressIndicatorsCount = 32
     private static let maxDirectLevelIndicatorsCount = 32
     private static let maxDirectIncrementorsCount = 32
+    private static let maxDirectComboBoxesCount = 32
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -7989,6 +8067,156 @@ extension QBridgeAccessibility {
                 windowTitle: resolvedWindowTitle,
                 incrementorCount: incrementorsMetadata.count,
                 incrementors: incrementorsMetadata
+            )
+        }.value
+    }
+
+    /// Phase 2BB: semantic combo box direct enumeration (Level 0, read-only).
+    /// Enumerates direct AXComboBox elements belonging to an application window or view hierarchy.
+    /// No mutation, no selection change, no text entry, no approval, no recovery.
+    public func listComboBoxes(
+        applicationName: String,
+        role: String? = nil,
+        identifier: String? = nil,
+        title: String? = nil,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil
+    ) async throws -> QAXComboBoxCollectionMetadata {
+        if let role = role {
+            guard QAXComboBoxRolePolicy.isAllowedComboBoxRole(role) else {
+                throw QAXInteractionError.disallowedComboBoxRole(role)
+            }
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            let resolvedWindowTitle: String?
+
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+                guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+                let (targetWindow, windowSnapshot) = windowMatches[0]
+                guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                    throw QAXInteractionError.staleTarget("target window element is no longer resolvable")
+                }
+                guard verifiedWindow == windowSnapshot else {
+                    throw QAXInteractionError.staleTarget("target window identity changed between observation and verification")
+                }
+                searchRoot = targetWindow
+                resolvedWindowTitle = verifiedWindow.titleOrDescription
+            } else {
+                searchRoot = appElement
+                resolvedWindowTitle = nil
+            }
+
+            var candidateComboBoxes: [AXUIElement] = []
+            var seenSnapshots: [QAXElementSnapshot] = []
+
+            func scanForComboBoxes(_ element: AXUIElement, depth: Int) {
+                guard depth <= 8, candidateComboBoxes.count <= Self.maxDirectComboBoxesCount + 1 else { return }
+                if let elementRole = Self.axStringAttribute(kAXRoleAttribute, of: element),
+                   QAXComboBoxRolePolicy.isAllowedComboBoxRole(elementRole) {
+                    let elementIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: element)
+                    let elementTitleOrDesc = Self.axStringAttribute(kAXTitleAttribute, of: element)
+                        ?? Self.axStringAttribute(kAXDescriptionAttribute, of: element)
+                    let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: element) ?? true
+                    let snapshot = QAXElementSnapshot(role: elementRole, identifier: elementIdentifier, titleOrDescription: elementTitleOrDesc, isEnabled: isEnabled)
+                    if !seenSnapshots.contains(snapshot) {
+                        seenSnapshots.append(snapshot)
+                        candidateComboBoxes.append(element)
+                    }
+                }
+                guard let children = Self.childrenAttribute(of: element) else { return }
+                for child in children {
+                    scanForComboBoxes(child, depth: depth + 1)
+                }
+            }
+
+            scanForComboBoxes(searchRoot, depth: 0)
+            if searchRoot != appElement {
+                scanForComboBoxes(appElement, depth: 0)
+            }
+
+            var filteredComboBoxes: [AXUIElement] = []
+            for cb in candidateComboBoxes {
+                let cbRole = Self.axStringAttribute(kAXRoleAttribute, of: cb) ?? ""
+                if let role = role, cbRole != role {
+                    continue
+                }
+                let cbId = Self.axStringAttribute(Self.axIdentifierAttributeName, of: cb)
+                let cbTitle = Self.axStringAttribute(kAXTitleAttribute, of: cb)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: cb)
+
+                if let identifier = identifier, let title = title {
+                    if cbId == identifier && cbTitle == title {
+                        filteredComboBoxes.append(cb)
+                    }
+                } else if let identifier = identifier {
+                    if cbId == identifier {
+                        filteredComboBoxes.append(cb)
+                    }
+                } else if let title = title {
+                    if cbTitle == title {
+                        filteredComboBoxes.append(cb)
+                    }
+                } else {
+                    filteredComboBoxes.append(cb)
+                }
+            }
+
+            guard filteredComboBoxes.count <= Self.maxDirectComboBoxesCount else {
+                throw QAXInteractionError.comboBoxCollectionExceedsSafeBound(filteredComboBoxes.count)
+            }
+
+            var comboBoxesMetadata: [QAXComboBoxMetadata] = []
+            comboBoxesMetadata.reserveCapacity(filteredComboBoxes.count)
+
+            for (index, cbElement) in filteredComboBoxes.enumerated() {
+                let cbTitle = Self.axStringAttribute(kAXTitleAttribute, of: cbElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: cbElement)
+                let cbIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: cbElement)
+                let cbRole = Self.axStringAttribute(kAXRoleAttribute, of: cbElement) ?? "AXComboBox"
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: cbElement)
+                let value = Self.axStringAttribute(kAXValueAttribute, of: cbElement)
+                let placeholderValue = Self.axStringAttribute("AXPlaceholderValue", of: cbElement)
+                    ?? Self.axStringAttribute(kAXHelpAttribute, of: cbElement)
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: cbElement)
+                let isSettable = Self.axIsAttributeSettable(kAXValueAttribute, of: cbElement)
+
+                comboBoxesMetadata.append(
+                    QAXComboBoxMetadata(
+                        index: index,
+                        title: cbTitle,
+                        identifier: cbIdentifier,
+                        role: cbRole,
+                        subrole: subrole,
+                        value: value,
+                        placeholderValue: placeholderValue,
+                        isEnabled: isEnabled,
+                        isSettable: isSettable
+                    )
+                )
+            }
+
+            return QAXComboBoxCollectionMetadata(
+                applicationName: applicationName,
+                windowTitle: resolvedWindowTitle,
+                comboBoxCount: comboBoxesMetadata.count,
+                comboBoxes: comboBoxesMetadata
             )
         }.value
     }

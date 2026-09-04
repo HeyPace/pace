@@ -246,6 +246,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_incrementors":
             result = await executeListIncrementors(request: request)
 
+        case "ui.list_combo_boxes":
+            result = await executeListComboBoxes(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -3579,6 +3582,93 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing incrementors: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2BB: executes read-only combo box direct discovery & observation.
+    /// Result summary carries aggregate counts only, never leaking individual values or titles to durable storage.
+    private func executeListComboBoxes(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"]
+        if let role = role {
+            guard QAXComboBoxRolePolicy.isAllowedComboBoxRole(role) else {
+                return QActionResult(
+                    actionId: request.actionId,
+                    success: false,
+                    summary: "Target role '\(role)' is not an allowed combo box target.",
+                    error: "AX_DISALLOWED_ROLE"
+                )
+            }
+        }
+
+        let identifier = request.parameters["comboBoxIdentifier"] ?? request.parameters["identifier"] ?? request.parameters["id"]
+        let title = request.parameters["comboBoxTitle"] ?? request.parameters["title"] ?? request.parameters["label"]
+        let windowTitle = request.parameters["windowTitle"] ?? request.parameters["window"]
+        let windowIdentifier = request.parameters["windowIdentifier"] ?? request.parameters["windowId"]
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listComboBoxes(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "comboBoxCount": "\(metadata.comboBoxCount)"
+            ]
+            if let role = role {
+                outputData["role"] = role
+            }
+            if let windowTitle = metadata.windowTitle {
+                outputData["windowTitle"] = windowTitle
+            }
+
+            for cb in metadata.comboBoxes {
+                let idx = cb.index
+                outputData["comboBox\(idx).index"] = "\(idx)"
+                outputData["comboBox\(idx).title"] = cb.title ?? ""
+                outputData["comboBox\(idx).identifier"] = cb.identifier ?? ""
+                outputData["comboBox\(idx).role"] = cb.role
+                outputData["comboBox\(idx).subrole"] = cb.subrole ?? ""
+                outputData["comboBox\(idx).value"] = cb.value ?? ""
+                outputData["comboBox\(idx).placeholderValue"] = cb.placeholderValue ?? ""
+                outputData["comboBox\(idx).enabled"] = cb.isEnabled.map { $0 ? "true" : "false" } ?? ""
+                outputData["comboBox\(idx).settable"] = cb.isSettable.map { $0 ? "true" : "false" } ?? ""
+            }
+
+            let windowSuffix = metadata.windowTitle.map { " (window: '\($0)')" } ?? ""
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(metadata.comboBoxCount) combo box(es) in application '\(applicationName)'\(windowSuffix). This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing combo boxes: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }
