@@ -920,6 +920,15 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual value, title, or identifier — this strategy only ever
             // carries aggregate counts, by design.
             return .levelIndicatorEnumerationSucceeded(applicationName: applicationName, indicatorCount: indicatorCount)
+        } else if action.actionName == "ui.list_incrementors",
+                  let applicationName = action.arguments["applicationName"],
+                  let incrementorCountString = result.outputData["incrementorCount"],
+                  let incrementorCount = Int(incrementorCountString) {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the incrementor count captured at read time. Deliberately NOT threaded
+            // through here: any individual value, title, or identifier — this strategy only ever
+            // carries aggregate counts, by design.
+            return .incrementorEnumerationSucceeded(applicationName: applicationName, incrementorCount: incrementorCount)
         } else if action.actionName == "ui.list_segmented_control_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

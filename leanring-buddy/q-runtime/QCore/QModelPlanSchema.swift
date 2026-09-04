@@ -636,7 +636,16 @@ public struct QModelPlanParser: Sendable {
         // (maxDirectLevelIndicatorsCount = 32). This is a POINT-IN-TIME SNAPSHOT ONLY:
         // result is informational and never enters durable persistence snapshots; every subsequent mutation
         // capability must independently perform its own fresh, exact target resolution.
-        "ui.list_level_indicators": ("ui", .level0ReadOnly)
+        "ui.list_level_indicators": ("ui", .level0ReadOnly),
+        // Phase 2BA: semantic stepper / incrementor enumeration — LEVEL 0 (READ-ONLY). Enumerates direct
+        // AXIncrementor elements belonging to an application window or view hierarchy.
+        // No mutation, no press, no focus, no approval, no recovery.
+        // Application identity is resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication.
+        // Target must match AXIncrementor canonical role policy. Bounded by local defensive ceiling
+        // (maxDirectIncrementorsCount = 32). This is a POINT-IN-TIME SNAPSHOT ONLY:
+        // result is informational and never enters durable persistence snapshots; every subsequent mutation
+        // capability must independently perform its own fresh, exact target resolution.
+        "ui.list_incrementors": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

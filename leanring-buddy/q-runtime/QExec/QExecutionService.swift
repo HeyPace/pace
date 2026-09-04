@@ -243,6 +243,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_level_indicators":
             result = await executeListLevelIndicators(request: request)
 
+        case "ui.list_incrementors":
+            result = await executeListIncrementors(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -3489,6 +3492,93 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing level indicators: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2BA: executes read-only stepper / incrementor direct discovery & observation.
+    /// Result summary carries aggregate counts only, never leaking individual values or titles to durable storage.
+    private func executeListIncrementors(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"]
+        if let role = role {
+            guard QAXIncrementorRolePolicy.isAllowedIncrementorRole(role) else {
+                return QActionResult(
+                    actionId: request.actionId,
+                    success: false,
+                    summary: "Target role '\(role)' is not an allowed incrementor target.",
+                    error: "AX_DISALLOWED_ROLE"
+                )
+            }
+        }
+
+        let identifier = request.parameters["incrementorIdentifier"] ?? request.parameters["identifier"] ?? request.parameters["id"]
+        let title = request.parameters["incrementorTitle"] ?? request.parameters["title"] ?? request.parameters["label"]
+        let windowTitle = request.parameters["windowTitle"] ?? request.parameters["window"]
+        let windowIdentifier = request.parameters["windowIdentifier"] ?? request.parameters["windowId"]
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listIncrementors(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "incrementorCount": "\(metadata.incrementorCount)"
+            ]
+            if let role = role {
+                outputData["role"] = role
+            }
+            if let windowTitle = metadata.windowTitle {
+                outputData["windowTitle"] = windowTitle
+            }
+
+            for inc in metadata.incrementors {
+                let idx = inc.index
+                outputData["incrementor\(idx).index"] = "\(idx)"
+                outputData["incrementor\(idx).title"] = inc.title ?? ""
+                outputData["incrementor\(idx).identifier"] = inc.identifier ?? ""
+                outputData["incrementor\(idx).role"] = inc.role
+                outputData["incrementor\(idx).subrole"] = inc.subrole ?? ""
+                outputData["incrementor\(idx).value"] = inc.value.map { "\($0)" } ?? ""
+                outputData["incrementor\(idx).minValue"] = inc.minValue.map { "\($0)" } ?? ""
+                outputData["incrementor\(idx).maxValue"] = inc.maxValue.map { "\($0)" } ?? ""
+                outputData["incrementor\(idx).enabled"] = inc.isEnabled.map { $0 ? "true" : "false" } ?? ""
+            }
+
+            let windowSuffix = metadata.windowTitle.map { " (window: '\($0)')" } ?? ""
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(metadata.incrementorCount) incrementor(s) in application '\(applicationName)'\(windowSuffix). This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing incrementors: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

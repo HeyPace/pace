@@ -393,6 +393,10 @@ public enum QVerificationStrategy: Sendable {
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual value, title, or identifier.
     case levelIndicatorEnumerationSucceeded(applicationName: String, indicatorCount: Int)
+    /// Phase 2BA: semantic stepper / incrementor enumeration verification (Level 0, read-only). Success requires
+    /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
+    /// only, never any individual value, title, or identifier.
+    case incrementorEnumerationSucceeded(applicationName: String, incrementorCount: Int)
     /// Phase 2AM: semantic segmented control item enumeration verification (Level 0, read-only). Success requires
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual segment title or identifier.
@@ -927,6 +931,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Level indicator enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) indicatorRole=AXLevelIndicator status=failed"
+                )
+            }
+
+        case .incrementorEnumerationSucceeded(let applicationName, let incrementorCount):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) incrementorRole=AXIncrementor incrementorCount=\(incrementorCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Incrementor enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) incrementorRole=AXIncrementor status=failed"
                 )
             }
 

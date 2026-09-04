@@ -280,6 +280,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func listColorWells(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXColorWellCollectionMetadata
     func listProgressIndicators(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXProgressIndicatorCollectionMetadata
     func listLevelIndicators(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXLevelIndicatorCollectionMetadata
+    func listIncrementors(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXIncrementorCollectionMetadata
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -685,6 +686,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     case disallowedLevelIndicatorRole(String)
     /// Phase 2AZ: the direct level indicator count exceeds this capability's defensive safe bound (32).
     case levelIndicatorCollectionExceedsSafeBound(Int)
+    /// Phase 2BA: the target's AX role is not on `QAXIncrementorRolePolicy.allowedRoles` (`AXIncrementor` only).
+    case disallowedIncrementorRole(String)
+    /// Phase 2BA: the direct incrementor count exceeds this capability's defensive safe bound (32).
+    case incrementorCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -898,6 +903,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not an allowed level indicator target."
         case .levelIndicatorCollectionExceedsSafeBound(let count):
             return "Level indicator collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .disallowedIncrementorRole(let role):
+            return "Target role '\(role)' is not an allowed incrementor target."
+        case .incrementorCollectionExceedsSafeBound(let count):
+            return "Incrementor collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -1009,6 +1018,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .progressIndicatorCollectionExceedsSafeBound: return "AX_PROGRESS_INDICATOR_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .disallowedLevelIndicatorRole: return "AX_DISALLOWED_ROLE"
         case .levelIndicatorCollectionExceedsSafeBound: return "AX_LEVEL_INDICATOR_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .disallowedIncrementorRole: return "AX_DISALLOWED_ROLE"
+        case .incrementorCollectionExceedsSafeBound: return "AX_INCREMENTOR_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1552,6 +1563,16 @@ public enum QAXLevelIndicatorRolePolicy {
     public static let allowedRoles: Set<String> = ["AXLevelIndicator", "AXRelevanceIndicator"]
 
     public static func isAllowedLevelIndicatorRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.list_incrementors` (Phase 2BA) may target.
+/// Canonical roles: `AXIncrementor` (stepper / incrementor control).
+public enum QAXIncrementorRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXIncrementor"]
+
+    public static func isAllowedIncrementorRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -2827,6 +2848,62 @@ public struct QAXLevelIndicatorCollectionMetadata: Sendable, Equatable, Codable 
     }
 }
 
+/// One stepper / incrementor's safe, non-sensitive identity metadata, as returned by `ui.list_incrementors` (Phase 2BA).
+public struct QAXIncrementorMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let role: String
+    public let subrole: String?
+    public let value: Double?
+    public let minValue: Double?
+    public let maxValue: Double?
+    public let isEnabled: Bool?
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        role: String,
+        subrole: String? = nil,
+        value: Double? = nil,
+        minValue: Double? = nil,
+        maxValue: Double? = nil,
+        isEnabled: Bool? = nil
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.role = role
+        self.subrole = subrole
+        self.value = value
+        self.minValue = minValue
+        self.maxValue = maxValue
+        self.isEnabled = isEnabled
+    }
+}
+
+/// A collection of safe, non-sensitive direct incrementors metadata, as returned by `ui.list_incrementors` (Phase 2BA).
+/// This is a POINT-IN-TIME SNAPSHOT ONLY — informational only, never itself an actionable target reference.
+public struct QAXIncrementorCollectionMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let windowTitle: String?
+    public let incrementorCount: Int
+    public let incrementors: [QAXIncrementorMetadata]
+
+    public init(
+        applicationName: String,
+        windowTitle: String?,
+        incrementorCount: Int,
+        incrementors: [QAXIncrementorMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.windowTitle = windowTitle
+        self.incrementorCount = incrementorCount
+        self.incrementors = incrementors
+    }
+}
+
 /// Whether a `setSplitterPosition` call actually performed a value write, or found the target
 /// already at the desired position (within tolerance) and correctly did nothing.
 public enum QAXSplitterChangeKind: String, Sendable, Equatable {
@@ -3150,6 +3227,7 @@ extension QBridgeAccessibility {
     private static let maxDirectColorWellsCount = 32
     private static let maxDirectProgressIndicatorsCount = 32
     private static let maxDirectLevelIndicatorsCount = 32
+    private static let maxDirectIncrementorsCount = 32
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -7762,6 +7840,155 @@ extension QBridgeAccessibility {
                 windowTitle: resolvedWindowTitle,
                 indicatorCount: indicatorsMetadata.count,
                 indicators: indicatorsMetadata
+            )
+        }.value
+    }
+
+    /// Phase 2BA: semantic stepper / incrementor direct enumeration (Level 0, read-only).
+    /// Enumerates direct AXIncrementor elements belonging to an application window or view hierarchy.
+    /// No mutation, no press, no focus, no approval, no recovery.
+    public func listIncrementors(
+        applicationName: String,
+        role: String? = nil,
+        identifier: String? = nil,
+        title: String? = nil,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil
+    ) async throws -> QAXIncrementorCollectionMetadata {
+        if let role = role {
+            guard QAXIncrementorRolePolicy.isAllowedIncrementorRole(role) else {
+                throw QAXInteractionError.disallowedIncrementorRole(role)
+            }
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            let resolvedWindowTitle: String?
+
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+                guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+                let (targetWindow, windowSnapshot) = windowMatches[0]
+                guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                    throw QAXInteractionError.staleTarget("target window element is no longer resolvable")
+                }
+                guard verifiedWindow == windowSnapshot else {
+                    throw QAXInteractionError.staleTarget("target window identity changed between observation and verification")
+                }
+                searchRoot = targetWindow
+                resolvedWindowTitle = verifiedWindow.titleOrDescription
+            } else {
+                searchRoot = appElement
+                resolvedWindowTitle = nil
+            }
+
+            var candidateIncrementors: [AXUIElement] = []
+            var seenSnapshots: [QAXElementSnapshot] = []
+
+            func scanForIncrementors(_ element: AXUIElement, depth: Int) {
+                guard depth <= 8, candidateIncrementors.count <= Self.maxDirectIncrementorsCount + 1 else { return }
+                if let elementRole = Self.axStringAttribute(kAXRoleAttribute, of: element),
+                   QAXIncrementorRolePolicy.isAllowedIncrementorRole(elementRole) {
+                    let elementIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: element)
+                    let elementTitleOrDesc = Self.axStringAttribute(kAXTitleAttribute, of: element)
+                        ?? Self.axStringAttribute(kAXDescriptionAttribute, of: element)
+                    let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: element) ?? true
+                    let snapshot = QAXElementSnapshot(role: elementRole, identifier: elementIdentifier, titleOrDescription: elementTitleOrDesc, isEnabled: isEnabled)
+                    if !seenSnapshots.contains(snapshot) {
+                        seenSnapshots.append(snapshot)
+                        candidateIncrementors.append(element)
+                    }
+                }
+                guard let children = Self.childrenAttribute(of: element) else { return }
+                for child in children {
+                    scanForIncrementors(child, depth: depth + 1)
+                }
+            }
+
+            scanForIncrementors(searchRoot, depth: 0)
+            if searchRoot != appElement {
+                scanForIncrementors(appElement, depth: 0)
+            }
+
+            var filteredIncrementors: [AXUIElement] = []
+            for inc in candidateIncrementors {
+                let incRole = Self.axStringAttribute(kAXRoleAttribute, of: inc) ?? ""
+                if let role = role, incRole != role {
+                    continue
+                }
+                let incId = Self.axStringAttribute(Self.axIdentifierAttributeName, of: inc)
+                let incTitle = Self.axStringAttribute(kAXTitleAttribute, of: inc)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: inc)
+
+                if let identifier = identifier, let title = title {
+                    if incId == identifier && incTitle == title {
+                        filteredIncrementors.append(inc)
+                    }
+                } else if let identifier = identifier {
+                    if incId == identifier {
+                        filteredIncrementors.append(inc)
+                    }
+                } else if let title = title {
+                    if incTitle == title {
+                        filteredIncrementors.append(inc)
+                    }
+                } else {
+                    filteredIncrementors.append(inc)
+                }
+            }
+
+            guard filteredIncrementors.count <= Self.maxDirectIncrementorsCount else {
+                throw QAXInteractionError.incrementorCollectionExceedsSafeBound(filteredIncrementors.count)
+            }
+
+            var incrementorsMetadata: [QAXIncrementorMetadata] = []
+            incrementorsMetadata.reserveCapacity(filteredIncrementors.count)
+
+            for (index, incElement) in filteredIncrementors.enumerated() {
+                let incTitle = Self.axStringAttribute(kAXTitleAttribute, of: incElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: incElement)
+                let incIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: incElement)
+                let incRole = Self.axStringAttribute(kAXRoleAttribute, of: incElement) ?? "AXIncrementor"
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: incElement)
+                let value = Self.axDoubleAttribute(kAXValueAttribute, of: incElement)
+                let minValue = Self.axDoubleAttribute(kAXMinValueAttribute, of: incElement)
+                let maxValue = Self.axDoubleAttribute(kAXMaxValueAttribute, of: incElement)
+                let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: incElement)
+
+                incrementorsMetadata.append(
+                    QAXIncrementorMetadata(
+                        index: index,
+                        title: incTitle,
+                        identifier: incIdentifier,
+                        role: incRole,
+                        subrole: subrole,
+                        value: value,
+                        minValue: minValue,
+                        maxValue: maxValue,
+                        isEnabled: isEnabled
+                    )
+                )
+            }
+
+            return QAXIncrementorCollectionMetadata(
+                applicationName: applicationName,
+                windowTitle: resolvedWindowTitle,
+                incrementorCount: incrementorsMetadata.count,
+                incrementors: incrementorsMetadata
             )
         }.value
     }
