@@ -880,6 +880,29 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual action title or identifier — this strategy only ever
             // carries aggregate counts, by design.
             return .sheetActionEnumerationSucceeded(applicationName: applicationName, actionCount: actionCount)
+        } else if action.actionName == "ui.select_segmented_control_item",
+                  let applicationName = action.arguments["applicationName"],
+                  let targetIdentity = result.outputData["targetIdentity"] {
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            let role = action.arguments["role"] ?? "AXSegmentedControl"
+            let desiredSelectedRaw = action.arguments["desiredSelected"] ?? "true"
+            let desiredSelected = Bool(desiredSelectedRaw) ?? true
+            let controlId = nonEmpty(action.arguments["controlIdentifier"]) ?? nonEmpty(action.arguments["identifier"])
+            let controlTitle = nonEmpty(action.arguments["controlTitle"]) ?? nonEmpty(action.arguments["title"])
+            let segmentId = nonEmpty(action.arguments["segmentIdentifier"]) ?? (action.arguments["controlIdentifier"] != nil ? nonEmpty(action.arguments["identifier"]) : nil)
+            let segmentTitle = nonEmpty(action.arguments["segmentTitle"]) ?? nonEmpty(action.arguments["segmentLabel"]) ?? nonEmpty(action.arguments["segment"]) ?? (action.arguments["controlTitle"] != nil ? nonEmpty(action.arguments["title"]) : nil)
+            return .axSegmentedControlSelectionMatchesDesired(
+                applicationName: applicationName,
+                role: role,
+                controlIdentifier: controlId,
+                controlTitle: controlTitle,
+                windowTitle: nonEmpty(action.arguments["windowTitle"]) ?? nonEmpty(action.arguments["window"]),
+                windowIdentifier: nonEmpty(action.arguments["windowIdentifier"]) ?? nonEmpty(action.arguments["windowId"]),
+                segmentIdentifier: segmentId,
+                segmentTitle: segmentTitle,
+                targetIdentity: targetIdentity,
+                desiredSelected: desiredSelected
+            )
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

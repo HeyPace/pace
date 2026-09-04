@@ -272,6 +272,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func listRadioGroupItems(applicationName: String, role: String, identifier: String?, title: String?) async throws -> QAXRadioGroupMetadata
     func listToolbarItems(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXToolbarMetadata
     func listSegmentedControlItems(applicationName: String, role: String, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXSegmentedControlMetadata
+    func selectSegmentedControlItem(applicationName: String, role: String, controlIdentifier: String?, controlTitle: String?, windowTitle: String?, windowIdentifier: String?, segmentIdentifier: String?, segmentTitle: String?, desiredSelected: Bool) async throws -> QAXSegmentedControlSelectionOutcome
     func listSheetDialogs(applicationName: String, windowTitle: String?, windowIdentifier: String?) async throws -> QAXSheetCollectionMetadata
     func listSheetActions(applicationName: String, windowTitle: String?, windowIdentifier: String?, sheetTitle: String?, sheetIdentifier: String?) async throws -> QAXSheetActionCollectionMetadata
 }
@@ -622,6 +623,14 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// Phase 2AO: the direct action controls count for a sheet exceeds this capability's
     /// defensive safe bound (16).
     case sheetActionCollectionExceedsSafeBound(Int)
+    /// Phase 2AQ: target segmented control item selection state could not be read.
+    case segmentSelectionStateReadFailed
+    /// Phase 2AQ: target segmented control item deselection is unsupported (select-only capability).
+    case segmentDeselectionUnsupported(String)
+    /// Phase 2AQ: the target's direct segment role is not on allowed segment roles (AXRadioButton, AXButton).
+    case disallowedSegmentRole(String)
+    /// Phase 2AQ: target child element is not a valid segmented control item.
+    case targetNotASegment(String)
 
     public var description: String {
         switch self {
@@ -785,6 +794,14 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Target role '\(role)' is not an allowed sheet action target."
         case .sheetActionCollectionExceedsSafeBound(let count):
             return "Sheet action collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .segmentSelectionStateReadFailed:
+            return "Target segmented control item's current selection state could not be read."
+        case .segmentDeselectionUnsupported(let reason):
+            return "Refusing to deselect a segmented control item — this capability supports selection only: \(reason)"
+        case .disallowedSegmentRole(let role):
+            return "Target role '\(role)' is not on the allowed segment role list."
+        case .targetNotASegment(let reason):
+            return "Target is not a valid segmented control item: \(reason)"
         }
     }
 
@@ -871,6 +888,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .sheetCollectionExceedsSafeBound: return "AX_SHEET_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .disallowedSheetActionRole: return "AX_DISALLOWED_ROLE"
         case .sheetActionCollectionExceedsSafeBound: return "AX_SHEET_ACTION_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .segmentSelectionStateReadFailed: return "AX_SEGMENT_SELECTION_STATE_READ_FAILED"
+        case .segmentDeselectionUnsupported: return "AX_SEGMENT_DESELECTION_UNSUPPORTED"
+        case .disallowedSegmentRole: return "AX_SEGMENT_ROLE_NOT_ALLOWED"
+        case .targetNotASegment: return "AX_TARGET_NOT_A_SEGMENT"
         }
     }
 }
@@ -2295,6 +2316,40 @@ public struct QAXSegmentedControlMetadata: Sendable, Equatable, Codable {
         self.selectedItemCount = selectedItemCount
         self.items = items
     }
+}
+
+/// The mutation kind reported by `ui.select_segmented_control_item` (Phase 2AQ).
+public enum QAXSegmentedControlSelectionChangeKind: String, Sendable, Equatable {
+    case alreadyDesired
+    case changed
+}
+
+/// The outcome of one `QBridgeAccessibility.selectSegmentedControlItem` call (Phase 2AQ).
+public struct QAXSegmentedControlSelectionOutcome: Sendable, Equatable {
+    public let changeKind: QAXSegmentedControlSelectionChangeKind
+    public let previousSelected: Bool
+    public let currentSelected: Bool
+    public let targetIdentity: String
+
+    public init(
+        changeKind: QAXSegmentedControlSelectionChangeKind,
+        previousSelected: Bool,
+        currentSelected: Bool,
+        targetIdentity: String
+    ) {
+        self.changeKind = changeKind
+        self.previousSelected = previousSelected
+        self.currentSelected = currentSelected
+        self.targetIdentity = targetIdentity
+    }
+}
+
+/// The result of independently re-observing a segmented control item's selection state after a
+/// `ui.select_segmented_control_item` dispatch, for closed-loop verification and recovery.
+public enum QAXSegmentedControlSelectionEvidence: Sendable, Equatable {
+    case resolved(currentSelected: Bool)
+    case stateUnreadable
+    case targetUnavailable
 }
 
 /// One sheet's safe, non-sensitive identity metadata, as returned by `ui.list_sheet_dialogs` (Phase 2AN).
@@ -6264,6 +6319,295 @@ extension QBridgeAccessibility {
                 selectedItemCount: selectedCount,
                 items: itemsMetadata
             )
+        }.value
+    }
+
+    /// Phase 2AQ: semantic segmented control item selection (Level 2, reversible local action, approval required).
+    /// Selects exactly ONE direct segment belonging to an exact AXSegmentedControl in a named application window.
+    /// Mutation is AXUIElementPerformAction(kAXPressAction) only — never physical input, CGEvent, or coordinates.
+    /// Idempotent (already desired selection is a no-op). Protected by stale-target & drift checks.
+    public func selectSegmentedControlItem(
+        applicationName: String,
+        role: String = "AXSegmentedControl",
+        controlIdentifier: String?,
+        controlTitle: String?,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil,
+        segmentIdentifier: String?,
+        segmentTitle: String?,
+        desiredSelected: Bool = true
+    ) async throws -> QAXSegmentedControlSelectionOutcome {
+        guard segmentIdentifier != nil || segmentTitle != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard QAXSegmentedControlRolePolicy.isAllowedSegmentedControlRole(role) else {
+            throw QAXInteractionError.disallowedSegmentedControlRole(role)
+        }
+        guard desiredSelected else {
+            throw QAXInteractionError.segmentDeselectionUnsupported(
+                "ui.select_segmented_control_item supports selection only (desiredSelected must be true)"
+            )
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            let resolvedWindowTitle: String?
+
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+                guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+                let (targetWindow, windowSnapshot) = windowMatches[0]
+                guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                    throw QAXInteractionError.staleTarget("target window element is no longer resolvable immediately before selection")
+                }
+                guard verifiedWindow == windowSnapshot else {
+                    throw QAXInteractionError.staleTarget("target window identity changed between observation and selection")
+                }
+                searchRoot = targetWindow
+                resolvedWindowTitle = verifiedWindow.titleOrDescription
+            } else {
+                searchRoot = appElement
+                resolvedWindowTitle = nil
+            }
+
+            let controlMatches = Self.collectMatches(root: searchRoot, role: role, identifier: controlIdentifier, title: controlTitle)
+            guard !controlMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard controlMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: controlMatches.count) }
+
+            let (targetControlElement, controlObservedAtSearch) = controlMatches[0]
+
+            guard let controlObservedAtVerify = Self.snapshotIfMatches(targetControlElement, role: role, identifier: controlIdentifier, title: controlTitle) else {
+                throw QAXInteractionError.staleTarget("target segmented control element is no longer resolvable immediately before selection")
+            }
+            guard controlObservedAtVerify == controlObservedAtSearch else {
+                throw QAXInteractionError.staleTarget("target segmented control element identity changed between observation and selection")
+            }
+            guard controlObservedAtVerify.isEnabled else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            let rawChildElements = Self.childrenAttribute(of: targetControlElement) ?? []
+
+            var validSegmentElements: [AXUIElement] = []
+            for childElement in rawChildElements {
+                guard let childRole = Self.axStringAttribute(kAXRoleAttribute, of: childElement) else {
+                    continue
+                }
+                guard Self.allowedDirectSegmentRoles.contains(childRole) else {
+                    continue
+                }
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: childElement)
+                // Strict tab exclusion: AXTabButton is owned exclusively by Phase 2AH / Phase 2R (ui.list_tab_items / ui.select_tab)
+                guard subrole != Self.tabButtonSubrole else {
+                    continue
+                }
+                validSegmentElements.append(childElement)
+            }
+
+            guard validSegmentElements.count <= Self.maxDirectSegmentsCount else {
+                throw QAXInteractionError.segmentedControlItemCollectionExceedsSafeBound(validSegmentElements.count)
+            }
+
+            var matchingSegments: [AXUIElement] = []
+            for child in validSegmentElements {
+                let cId = Self.axStringAttribute(Self.axIdentifierAttributeName, of: child)
+                let cTitle = Self.axStringAttribute(kAXTitleAttribute, of: child)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: child)
+
+                if let segmentIdentifier = segmentIdentifier, let segmentTitle = segmentTitle {
+                    // Both supplied: fail closed if they disagree on the element
+                    if cId == segmentIdentifier && cTitle == segmentTitle {
+                        matchingSegments.append(child)
+                    } else if cId == segmentIdentifier || cTitle == segmentTitle {
+                        // One matches but not the other: conflict / mismatch
+                    }
+                } else if let segmentIdentifier = segmentIdentifier {
+                    if cId == segmentIdentifier {
+                        matchingSegments.append(child)
+                    }
+                } else if let segmentTitle = segmentTitle {
+                    if cTitle == segmentTitle {
+                        matchingSegments.append(child)
+                    }
+                }
+            }
+
+            guard !matchingSegments.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matchingSegments.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matchingSegments.count) }
+
+            let targetSegment = matchingSegments[0]
+
+            // Enabled check
+            let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: targetSegment) ?? true
+            guard isEnabled else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            // Selection state read at search & verify (drift check)
+            let isSelectedSearch: Bool
+            if let state = Self.axCheckboxRadioState(of: targetSegment) {
+                isSelectedSearch = (state == .on)
+            } else if let selectedVal = Self.axBoolAttribute(kAXSelectedAttribute, of: targetSegment) {
+                isSelectedSearch = selectedVal
+            } else {
+                throw QAXInteractionError.segmentSelectionStateReadFailed
+            }
+
+            let isSelectedVerify: Bool
+            if let state = Self.axCheckboxRadioState(of: targetSegment) {
+                isSelectedVerify = (state == .on)
+            } else if let selectedVal = Self.axBoolAttribute(kAXSelectedAttribute, of: targetSegment) {
+                isSelectedVerify = selectedVal
+            } else {
+                throw QAXInteractionError.segmentSelectionStateReadFailed
+            }
+
+            guard isSelectedVerify == isSelectedSearch else {
+                throw QAXInteractionError.valueDriftDetected("target segment selection state changed between observation and dispatch")
+            }
+
+            let resolvedSegmentId = Self.axStringAttribute(Self.axIdentifierAttributeName, of: targetSegment)
+            let resolvedSegmentTitle = Self.axStringAttribute(kAXTitleAttribute, of: targetSegment)
+                ?? Self.axStringAttribute(kAXDescriptionAttribute, of: targetSegment)
+
+            let targetIdentity = "application=\(applicationName) controlRole=\(role) controlIdentifier=\(controlObservedAtVerify.identifier ?? "none") controlLabel=\(controlObservedAtVerify.titleOrDescription ?? "none") segmentIdentifier=\(resolvedSegmentId ?? "none") segmentLabel=\(resolvedSegmentTitle ?? "none")"
+
+            if isSelectedVerify == desiredSelected {
+                return QAXSegmentedControlSelectionOutcome(
+                    changeKind: .alreadyDesired,
+                    previousSelected: isSelectedVerify,
+                    currentSelected: isSelectedVerify,
+                    targetIdentity: targetIdentity
+                )
+            }
+
+            let pressResult = AXUIElementPerformAction(targetSegment, kAXPressAction as CFString)
+            switch pressResult {
+            case .success:
+                break
+            case .actionUnsupported:
+                throw QAXInteractionError.actionUnsupported
+            default:
+                throw QAXInteractionError.pressFailed("AXError(\(pressResult.rawValue))")
+            }
+
+            let currentSelected: Bool
+            if let state = Self.axCheckboxRadioState(of: targetSegment) {
+                currentSelected = (state == .on)
+            } else if let selectedVal = Self.axBoolAttribute(kAXSelectedAttribute, of: targetSegment) {
+                currentSelected = selectedVal
+            } else {
+                currentSelected = desiredSelected
+            }
+
+            return QAXSegmentedControlSelectionOutcome(
+                changeKind: .changed,
+                previousSelected: isSelectedVerify,
+                currentSelected: currentSelected,
+                targetIdentity: targetIdentity
+            )
+        }.value
+    }
+
+    /// Best-effort, read-only re-resolution of the same match criteria used by `selectSegmentedControlItem`,
+    /// used both by the later closed-loop verification step (.axSegmentedControlSelectionMatchesDesired)
+    /// and by QTaskRecoveryManager's observation-first recovery branch.
+    public func observeSegmentedControlSelectionEvidence(
+        applicationName: String,
+        role: String = "AXSegmentedControl",
+        controlIdentifier: String?,
+        controlTitle: String?,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil,
+        segmentIdentifier: String?,
+        segmentTitle: String?
+    ) async -> QAXSegmentedControlSelectionEvidence {
+        guard AXIsProcessTrusted() else { return .targetUnavailable }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return .targetUnavailable }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard windowMatches.count == 1 else { return .targetUnavailable }
+                searchRoot = windowMatches[0].element
+            } else {
+                searchRoot = appElement
+            }
+
+            let controlMatches = Self.collectMatches(root: searchRoot, role: role, identifier: controlIdentifier, title: controlTitle)
+            guard controlMatches.count == 1 else { return .targetUnavailable }
+            let targetControlElement = controlMatches[0].element
+
+            let rawChildElements = Self.childrenAttribute(of: targetControlElement) ?? []
+            var validSegmentElements: [AXUIElement] = []
+            for childElement in rawChildElements {
+                guard let childRole = Self.axStringAttribute(kAXRoleAttribute, of: childElement) else {
+                    continue
+                }
+                guard Self.allowedDirectSegmentRoles.contains(childRole) else {
+                    continue
+                }
+                let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: childElement)
+                guard subrole != Self.tabButtonSubrole else {
+                    continue
+                }
+                validSegmentElements.append(childElement)
+            }
+
+            var matchingSegments: [AXUIElement] = []
+            for child in validSegmentElements {
+                let cId = Self.axStringAttribute(Self.axIdentifierAttributeName, of: child)
+                let cTitle = Self.axStringAttribute(kAXTitleAttribute, of: child)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: child)
+
+                if let segmentIdentifier = segmentIdentifier, let segmentTitle = segmentTitle {
+                    if cId == segmentIdentifier && cTitle == segmentTitle {
+                        matchingSegments.append(child)
+                    }
+                } else if let segmentIdentifier = segmentIdentifier {
+                    if cId == segmentIdentifier {
+                        matchingSegments.append(child)
+                    }
+                } else if let segmentTitle = segmentTitle {
+                    if cTitle == segmentTitle {
+                        matchingSegments.append(child)
+                    }
+                }
+            }
+
+            guard matchingSegments.count == 1 else { return .targetUnavailable }
+            let targetSegment = matchingSegments[0]
+
+            if let state = Self.axCheckboxRadioState(of: targetSegment) {
+                return .resolved(currentSelected: (state == .on))
+            } else if let selectedVal = Self.axBoolAttribute(kAXSelectedAttribute, of: targetSegment) {
+                return .resolved(currentSelected: selectedVal)
+            } else {
+                return .stateUnreadable
+            }
         }.value
     }
 

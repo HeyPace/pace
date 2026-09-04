@@ -353,6 +353,20 @@ public enum QVerificationStrategy: Sendable {
     /// the execution result's own `success` flag to be true. Evidence string carries aggregate counts
     /// only, never any individual action control title or identifier.
     case sheetActionEnumerationSucceeded(applicationName: String, actionCount: Int)
+    /// Phase 2AQ: semantic segmented control item selection verification (Level 2). Re-resolves target
+    /// and verifies post-mutation selection state independently.
+    case axSegmentedControlSelectionMatchesDesired(
+        applicationName: String,
+        role: String,
+        controlIdentifier: String?,
+        controlTitle: String?,
+        windowTitle: String?,
+        windowIdentifier: String?,
+        segmentIdentifier: String?,
+        segmentTitle: String?,
+        targetIdentity: String,
+        desiredSelected: Bool
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1067,6 +1081,41 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Application '\(applicationName)' current hidden state does not match the desired state after the mutation.",
                     evidence: "target=\(applicationName) pid=\(targetProcessIdentifier) currentHidden=\(currentHidden) desiredHidden=\(desiredHidden) status=failed"
+                )
+            }
+
+        case .axSegmentedControlSelectionMatchesDesired(let applicationName, let role, let controlIdentifier, let controlTitle, let windowTitle, let windowIdentifier, let segmentIdentifier, let segmentTitle, let targetIdentity, let desiredSelected):
+            let evidence = await QBridgeAccessibility.shared.observeSegmentedControlSelectionEvidence(
+                applicationName: applicationName,
+                role: role,
+                controlIdentifier: controlIdentifier,
+                controlTitle: controlTitle,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier,
+                segmentIdentifier: segmentIdentifier,
+                segmentTitle: segmentTitle
+            )
+            switch evidence {
+            case .resolved(let currentSelected):
+                if currentSelected == desiredSelected {
+                    return .verified(
+                        evidence: "target=\(targetIdentity) currentSelected=\(currentSelected) desiredSelected=\(desiredSelected) status=verified"
+                    )
+                } else {
+                    return .failed(
+                        reason: "Target segmented control item (role=\(role)) current selection state does not match the desired state after the selection.",
+                        evidence: "target=\(targetIdentity) currentSelected=\(currentSelected) desiredSelected=\(desiredSelected) status=failed"
+                    )
+                }
+            case .stateUnreadable:
+                return .failed(
+                    reason: "Target segmented control item (role=\(role)) current selection state could not be read after the selection — unreadable state fails closed.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            case .targetUnavailable:
+                return .failed(
+                    reason: "Target segmented control item (role=\(role)) is no longer resolvable, ambiguous, or no longer role-qualified, for verification after the selection.",
+                    evidence: "target=\(targetIdentity) status=failed"
                 )
             }
 

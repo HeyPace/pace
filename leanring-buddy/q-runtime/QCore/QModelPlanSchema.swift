@@ -550,7 +550,13 @@ public struct QModelPlanParser: Sendable {
         // (maxDirectSheetActionsCount = 16). This is a POINT-IN-TIME SNAPSHOT ONLY:
         // result is informational and never enters durable persistence snapshots; every subsequent mutation
         // capability must independently perform its own fresh, exact target resolution.
-        "ui.list_sheet_actions": ("ui", .level0ReadOnly)
+        "ui.list_sheet_actions": ("ui", .level0ReadOnly),
+        // Phase 2AQ: semantic segmented control item selection — LEVEL 2 (REVERSIBLE, APPROVAL REQUIRED).
+        // Selects exactly one direct segment item belonging to an exact AXSegmentedControl in a named application window.
+        // Direct segment roles: AXRadioButton or AXButton (AXTabButton is strictly excluded). Deselection is unsupported.
+        // Idempotent (already desired selection is a no-op). Protected by stale-target & drift checks,
+        // and verified via closed-loop observation. Requires explicit single-use approval.
+        "ui.select_segmented_control_item": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

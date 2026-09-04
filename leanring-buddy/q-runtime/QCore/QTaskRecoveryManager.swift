@@ -559,6 +559,38 @@ public final class QTaskRecoveryManager: Sendable {
                 }
             }
 
+        case "ui.select_segmented_control_item":
+            // Observation-first (Phase 2AQ): re-check whether the requested segmented control item already
+            // reports selected=true before ever considering a replay. Reuses the EXACT SAME
+            // independent observation primitive (QBridgeAccessibility.observeSegmentedControlSelectionEvidence).
+            let segApplicationName = uncertainStep.arguments["applicationName"] ?? ""
+            let segRole = uncertainStep.arguments["role"] ?? "AXSegmentedControl"
+            let segControlId = uncertainStep.arguments["controlIdentifier"].flatMap { $0.isEmpty ? nil : $0 } ?? uncertainStep.arguments["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let segControlTitle = uncertainStep.arguments["controlTitle"].flatMap { $0.isEmpty ? nil : $0 } ?? uncertainStep.arguments["title"].flatMap { $0.isEmpty ? nil : $0 }
+            let segWinTitle = uncertainStep.arguments["windowTitle"].flatMap { $0.isEmpty ? nil : $0 } ?? uncertainStep.arguments["window"].flatMap { $0.isEmpty ? nil : $0 }
+            let segWinId = uncertainStep.arguments["windowIdentifier"].flatMap { $0.isEmpty ? nil : $0 } ?? uncertainStep.arguments["windowId"].flatMap { $0.isEmpty ? nil : $0 }
+            let segItemIdentifier = uncertainStep.arguments["segmentIdentifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let segItemTitle = uncertainStep.arguments["segmentTitle"].flatMap { $0.isEmpty ? nil : $0 } ?? uncertainStep.arguments["segmentLabel"].flatMap { $0.isEmpty ? nil : $0 } ?? uncertainStep.arguments["segment"].flatMap { $0.isEmpty ? nil : $0 }
+            let segDesiredSelectedRaw = uncertainStep.arguments["desiredSelected"] ?? "true"
+            if !segApplicationName.isEmpty, !segRole.isEmpty,
+               let segDesiredSelected = Bool(segDesiredSelectedRaw), segDesiredSelected,
+               (segItemIdentifier != nil || segItemTitle != nil || segControlId != nil || segControlTitle != nil) {
+                let evidence = await QBridgeAccessibility.shared.observeSegmentedControlSelectionEvidence(
+                    applicationName: segApplicationName,
+                    role: segRole,
+                    controlIdentifier: segControlId,
+                    controlTitle: segControlTitle,
+                    windowTitle: segWinTitle,
+                    windowIdentifier: segWinId,
+                    segmentIdentifier: segItemIdentifier,
+                    segmentTitle: segItemTitle
+                )
+                if case .resolved(let currentSelected) = evidence, currentSelected == segDesiredSelected {
+                    verified = true
+                    verifiedEvidence = "Observation verified: target segmented control item currentSelected='\(currentSelected)' desiredSelected='\(segDesiredSelected)' status=verified"
+                }
+            }
+
         case "fs.write_sandbox":
             let path = uncertainStep.targetResources.first ?? uncertainStep.arguments["path"] ?? ""
             if !path.isEmpty && FileManager.default.fileExists(atPath: path) {

@@ -216,6 +216,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_sheet_actions":
             result = await executeListSheetActions(request: request)
 
+        case "ui.select_segmented_control_item":
+            result = await executeSelectSegmentedControlItem(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -3121,6 +3124,112 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing sheet actions: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2AQ: semantic segmented control item selection — Level 2 (reversible local action, approval required).
+    /// Selection ONLY: desired segment is selected. Idempotent (already selected returns no-op without mutation).
+    /// Role must be AXSegmentedControl. Direct segment must be AXRadioButton or AXButton (AXTabButton is excluded).
+    private func executeSelectSegmentedControlItem(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"] ?? "AXSegmentedControl"
+        guard QAXSegmentedControlRolePolicy.isAllowedSegmentedControlRole(role) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target role '\(role)' is not an allowed segmented control target.",
+                error: "AX_DISALLOWED_ROLE"
+            )
+        }
+
+        let controlIdentifier = request.parameters["controlIdentifier"] ?? (request.parameters["segmentIdentifier"] != nil ? request.parameters["identifier"] : nil)
+        let controlTitle = request.parameters["controlTitle"] ?? (request.parameters["segmentTitle"] != nil || request.parameters["segmentLabel"] != nil || request.parameters["segment"] != nil ? request.parameters["title"] : nil)
+        let windowTitle = request.parameters["windowTitle"] ?? request.parameters["window"]
+        let windowIdentifier = request.parameters["windowIdentifier"] ?? request.parameters["windowId"]
+
+        let segmentIdentifier = request.parameters["segmentIdentifier"] ?? (controlIdentifier != request.parameters["identifier"] ? request.parameters["identifier"] : nil)
+        let segmentTitle = request.parameters["segmentTitle"] ?? request.parameters["segmentLabel"] ?? request.parameters["segment"] ?? (controlTitle != request.parameters["title"] ? request.parameters["title"] : nil)
+
+        guard segmentIdentifier != nil || segmentTitle != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target segment must specify a 'segmentIdentifier' or 'segmentTitle' to match semantically.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        let desiredSelectedRaw = request.parameters["desiredSelected"] ?? "true"
+        guard let desiredSelected = Bool(desiredSelectedRaw) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing or invalid 'desiredSelected' parameter — must be exactly 'true' or 'false'.",
+                error: "desiredSelected invalid"
+            )
+        }
+
+        guard desiredSelected else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "ui.select_segmented_control_item supports selection only — 'desiredSelected: false' (deselection) is not supported.",
+                error: "AX_SEGMENT_DESELECTION_UNSUPPORTED"
+            )
+        }
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.selectSegmentedControlItem(
+                applicationName: applicationName,
+                role: role,
+                controlIdentifier: controlIdentifier,
+                controlTitle: controlTitle,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier,
+                segmentIdentifier: segmentIdentifier,
+                segmentTitle: segmentTitle,
+                desiredSelected: desiredSelected
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Segmented control item selection attempted for \(outcome.targetIdentity): changeKind=\(outcome.changeKind.rawValue), previousSelected=\(outcome.previousSelected), currentSelected=\(outcome.currentSelected), desiredSelected=\(desiredSelected). Independent closed-loop verification pending.",
+                outputData: [
+                    "applicationName": applicationName,
+                    "role": role,
+                    "controlIdentifier": controlIdentifier ?? "",
+                    "controlTitle": controlTitle ?? "",
+                    "segmentIdentifier": segmentIdentifier ?? "",
+                    "segmentTitle": segmentTitle ?? "",
+                    "targetIdentity": outcome.targetIdentity,
+                    "changeKind": outcome.changeKind.rawValue,
+                    "previousSelected": "\(outcome.previousSelected)",
+                    "currentSelected": "\(outcome.currentSelected)",
+                    "desiredSelected": "\(desiredSelected)"
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while selecting segmented control item: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }
