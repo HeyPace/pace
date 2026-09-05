@@ -1069,6 +1069,16 @@ public final class QPlanExecutor: Sendable {
                 tolerance: tolerance,
                 targetIdentity: targetIdentity
             )
+        } else if action.actionName == "ui.read_focused_element",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = result.outputData["role"], !role.isEmpty {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the role captured at read time. Deliberately NOT threaded through
+            // here: identifier/title/description/value — this strategy only ever carries the
+            // resolved role and whether a value was present, by design (mirrors every other
+            // Level 0 enumeration's aggregate-only evidence discipline).
+            let hasValue = !(result.outputData["value"] ?? "").isEmpty
+            return .focusedElementReadSucceeded(applicationName: applicationName, role: role, hasValue: hasValue)
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

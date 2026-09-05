@@ -691,7 +691,33 @@ public struct QModelPlanParser: Sendable {
         // steps is bounded to [1, 20] per call. Idempotent: already-at-bound (per kAXMinValueAttribute/
         // kAXMaxValueAttribute) in the requested direction is a verified no-op, no AX action performed.
         // Verified by independent post-mutation re-read of kAXValueAttribute.
-        "ui.step_incrementor": ("ui", .level2UserApproval)
+        "ui.step_incrementor": ("ui", .level2UserApproval),
+        // Phase 2BG: semantic focused-element read — LEVEL 0 (READ-ONLY). Reads the systemwide
+        // currently-focused Accessibility element via kAXFocusedUIElementAttribute on
+        // AXUIElementCreateSystemWide() — zero tree traversal, exactly one element ever touched,
+        // and the first capability requiring NO prior knowledge of a target's identifier/title/
+        // role: every other capability in this codebase requires the model to already know that
+        // before it can act or read. Application identity is resolved by exact matching via
+        // QBridgeAccessibility.resolveExactRunningApplication; the focused element's owning
+        // process (AXUIElementGetPid) is independently cross-checked against the resolved
+        // application and fails closed on any mismatch — the systemwide focused element itself is
+        // never treated as an arbitrary, unscoped target. Optional windowTitle further scopes/
+        // verifies against the focused element's own kAXWindowAttribute. Reuses
+        // QAXElementReadRolePolicy (Phase 2J) unmodified: identity/structural metadata (role,
+        // subrole, identifier, title, description, enabled, selected) is always returned when a
+        // focused element resolves; only the optional value field is policy-gated exactly like
+        // ui.read_element_value (AXSecureTextField and any disallowed role yield value: nil, never
+        // a failed read). Deliberately registered under toolFamily "perception" — NOT "ui" — for
+        // the identical reason ui.read_element_value is: the optional exposed value carries the
+        // same raw-content-for-reasoning character screen.ocr already established, which is what
+        // activates QPlanExecutor's existing isScreenDerivedStep sanitize-before-persist boundary
+        // with zero changes to QPlanExecutor's dispatch logic. No mutation, no approval, no
+        // recovery: a read that does not throw IS its own result. This is a POINT-IN-TIME SNAPSHOT
+        // ONLY — never itself an actionable target reference for any subsequent mutation
+        // capability, which must independently perform its own fresh, exact target resolution. See
+        // QBridgeAccessibility.readFocusedElement and
+        // docs/PHASE_2BG_SEMANTIC_FOCUSED_ELEMENT_READ.md for the full contract.
+        "ui.read_focused_element": ("perception", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

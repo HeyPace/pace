@@ -718,6 +718,21 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// immediately before mutation — the dispatch call's own `AXError` return is never itself treated
     /// as proof of a real side effect.
     case incrementorStepVerificationFailed(String)
+    /// Phase 2BG: `kAXFocusedUIElementAttribute` could not be read from the systemwide
+    /// Accessibility element, or the returned focused element's own `kAXRoleAttribute` could not
+    /// be read — covers "nothing is currently focused" and "the focused element's own attributes
+    /// are malformed/unreadable" identically, since neither leaves anything safe to report.
+    case noFocusedElement
+    /// Phase 2BG: the systemwide focused element's owning process (`AXUIElementGetPid`) does not
+    /// match the resolved target application's `processIdentifier` — the focused element belongs
+    /// to a different, unrequested application. Fails closed rather than reporting an element the
+    /// caller never asked about.
+    case focusedElementApplicationMismatch(String)
+    /// Phase 2BG: an optional `windowTitle` scope was supplied, but the focused element's
+    /// containing window (`kAXWindowAttribute`) could not be resolved, or its own
+    /// `kAXTitleAttribute` does not match — fails closed rather than reporting an element outside
+    /// the requested window.
+    case focusedElementWindowMismatch(String)
 
     public var description: String {
         switch self {
@@ -953,6 +968,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Failed to step target incrementor: \(reason)"
         case .incrementorStepVerificationFailed(let reason):
             return "Post-mutation verification of target incrementor failed: \(reason)"
+        case .noFocusedElement:
+            return "No focused Accessibility element could be determined."
+        case .focusedElementApplicationMismatch(let name):
+            return "The currently focused element does not belong to application '\(name)'."
+        case .focusedElementWindowMismatch(let title):
+            return "The currently focused element is not within window '\(title)'."
         }
     }
 
@@ -1075,6 +1096,9 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .invalidStepCount: return "AX_INVALID_STEP_COUNT"
         case .incrementorActionPerformFailed: return "AX_INCREMENTOR_ACTION_PERFORM_FAILED"
         case .incrementorStepVerificationFailed: return "AX_INCREMENTOR_STEP_VERIFICATION_FAILED"
+        case .noFocusedElement: return "AX_NO_FOCUSED_ELEMENT"
+        case .focusedElementApplicationMismatch: return "AX_FOCUSED_ELEMENT_APPLICATION_MISMATCH"
+        case .focusedElementWindowMismatch: return "AX_FOCUSED_ELEMENT_WINDOW_MISMATCH"
         }
     }
 }
@@ -1115,6 +1139,47 @@ public enum QAXElementReadRolePolicy {
 
     public static func isAllowedReadRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
+    }
+}
+
+/// A point-in-time snapshot of the systemwide currently-focused Accessibility element, captured
+/// by `ui.read_focused_element` (Phase 2BG). Unlike `QAXElementSnapshot` (used by every
+/// search-by-criteria capability), title and description are reported as separate optional
+/// fields rather than merged, and selected state is carried alongside enabled state — matching
+/// this capability's own output contract. Deliberately carries no coordinates and no raw
+/// AXUIElement — the read touches exactly one element and nothing else. `value` is the sole
+/// policy-gated field: nil for a secure or otherwise disallowed role (see
+/// `QAXElementReadRolePolicy`), never a reason to fail the whole read — identity/structural
+/// metadata is always safe to return regardless of role, exactly like `ui.read_element_value`'s
+/// own accepted privacy boundary.
+public struct QAXFocusedElementSnapshot: Sendable, Equatable {
+    public let role: String
+    public let subrole: String?
+    public let identifier: String?
+    public let title: String?
+    public let elementDescription: String?
+    public let isEnabled: Bool
+    public let isSelected: Bool?
+    public let value: String?
+
+    public init(
+        role: String,
+        subrole: String?,
+        identifier: String?,
+        title: String?,
+        elementDescription: String?,
+        isEnabled: Bool,
+        isSelected: Bool?,
+        value: String?
+    ) {
+        self.role = role
+        self.subrole = subrole
+        self.identifier = identifier
+        self.title = title
+        self.elementDescription = elementDescription
+        self.isEnabled = isEnabled
+        self.isSelected = isSelected
+        self.value = value
     }
 }
 
@@ -4632,6 +4697,101 @@ extension QBridgeAccessibility {
             return nil
         }
         return (focusedElementValue as! AXUIElement)
+    }
+
+    // MARK: - Semantic Focused Element Read (Phase 2BG)
+    //
+    // ui.read_focused_element — a Level 0, read-only, zero-prior-knowledge discovery primitive.
+    // Every other capability in this codebase requires the caller to already know a target's
+    // role/identifier/title before it can act or read; this is the first that reports back
+    // WHATEVER currently holds systemwide keyboard focus, resolved purely via
+    // AXUIElementCreateSystemWide() + kAXFocusedUIElementAttribute — the exact same primitive
+    // `focusElement`'s idempotency check and `observeFocusedElementIdentity`'s independent
+    // verification already share (`systemWideFocusedElement()` above). Zero tree traversal:
+    // exactly one element is ever touched. Identity/structural metadata (role, subrole,
+    // identifier, title, description, enabled, selected) is always returned when a focused
+    // element is found and belongs to the requested application — reading WHICH element has
+    // focus is never itself sensitive. Only the optional VALUE field is gated by
+    // `QAXElementReadRolePolicy` (reused unmodified from Phase 2J) exactly like
+    // `ui.read_element_value`: `AXSecureTextField` and any role not on that allowlist yield
+    // `value: nil` rather than failing the whole read, mirroring `ui.read_element_value`'s own
+    // "identity is safe, value is policy-gated" contract precisely.
+
+    /// Resolves the systemwide currently-focused Accessibility element (never a search — a
+    /// systemwide focused element is a singleton by OS definition, so resolution IS the read
+    /// itself) and returns its safe structural metadata plus an optional policy-gated value.
+    /// Fails closed (throws `QAXInteractionError`) when: no focused element can be determined;
+    /// the focused element's own role attribute is unreadable/malformed; the focused element's
+    /// owning process does not match the resolved `applicationName` (cross-app mismatch guard);
+    /// or an optional `windowTitle` scope is supplied and does not match the focused element's
+    /// containing window. Never falls back to another element, never fabricates a value, never
+    /// traverses any descendant tree.
+    public func readFocusedElement(
+        applicationName: String,
+        windowTitle: String?
+    ) async throws -> QAXFocusedElementSnapshot {
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            guard let focusedElement = Self.systemWideFocusedElement() else {
+                throw QAXInteractionError.noFocusedElement
+            }
+
+            var focusedElementPid: pid_t = 0
+            let pidResult = AXUIElementGetPid(focusedElement, &focusedElementPid)
+            guard pidResult == .success else {
+                throw QAXInteractionError.noFocusedElement
+            }
+            guard focusedElementPid == processIdentifier else {
+                throw QAXInteractionError.focusedElementApplicationMismatch(applicationName)
+            }
+
+            guard let role = Self.axStringAttribute(kAXRoleAttribute, of: focusedElement) else {
+                throw QAXInteractionError.noFocusedElement
+            }
+
+            if let windowTitle {
+                guard let containingWindow = Self.axElementAttribute(kAXWindowAttribute, of: focusedElement),
+                      Self.axStringAttribute(kAXTitleAttribute, of: containingWindow) == windowTitle else {
+                    throw QAXInteractionError.focusedElementWindowMismatch(windowTitle)
+                }
+            }
+
+            let subrole = Self.axStringAttribute(kAXSubroleAttribute, of: focusedElement)
+            let identifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: focusedElement)
+            let rawTitle = Self.axStringAttribute(kAXTitleAttribute, of: focusedElement)
+            let title = (rawTitle?.isEmpty == false) ? rawTitle : nil
+            let rawDescription = Self.axStringAttribute(kAXDescriptionAttribute, of: focusedElement)
+            let elementDescription = (rawDescription?.isEmpty == false) ? rawDescription : nil
+            let isEnabled = Self.axBoolAttribute(kAXEnabledAttribute, of: focusedElement) ?? true
+            let isSelected = Self.axBoolAttribute(kAXSelectedAttribute, of: focusedElement)
+
+            // Value exposure is the ONLY policy-gated field — identity/structural metadata above
+            // is always returned. Mirrors ui.read_element_value's exact contract: a secure or
+            // disallowed role withholds the value, never the whole read.
+            let value: String?
+            if role != "AXSecureTextField" && QAXElementReadRolePolicy.isAllowedReadRole(role) {
+                value = Self.axValueDescription(of: focusedElement)
+            } else {
+                value = nil
+            }
+
+            return QAXFocusedElementSnapshot(
+                role: role,
+                subrole: subrole,
+                identifier: identifier,
+                title: title,
+                elementDescription: elementDescription,
+                isEnabled: isEnabled,
+                isSelected: isSelected,
+                value: value
+            )
+        }.value
     }
 
     // MARK: - Semantic Popup Item Selection (Phase 2P)

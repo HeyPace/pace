@@ -261,6 +261,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.step_incrementor":
             result = await executeStepIncrementor(request: request)
 
+        case "ui.read_focused_element":
+            result = await executeReadFocusedElement(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -4114,7 +4117,68 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         }
     }
 
+    /// Phase 2BG: semantic focused-element read (Level 0, read-only, zero mutation). Resolves the
+    /// systemwide currently-focused Accessibility element for a named application and returns its
+    /// safe structural metadata plus an optional policy-gated value. The first capability
+    /// requiring zero prior knowledge of a target's identifier/title/role — every other
+    /// capability in this codebase requires the model to already know that before it can act or
+    /// read. Registered under toolFamily "perception" (see QModelPlanSchema.swift), exactly like
+    /// ui.read_element_value, since the optional exposed value carries the same "raw content the
+    /// model needs to reason about" character as screen.ocr — this is what routes it through
+    /// QPlanExecutor's existing sanitize-before-persist boundary with zero changes to
+    /// QPlanExecutor's dispatch logic. Every `QAXInteractionError` failure mode — no focused
+    /// element, cross-app mismatch, window-scope mismatch — is caught here and converted into a
+    /// deterministic, non-throwing `QActionResult`; this method never fabricates success.
+    private func executeReadFocusedElement(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        let windowTitle = request.parameters["windowTitle"].flatMap { $0.isEmpty ? nil : $0 }
 
+        do {
+            let snapshot = try await QBridgeAccessibility.shared.readFocusedElement(
+                applicationName: applicationName,
+                windowTitle: windowTitle
+            )
+            let valueSuffix = snapshot.value.map { ": \($0)" } ?? ""
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Focused element in \(applicationName): role=\(snapshot.role) identifier=\(snapshot.identifier ?? "none") title=\(snapshot.title ?? "none")\(valueSuffix)",
+                outputData: [
+                    "applicationName": applicationName,
+                    "windowTitle": windowTitle ?? "",
+                    "role": snapshot.role,
+                    "subrole": snapshot.subrole ?? "",
+                    "identifier": snapshot.identifier ?? "",
+                    "title": snapshot.title ?? "",
+                    "description": snapshot.elementDescription ?? "",
+                    "enabled": snapshot.isEnabled ? "true" : "false",
+                    "selected": snapshot.isSelected.map { $0 ? "true" : "false" } ?? "",
+                    "value": snapshot.value ?? ""
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading focused element: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
 
     /// Phase 2AM: executes read-only segmented control direct segment discovery.
     /// Result summary carries aggregate counts only, never leaking individual segment titles to durable storage.

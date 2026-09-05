@@ -461,6 +461,16 @@ public enum QVerificationStrategy: Sendable {
         previousValue: Double,
         changeKind: QAXIncrementorStepChangeKind
     )
+    /// Phase 2BG: semantic focused-element read verification (Level 0, read-only). Like every
+    /// other Level 0 enumeration's verification, there is no separate physical state to
+    /// re-observe after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readFocusedElement` (exact application resolution, cross-app PID
+    /// match, a successfully-read focused element), already IS the ground truth. This strategy
+    /// deliberately checks the execution result's own `success` flag as a genuine, meaningful
+    /// assertion — never a bare `{ true }` bypass. Evidence carries only the resolved role and
+    /// whether a value was exposed, never the value itself, the identifier, or any other
+    /// individual field content.
+    case focusedElementReadSucceeded(applicationName: String, role: String, hasValue: Bool)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1461,6 +1471,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Target splitter (index=\(splitterIndex)) is no longer resolvable or role-qualified for verification.",
                     evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+        case .focusedElementReadSucceeded(let applicationName, let role, let hasValue):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) hasValue=\(hasValue) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Focused element read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) status=failed"
                 )
             }
 
