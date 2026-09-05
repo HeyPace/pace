@@ -679,7 +679,19 @@ public struct QModelPlanParser: Sendable {
         // Application identity is resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication.
         // Target must match AXComboBox canonical role policy. Idempotent: returns safe no-op if already selected.
         // Verified by independent post-mutation re-read.
-        "ui.select_combo_box_item": ("ui", .level2UserApproval)
+        "ui.select_combo_box_item": ("ui", .level2UserApproval),
+        // Phase 2BF: semantic stepper / incrementor step mutation — LEVEL 2 (USER APPROVAL REQUIRED).
+        // Increments or decrements exactly ONE named AXIncrementor in an application window via native
+        // AXUIElementPerformAction(kAXIncrementAction) / AXUIElementPerformAction(kAXDecrementAction) —
+        // the purpose-built AX actions for this role (confirmed against AXActionConstants.h). Never
+        // AXUIElementSetAttributeValue(kAXValueAttribute) directly — see QBridgeAccessibility.stepIncrementor.
+        // Application identity is resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication.
+        // Target must match AXIncrementor canonical role policy (QAXIncrementorRolePolicy, reused unmodified
+        // from Phase 2BA). direction ("increment"/"decrement") is required and explicit — never a blind toggle.
+        // steps is bounded to [1, 20] per call. Idempotent: already-at-bound (per kAXMinValueAttribute/
+        // kAXMaxValueAttribute) in the requested direction is a verified no-op, no AX action performed.
+        // Verified by independent post-mutation re-read of kAXValueAttribute.
+        "ui.step_incrementor": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

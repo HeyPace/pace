@@ -445,6 +445,22 @@ public enum QVerificationStrategy: Sendable {
         targetIdentity: String,
         requestedItemTitle: String
     )
+    /// Phase 2BF: semantic stepper / incrementor step mutation verification (Level 2). Re-resolves
+    /// the target `AXIncrementor` independently and re-reads its own `kAXValueAttribute` fresh — the
+    /// dispatch call's own `AXError` return is never itself treated as proof of a real side effect.
+    /// `.verified` requires the freshly observed value to have moved strictly in the requested
+    /// `direction` relative to `previousValue` (the value captured immediately before mutation), or,
+    /// for the already-at-bound no-op path (`changeKind: .alreadyAtBound`), to be unchanged.
+    case axIncrementorValueMovedAsDesired(
+        applicationName: String,
+        role: String,
+        matchIdentifier: String?,
+        matchTitle: String?,
+        targetIdentity: String,
+        direction: QAXIncrementorStepDirection,
+        previousValue: Double,
+        changeKind: QAXIncrementorStepChangeKind
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1130,6 +1146,47 @@ public final class QActionVerifier: Sendable {
             case .targetUnavailable:
                 return .failed(
                     reason: "Target combo box (role=\(role)) is no longer resolvable, or its value could not be read, for verification after selection.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+        case .axIncrementorValueMovedAsDesired(let applicationName, let role, let matchIdentifier, let matchTitle, let targetIdentity, let direction, let previousValue, let changeKind):
+            let evidence = await QBridgeAccessibility.shared.observeIncrementorValueEvidence(
+                applicationName: applicationName,
+                role: role,
+                identifier: matchIdentifier,
+                title: matchTitle
+            )
+            switch evidence {
+            case .resolved(let currentValue):
+                switch changeKind {
+                case .alreadyAtBound:
+                    if currentValue == previousValue {
+                        return .verified(
+                            evidence: "target=\(targetIdentity) currentValue=\(currentValue) previousValue=\(previousValue) direction=\(direction.rawValue) status=verified-noop"
+                        )
+                    } else {
+                        return .failed(
+                            reason: "Target incrementor (role=\(role)) value changed even though it was reported already at its bound.",
+                            evidence: "target=\(targetIdentity) currentValue=\(currentValue) previousValue=\(previousValue) status=failed"
+                        )
+                    }
+                case .changed:
+                    let movedCorrectly = direction == .increment ? currentValue > previousValue : currentValue < previousValue
+                    if movedCorrectly {
+                        return .verified(
+                            evidence: "target=\(targetIdentity) currentValue=\(currentValue) previousValue=\(previousValue) direction=\(direction.rawValue) status=verified"
+                        )
+                    } else {
+                        return .failed(
+                            reason: "Target incrementor (role=\(role)) current value (\(currentValue)) did not move in the requested direction (\(direction.rawValue)) from its previous value (\(previousValue)).",
+                            evidence: "target=\(targetIdentity) currentValue=\(currentValue) previousValue=\(previousValue) status=failed"
+                        )
+                    }
+                }
+            case .targetUnavailable:
+                return .failed(
+                    reason: "Target incrementor (role=\(role)) is no longer resolvable, or its value could not be read, for verification after the step mutation.",
                     evidence: "target=\(targetIdentity) status=failed"
                 )
             }

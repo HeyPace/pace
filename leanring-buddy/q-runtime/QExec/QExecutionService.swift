@@ -258,6 +258,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.select_combo_box_item":
             result = await executeSelectComboBoxItem(request: request)
 
+        case "ui.step_incrementor":
+            result = await executeStepIncrementor(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -3987,6 +3990,125 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while selecting combo box item: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2BF: executes semantic stepper / incrementor step mutation.
+    /// Increments or decrements an AXIncrementor element's value via native
+    /// AXUIElementPerformAction(kAXIncrementAction/kAXDecrementAction) — never a raw value write.
+    private func executeStepIncrementor(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"]
+        if let role = role {
+            guard QAXIncrementorRolePolicy.isAllowedIncrementorRole(role) else {
+                return QActionResult(
+                    actionId: request.actionId,
+                    success: false,
+                    summary: "Target role '\(role)' is not an allowed incrementor target.",
+                    error: "AX_DISALLOWED_ROLE"
+                )
+            }
+        }
+
+        let identifier = request.parameters["identifier"] ?? request.parameters["id"]
+        let title = request.parameters["title"] ?? request.parameters["label"]
+        let windowTitle = request.parameters["windowTitle"] ?? request.parameters["window"]
+        let windowIdentifier = request.parameters["windowIdentifier"] ?? request.parameters["windowId"]
+
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an identifier or title to match semantically.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        guard let directionString = request.parameters["direction"],
+              let direction = QAXIncrementorStepDirection(rawValue: directionString) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Parameter 'direction' must be exactly 'increment' or 'decrement'.",
+                error: "AX_INVALID_STEP_DIRECTION"
+            )
+        }
+
+        var steps = 1
+        if let stepsString = request.parameters["steps"] {
+            guard let parsedSteps = Int(stepsString), parsedSteps >= 1, parsedSteps <= 20 else {
+                return QActionResult(
+                    actionId: request.actionId,
+                    success: false,
+                    summary: "Parameter 'steps' must be an integer between 1 and 20.",
+                    error: "AX_INVALID_STEP_COUNT"
+                )
+            }
+            steps = parsedSteps
+        }
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.stepIncrementor(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier,
+                direction: direction,
+                steps: steps
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "changeKind": outcome.changeKind.rawValue,
+                "direction": outcome.direction.rawValue,
+                "requestedSteps": String(outcome.requestedSteps),
+                "performedSteps": String(outcome.performedSteps),
+                "previousValue": String(outcome.previousValue),
+                "currentValue": String(outcome.currentValue),
+                "targetIdentity": outcome.targetIdentity
+            ]
+            if let windowTitle = windowTitle {
+                outputData["windowTitle"] = windowTitle
+            }
+
+            let summaryText: String
+            switch outcome.changeKind {
+            case .alreadyAtBound:
+                summaryText = "Incrementor was already at its \(direction == .increment ? "maximum" : "minimum") bound (\(outcome.previousValue)). No action performed."
+            case .changed:
+                summaryText = "Successfully stepped incrementor \(direction.rawValue) by \(outcome.performedSteps) step(s) (from \(outcome.previousValue) to \(outcome.currentValue))."
+            }
+
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: summaryText,
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while stepping incrementor: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

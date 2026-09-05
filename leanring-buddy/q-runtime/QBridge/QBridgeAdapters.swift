@@ -704,6 +704,20 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     case rulerCollectionExceedsSafeBound(Int)
     /// Phase 2BD: the direct combo box items count exceeds this capability's defensive safe bound (128).
     case comboBoxItemCollectionExceedsSafeBound(Int)
+    /// Phase 2BF: the model-supplied `direction` for `ui.step_incrementor` is neither `"increment"` nor
+    /// `"decrement"` — rejected before any AX call, never interpreted as a blind toggle.
+    case invalidStepDirection(String)
+    /// Phase 2BF: the model-supplied `steps` for `ui.step_incrementor` is not a positive integer within
+    /// this capability's bounded range (1...20) — rejected before any AX call.
+    case invalidStepCount(String)
+    /// Phase 2BF: `AXUIElementPerformAction(kAXIncrementAction/kAXDecrementAction)` itself returned a
+    /// non-success `AXError` while stepping the target incrementor.
+    case incrementorActionPerformFailed(String)
+    /// Phase 2BF: independent post-mutation re-observation of the target incrementor's own
+    /// `kAXValueAttribute` did not move in the requested direction relative to the value captured
+    /// immediately before mutation — the dispatch call's own `AXError` return is never itself treated
+    /// as proof of a real side effect.
+    case incrementorStepVerificationFailed(String)
 
     public var description: String {
         switch self {
@@ -931,6 +945,14 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Ruler collection count (\(count)) exceeds this capability's defensive safe bound."
         case .comboBoxItemCollectionExceedsSafeBound(let count):
             return "Combo box items collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .invalidStepDirection(let reason):
+            return "Invalid step direction: \(reason)"
+        case .invalidStepCount(let reason):
+            return "Invalid step count: \(reason)"
+        case .incrementorActionPerformFailed(let reason):
+            return "Failed to step target incrementor: \(reason)"
+        case .incrementorStepVerificationFailed(let reason):
+            return "Post-mutation verification of target incrementor failed: \(reason)"
         }
     }
 
@@ -1049,6 +1071,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .disallowedRulerRole: return "AX_DISALLOWED_ROLE"
         case .rulerCollectionExceedsSafeBound: return "AX_RULER_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .comboBoxItemCollectionExceedsSafeBound: return "AX_COMBO_BOX_ITEM_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .invalidStepDirection: return "AX_INVALID_STEP_DIRECTION"
+        case .invalidStepCount: return "AX_INVALID_STEP_COUNT"
+        case .incrementorActionPerformFailed: return "AX_INCREMENTOR_ACTION_PERFORM_FAILED"
+        case .incrementorStepVerificationFailed: return "AX_INCREMENTOR_STEP_VERIFICATION_FAILED"
         }
     }
 }
@@ -3155,6 +3181,57 @@ public enum QAXComboBoxValueEvidence: Sendable, Equatable {
     case targetUnavailable
 }
 
+/// The explicit, model-supplied direction of a `ui.step_incrementor` mutation (Phase 2BF).
+/// Never a blind toggle — the model must state which direction it wants.
+public enum QAXIncrementorStepDirection: String, Sendable, Equatable {
+    case increment
+    case decrement
+}
+
+/// Whether a `stepIncrementor` call actually performed one or more AX actions, or found the
+/// target already at its reported `kAXMinValueAttribute`/`kAXMaxValueAttribute` bound in the
+/// requested direction and correctly did nothing.
+public enum QAXIncrementorStepChangeKind: String, Sendable, Equatable {
+    case alreadyAtBound
+    case changed
+}
+
+/// The outcome of one `QBridgeAccessibility.stepIncrementor` call (Phase 2BF).
+public struct QAXIncrementorStepOutcome: Sendable, Equatable {
+    public let changeKind: QAXIncrementorStepChangeKind
+    public let direction: QAXIncrementorStepDirection
+    public let requestedSteps: Int
+    public let performedSteps: Int
+    public let previousValue: Double
+    public let currentValue: Double
+    public let targetIdentity: String
+
+    public init(
+        changeKind: QAXIncrementorStepChangeKind,
+        direction: QAXIncrementorStepDirection,
+        requestedSteps: Int,
+        performedSteps: Int,
+        previousValue: Double,
+        currentValue: Double,
+        targetIdentity: String
+    ) {
+        self.changeKind = changeKind
+        self.direction = direction
+        self.requestedSteps = requestedSteps
+        self.performedSteps = performedSteps
+        self.previousValue = previousValue
+        self.currentValue = currentValue
+        self.targetIdentity = targetIdentity
+    }
+}
+
+/// The result of independently re-observing a target `AXIncrementor`'s `kAXValueAttribute` after a
+/// `ui.step_incrementor` dispatch, for the later closed-loop verification step (Phase 2BF).
+public enum QAXIncrementorValueEvidence: Sendable, Equatable {
+    case resolved(currentValue: Double)
+    case targetUnavailable
+}
+
 
 /// Whether a `setSplitterPosition` call actually performed a value write, or found the target
 /// already at the desired position (within tolerance) and correctly did nothing.
@@ -3483,6 +3560,9 @@ extension QBridgeAccessibility {
     private static let maxDirectComboBoxesCount = 32
     private static let maxDirectRulersCount = 32
     private static let maxDirectComboBoxItemsCount = 128
+    /// Phase 2BF: the maximum number of `AXIncrementAction`/`AXDecrementAction` dispatches
+    /// `ui.step_incrementor` may perform against a single target within one approved execution.
+    private static let maxIncrementorStepsPerCall = 20
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -8887,6 +8967,210 @@ extension QBridgeAccessibility {
         }.value
     }
 
+    /// Phase 2BF: semantic stepper / incrementor step mutation (Level 2, approval required).
+    /// Increments or decrements exactly ONE semantically-identified `AXIncrementor` in a named application
+    /// window via native `AXUIElementPerformAction(kAXIncrementAction)` / `AXUIElementPerformAction(kAXDecrementAction)` —
+    /// the purpose-built AX actions for this role, confirmed against `AXActionConstants.h`.
+    /// Never `AXUIElementSetAttributeValue(kAXValueAttribute)` directly, never mouse dragging, coordinate
+    /// simulation, CGEvent, or physical input.
+    public func stepIncrementor(
+        applicationName: String,
+        role: String? = nil,
+        identifier: String? = nil,
+        title: String? = nil,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil,
+        direction: QAXIncrementorStepDirection,
+        steps: Int = 1
+    ) async throws -> QAXIncrementorStepOutcome {
+        let effectiveRole = role ?? "AXIncrementor"
+        guard QAXIncrementorRolePolicy.isAllowedIncrementorRole(effectiveRole) else {
+            throw QAXInteractionError.disallowedIncrementorRole(effectiveRole)
+        }
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard steps >= 1 && steps <= Self.maxIncrementorStepsPerCall else {
+            throw QAXInteractionError.invalidStepCount("steps \(steps) is out of the allowed range [1, \(Self.maxIncrementorStepsPerCall)]")
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            let resolvedWindowTitle: String?
+
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+                guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+                let (targetWindow, windowSnapshot) = windowMatches[0]
+                guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                    throw QAXInteractionError.staleTarget("target window element is no longer resolvable")
+                }
+                guard verifiedWindow == windowSnapshot else {
+                    throw QAXInteractionError.staleTarget("target window identity changed between observation and verification")
+                }
+                searchRoot = targetWindow
+                resolvedWindowTitle = verifiedWindow.titleOrDescription
+            } else {
+                searchRoot = appElement
+                resolvedWindowTitle = nil
+            }
+
+            let matches = Self.collectMatches(
+                root: searchRoot,
+                role: effectiveRole,
+                identifier: identifier,
+                title: title
+            )
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            guard let observedAtVerify = Self.snapshotIfMatches(
+                targetElement,
+                role: effectiveRole,
+                identifier: identifier,
+                title: title
+            ) else {
+                throw QAXInteractionError.staleTarget("target incrementor element is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target incrementor element identity changed between observation and dispatch")
+            }
+            guard observedAtVerify.isEnabled else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            guard let valueAtSearch = Self.axDoubleAttribute(kAXValueAttribute, of: targetElement) else {
+                throw QAXInteractionError.valueReadFailed
+            }
+            guard let valueAtVerify = Self.axDoubleAttribute(kAXValueAttribute, of: targetElement) else {
+                throw QAXInteractionError.valueReadFailed
+            }
+            guard valueAtSearch == valueAtVerify else {
+                throw QAXInteractionError.valueDriftDetected("target incrementor current value changed between observation and dispatch")
+            }
+            let previousValue = valueAtVerify
+
+            let minValue = Self.axDoubleAttribute(kAXMinValueAttribute, of: targetElement)
+            let maxValue = Self.axDoubleAttribute(kAXMaxValueAttribute, of: targetElement)
+
+            let windowPart = resolvedWindowTitle.map { " window='\($0)'" } ?? ""
+            let targetIdentity = "application=\(applicationName)\(windowPart) role=\(effectiveRole) identifier=\(observedAtVerify.identifier ?? "none") label=\(observedAtVerify.titleOrDescription ?? "none")"
+
+            // Idempotency check: already at the reported bound in the requested direction is a
+            // verified no-op — zero AX actions performed, mirroring .alreadySelected / .alreadyDesired
+            // elsewhere in this file.
+            let epsilon = 0.0001
+            if direction == .increment, let maxValue = maxValue, previousValue >= maxValue - epsilon {
+                return QAXIncrementorStepOutcome(
+                    changeKind: .alreadyAtBound,
+                    direction: direction,
+                    requestedSteps: steps,
+                    performedSteps: 0,
+                    previousValue: previousValue,
+                    currentValue: previousValue,
+                    targetIdentity: targetIdentity
+                )
+            }
+            if direction == .decrement, let minValue = minValue, previousValue <= minValue + epsilon {
+                return QAXIncrementorStepOutcome(
+                    changeKind: .alreadyAtBound,
+                    direction: direction,
+                    requestedSteps: steps,
+                    performedSteps: 0,
+                    previousValue: previousValue,
+                    currentValue: previousValue,
+                    targetIdentity: targetIdentity
+                )
+            }
+
+            let axAction: CFString = direction == .increment ? (kAXIncrementAction as CFString) : (kAXDecrementAction as CFString)
+
+            var performedSteps = 0
+            var lastObservedValue = previousValue
+            for _ in 0..<steps {
+                let error = AXUIElementPerformAction(targetElement, axAction)
+                guard error == .success else {
+                    throw QAXInteractionError.incrementorActionPerformFailed("AXUIElementPerformAction returned \(error.rawValue)")
+                }
+                performedSteps += 1
+
+                guard let observedValue = Self.axDoubleAttribute(kAXValueAttribute, of: targetElement) else {
+                    throw QAXInteractionError.valueReadFailed
+                }
+                lastObservedValue = observedValue
+
+                let reachedBound: Bool
+                if direction == .increment, let maxValue = maxValue {
+                    reachedBound = observedValue >= maxValue - epsilon
+                } else if direction == .decrement, let minValue = minValue {
+                    reachedBound = observedValue <= minValue + epsilon
+                } else {
+                    reachedBound = false
+                }
+                if reachedBound { break }
+            }
+
+            // Independent post-mutation verification: fresh, separate re-read — never trusting the
+            // dispatch loop's own last observed value as proof.
+            guard let currentValue = Self.axDoubleAttribute(kAXValueAttribute, of: targetElement) else {
+                throw QAXInteractionError.valueReadFailed
+            }
+            let movedCorrectly = direction == .increment ? currentValue > previousValue : currentValue < previousValue
+            guard movedCorrectly else {
+                throw QAXInteractionError.incrementorStepVerificationFailed(
+                    "expected value to move \(direction == .increment ? "above" : "below") \(previousValue) but observed \(currentValue) (last loop observation \(lastObservedValue))"
+                )
+            }
+
+            return QAXIncrementorStepOutcome(
+                changeKind: .changed,
+                direction: direction,
+                requestedSteps: steps,
+                performedSteps: performedSteps,
+                previousValue: previousValue,
+                currentValue: currentValue,
+                targetIdentity: targetIdentity
+            )
+        }.value
+    }
+
+    /// Observes the current value of a target `AXIncrementor` for post-mutation verification (Phase 2BF).
+    public func observeIncrementorValueEvidence(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async -> QAXIncrementorValueEvidence {
+        guard AXIsProcessTrusted() else { return .targetUnavailable }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return .targetUnavailable }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard matches.count == 1 else { return .targetUnavailable }
+            guard let currentValue = Self.axDoubleAttribute(kAXValueAttribute, of: matches[0].element) else {
+                return .targetUnavailable
+            }
+            return .resolved(currentValue: currentValue)
+        }.value
+    }
 
     /// Compares two numeric splitter divider positions within an explicit floating-point tolerance (default 0.5 points).
     public static func splitterPositionsAreEqual(_ a: Double, _ b: Double, tolerance: Double = 0.5) -> Bool {

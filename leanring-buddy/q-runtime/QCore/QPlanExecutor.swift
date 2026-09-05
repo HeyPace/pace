@@ -970,6 +970,27 @@ public final class QPlanExecutor: Sendable {
                 targetIdentity: targetIdentity,
                 requestedItemTitle: requestedItemTitle
             )
+        } else if action.actionName == "ui.step_incrementor",
+                  let applicationName = action.arguments["applicationName"],
+                  let targetIdentity = result.outputData["targetIdentity"],
+                  let directionString = action.arguments["direction"],
+                  let direction = QAXIncrementorStepDirection(rawValue: directionString),
+                  let previousValueString = result.outputData["previousValue"],
+                  let previousValue = Double(previousValueString),
+                  let changeKindString = result.outputData["changeKind"],
+                  let changeKind = QAXIncrementorStepChangeKind(rawValue: changeKindString) {
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            let role = action.arguments["role"] ?? "AXIncrementor"
+            return .axIncrementorValueMovedAsDesired(
+                applicationName: applicationName,
+                role: role,
+                matchIdentifier: nonEmpty(action.arguments["identifier"]),
+                matchTitle: nonEmpty(action.arguments["title"]),
+                targetIdentity: targetIdentity,
+                direction: direction,
+                previousValue: previousValue,
+                changeKind: changeKind
+            )
         } else if action.actionName == "ui.list_segmented_control_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],
