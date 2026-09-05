@@ -255,6 +255,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_combo_box_items":
             result = await executeListComboBoxItems(request: request)
 
+        case "ui.select_combo_box_item":
+            result = await executeSelectComboBoxItem(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -3870,6 +3873,125 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
             )
         }
     }
+
+    /// Phase 2BE: executes semantic combo box item selection.
+    /// Mutates the selected value of an AXComboBox element via native Accessibility APIs.
+    private func executeSelectComboBoxItem(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"]
+        if let role = role {
+            guard QAXComboBoxRolePolicy.isAllowedComboBoxRole(role) else {
+                return QActionResult(
+                    actionId: request.actionId,
+                    success: false,
+                    summary: "Target role '\(role)' is not an allowed combo box target.",
+                    error: "AX_DISALLOWED_ROLE"
+                )
+            }
+        }
+
+        let identifier = request.parameters["comboBoxIdentifier"] ?? request.parameters["identifier"] ?? request.parameters["id"]
+        let title = request.parameters["comboBoxTitle"] ?? request.parameters["title"] ?? request.parameters["label"]
+        let windowTitle = request.parameters["windowTitle"] ?? request.parameters["window"]
+        let windowIdentifier = request.parameters["windowIdentifier"] ?? request.parameters["windowId"]
+
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an identifier or title to match semantically.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        let itemTitle = request.parameters["itemTitle"] ?? request.parameters["item"] ?? request.parameters["value"]
+        let itemIndexString = request.parameters["itemIndex"] ?? request.parameters["index"]
+        var itemIndex: Int? = nil
+        if let itemIndexString = itemIndexString {
+            guard let parsed = Int(itemIndexString), parsed >= 0 else {
+                return QActionResult(
+                    actionId: request.actionId,
+                    success: false,
+                    summary: "Parameter 'itemIndex' must be a non-negative integer.",
+                    error: "AX_INVALID_ITEM_INDEX"
+                )
+            }
+            itemIndex = parsed
+        }
+
+        guard (itemTitle != nil && !itemTitle!.isEmpty) || itemIndex != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Must specify an itemTitle or itemIndex to select.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let outcome = try await QBridgeAccessibility.shared.selectComboBoxItem(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier,
+                itemTitle: itemTitle,
+                itemIndex: itemIndex
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "changeKind": outcome.changeKind.rawValue,
+                "selectedValue": outcome.requestedItemTitle,
+                "targetIdentity": outcome.targetIdentity
+            ]
+            if let prev = outcome.previousValue {
+                outputData["previousValue"] = prev
+            }
+            if let windowTitle = windowTitle {
+                outputData["windowTitle"] = windowTitle
+            }
+
+            let summaryText: String
+            switch outcome.changeKind {
+            case .alreadySelected:
+                summaryText = "Combo box was already set to '\(outcome.requestedItemTitle)'. No mutation performed."
+            case .changed:
+                summaryText = "Successfully selected '\(outcome.requestedItemTitle)' in combo box (was '\(outcome.previousValue ?? "none")')."
+            }
+
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: summaryText,
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while selecting combo box item: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
 
 
     /// Phase 2AM: executes read-only segmented control direct segment discovery.

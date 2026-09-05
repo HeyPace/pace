@@ -672,7 +672,14 @@ public struct QModelPlanParser: Sendable {
         // (maxDirectComboBoxItemsCount = 128). This is a POINT-IN-TIME SNAPSHOT ONLY:
         // result is informational and never enters durable persistence snapshots; every subsequent mutation
         // capability must independently perform its own fresh, exact target resolution.
-        "ui.list_combo_box_items": ("ui", .level0ReadOnly)
+        "ui.list_combo_box_items": ("ui", .level0ReadOnly),
+        // Phase 2BE: semantic combo box item selection — LEVEL 2 (USER APPROVAL REQUIRED).
+        // Selects an item within exactly ONE named AXComboBox in an application window via semantic AX mutation.
+        // Mutates value via native AX attribute (kAXValueAttribute). Requires explicit user approval.
+        // Application identity is resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication.
+        // Target must match AXComboBox canonical role policy. Idempotent: returns safe no-op if already selected.
+        // Verified by independent post-mutation re-read.
+        "ui.select_combo_box_item": ("ui", .level2UserApproval)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

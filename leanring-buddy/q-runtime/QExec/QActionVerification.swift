@@ -435,6 +435,16 @@ public enum QVerificationStrategy: Sendable {
         targetIdentity: String,
         desiredSelected: Bool
     )
+    /// Phase 2BE: semantic combo box item selection verification (Level 2). Re-resolves target
+    /// and verifies post-mutation value independently.
+    case axComboBoxValueMatchesDesired(
+        applicationName: String,
+        role: String,
+        matchIdentifier: String?,
+        matchTitle: String?,
+        targetIdentity: String,
+        requestedItemTitle: String
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1094,6 +1104,32 @@ public final class QActionVerifier: Sendable {
             case .targetUnavailable:
                 return .failed(
                     reason: "Target popup (role=\(role)) is no longer resolvable, or its value could not be read, for verification after the selection.",
+                    evidence: "target=\(targetIdentity) status=failed"
+                )
+            }
+
+        case .axComboBoxValueMatchesDesired(let applicationName, let role, let matchIdentifier, let matchTitle, let targetIdentity, let requestedItemTitle):
+            let evidence = await QBridgeAccessibility.shared.observeComboBoxValueEvidence(
+                applicationName: applicationName,
+                role: role,
+                identifier: matchIdentifier,
+                title: matchTitle
+            )
+            switch evidence {
+            case .resolved(let currentValue):
+                if currentValue == requestedItemTitle {
+                    return .verified(
+                        evidence: "target=\(targetIdentity) currentValue=\(currentValue) requestedItemTitle=\(requestedItemTitle) status=verified"
+                    )
+                } else {
+                    return .failed(
+                        reason: "Target combo box (role=\(role)) current value does not match the requested item after selection.",
+                        evidence: "target=\(targetIdentity) currentValue=\(currentValue) requestedItemTitle=\(requestedItemTitle) status=failed"
+                    )
+                }
+            case .targetUnavailable:
+                return .failed(
+                    reason: "Target combo box (role=\(role)) is no longer resolvable, or its value could not be read, for verification after selection.",
                     evidence: "target=\(targetIdentity) status=failed"
                 )
             }

@@ -284,6 +284,7 @@ public protocol QBridgeAccessibilityProtocol: Sendable {
     func listComboBoxes(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXComboBoxCollectionMetadata
     func listRulers(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXRulerCollectionMetadata
     func listComboBoxItems(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?) async throws -> QAXComboBoxItemsMetadata
+    func selectComboBoxItem(applicationName: String, role: String?, identifier: String?, title: String?, windowTitle: String?, windowIdentifier: String?, itemTitle: String?, itemIndex: Int?) async throws -> QAXComboBoxSelectionOutcome
 }
 
 public final class QBridgeAccessibility: QBridgeAccessibilityProtocol, @unchecked Sendable {
@@ -3119,6 +3120,41 @@ public struct QAXComboBoxItemsMetadata: Sendable, Equatable, Codable {
         self.items = items
     }
 }
+
+/// Whether a `selectComboBoxItem` call actually performed a value mutation, or found
+/// the combo box already showing the desired item and correctly did nothing.
+public enum QAXComboBoxSelectionChangeKind: String, Sendable, Equatable {
+    case alreadySelected
+    case changed
+}
+
+/// The outcome of one `QBridgeAccessibility.selectComboBoxItem` call (Phase 2BE).
+public struct QAXComboBoxSelectionOutcome: Sendable, Equatable {
+    public let changeKind: QAXComboBoxSelectionChangeKind
+    public let previousValue: String?
+    public let requestedItemTitle: String
+    public let targetIdentity: String
+
+    public init(
+        changeKind: QAXComboBoxSelectionChangeKind,
+        previousValue: String?,
+        requestedItemTitle: String,
+        targetIdentity: String
+    ) {
+        self.changeKind = changeKind
+        self.previousValue = previousValue
+        self.requestedItemTitle = requestedItemTitle
+        self.targetIdentity = targetIdentity
+    }
+}
+
+/// The result of independently re-observing a combo box's `kAXValueAttribute` after a
+/// `ui.select_combo_box_item` dispatch, for the later closed-loop verification step.
+public enum QAXComboBoxValueEvidence: Sendable, Equatable {
+    case resolved(currentValue: String)
+    case targetUnavailable
+}
+
 
 /// Whether a `setSplitterPosition` call actually performed a value write, or found the target
 /// already at the desired position (within tolerance) and correctly did nothing.
@@ -8659,6 +8695,198 @@ extension QBridgeAccessibility {
             )
         }.value
     }
+
+    /// Phase 2BE: semantic combo box item selection (Level 2, approval required).
+    /// Selects an item within exactly ONE semantically-identified `AXComboBox` in a named application window
+    /// via `AXUIElementSetAttributeValue(kAXValueAttribute)`.
+    /// Never uses mouse dragging, coordinate simulation, CGEvent, or physical input.
+    public func selectComboBoxItem(
+        applicationName: String,
+        role: String? = nil,
+        identifier: String? = nil,
+        title: String? = nil,
+        windowTitle: String? = nil,
+        windowIdentifier: String? = nil,
+        itemTitle: String? = nil,
+        itemIndex: Int? = nil
+    ) async throws -> QAXComboBoxSelectionOutcome {
+        let effectiveRole = role ?? "AXComboBox"
+        guard QAXComboBoxRolePolicy.isAllowedComboBoxRole(effectiveRole) else {
+            throw QAXInteractionError.disallowedComboBoxRole(effectiveRole)
+        }
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard itemTitle != nil || itemIndex != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let searchRoot: AXUIElement
+            let resolvedWindowTitle: String?
+
+            if windowTitle != nil || windowIdentifier != nil {
+                let windowMatches = Self.collectMatches(
+                    root: appElement,
+                    role: "AXWindow",
+                    identifier: windowIdentifier,
+                    title: windowTitle
+                )
+                guard !windowMatches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+                guard windowMatches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: windowMatches.count) }
+                let (targetWindow, windowSnapshot) = windowMatches[0]
+                guard let verifiedWindow = Self.snapshotIfMatches(targetWindow, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                    throw QAXInteractionError.staleTarget("target window element is no longer resolvable")
+                }
+                guard verifiedWindow == windowSnapshot else {
+                    throw QAXInteractionError.staleTarget("target window identity changed between observation and verification")
+                }
+                searchRoot = targetWindow
+                resolvedWindowTitle = verifiedWindow.titleOrDescription
+            } else {
+                searchRoot = appElement
+                resolvedWindowTitle = nil
+            }
+
+            let matches = Self.collectMatches(
+                root: searchRoot,
+                role: effectiveRole,
+                identifier: identifier,
+                title: title
+            )
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            guard let observedAtVerify = Self.snapshotIfMatches(
+                targetElement,
+                role: effectiveRole,
+                identifier: identifier,
+                title: title
+            ) else {
+                throw QAXInteractionError.staleTarget("target combo box element is no longer resolvable immediately before dispatch")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target combo box element identity changed between observation and dispatch")
+            }
+            guard observedAtVerify.isEnabled else {
+                throw QAXInteractionError.targetDisabled
+            }
+
+            let currentValueAtSearch = Self.axStringAttribute(kAXValueAttribute, of: targetElement)
+            let currentValueAtVerify = Self.axStringAttribute(kAXValueAttribute, of: targetElement)
+            guard currentValueAtSearch == currentValueAtVerify else {
+                throw QAXInteractionError.valueDriftDetected("target combo box current value changed between observation and dispatch")
+            }
+
+            // Determine target item title to set
+            let desiredValue: String
+            if let itemTitle = itemTitle, !itemTitle.isEmpty {
+                desiredValue = itemTitle
+            } else if let itemIndex = itemIndex {
+                // Resolve from child items
+                var rawItemElements: [AXUIElement] = []
+                if let children = Self.childrenAttribute(of: targetElement) {
+                    var foundListOrMenu = false
+                    for child in children {
+                        let childRole = Self.axStringAttribute(kAXRoleAttribute, of: child)
+                        if childRole == "AXList" || childRole == "AXMenu" {
+                            foundListOrMenu = true
+                            if let listChildren = Self.childrenAttribute(of: child) {
+                                rawItemElements.append(contentsOf: listChildren)
+                            }
+                        }
+                    }
+                    if !foundListOrMenu {
+                        for child in children {
+                            let childRole = Self.axStringAttribute(kAXRoleAttribute, of: child) ?? ""
+                            if childRole != "AXButton" && childRole != "AXPopUpButton" {
+                                rawItemElements.append(child)
+                            }
+                        }
+                    }
+                }
+                guard itemIndex >= 0 && itemIndex < rawItemElements.count else {
+                    throw QAXInteractionError.invalidDesiredValue("itemIndex \(itemIndex) is out of range [0, \(rawItemElements.count))")
+                }
+                let resolvedItem = rawItemElements[itemIndex]
+                guard let resolvedTitle = Self.axStringAttribute(kAXTitleAttribute, of: resolvedItem)
+                    ?? Self.axStringAttribute(kAXValueAttribute, of: resolvedItem)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: resolvedItem) else {
+                    throw QAXInteractionError.invalidDesiredValue("could not read title or value for child item at index \(itemIndex)")
+                }
+                desiredValue = resolvedTitle
+            } else {
+                throw QAXInteractionError.missingMatchCriteria
+            }
+
+            let windowPart = resolvedWindowTitle.map { " window='\($0)'" } ?? ""
+            let targetIdentity = "application=\(applicationName)\(windowPart) role=\(effectiveRole) identifier=\(observedAtVerify.identifier ?? "none") label=\(observedAtVerify.titleOrDescription ?? "none")"
+
+            // Idempotency check: if current value already matches desired value, return safe no-op
+            if let currentValue = currentValueAtVerify, currentValue == desiredValue {
+                return QAXComboBoxSelectionOutcome(
+                    changeKind: .alreadySelected,
+                    previousValue: currentValueAtVerify,
+                    requestedItemTitle: desiredValue,
+                    targetIdentity: targetIdentity
+                )
+            }
+
+            // Perform semantic mutation via kAXValueAttribute
+            let error = AXUIElementSetAttributeValue(targetElement, kAXValueAttribute as CFString, desiredValue as CFTypeRef)
+            guard error == .success else {
+                throw QAXInteractionError.setValueFailed("AXUIElementSetAttributeValue returned \(error.rawValue)")
+            }
+
+            // Independent post-mutation verification
+            guard let freshValue = Self.axStringAttribute(kAXValueAttribute, of: targetElement) else {
+                throw QAXInteractionError.valueReadFailed
+            }
+            guard freshValue == desiredValue else {
+                throw QAXInteractionError.setValueFailed("Post-mutation verification failed: expected '\(desiredValue)' but got '\(freshValue)'")
+            }
+
+            return QAXComboBoxSelectionOutcome(
+                changeKind: .changed,
+                previousValue: currentValueAtVerify,
+                requestedItemTitle: desiredValue,
+                targetIdentity: targetIdentity
+            )
+        }.value
+    }
+
+    /// Observes the current value of a target `AXComboBox` for post-mutation verification (Phase 2BE).
+    public func observeComboBoxValueEvidence(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async -> QAXComboBoxValueEvidence {
+        guard AXIsProcessTrusted() else { return .targetUnavailable }
+        guard let runningApp = try? Self.resolveExactRunningApplication(named: applicationName) else { return .targetUnavailable }
+
+        let processIdentifier = runningApp.processIdentifier
+        return await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard matches.count == 1 else { return .targetUnavailable }
+            guard let currentValue = Self.axStringAttribute(kAXValueAttribute, of: matches[0].element) else {
+                return .targetUnavailable
+            }
+            return .resolved(currentValue: currentValue)
+        }.value
+    }
+
 
     /// Compares two numeric splitter divider positions within an explicit floating-point tolerance (default 0.5 points).
     public static func splitterPositionsAreEqual(_ a: Double, _ b: Double, tolerance: Double = 0.5) -> Bool {

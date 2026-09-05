@@ -956,6 +956,20 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual item title or value — this strategy only ever
             // carries aggregate counts, by design.
             return .comboBoxItemEnumerationSucceeded(applicationName: applicationName, itemCount: itemCount)
+        } else if action.actionName == "ui.select_combo_box_item",
+                  let applicationName = action.arguments["applicationName"],
+                  let targetIdentity = result.outputData["targetIdentity"] {
+            func nonEmpty(_ value: String?) -> String? { value.flatMap { $0.isEmpty ? nil : $0 } }
+            let role = action.arguments["role"] ?? "AXComboBox"
+            let requestedItemTitle = action.arguments["itemTitle"] ?? result.outputData["selectedValue"] ?? ""
+            return .axComboBoxValueMatchesDesired(
+                applicationName: applicationName,
+                role: role,
+                matchIdentifier: nonEmpty(action.arguments["identifier"]),
+                matchTitle: nonEmpty(action.arguments["title"]),
+                targetIdentity: targetIdentity,
+                requestedItemTitle: requestedItemTitle
+            )
         } else if action.actionName == "ui.list_segmented_control_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],
