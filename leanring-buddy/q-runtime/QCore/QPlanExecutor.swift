@@ -871,6 +871,16 @@ public final class QPlanExecutor: Sendable {
             // this strategy only ever carries application/window identity, by design.
             let windowTitle = result.outputData["windowTitle"].flatMap { $0.isEmpty ? nil : $0 }
             return .windowDefaultButtonReadSucceeded(applicationName: applicationName, windowTitle: windowTitle)
+        } else if action.actionName == "ui.read_element_title_reference",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let hasTitleReferenceString = result.outputData["hasTitleReference"] {
+            // Level 0, read-only, purely observational — reconstructed from the
+            // applicationName/role arguments used to dispatch, plus whether a title reference was
+            // present, captured at read time. Deliberately NOT threaded through here: the
+            // referenced element's title/identifier — this strategy only ever carries application
+            // identity, source role, and a presence boolean, by design.
+            return .elementTitleReferenceReadSucceeded(applicationName: applicationName, role: role, hasTitleReference: hasTitleReferenceString == "true")
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

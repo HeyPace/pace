@@ -150,6 +150,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_window_default_button":
             result = await executeReadWindowDefaultButton(request: request)
 
+        case "ui.read_element_title_reference":
+            result = await executeReadElementTitleReference(request: request)
+
         case "ui.set_element_state":
             result = await executeSetElementState(request: request)
 
@@ -1055,6 +1058,88 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading window default button: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2BN: semantic element title-reference read (Level 0, read-only, purely
+    /// observational). Resolves a semantically-identified element and reads its
+    /// `kAXTitleUIElementAttribute` reference — the element that serves as its title/label —
+    /// never pressing, focusing, or mutating anything. The reference is independently optional;
+    /// genuine absence is never an error, but a genuine read failure, a malformed reference, or a
+    /// reference whose own role is not on the allowed read-role list fails the whole read closed
+    /// (see `QBridgeAccessibility.readElementTitleReference`'s own documentation for the full
+    /// rationale). Discovered relationships are DATA, not AUTHORIZATION: this never grants any
+    /// standing capability to act on either element. Every `QAXInteractionError` failure mode is
+    /// caught here and converted into a deterministic, non-throwing `QActionResult`; this method
+    /// never fabricates success.
+    private func executeReadElementTitleReference(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let reference = try await QBridgeAccessibility.shared.readElementTitleReference(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "hasTitleReference": reference != nil ? "true" : "false"
+            ]
+            if let reference {
+                outputData["titleReferenceRole"] = reference.role
+                outputData["titleReferenceTitle"] = reference.title ?? ""
+                outputData["titleReferenceIdentifier"] = reference.identifier ?? ""
+            }
+            let referenceDescription = reference.map { "\($0.title ?? $0.identifier ?? $0.role)" } ?? "none"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed title-UI-element reference for \(role) element in \(applicationName): \(referenceDescription). This is observation only — no interaction was performed with the referenced element, and this observation does not constitute authorization to act on it later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading element title reference: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

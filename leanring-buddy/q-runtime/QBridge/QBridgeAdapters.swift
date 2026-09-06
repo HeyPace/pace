@@ -793,6 +793,31 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// bound (256 characters) — fails closed rather than returning an arbitrarily large
     /// model-visible string. Carries only the offending length, never the string content itself.
     case windowButtonMetadataExceedsSafeLength(Int)
+    /// Phase 2BN: `kAXTitleUIElementAttribute` could not be read due to an actual Accessibility
+    /// API failure (e.g. `kAXErrorFailure`/`kAXErrorCannotComplete`/`kAXErrorInvalidUIElement`) —
+    /// distinct from `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`, which mean the target
+    /// genuinely has no title-UI-element reference and are never treated as an error. The payload
+    /// carries the underlying `AXError`, never any element content.
+    case titleReferenceReadFailed(String)
+    /// Phase 2BN: `kAXTitleUIElementAttribute`'s copy call reported success but the returned value
+    /// was not an `AXUIElement` — the returned value is treated as untrusted external data, never
+    /// assumed well-formed merely because the copy call itself reported success, mirroring
+    /// `windowButtonReferenceMalformed`'s identical discipline.
+    case titleReferenceMalformed
+    /// Phase 2BN: `kAXTitleUIElementAttribute` resolved to a real element, but that element's own
+    /// `kAXRoleAttribute` is not on `QAXElementReadRolePolicy`'s allowlist (the same generic
+    /// read-role policy the SOURCE element itself must already satisfy) — the mere existence of a
+    /// returned reference is never sufficient; its own role is independently re-validated before
+    /// it is ever treated as a genuine, safe title element, mirroring
+    /// `windowButtonReferenceWrongRole`'s identical discipline. Also the path that rejects a
+    /// referenced `AXSecureTextField` (never on the allowlist), so a title relationship can never
+    /// be used to surface a secure field as a "safe" reference.
+    case titleReferenceDisallowedRole(String)
+    /// Phase 2BN: a title-reference element's title or identifier exceeds this capability's
+    /// defensive safe length bound (256 characters) — fails closed rather than returning an
+    /// arbitrarily large model-visible string. Carries only the offending length, never the
+    /// string content itself.
+    case titleReferenceMetadataExceedsSafeLength(Int)
 
     public var description: String {
         switch self {
@@ -1060,6 +1085,14 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The window's \(reason) is not a genuine AXButton element."
         case .windowButtonMetadataExceedsSafeLength(let length):
             return "A window button's title/identifier (\(length) characters) exceeds this capability's defensive safe length bound."
+        case .titleReferenceReadFailed(let reason):
+            return "The target element's title-UI-element reference could not be read due to an Accessibility API failure: \(reason)."
+        case .titleReferenceMalformed:
+            return "The target element's title-UI-element reference could not be read as a well-formed Accessibility element."
+        case .titleReferenceDisallowedRole(let role):
+            return "The target element's title-UI-element reference has role '\(role)', which is not on the allowed read-role list."
+        case .titleReferenceMetadataExceedsSafeLength(let length):
+            return "The title-reference element's title/identifier (\(length) characters) exceeds this capability's defensive safe length bound."
         }
     }
 
@@ -1198,6 +1231,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .windowButtonReferenceMalformed: return "AX_WINDOW_BUTTON_REFERENCE_MALFORMED"
         case .windowButtonReferenceWrongRole: return "AX_WINDOW_BUTTON_REFERENCE_WRONG_ROLE"
         case .windowButtonMetadataExceedsSafeLength: return "AX_WINDOW_BUTTON_METADATA_EXCEEDS_SAFE_LENGTH"
+        case .titleReferenceReadFailed: return "AX_TITLE_REFERENCE_READ_FAILED"
+        case .titleReferenceMalformed: return "AX_TITLE_REFERENCE_MALFORMED"
+        case .titleReferenceDisallowedRole: return "AX_TITLE_REFERENCE_DISALLOWED_ROLE"
+        case .titleReferenceMetadataExceedsSafeLength: return "AX_TITLE_REFERENCE_METADATA_EXCEEDS_SAFE_LENGTH"
         }
     }
 }
@@ -1371,6 +1408,25 @@ public struct QAXWindowDefaultButtonMetadata: Sendable, Equatable, Codable {
         self.windowIdentifier = windowIdentifier
         self.defaultButton = defaultButton
         self.cancelButton = cancelButton
+    }
+}
+
+/// A single element's safe, non-sensitive structural identity, as returned by
+/// `ui.read_element_title_reference` (Phase 2BN) — role/title/identifier only, never an
+/// `AXValue`, never arbitrary content, never a raw `AXUIElement`. Mirrors
+/// `QAXWindowButtonReference` (Phase 2BM) with the addition of `role`: unlike a window's
+/// default/cancel button (always exactly `AXButton`), the element that serves as another
+/// element's title can legitimately be any role on `QAXElementReadRolePolicy`'s allowlist (most
+/// commonly `AXStaticText`, but not exclusively), so its role is reported rather than assumed.
+public struct QAXElementTitleReference: Sendable, Equatable, Codable {
+    public let role: String
+    public let title: String?
+    public let identifier: String?
+
+    public init(role: String, title: String?, identifier: String?) {
+        self.role = role
+        self.title = title
+        self.identifier = identifier
     }
 }
 
@@ -3975,6 +4031,12 @@ extension QBridgeAccessibility {
     /// Phase 2BM: defensive per-string length bound on a window button's title/identifier —
     /// prevents an arbitrarily large model-visible string; exceeding it fails closed.
     private static let maxWindowButtonMetadataLength = 256
+    /// Phase 2BN: defensive per-string length bound on a title-reference element's
+    /// title/identifier — prevents an arbitrarily large model-visible string; exceeding it fails
+    /// closed. A distinct constant from `maxWindowButtonMetadataLength` per this codebase's
+    /// existing convention of not sharing bound constants across unrelated capabilities, even
+    /// when the numeric value is identical.
+    private static let maxTitleReferenceMetadataLength = 256
     private static let maxDirectPopoversCount = 16
     private static let maxDirectColorWellsCount = 32
     private static let maxDirectProgressIndicatorsCount = 32
@@ -7485,6 +7547,140 @@ extension QBridgeAccessibility {
         }
 
         return QAXWindowButtonReference(title: title, identifier: identifier)
+    }
+
+    // MARK: - Semantic Element Title Reference Read (Phase 2BN)
+    //
+    // ui.read_element_title_reference — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL
+    // read of a semantically-identified element's `kAXTitleUIElementAttribute` — the AX reference
+    // to whichever element serves as ITS title/label (e.g. a preceding `AXStaticText` label for an
+    // otherwise-untitled text field). Distinct from every prior capability: no existing capability
+    // reads any cross-element semantic relationship — every existing read capability reads an
+    // element's own attributes (`ui.read_element_value`, `ui.list_element_attributes`) or lists
+    // its own children/rows/items. Reuses `QAXElementReadRolePolicy` (Phase 2J) unmodified for
+    // BOTH the source element's role AND the referenced title element's own role — no new,
+    // broader, or artificial allowlist is introduced for either. SECURITY-CRITICAL INVARIANT:
+    // discovering that a title-reference relationship exists is DATA, not AUTHORIZATION — this
+    // capability NEVER calls AXUIElementPerformAction or AXUIElementSetAttributeValue, NEVER
+    // grants permissions, NEVER creates approvals or standing grants; the referenced element's raw
+    // AXUIElement is never returned or cached, only its bounded, safe role/title/identifier
+    // strings — any subsequent action against either element must independently pass its own full
+    // resolution/role-policy/QPermissionGate pipeline, completely unaffected by this capability
+    // ever having been called.
+
+    /// Resolves exactly one semantic target on `QAXElementReadRolePolicy`'s allowlist and reads its
+    /// `kAXTitleUIElementAttribute` reference — a purely observational call; neither
+    /// `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is invoked anywhere in this
+    /// method. Fails closed (throws `QAXInteractionError`) on a disallowed/secure role, missing
+    /// criteria, permission absence, application/target absence or ambiguity, a stale/drifted
+    /// target, a genuine read failure, a malformed returned reference, a referenced element whose
+    /// own role is not on the allowed read-role list, or either returned string exceeding
+    /// `maxTitleReferenceMetadataLength` (256 characters). Genuine absence
+    /// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an error — it produces `nil`;
+    /// many elements have no title-UI-element reference at all. Never descends into the
+    /// referenced element's own children; never reads its `AXValue` or any other attribute beyond
+    /// role/title/identifier.
+    public func readElementTitleReference(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXElementTitleReference? {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Secure field first, for a specific diagnostic; then the general allowlist, which would
+        // also reject AXSecureTextField on its own (it is never listed) — belt and suspenders,
+        // identical discipline to readElementValue's/listElementActions' own checks.
+        guard role != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+        guard QAXElementReadRolePolicy.isAllowedReadRole(role) else {
+            throw QAXInteractionError.disallowedReadRole(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // title-reference read and refuse on any drift — identical discipline to every prior
+            // AX capability in this codebase, even though this is a read, not a mutation.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the title-reference read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the title-reference read")
+            }
+
+            return try Self.resolveElementTitleReference(of: targetElement)
+        }.value
+    }
+
+    /// Resolves the target element's `kAXTitleUIElementAttribute` reference, distinguishing
+    /// genuine absence from a genuine read failure — see the `MARK` section above for the full
+    /// missing-vs-failure rationale. Never descends into the referenced element's own children;
+    /// reads only its `kAXRoleAttribute` (independently re-validated against
+    /// `QAXElementReadRolePolicy` — never accepted merely because a reference was returned) and,
+    /// once the role is confirmed safe, its `kAXTitleAttribute`/`AXIdentifier` for structural
+    /// identity, each bounded to `maxTitleReferenceMetadataLength` (256 characters) — exceeding it
+    /// fails closed rather than returning an oversized string.
+    fileprivate nonisolated static func resolveElementTitleReference(
+        of targetElement: AXUIElement
+    ) throws -> QAXElementTitleReference? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXTitleUIElementAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            // Genuine, expected absence — many elements have no title-UI-element reference at
+            // all. Never an error.
+            return nil
+        default:
+            throw QAXInteractionError.titleReferenceReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
+            throw QAXInteractionError.titleReferenceMalformed
+        }
+        let titleElement = value as! AXUIElement
+
+        // The mere existence of a returned reference is never sufficient — its own role is
+        // independently re-validated against the SAME generic read-role allowlist the source
+        // element itself had to satisfy, before it is ever treated as a genuine, safe title
+        // element. This also forecloses a referenced AXSecureTextField (never on the allowlist)
+        // from ever being surfaced as a "safe" reference.
+        let titleElementRole = Self.axStringAttribute(kAXRoleAttribute, of: titleElement) ?? "none"
+        guard QAXElementReadRolePolicy.isAllowedReadRole(titleElementRole) else {
+            throw QAXInteractionError.titleReferenceDisallowedRole(titleElementRole)
+        }
+
+        let rawTitle = Self.axStringAttribute(kAXTitleAttribute, of: titleElement)
+        let referenceTitle = (rawTitle?.isEmpty == false) ? rawTitle : nil
+        let referenceIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: titleElement)
+
+        if let referenceTitle, referenceTitle.count > Self.maxTitleReferenceMetadataLength {
+            throw QAXInteractionError.titleReferenceMetadataExceedsSafeLength(referenceTitle.count)
+        }
+        if let referenceIdentifier, referenceIdentifier.count > Self.maxTitleReferenceMetadataLength {
+            throw QAXInteractionError.titleReferenceMetadataExceedsSafeLength(referenceIdentifier.count)
+        }
+
+        return QAXElementTitleReference(role: titleElementRole, title: referenceTitle, identifier: referenceIdentifier)
     }
 
     /// Best-effort, read-only re-observation of whether the exact same target-window criteria

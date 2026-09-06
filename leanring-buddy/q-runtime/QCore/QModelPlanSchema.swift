@@ -881,7 +881,43 @@ public struct QModelPlanParser: Sendable {
         // approval, no recovery: a read that does not throw IS its own result. See
         // QBridgeAccessibility.readWindowDefaultButton and
         // docs/PHASE_2BM_SEMANTIC_WINDOW_DEFAULT_BUTTON.md for the full contract.
-        "ui.read_window_default_button": ("ui", .level0ReadOnly)
+        "ui.read_window_default_button": ("ui", .level0ReadOnly),
+        // Phase 2BN: semantic element title-reference read — LEVEL 0 (READ-ONLY). Reads a
+        // semantically-identified element's kAXTitleUIElementAttribute — a direct AXUIElementRef
+        // to whichever element serves as ITS title/label (e.g. a preceding AXStaticText label for
+        // an otherwise-untitled text field). No existing capability reads any cross-element
+        // semantic relationship — every existing read capability reads an element's own
+        // attributes (ui.read_element_value, ui.list_element_attributes) or lists its own
+        // children/rows/items (the twenty-odd ui.list_* capabilities); this is a structurally new
+        // category of information. The reference is independently optional; genuine absence
+        // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is never an error. A genuine read
+        // failure, a malformed reference, or a reference whose own role is not on the allowed
+        // read-role list is NEVER silently folded into "absent" — any of these three problems
+        // fails the read closed instead. Reuses QAXElementReadRolePolicy (Phase 2J) unmodified for
+        // BOTH the source element's role AND the referenced title element's own role — no new,
+        // broader, or artificial allowlist is introduced for either; a referenced
+        // AXSecureTextField is therefore never surfaced as a "safe" reference. Application
+        // identity is resolved by exact matching via
+        // QBridgeAccessibility.resolveExactRunningApplication; target identity resolved via the
+        // existing collectMatches/snapshotIfMatches primitives, identical to
+        // ui.read_element_value/ui.list_element_actions. SECURITY-CRITICAL INVARIANT: discovering
+        // that a title-reference relationship exists is DATA, not AUTHORIZATION — this capability
+        // NEVER calls AXUIElementPerformAction or AXUIElementSetAttributeValue, NEVER grants
+        // permissions, NEVER creates approvals or standing grants; the referenced element's raw
+        // AXUIElement is never returned or cached, only its bounded, safe role/title/identifier
+        // strings — any subsequent action against either element must independently pass its own
+        // full resolution/role-policy/QPermissionGate pipeline, completely unaffected by this
+        // capability ever having been called. Registered under toolFamily "ui" — title/identifier
+        // are short structural labels, never free-form typed content requiring the
+        // sanitize-before-persist boundary. Bounded to a maximum of 2 AX elements ever touched
+        // (the target plus its title reference), 0 traversal depth beyond the single direct
+        // reference follow, 0 children enumerated, 0 actions performed, 0 polling, 1 returned
+        // record (never a collection), each string bounded to 256 characters — exceeding it fails
+        // closed rather than silently truncating. No mutation, no approval, no recovery: a read
+        // that does not throw IS its own result. See
+        // QBridgeAccessibility.readElementTitleReference and
+        // docs/PHASE_2BN_SEMANTIC_ELEMENT_TITLE_REFERENCE.md for the full contract.
+        "ui.read_element_title_reference": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.
