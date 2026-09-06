@@ -847,6 +847,18 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// than returning an arbitrarily large model-visible string. Carries only the offending
     /// length, never the string content itself.
     case parameterizedAttributeNameExceedsSafeLength(Int)
+    /// Phase 2BQ: `AXRequired` could not be read due to an actual Accessibility API failure —
+    /// distinct from `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`, which mean the target
+    /// genuinely has no required-state concept (most non-form elements) and are never treated as
+    /// an error — see `QBridgeAccessibility.readElementRequiredState`'s own documentation for the
+    /// full missing-vs-failure rationale. The payload carries the underlying `AXError`, never any
+    /// element content.
+    case elementRequiredStateReadFailed(String)
+    /// Phase 2BQ: `AXRequired`'s copy call reported success but the returned value could not be
+    /// interpreted as a `Bool` — the returned value is treated as untrusted external data, never
+    /// assumed well-formed merely because the copy call itself reported success. Fails closed
+    /// rather than fabricating a Boolean.
+    case elementRequiredStateMalformed
 
     public var description: String {
         switch self {
@@ -1132,6 +1144,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Parameterized attribute names collection count (\(count)) exceeds this capability's defensive safe bound."
         case .parameterizedAttributeNameExceedsSafeLength(let length):
             return "A parameterized attribute name (\(length) characters) exceeds this capability's defensive safe length bound."
+        case .elementRequiredStateReadFailed(let reason):
+            return "The target element's required-field state could not be read due to an Accessibility API failure: \(reason)."
+        case .elementRequiredStateMalformed:
+            return "The target element's required-field state attribute could not be read as a well-formed Boolean."
         }
     }
 
@@ -1279,6 +1295,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .parameterizedAttributeNamesCollectionMalformed: return "AX_PARAMETERIZED_ATTRIBUTE_NAMES_COLLECTION_MALFORMED"
         case .parameterizedAttributeNamesCollectionExceedsSafeBound: return "AX_PARAMETERIZED_ATTRIBUTE_NAMES_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .parameterizedAttributeNameExceedsSafeLength: return "AX_PARAMETERIZED_ATTRIBUTE_NAME_EXCEEDS_SAFE_LENGTH"
+        case .elementRequiredStateReadFailed: return "AX_ELEMENT_REQUIRED_STATE_READ_FAILED"
+        case .elementRequiredStateMalformed: return "AX_ELEMENT_REQUIRED_STATE_MALFORMED"
         }
     }
 }
@@ -1447,6 +1465,31 @@ public struct QAXElementParameterizedAttributeNamesMetadata: Sendable, Equatable
         self.applicationName = applicationName
         self.role = role
         self.parameterizedAttributeNames = parameterizedAttributeNames
+    }
+}
+
+/// A point-in-time snapshot of a semantically-identified element's required-for-form-submission
+/// state, captured by `ui.read_element_required_state` (Phase 2BQ). `isRequired` is deliberately
+/// `Bool?`, never a plain `Bool`: unlike `kAXModalAttribute` (documented "Required for all window
+/// elements", Phase 2BO), `AXRequired` has no such universal-presence documentation — it is
+/// meaningful only for form-field-like elements, so genuine absence
+/// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is a valid, expected `nil` result, never
+/// silently downgraded to `false`. A genuine read failure or a malformed (non-Boolean) value fails
+/// the whole read closed instead of ever being represented as this field's value — see
+/// `QBridgeAccessibility.readElementRequiredState`'s own documentation for the full rationale.
+/// Field naming (`role`, not `elementRole`) deliberately matches
+/// `QAXElementActionsMetadata`/`QAXElementAttributeNamesMetadata`/
+/// `QAXElementParameterizedAttributeNamesMetadata`'s established convention. No raw `AXUIElement`,
+/// no coordinates, no arbitrary AX attributes, ever appear in this type.
+public struct QAXElementRequiredStateMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let isRequired: Bool?
+
+    public init(applicationName: String, role: String, isRequired: Bool?) {
+        self.applicationName = applicationName
+        self.role = role
+        self.isRequired = isRequired
     }
 }
 
@@ -4823,6 +4866,112 @@ extension QBridgeAccessibility {
                 parameterizedAttributeNames: rawParameterizedAttributeNames
             )
         }.value
+    }
+
+    // MARK: - Semantic Element Required State Read (Phase 2BQ)
+    //
+    // ui.read_element_required_state — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL
+    // read of a semantically-identified element's `AXRequired` attribute (whether the element is
+    // required for successful form submission). Unlike `kAXModalAttribute` (Phase 2BO, documented
+    // "Required for all window elements"), `AXRequired` has no such universal-presence
+    // documentation — it is meaningful only for form-field-like elements, so this capability
+    // follows the OPTIONAL-reference missing-vs-failure pattern established for
+    // `kAXDefaultButtonAttribute`/`kAXCancelButtonAttribute` (Phase 2BM) and
+    // `kAXTitleUIElementAttribute` (Phase 2BN), not the inverted "absence is failure" pattern used
+    // for `kAXModalAttribute`: genuine absence produces a valid `nil`, never an error, and is never
+    // silently downgraded to `false`.
+
+    /// Resolves exactly one semantic target on `QAXElementReadRolePolicy`'s allowlist and reads its
+    /// `AXRequired` attribute — a purely observational call; neither `AXUIElementPerformAction` nor
+    /// `AXUIElementSetAttributeValue` is invoked anywhere in this method. Fails closed (throws
+    /// `QAXInteractionError`) on a disallowed/secure role, missing criteria, permission absence,
+    /// application/target absence or ambiguity, a stale/drifted target, a genuine read failure, or
+    /// a malformed (non-Boolean) returned value. Genuine absence
+    /// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an error — it produces `nil`;
+    /// most non-form elements have no required-state concept at all. Never fabricates a Boolean.
+    public func readElementRequiredState(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXElementRequiredStateMetadata {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Secure field first, for a specific diagnostic; then the general allowlist, which would
+        // also reject AXSecureTextField on its own (it is never listed) — belt and suspenders,
+        // identical discipline to every prior read capability's own checks.
+        guard role != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+        guard QAXElementReadRolePolicy.isAllowedReadRole(role) else {
+            throw QAXInteractionError.disallowedReadRole(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // required-state read and refuse on any drift — identical discipline to every prior AX
+            // capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the required-state read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the required-state read")
+            }
+
+            let isRequired = try Self.resolveElementRequiredState(of: targetElement)
+
+            return QAXElementRequiredStateMetadata(
+                applicationName: applicationName,
+                role: role,
+                isRequired: isRequired
+            )
+        }.value
+    }
+
+    /// Resolves `AXRequired` as an optional `Bool?`, distinguishing genuine absence from a genuine
+    /// read failure — see the `MARK` section above for the full missing-vs-failure rationale.
+    /// `kAXErrorNoValue`/`kAXErrorAttributeUnsupported` produce a valid `nil`; any other `AXError`
+    /// fails closed as `elementRequiredStateReadFailed`; a successful copy whose value cannot be
+    /// interpreted as a `Bool` fails closed as `elementRequiredStateMalformed` — the returned value
+    /// is treated as untrusted external data, never assumed well-formed merely because the copy
+    /// call itself reported success. An explicit `false` is a fully valid, distinct outcome from
+    /// either `nil` or either failure case — it is returned directly, never conflated with
+    /// "missing."
+    fileprivate nonisolated static func resolveElementRequiredState(of targetElement: AXUIElement) throws -> Bool? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, Self.axRequiredAttributeName as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            // Genuine, expected absence — most non-form elements have no required-state concept
+            // at all. Never an error.
+            return nil
+        default:
+            throw QAXInteractionError.elementRequiredStateReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value, let isRequired = value as? Bool else {
+            throw QAXInteractionError.elementRequiredStateMalformed
+        }
+        return isRequired
     }
 
     /// Best-effort, polymorphic `kAXValueAttribute` reader — text fields/labels typically carry a
@@ -11897,6 +12046,20 @@ extension QBridgeAccessibility {
     }
 
     fileprivate static let axFullScreenAttribute = "AXFullScreen"
+
+    /// Phase 2BQ: `kAXRequiredAttribute` has no C-level constant anywhere in this SDK's
+    /// `AXAttributeConstants.h` (`HIServices.framework`) — confirmed by direct grep. The only
+    /// SDK-level evidence is AppKit's own `NSAccessibilityRequiredAttribute`
+    /// (`NSAccessibilityConstants.h`, `extern NSAccessibilityAttributeName const
+    /// NSAccessibilityRequiredAttribute API_AVAILABLE(macos(10.12))`), whose underlying type
+    /// (`NSAccessibilityAttributeName`) is declared `NS_TYPED_ENUM` and therefore imports into
+    /// Swift as a typed wrapper case, not a plain `String`/`CFString` usable directly with
+    /// `AXUIElementCopyAttributeValue`. Mirrors `axFullScreenAttribute`'s ("AXFullScreen") and
+    /// `axIdentifierAttributeName`'s ("AXIdentifier") identical precedent in this exact file: the
+    /// raw wire-format string "AXRequired" is the verified value, per Apple's own universal,
+    /// unbroken `kAXFooAttribute`/`NSAccessibilityFooAttribute` naming convention already relied
+    /// upon for both of those constants — not a guess.
+    fileprivate static let axRequiredAttributeName = "AXRequired"
 
     fileprivate nonisolated static func axIsAttributeSettable(_ attribute: String, of element: AXUIElement) -> Bool {
         var settable: DarwinBoolean = false

@@ -904,6 +904,20 @@ public final class QPlanExecutor: Sendable {
             // design (mirrors ui.list_element_actions'/ui.list_element_attributes' own identical
             // aggregate-only evidence discipline).
             return .elementParameterizedAttributeNamesReadSucceeded(applicationName: applicationName, role: role, parameterizedAttributeCount: parameterizedAttributeCount)
+        } else if action.actionName == "ui.read_element_required_state",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let hasRequiredStateString = result.outputData["hasRequiredState"] {
+            // Level 0, read-only, purely observational — reconstructed from the applicationName/
+            // role arguments used to dispatch, plus whether a required-state value was present and
+            // its value, captured at read time. Deliberately NOT threaded through here: any other
+            // element attribute — this strategy only ever carries application identity, source
+            // role, and the required-state fact itself, by design (the boolean carries no privacy
+            // risk, unlike button/label text).
+            let isRequired: Bool? = hasRequiredStateString == "true"
+                ? (result.outputData["isRequired"] == "true")
+                : nil
+            return .elementRequiredStateReadSucceeded(applicationName: applicationName, role: role, isRequired: isRequired)
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

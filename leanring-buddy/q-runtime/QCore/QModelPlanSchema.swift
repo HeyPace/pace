@@ -979,7 +979,36 @@ public struct QModelPlanParser: Sendable {
         // not throw IS its own result. See
         // QBridgeAccessibility.listElementParameterizedAttributeNames and
         // docs/PHASE_2BP_SEMANTIC_PARAMETERIZED_ATTRIBUTE_NAMES.md for the full contract.
-        "ui.list_element_parameterized_attribute_names": ("ui", .level0ReadOnly)
+        "ui.list_element_parameterized_attribute_names": ("ui", .level0ReadOnly),
+        // Phase 2BQ: semantic element required-state read — LEVEL 0 (READ-ONLY). Reads a
+        // semantically-identified element's AXRequired attribute — whether the element is required
+        // for successful form submission. AXRequired has no C-level constant in this SDK's
+        // AXAttributeConstants.h; the SDK evidence is AppKit's own NSAccessibilityRequiredAttribute
+        // (NSAccessibilityConstants.h, available since macOS 10.12), whose underlying
+        // NS_TYPED_ENUM type does not bridge directly to the CFString AXUIElementCopyAttributeValue
+        // expects — the raw wire-format string "AXRequired" is used directly, mirroring this
+        // file's own established axFullScreenAttribute/axIdentifierAttributeName precedent for
+        // attributes lacking a HIServices C constant. Unlike kAXModalAttribute (documented
+        // "Required for all window elements"), AXRequired is meaningful only for form-field-like
+        // elements — genuine absence (kAXErrorNoValue/kAXErrorAttributeUnsupported) is therefore a
+        // valid, expected nil result here, never an error, and never silently downgraded to false;
+        // a genuine read failure or a malformed (non-Boolean) value fails the whole read closed
+        // instead. Reuses QAXElementReadRolePolicy (Phase 2J) unmodified — no broader,
+        // arbitrary-role allowlist is introduced. Application identity is resolved by exact
+        // matching via QBridgeAccessibility.resolveExactRunningApplication; target identity
+        // resolved via the existing collectMatches/snapshotIfMatches primitives, identical to
+        // ui.list_element_parameterized_attribute_names. This capability NEVER calls
+        // AXUIElementPerformAction or AXUIElementSetAttributeValue — observing that a field is
+        // required never authorizes any future mutation (e.g. ui.set_text_value) against it, which
+        // must independently pass its own full capability/risk/approval/execution-identity
+        // pipeline. Registered under toolFamily "ui" — the returned isRequired boolean is
+        // structural form metadata, never free-form typed content requiring the
+        // sanitize-before-persist boundary. Bounded to exactly 1 element touched, 0 traversal
+        // depth, 0 children enumerated, 0 actions performed, 0 polling, 1 returned record. No
+        // mutation, no approval, no recovery: a read that does not throw IS its own result. See
+        // QBridgeAccessibility.readElementRequiredState and
+        // docs/PHASE_2BQ_SEMANTIC_ELEMENT_REQUIRED_STATE.md for the full contract.
+        "ui.read_element_required_state": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

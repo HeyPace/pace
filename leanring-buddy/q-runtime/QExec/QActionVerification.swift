@@ -567,6 +567,18 @@ public enum QVerificationStrategy: Sendable {
     /// attribute and never mutates anything. Evidence carries only the application name, role, and
     /// an aggregate parameterized-attribute-name COUNT — never any individual name string.
     case elementParameterizedAttributeNamesReadSucceeded(applicationName: String, role: String, parameterizedAttributeCount: Int)
+    /// Phase 2BQ: semantic element required-state read verification (Level 0, read-only). Like
+    /// every other Level 0 read's verification, there is no separate physical state to re-observe
+    /// after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readElementRequiredState` (exact application/target resolution, a
+    /// successfully-handled optional Boolean), already IS the ground truth. This strategy checks
+    /// the execution result's own `success` flag as a genuine, meaningful assertion — never a bare
+    /// `{ true }` bypass — and never mutates anything as part of verifying the read. Evidence
+    /// carries the application name, role, and whether a required-state value was present plus its
+    /// value when present — none of this carries privacy risk (a single structural form-metadata
+    /// fact), so it is safe to include directly, mirroring `windowModalStateReadSucceeded`'s
+    /// identical discipline for its own boolean.
+    case elementRequiredStateReadSucceeded(applicationName: String, role: String, isRequired: Bool?)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1704,6 +1716,19 @@ public final class QActionVerifier: Sendable {
             } else {
                 return .failed(
                     reason: "Element parameterized attribute name enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+
+        case .elementRequiredStateReadSucceeded(let applicationName, let role, let isRequired):
+            if result.success {
+                let requiredDescription = isRequired.map { "\($0)" } ?? "unavailable"
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) isRequired=\(requiredDescription) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Element required-state read for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) role=\(role) status=failed"
                 )
             }
