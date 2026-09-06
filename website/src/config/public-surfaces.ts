@@ -41,7 +41,7 @@ const staticSurfaces: PublicSurface[] = [
     path: "/",
     markdownPath: "/index.md",
     kind: "static",
-    title: "Pace",
+    title: "HeyPace",
     description:
       "On-device macOS voice agent that listens, reads the screen, and acts with local models by default.",
     priority: "1.0",

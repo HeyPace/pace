@@ -1,4 +1,4 @@
-# Pace — allow everyone, including AI crawlers.
+# HeyPace — allow everyone, including AI crawlers.
 # The whole product is on-device and open; there's nothing to hide from
 # a crawler, and we want the answer engines to read the on-device pitch
 # and the honest competitor comparisons.

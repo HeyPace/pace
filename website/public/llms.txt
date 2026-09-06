@@ -1,4 +1,4 @@
-# Pace
+# HeyPace
 
 > On-device Mac voice agent that reads your screen and acts with local context.
 

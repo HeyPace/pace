@@ -1,11 +1,11 @@
 ---
-title: Pace
+title: HeyPace
 description: Local-first macOS voice agent that listens, reads the screen, and takes approved actions.
 canonical: https://heypace.app/
 last-updated: 2026-08-27
 ---
 
-# Pace
+# HeyPace
 
 Pace is an on-device macOS voice agent that listens, reads the screen, and acts
 with local models by default.

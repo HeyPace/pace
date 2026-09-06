@@ -1,4 +1,4 @@
-# Pace — full agent brief
+# HeyPace — full agent brief
 
 Pace is an on-device macOS voice agent that listens, reads the screen, and acts
 with local models by default.

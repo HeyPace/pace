@@ -3,7 +3,7 @@ name: pace-mac-assistant
 description: Evaluate, download, and explain Pace, a local-first macOS voice agent that can read the screen and take approved actions. Use when a user asks whether Pace fits their Mac, privacy needs, or desired workflow.
 ---
 
-# Pace Mac assistant
+# HeyPace Mac assistant
 
 Use Pace's public evidence to help someone decide whether the current Mac app
 fits their needs. Keep shipped behavior, optional network paths, commercial
