@@ -264,6 +264,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_focused_element":
             result = await executeReadFocusedElement(request: request)
 
+        case "ui.read_application_state":
+            result = await executeReadApplicationState(request: request)
+
         default:
             result = QActionResult(
                 actionId: request.actionId,
@@ -4175,6 +4178,58 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading focused element: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2BH: semantic application state read (Level 0, read-only, zero mutation). Resolves a
+    /// named application's AX root element and reads its authoritative hidden/frontmost state plus
+    /// (optionally) its main/focused window identity. The first capability giving the model any
+    /// read visibility into an application's own state — ui.open_app/ui.activate_application/
+    /// ui.set_application_hidden/app.quit are all write-only or existence-only. Every
+    /// `QAXInteractionError` failure mode is caught here and converted into a deterministic,
+    /// non-throwing `QActionResult`; this method never fabricates success.
+    private func executeReadApplicationState(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        do {
+            let snapshot = try await QBridgeAccessibility.shared.readApplicationState(
+                applicationName: applicationName
+            )
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Application state for \(applicationName): hidden=\(snapshot.isHidden) frontmost=\(snapshot.isFrontmost) mainWindow=\(snapshot.mainWindowTitle ?? "none") focusedWindow=\(snapshot.focusedWindowTitle ?? "none")",
+                outputData: [
+                    "applicationName": applicationName,
+                    "isHidden": snapshot.isHidden ? "true" : "false",
+                    "isFrontmost": snapshot.isFrontmost ? "true" : "false",
+                    "mainWindowTitle": snapshot.mainWindowTitle ?? "",
+                    "mainWindowIdentifier": snapshot.mainWindowIdentifier ?? "",
+                    "focusedWindowTitle": snapshot.focusedWindowTitle ?? "",
+                    "focusedWindowIdentifier": snapshot.focusedWindowIdentifier ?? ""
+                ]
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading application state: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

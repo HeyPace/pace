@@ -1079,6 +1079,13 @@ public final class QPlanExecutor: Sendable {
             // Level 0 enumeration's aggregate-only evidence discipline).
             let hasValue = !(result.outputData["value"] ?? "").isEmpty
             return .focusedElementReadSucceeded(applicationName: applicationName, role: role, hasValue: hasValue)
+        } else if action.actionName == "ui.read_application_state",
+                  let applicationName = action.arguments["applicationName"] {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch. Deliberately NOT threaded through here: isHidden/isFrontmost/window
+            // titles/identifiers — this strategy only ever carries the application name, by
+            // design (mirrors every other Level 0 read's aggregate-only evidence discipline).
+            return .applicationStateReadSucceeded(applicationName: applicationName)
         } else {
             return .customCheck(description: "Default step verification") { true }
         }

@@ -471,6 +471,15 @@ public enum QVerificationStrategy: Sendable {
     /// whether a value was exposed, never the value itself, the identifier, or any other
     /// individual field content.
     case focusedElementReadSucceeded(applicationName: String, role: String, hasValue: Bool)
+    /// Phase 2BH: semantic application state read verification (Level 0, read-only). Like every
+    /// other Level 0 read's verification, there is no separate physical state to re-observe after
+    /// the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readApplicationState` (exact application resolution, a successfully
+    /// read hidden/frontmost boolean pair), already IS the ground truth. This strategy checks the
+    /// execution result's own `success` flag as a genuine, meaningful assertion — never a bare
+    /// `{ true }` bypass. Evidence carries only the application name, never the booleans or window
+    /// titles themselves.
+    case applicationStateReadSucceeded(applicationName: String)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1482,6 +1491,18 @@ public final class QActionVerifier: Sendable {
             } else {
                 return .failed(
                     reason: "Focused element read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) status=failed"
+                )
+            }
+
+        case .applicationStateReadSucceeded(let applicationName):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Application state read for '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) status=failed"
                 )
             }

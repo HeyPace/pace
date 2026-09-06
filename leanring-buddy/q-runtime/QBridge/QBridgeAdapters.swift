@@ -733,6 +733,11 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// `kAXTitleAttribute` does not match — fails closed rather than reporting an element outside
     /// the requested window.
     case focusedElementWindowMismatch(String)
+    /// Phase 2BH: `kAXHiddenAttribute` or `kAXFrontmostAttribute` could not be read as a clean
+    /// boolean from the resolved application's AX root element — these are the two required,
+    /// authoritative state fields `ui.read_application_state` exists to report; without a reliably
+    /// readable pair, the whole read is refused rather than defaulting either to `false`.
+    case applicationStateReadFailed
 
     public var description: String {
         switch self {
@@ -974,6 +979,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The currently focused element does not belong to application '\(name)'."
         case .focusedElementWindowMismatch(let title):
             return "The currently focused element is not within window '\(title)'."
+        case .applicationStateReadFailed:
+            return "The application's authoritative hidden/frontmost state could not be read."
         }
     }
 
@@ -1099,6 +1106,7 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .noFocusedElement: return "AX_NO_FOCUSED_ELEMENT"
         case .focusedElementApplicationMismatch: return "AX_FOCUSED_ELEMENT_APPLICATION_MISMATCH"
         case .focusedElementWindowMismatch: return "AX_FOCUSED_ELEMENT_WINDOW_MISMATCH"
+        case .applicationStateReadFailed: return "AX_APPLICATION_STATE_READ_FAILED"
         }
     }
 }
@@ -1180,6 +1188,39 @@ public struct QAXFocusedElementSnapshot: Sendable, Equatable {
         self.isEnabled = isEnabled
         self.isSelected = isSelected
         self.value = value
+    }
+}
+
+/// A point-in-time snapshot of a named application's authoritative AX state, captured by
+/// `ui.read_application_state` (Phase 2BH). `isHidden`/`isFrontmost` are the two required,
+/// authoritative booleans this capability exists to report; `mainWindowTitle`/
+/// `mainWindowIdentifier` and `focusedWindowTitle`/`focusedWindowIdentifier` are optional —
+/// `nil` for either pair is a valid, honestly-reported "no such window" result (e.g. a
+/// headless/background-only application), never an error. Deliberately carries no coordinates
+/// and no raw `AXUIElement` — only structural window identity (title/identifier), the same
+/// content-free fields `ui.list_windows` already exposes without any redaction boundary.
+public struct QAXApplicationStateSnapshot: Sendable, Equatable {
+    public let isHidden: Bool
+    public let isFrontmost: Bool
+    public let mainWindowTitle: String?
+    public let mainWindowIdentifier: String?
+    public let focusedWindowTitle: String?
+    public let focusedWindowIdentifier: String?
+
+    public init(
+        isHidden: Bool,
+        isFrontmost: Bool,
+        mainWindowTitle: String?,
+        mainWindowIdentifier: String?,
+        focusedWindowTitle: String?,
+        focusedWindowIdentifier: String?
+    ) {
+        self.isHidden = isHidden
+        self.isFrontmost = isFrontmost
+        self.mainWindowTitle = mainWindowTitle
+        self.mainWindowIdentifier = mainWindowIdentifier
+        self.focusedWindowTitle = focusedWindowTitle
+        self.focusedWindowIdentifier = focusedWindowIdentifier
     }
 }
 
@@ -4790,6 +4831,77 @@ extension QBridgeAccessibility {
                 isEnabled: isEnabled,
                 isSelected: isSelected,
                 value: value
+            )
+        }.value
+    }
+
+    // MARK: - Semantic Application State Read (Phase 2BH)
+    //
+    // ui.read_application_state — a Level 0, read-only, zero-mutation read of a named running
+    // application's own authoritative AX state. Complements the write-only
+    // ui.set_application_hidden/ui.activate_application pair (both of which use
+    // NSRunningApplication, never AX, for their own mutation) with the read counterpart neither
+    // has: this capability deliberately reads the NATIVE AX attributes
+    // (kAXHiddenAttribute/kAXFrontmostAttribute/kAXMainWindowAttribute/kAXFocusedWindowAttribute)
+    // on the exact same AXUIElementCreateApplication(pid) element ui.list_windows/
+    // ui.list_menu_items already resolve — never NSRunningApplication heuristics, never
+    // frontmost-only inference, never timing, never screenshots. Zero recursive traversal: the
+    // application root element and, where present, its two directly-referenced windows (main,
+    // focused) are the only elements ever touched — read for title/identifier only, never
+    // descended into further.
+
+    /// Resolves the named application's AX root element and reads its authoritative hidden/
+    /// frontmost state plus (optionally) its main and focused window's title/identifier. Fails
+    /// closed (throws `QAXInteractionError`) on permission absence, application absence/ambiguity,
+    /// or an unreadable core state boolean (`applicationStateReadFailed`). A missing/unresolvable
+    /// main or focused window — or one whose reference resolves but whose own `kAXRoleAttribute`
+    /// is not exactly `AXWindow` — is a valid, honestly-reported `nil`, never an error, mirroring
+    /// `ui.list_windows`'s own "no windows is a legitimate empty state" precedent. Never traverses
+    /// beyond the one application element and its (at most two) directly-referenced windows —
+    /// `kAXChildrenAttribute` is never read here.
+    public func readApplicationState(
+        applicationName: String
+    ) async throws -> QAXApplicationStateSnapshot {
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            // A pure AX object-reference constructor — never activates, focuses, or raises the
+            // target application, the same primitive ui.list_windows/ui.list_menu_items already use.
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            guard let isHidden = Self.axBoolAttribute(kAXHiddenAttribute, of: appElement),
+                  let isFrontmost = Self.axBoolAttribute(kAXFrontmostAttribute, of: appElement) else {
+                throw QAXInteractionError.applicationStateReadFailed
+            }
+
+            var mainWindowTitle: String?
+            var mainWindowIdentifier: String?
+            if let mainWindowElement = Self.axElementAttribute(kAXMainWindowAttribute, of: appElement),
+               Self.axStringAttribute(kAXRoleAttribute, of: mainWindowElement) == "AXWindow" {
+                mainWindowTitle = Self.axStringAttribute(kAXTitleAttribute, of: mainWindowElement)
+                mainWindowIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: mainWindowElement)
+            }
+
+            var focusedWindowTitle: String?
+            var focusedWindowIdentifier: String?
+            if let focusedWindowElement = Self.axElementAttribute(kAXFocusedWindowAttribute, of: appElement),
+               Self.axStringAttribute(kAXRoleAttribute, of: focusedWindowElement) == "AXWindow" {
+                focusedWindowTitle = Self.axStringAttribute(kAXTitleAttribute, of: focusedWindowElement)
+                focusedWindowIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: focusedWindowElement)
+            }
+
+            return QAXApplicationStateSnapshot(
+                isHidden: isHidden,
+                isFrontmost: isFrontmost,
+                mainWindowTitle: mainWindowTitle,
+                mainWindowIdentifier: mainWindowIdentifier,
+                focusedWindowTitle: focusedWindowTitle,
+                focusedWindowIdentifier: focusedWindowIdentifier
             )
         }.value
     }

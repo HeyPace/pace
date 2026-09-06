@@ -717,7 +717,37 @@ public struct QModelPlanParser: Sendable {
         // capability, which must independently perform its own fresh, exact target resolution. See
         // QBridgeAccessibility.readFocusedElement and
         // docs/PHASE_2BG_SEMANTIC_FOCUSED_ELEMENT_READ.md for the full contract.
-        "ui.read_focused_element": ("perception", .level0ReadOnly)
+        "ui.read_focused_element": ("perception", .level0ReadOnly),
+        // Phase 2BH: semantic application state read — LEVEL 0 (READ-ONLY). Reads a named running
+        // application's own authoritative AX state — kAXHiddenAttribute, kAXFrontmostAttribute,
+        // kAXMainWindowAttribute, kAXFocusedWindowAttribute — on the exact same
+        // AXUIElementCreateApplication(pid) element ui.list_windows/ui.list_menu_items already
+        // resolve. The first capability giving the model any READ visibility into an application's
+        // own state: ui.open_app/ui.activate_application/ui.set_application_hidden/app.quit are all
+        // write-only or existence-only (system.running_apps reports names only). Deliberately reads
+        // the NATIVE AX attributes rather than NSRunningApplication.isHidden/
+        // NSWorkspace.frontmostApplication (the heuristic ui.set_application_hidden/
+        // ui.activate_application themselves use for their OWN mutation) — this capability's whole
+        // purpose is the authoritative Accessibility-layer state, not a re-derivation of what the
+        // AppKit-level APIs already report. Application identity is resolved by exact matching via
+        // QBridgeAccessibility.resolveExactRunningApplication (unmodified) — zero/ambiguous matches
+        // fail closed. kAXHiddenAttribute/kAXFrontmostAttribute are required, authoritative booleans:
+        // if either is unreadable from the resolved application element, the whole read fails closed
+        // (AX_APPLICATION_STATE_READ_FAILED) — never defaulted to false. kAXMainWindowAttribute/
+        // kAXFocusedWindowAttribute are optional single-element references, read for title/identifier
+        // ONLY (never descended into further) — a headless/background-only application with no
+        // window at all yields a valid, honestly-reported nil for both, mirroring ui.list_windows'
+        // "no windows is a legitimate empty state" precedent. Registered under toolFamily "app" —
+        // the same application-scoped family as ui.open_app/ui.activate_application/
+        // ui.set_application_hidden/app.quit — never "ui" (element-scoped) or "perception" (no
+        // free-form content is ever exposed; booleans and window titles are the same safe
+        // structural-metadata class ui.list_windows already exposes without redaction). No mutation,
+        // no approval, no recovery: a read that does not throw IS its own result. Bounded to a
+        // maximum of 3 elements ever touched (the application root plus at most 2 directly-
+        // referenced windows), zero recursive traversal, zero children enumerated, zero actions,
+        // zero polling. See QBridgeAccessibility.readApplicationState and
+        // docs/PHASE_2BH_SEMANTIC_APPLICATION_STATE_READ.md for the full contract.
+        "ui.read_application_state": ("app", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.
