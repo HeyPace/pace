@@ -818,6 +818,19 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// arbitrarily large model-visible string. Carries only the offending length, never the
     /// string content itself.
     case titleReferenceMetadataExceedsSafeLength(Int)
+    /// Phase 2BO: `kAXModalAttribute` could not be read due to an actual Accessibility API
+    /// failure. Unlike an optional reference attribute, `kAXModalAttribute` is documented
+    /// "Required for all window elements" — there is no genuine, expected absence case for this
+    /// attribute, so EVERY non-`.success` `AXError` (including `kAXErrorNoValue`/
+    /// `kAXErrorAttributeUnsupported`) is treated as a genuine read failure here, never silently
+    /// downgraded to a guessed `false`. The payload carries the underlying `AXError`, never any
+    /// element content.
+    case windowModalStateReadFailed(String)
+    /// Phase 2BO: `kAXModalAttribute`'s copy call reported success but the returned value could
+    /// not be interpreted as a `Bool` — the returned value is treated as untrusted external data,
+    /// never assumed well-formed merely because the copy call itself reported success. Fails
+    /// closed rather than fabricating a Boolean.
+    case windowModalStateMalformed
 
     public var description: String {
         switch self {
@@ -1093,6 +1106,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target element's title-UI-element reference has role '\(role)', which is not on the allowed read-role list."
         case .titleReferenceMetadataExceedsSafeLength(let length):
             return "The title-reference element's title/identifier (\(length) characters) exceeds this capability's defensive safe length bound."
+        case .windowModalStateReadFailed(let reason):
+            return "The window's modal state could not be read due to an Accessibility API failure: \(reason)."
+        case .windowModalStateMalformed:
+            return "The window's modal state attribute could not be read as a well-formed Boolean."
         }
     }
 
@@ -1235,6 +1252,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .titleReferenceMalformed: return "AX_TITLE_REFERENCE_MALFORMED"
         case .titleReferenceDisallowedRole: return "AX_TITLE_REFERENCE_DISALLOWED_ROLE"
         case .titleReferenceMetadataExceedsSafeLength: return "AX_TITLE_REFERENCE_METADATA_EXCEEDS_SAFE_LENGTH"
+        case .windowModalStateReadFailed: return "AX_WINDOW_MODAL_STATE_READ_FAILED"
+        case .windowModalStateMalformed: return "AX_WINDOW_MODAL_STATE_MALFORMED"
         }
     }
 }
@@ -1427,6 +1446,27 @@ public struct QAXElementTitleReference: Sendable, Equatable, Codable {
         self.role = role
         self.title = title
         self.identifier = identifier
+    }
+}
+
+/// A point-in-time snapshot of a semantically-identified window's modal state, captured by
+/// `ui.read_window_modal_state` (Phase 2BO). Unlike `QAXWindowDefaultButtonMetadata` (Phase 2BM)
+/// and `QAXElementTitleReference` (Phase 2BN), `isModal` is never optional — `kAXModalAttribute`
+/// is documented "Required for all window elements," so a resolvable `AXWindow` always yields a
+/// definite `true`/`false`; a genuine read failure or malformed value fails the whole read closed
+/// instead of ever being represented as a field on this type. No raw `AXUIElement`, no
+/// coordinates, no arbitrary AX attributes, ever appear in this type.
+public struct QAXWindowModalStateMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let windowTitle: String?
+    public let windowIdentifier: String?
+    public let isModal: Bool
+
+    public init(applicationName: String, windowTitle: String?, windowIdentifier: String?, isModal: Bool) {
+        self.applicationName = applicationName
+        self.windowTitle = windowTitle
+        self.windowIdentifier = windowIdentifier
+        self.isModal = isModal
     }
 }
 
@@ -7681,6 +7721,95 @@ extension QBridgeAccessibility {
         }
 
         return QAXElementTitleReference(role: titleElementRole, title: referenceTitle, identifier: referenceIdentifier)
+    }
+
+    // MARK: - Semantic Window Modal State Read (Phase 2BO)
+    //
+    // ui.read_window_modal_state — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL read
+    // of a semantically-identified AXWindow's kAXModalAttribute. Distinct from every prior
+    // window-scoped read: kAXModalAttribute is documented "Required for all window elements" —
+    // unlike the optional button/title references ui.read_window_default_button/
+    // ui.read_element_title_reference resolve, there is no genuine, expected absence case here, so
+    // this capability's missing-vs-failure discipline is inverted relative to those: EVERY
+    // non-success AXError (including kAXErrorNoValue/kAXErrorAttributeUnsupported) is treated as a
+    // genuine read failure, never silently downgraded to a guessed `false`. Never begins or ends a
+    // modal session, never activates the application, never focuses the window, never mutates any
+    // UI state — it only ever reads the AX attribute a real, independently-running modal session
+    // would already have set.
+
+    /// Resolves exactly one semantic `AXWindow` (`QAXWindowRolePolicy`, reused unmodified) and
+    /// reads its `kAXModalAttribute` — a purely observational call; neither
+    /// `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is invoked anywhere in this
+    /// method, and no modal session is ever begun or ended by this capability itself. Fails closed
+    /// (throws `QAXInteractionError`) on missing criteria, permission absence, application/window
+    /// absence or ambiguity, a stale/drifted target, ANY `AXError` reading `kAXModalAttribute`
+    /// (including `kAXErrorNoValue`/`kAXErrorAttributeUnsupported` — see the `MARK` section above
+    /// for why this attribute has no valid-absence case), or a malformed (non-Boolean) returned
+    /// value. Never fabricates a Boolean.
+    public func readWindowModalState(
+        applicationName: String,
+        windowTitle: String?,
+        windowIdentifier: String?
+    ) async throws -> QAXWindowModalStateMetadata {
+        guard windowIdentifier != nil || windowTitle != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: "AXWindow", identifier: windowIdentifier, title: windowTitle)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (windowElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // modal-state read and refuse on any drift — identical discipline to every prior AX
+            // capability in this codebase, even though this is a read, not a mutation.
+            guard let observedAtVerify = Self.snapshotIfMatches(windowElement, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                throw QAXInteractionError.staleTarget("target window is no longer resolvable immediately before the modal-state read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target window identity changed between observation and the modal-state read")
+            }
+
+            let isModal = try Self.resolveWindowModalState(of: windowElement)
+
+            return QAXWindowModalStateMetadata(
+                applicationName: applicationName,
+                windowTitle: observedAtVerify.titleOrDescription,
+                windowIdentifier: observedAtVerify.identifier,
+                isModal: isModal
+            )
+        }.value
+    }
+
+    /// Resolves `kAXModalAttribute` as a definite `Bool` — never optional, since this attribute
+    /// has no valid-absence case (see the `MARK` section above). Any non-`.success` `AXError`
+    /// (including `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) fails closed as
+    /// `windowModalStateReadFailed`; a successful copy whose value cannot be interpreted as a
+    /// `Bool` fails closed as `windowModalStateMalformed` — the returned value is treated as
+    /// untrusted external data, never assumed well-formed merely because the copy call itself
+    /// reported success. An explicit `false` is a fully valid, distinct outcome from either
+    /// failure case — it is returned directly, never conflated with "missing."
+    fileprivate nonisolated static func resolveWindowModalState(of windowElement: AXUIElement) throws -> Bool {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(windowElement, kAXModalAttribute as CFString, &value)
+
+        guard copyResult == .success else {
+            throw QAXInteractionError.windowModalStateReadFailed("AXError(\(copyResult.rawValue))")
+        }
+        guard let value, let isModal = value as? Bool else {
+            throw QAXInteractionError.windowModalStateMalformed
+        }
+        return isModal
     }
 
     /// Best-effort, read-only re-observation of whether the exact same target-window criteria

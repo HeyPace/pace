@@ -881,6 +881,17 @@ public final class QPlanExecutor: Sendable {
             // referenced element's title/identifier — this strategy only ever carries application
             // identity, source role, and a presence boolean, by design.
             return .elementTitleReferenceReadSucceeded(applicationName: applicationName, role: role, hasTitleReference: hasTitleReferenceString == "true")
+        } else if action.actionName == "ui.read_window_modal_state",
+                  let applicationName = action.arguments["applicationName"],
+                  let isModalString = result.outputData["isModal"] {
+            // Level 0, read-only, purely observational — reconstructed from the applicationName
+            // argument used to dispatch, plus the resolved window's own title and observed modal
+            // state captured at read time. Deliberately NOT threaded through here: any other
+            // window attribute — this strategy only ever carries application/window identity and
+            // the isModal boolean itself, by design (the boolean carries no privacy risk, unlike
+            // button/label text).
+            let windowTitle = result.outputData["windowTitle"].flatMap { $0.isEmpty ? nil : $0 }
+            return .windowModalStateReadSucceeded(applicationName: applicationName, windowTitle: windowTitle, isModal: isModalString == "true")
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

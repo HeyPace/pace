@@ -544,6 +544,17 @@ public enum QVerificationStrategy: Sendable {
     /// verifying the read. Evidence carries only the application name, source element role, and
     /// whether a reference was present — never the referenced element's title/identifier.
     case elementTitleReferenceReadSucceeded(applicationName: String, role: String, hasTitleReference: Bool)
+    /// Phase 2BO: semantic window modal state read verification (Level 0, read-only). Like every
+    /// other Level 0 read's verification, there is no separate physical state to re-observe after
+    /// the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readWindowModalState` (exact application/window resolution, a
+    /// successfully-read, well-formed Boolean), already IS the ground truth. This strategy checks
+    /// the execution result's own `success` flag as a genuine, meaningful assertion — never a bare
+    /// `{ true }` bypass — and never begins/ends a modal session, focuses, activates, or mutates
+    /// anything as part of verifying the read. Evidence carries the application name, window
+    /// identity, and the observed `isModal` boolean itself — unlike button/label text, a single
+    /// structural state boolean carries no privacy risk, so it is safe to include directly.
+    case windowModalStateReadSucceeded(applicationName: String, windowTitle: String?, isModal: Bool)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1652,6 +1663,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Element title-reference read for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+
+        case .windowModalStateReadSucceeded(let applicationName, let windowTitle, let isModal):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) window=\(windowTitle ?? "unnamed") isModal=\(isModal) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Window modal state read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) status=failed"
                 )
             }
 

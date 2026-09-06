@@ -917,7 +917,33 @@ public struct QModelPlanParser: Sendable {
         // that does not throw IS its own result. See
         // QBridgeAccessibility.readElementTitleReference and
         // docs/PHASE_2BN_SEMANTIC_ELEMENT_TITLE_REFERENCE.md for the full contract.
-        "ui.read_element_title_reference": ("ui", .level0ReadOnly)
+        "ui.read_element_title_reference": ("ui", .level0ReadOnly),
+        // Phase 2BO: semantic window modal state read — LEVEL 0 (READ-ONLY). Reads a
+        // semantically-identified AXWindow's kAXModalAttribute. Distinct from every prior
+        // window-scoped read: kAXModalAttribute is documented "Required for all window elements"
+        // — unlike the optional button/title references ui.read_window_default_button/
+        // ui.read_element_title_reference resolve, there is no genuine, expected absence case for
+        // this attribute, so this capability's missing-vs-failure discipline is inverted relative
+        // to those two: EVERY non-success AXError (including kAXErrorNoValue/
+        // kAXErrorAttributeUnsupported) is treated as a genuine read failure, never silently
+        // downgraded to a guessed false. ui.list_windows exposes title/identifier/minimized/main
+        // per window but never modal state. Reuses QAXWindowRolePolicy (Phase 2U) unmodified — the
+        // identical single-role allowlist (AXWindow only) every other window capability already
+        // establishes. Application identity is resolved by exact matching via
+        // QBridgeAccessibility.resolveExactRunningApplication; window identity resolved via the
+        // existing collectMatches/snapshotIfMatches primitives, identical to
+        // ui.read_window_default_button. This capability NEVER calls AXUIElementPerformAction or
+        // AXUIElementSetAttributeValue, and NEVER begins or ends a modal session itself — it is
+        // strictly observational; it only ever reads the AX attribute a real, independently
+        // running modal session would already have set. Registered under toolFamily "ui" — the
+        // returned isModal boolean is structural UI state, never free-form typed content requiring
+        // the sanitize-before-persist boundary. Bounded to exactly 1 AX element ever touched (the
+        // window itself — no reference-follow hop), 0 traversal depth, 0 children enumerated, 0
+        // actions performed, 0 polling, 1 returned record. No mutation, no approval, no recovery: a
+        // read that does not throw IS its own result. See
+        // QBridgeAccessibility.readWindowModalState and
+        // docs/PHASE_2BO_SEMANTIC_WINDOW_MODAL_STATE.md for the full contract.
+        "ui.read_window_modal_state": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

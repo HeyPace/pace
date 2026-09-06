@@ -153,6 +153,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_element_title_reference":
             result = await executeReadElementTitleReference(request: request)
 
+        case "ui.read_window_modal_state":
+            result = await executeReadWindowModalState(request: request)
+
         case "ui.set_element_state":
             result = await executeSetElementState(request: request)
 
@@ -1140,6 +1143,72 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading element title reference: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2BO: semantic window modal state read (Level 0, read-only, purely observational).
+    /// Resolves a semantically-identified `AXWindow` and reads its `kAXModalAttribute` — never
+    /// beginning or ending a modal session, never activating the application, never focusing the
+    /// window, never mutating any UI state. Unlike an optional reference attribute, this
+    /// attribute is documented "Required for all window elements": ANY `AXError` reading it
+    /// (including `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is a genuine failure, never a
+    /// valid absence — see `QBridgeAccessibility.readWindowModalState`'s own documentation for the
+    /// full rationale. Every `QAXInteractionError` failure mode is caught here and converted into
+    /// a deterministic, non-throwing `QActionResult`; this method never fabricates success.
+    private func executeReadWindowModalState(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        let windowIdentifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let windowTitle = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard windowIdentifier != nil || windowTitle != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.readWindowModalState(
+                applicationName: applicationName,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier
+            )
+            let outputData: [String: String] = [
+                "applicationName": applicationName,
+                "matchIdentifier": windowIdentifier ?? "",
+                "matchTitle": windowTitle ?? "",
+                "windowTitle": metadata.windowTitle ?? "",
+                "windowIdentifier": metadata.windowIdentifier ?? "",
+                "isModal": metadata.isModal ? "true" : "false"
+            ]
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed window modal state in \(applicationName): isModal=\(metadata.isModal). This is observation only — no modal session was begun or ended, and no UI state was mutated.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading window modal state: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }
