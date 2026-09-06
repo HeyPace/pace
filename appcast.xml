@@ -9,7 +9,7 @@
             <pubDate>Tue, 07 Jul 2026 06:28:31 +0000</pubDate>
             <sparkle:version>19</sparkle:version>
             <sparkle:shortVersionString>0.3.19</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
             <enclosure url="https://github.com/HeyPace/pace/releases/download/v0.3.19/Pace-0.3.19.zip" length="30584188" type="application/octet-stream" sparkle:edSignature="rX3NTx9lCuKzEJCtUCYamEdUs8iaS/sV+jhLCwtWGnKXsEva3igBVnDCbUiV9X+qBcfGYxTJzn7KVe3TG+UNCw=="/>
         </item>
         <item>

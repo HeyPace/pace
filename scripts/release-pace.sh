@@ -384,7 +384,7 @@ new_item=$(cat <<EOF
             <pubDate>${pub_date}</pubDate>
             <sparkle:version>${next_build}</sparkle:version>
             <sparkle:shortVersionString>${next_version}</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
             <enclosure url="${download_url}" length="${package_size}" type="application/octet-stream" sparkle:edSignature="${ed_signature}"/>
         </item>
 EOF
