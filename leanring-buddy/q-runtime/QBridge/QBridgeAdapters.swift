@@ -742,6 +742,11 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// defensive safe bound (32) — mirrors `tableRowCollectionExceedsSafeBound`'s/
     /// `browserColumnCollectionExceedsSafeBound`'s identical discipline.
     case tableColumnCollectionExceedsSafeBound(Int)
+    /// Phase 2BJ: the target's AX role is not on `QAXRangeReadRolePolicy.allowedRoles`
+    /// (`AXSlider`/`AXIncrementor`/`AXSplitter` only — all verified against the live SDK's
+    /// `AXRoleConstants.h`). Thrown before any AX tree walk, mirroring every prior write-side
+    /// role policy's identical discipline.
+    case disallowedRangeReadRole(String)
 
     public var description: String {
         switch self {
@@ -987,6 +992,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The application's authoritative hidden/frontmost state could not be read."
         case .tableColumnCollectionExceedsSafeBound(let count):
             return "Table column collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .disallowedRangeReadRole(let role):
+            return "Target role '\(role)' is not an allowed range-read target."
         }
     }
 
@@ -1114,6 +1121,7 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .focusedElementWindowMismatch: return "AX_FOCUSED_ELEMENT_WINDOW_MISMATCH"
         case .applicationStateReadFailed: return "AX_APPLICATION_STATE_READ_FAILED"
         case .tableColumnCollectionExceedsSafeBound: return "AX_TABLE_COLUMN_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .disallowedRangeReadRole: return "AX_RANGE_READ_ROLE_NOT_ALLOWED"
         }
     }
 }
@@ -1154,6 +1162,41 @@ public enum QAXElementReadRolePolicy {
 
     public static func isAllowedReadRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
+    }
+}
+
+/// A point-in-time snapshot of a semantically-identified element's authoritative numeric range,
+/// captured by `ui.read_element_range` (Phase 2BJ). Deliberately carries ONLY the fields this
+/// capability's approved contract allows — `applicationName` (echoed from the caller's own
+/// request, not element content), `role`, `minValue`, `maxValue`, `currentValue`, and the
+/// optional `valueIncrement` (per `kAXValueIncrementAttribute`'s own SDK documentation,
+/// "Recommended for kAXIncrementorRole and other similar elements" — never required, never
+/// defaulted; `nil` when absent/unreadable is the valid, honest result). No identifier, title, or
+/// any other identity/label field is included — the caller already supplied the identifier/title
+/// used to resolve this exact element, so none of that needs to be echoed back. No raw
+/// `AXUIElement`, no coordinates, no arbitrary AX attributes, ever appear in this type.
+public struct QAXElementRangeMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let minValue: Double
+    public let maxValue: Double
+    public let currentValue: Double
+    public let valueIncrement: Double?
+
+    public init(
+        applicationName: String,
+        role: String,
+        minValue: Double,
+        maxValue: Double,
+        currentValue: Double,
+        valueIncrement: Double?
+    ) {
+        self.applicationName = applicationName
+        self.role = role
+        self.minValue = minValue
+        self.maxValue = maxValue
+        self.currentValue = currentValue
+        self.valueIncrement = valueIncrement
     }
 }
 
@@ -1341,6 +1384,25 @@ public enum QAXSliderRolePolicy {
     public static let allowedRoles: Set<String> = ["AXSlider", "AXStepper"]
 
     public static func isAllowedSliderRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.read_element_range` (Phase 2BJ) may target.
+///
+/// Deliberately verified against the live macOS SDK's `AXRoleConstants.h` at implementation time
+/// rather than copied from any existing policy: `AXSlider` (`kAXSliderRole`), `AXIncrementor`
+/// (`kAXIncrementorRole`), and `AXSplitter` (`kAXSplitterRole`) are all real, defined role
+/// constants confirmed present in the header. `QAXSliderRolePolicy`'s own historical inclusion of
+/// the string `"AXStepper"` is deliberately NOT carried forward here — `"AXStepper"` does not
+/// exist anywhere in `AXRoleConstants.h` (confirmed by direct `grep` against the installed SDK: 0
+/// matches); an `NSStepper`'s actual AX role is `AXIncrementor`, already covered by this policy.
+/// Silently treating an unverified role string as authoritative would violate this capability's
+/// own fail-closed contract, so it is omitted rather than blindly copied.
+public enum QAXRangeReadRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXSlider", "AXIncrementor", "AXSplitter"]
+
+    public static func isAllowedRangeReadRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -4088,6 +4150,103 @@ extension QBridgeAccessibility {
             return numberValue.stringValue
         }
         return nil
+    }
+
+    // MARK: - Semantic AX Element Range Read (Phase 2BJ)
+    //
+    // ui.read_element_range — a Level 0, read-only, zero-mutation read of a semantically-
+    // identified element's authoritative numeric range: kAXMinValueAttribute/
+    // kAXMaxValueAttribute/kAXValueIncrementAttribute plus its current kAXValueAttribute. These
+    // are the exact same attributes ui.set_slider_value/ui.step_incrementor/
+    // ui.set_splitter_position already read INTERNALLY for their own idempotency/range-validation
+    // before ever proposing a mutation — but never previously exposed to the model as their own
+    // queryable fact. Target roles are restricted to QAXRangeReadRolePolicy's fail-closed
+    // allowlist (AXSlider/AXIncrementor/AXSplitter — all verified against the live SDK's
+    // AXRoleConstants.h at implementation time; the historically-inert "AXStepper" string is
+    // deliberately not carried forward from QAXSliderRolePolicy). No traversal beyond the one
+    // resolved element: kAXChildrenAttribute is never read here.
+
+    /// Resolves exactly one semantic target on `QAXRangeReadRolePolicy`'s allowlist and reads its
+    /// authoritative `kAXMinValueAttribute`/`kAXMaxValueAttribute` (both required — the read fails
+    /// closed rather than fabricating a value if either is unreadable), its current
+    /// `kAXValueAttribute` (required), and its optional `kAXValueIncrementAttribute` (never
+    /// required, never defaulted — a missing/unreadable increment is a valid, honestly-reported
+    /// `nil`). Fails closed (throws `QAXInteractionError`) on a disallowed role, missing match
+    /// criteria, permission absence, application/target absence or ambiguity, a stale/drifted
+    /// target, an internally-inconsistent range (`minValue > maxValue`), or a current value
+    /// outside the reported range — never clamps, never repairs, never substitutes a default.
+    /// Never mutates anything.
+    public func readElementRange(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXElementRangeMetadata {
+        guard QAXRangeReadRolePolicy.isAllowedRangeReadRole(role) else {
+            throw QAXInteractionError.disallowedRangeReadRole(role)
+        }
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // range read and refuse on any drift — identical discipline to every prior AX
+            // capability in this codebase, even though this is a read, not a mutation (the range
+            // itself could still legitimately change between search and read on a live control).
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the range read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the range read")
+            }
+
+            // Range discovery — kAXMinValueAttribute/kAXMaxValueAttribute are both required;
+            // neither is ever defaulted or clamped. Mirrors ui.set_slider_value's own identical
+            // pre-mutation validation sequence exactly (Phase 2M), reused as the read contract
+            // here rather than duplicated with different semantics.
+            guard let minValue = Self.axDoubleAttribute(kAXMinValueAttribute as String, of: targetElement),
+                  let maxValue = Self.axDoubleAttribute(kAXMaxValueAttribute as String, of: targetElement) else {
+                throw QAXInteractionError.rangeReadFailed
+            }
+            guard minValue <= maxValue else {
+                throw QAXInteractionError.invalidRange("minValue (\(minValue)) is greater than maxValue (\(maxValue))")
+            }
+            guard let currentValue = Self.axDoubleAttribute(kAXValueAttribute as String, of: targetElement) else {
+                throw QAXInteractionError.valueReadFailed
+            }
+            guard currentValue >= minValue, currentValue <= maxValue else {
+                throw QAXInteractionError.invalidRange("current value (\(currentValue)) is outside the reported range [\(minValue), \(maxValue)]")
+            }
+
+            // kAXValueIncrementAttribute is documented "Recommended for kAXIncrementorRole and
+            // other similar elements" — optional, never required, never defaulted. A missing or
+            // unreadable increment is a valid, honestly-reported nil, never a fabricated value.
+            let valueIncrement = Self.axDoubleAttribute(kAXValueIncrementAttribute as String, of: targetElement)
+
+            return QAXElementRangeMetadata(
+                applicationName: applicationName,
+                role: role,
+                minValue: minValue,
+                maxValue: maxValue,
+                currentValue: currentValue,
+                valueIncrement: valueIncrement
+            )
+        }.value
     }
 
     // MARK: - Semantic AX Element State Change (Phase 2K)

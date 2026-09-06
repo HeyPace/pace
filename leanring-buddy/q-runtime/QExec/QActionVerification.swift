@@ -491,6 +491,15 @@ public enum QVerificationStrategy: Sendable {
     /// consistent with `ui.list_table_rows`'/`ui.list_browser_columns`' own privacy contract that
     /// per-item content never crosses into persisted evidence text.
     case tableColumnEnumerationSucceeded(applicationName: String, columnCount: Int)
+    /// Phase 2BJ: semantic element range read verification (Level 0, read-only). Like every other
+    /// Level 0 read's verification, there is no separate physical state to re-observe after the
+    /// fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readElementRange` (exact application/target resolution, a
+    /// successfully-read and internally-consistent numeric range), already IS the ground truth.
+    /// This strategy checks the execution result's own `success` flag as a genuine, meaningful
+    /// assertion — never a bare `{ true }` bypass. Evidence carries only the application name and
+    /// role, never the numeric bounds themselves.
+    case elementRangeReadSucceeded(applicationName: String, role: String)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1527,6 +1536,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Table column enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) tableRole=AXTable status=failed"
+                )
+            }
+
+        case .elementRangeReadSucceeded(let applicationName, let role):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Element range read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
                 )
             }
 

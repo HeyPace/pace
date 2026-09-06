@@ -767,7 +767,35 @@ public struct QModelPlanParser: Sendable {
         // every subsequent capability must independently perform its own fresh, exact target
         // resolution. See QBridgeAccessibility.listTableColumns and
         // docs/PHASE_2BI_SEMANTIC_TABLE_COLUMN_ENUMERATION.md for the full contract.
-        "ui.list_table_columns": ("ui", .level0ReadOnly)
+        "ui.list_table_columns": ("ui", .level0ReadOnly),
+        // Phase 2BJ: semantic element range read — LEVEL 0 (READ-ONLY). Reads a semantically-
+        // identified element's authoritative numeric range: kAXMinValueAttribute/
+        // kAXMaxValueAttribute (both required — the read fails closed rather than fabricating a
+        // value if either is unreadable), kAXValueAttribute (current value, required), and the
+        // optional kAXValueIncrementAttribute (never required, never defaulted). These are the
+        // exact same attributes ui.set_slider_value/ui.step_incrementor/ui.set_splitter_position
+        // already read INTERNALLY for their own idempotency/range-validation before ever
+        // proposing a mutation — but never previously exposed to the model as their own queryable
+        // fact, directly improving the practical safety of those three already-shipped Level 2
+        // mutations by letting the model learn valid bounds before proposing a value for human
+        // approval. Target roles restricted to a fresh QAXRangeReadRolePolicy allowlist
+        // (AXSlider, AXIncrementor, AXSplitter) — every role independently verified against the
+        // live macOS SDK's AXRoleConstants.h at implementation time; QAXSliderRolePolicy's own
+        // historical "AXStepper" string is deliberately NOT carried forward, since no such role
+        // constant exists anywhere in the SDK (an NSStepper's real AX role is AXIncrementor,
+        // already covered). Application identity is resolved by exact matching via
+        // QBridgeAccessibility.resolveExactRunningApplication; target identity resolved via the
+        // existing collectMatches/snapshotIfMatches primitives, identical to ui.read_element_value.
+        // Never clamps, never repairs, never substitutes a default for an invalid or inconsistent
+        // range (minValue > maxValue, or current value outside [minValue, maxValue]) — fails
+        // closed instead. Registered under toolFamily "ui" — not "perception" — since every
+        // returned field is a bounded Double, never free-form content requiring the sanitize-
+        // before-persist boundary. No mutation, no approval, no recovery: a read that does not
+        // throw IS its own result. Bounded to exactly 1 element touched, 0 traversal depth beyond
+        // target resolution, 0 children enumerated, 0 actions, 0 polling. See
+        // QBridgeAccessibility.readElementRange and
+        // docs/PHASE_2BJ_SEMANTIC_ELEMENT_RANGE_READ.md for the full contract.
+        "ui.read_element_range": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

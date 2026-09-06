@@ -831,6 +831,16 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual column title or identifier — this strategy only ever
             // carries an aggregate count, by design.
             return .tableColumnEnumerationSucceeded(applicationName: applicationName, columnCount: columnCount)
+        } else if action.actionName == "ui.read_element_range",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"] {
+            // Level 0, read-only — reconstructed from the applicationName/role arguments used to
+            // dispatch. Deliberately NOT threaded through here: minValue/maxValue/currentValue/
+            // valueIncrement — this strategy only ever carries the application name and role, by
+            // design (the numeric bounds carry no sensitivity, but evidence is kept to identity
+            // only, mirroring the more conservative pattern ui.read_focused_element/
+            // ui.read_application_state already established for their own evidence strings).
+            return .elementRangeReadSucceeded(applicationName: applicationName, role: role)
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

@@ -138,6 +138,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_element_value":
             result = await executeReadElementValue(request: request)
 
+        case "ui.read_element_range":
+            result = await executeReadElementRange(request: request)
+
         case "ui.set_element_state":
             result = await executeSetElementState(request: request)
 
@@ -811,6 +814,85 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading element value: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2BJ: semantic element range read (Level 0, read-only, zero mutation). Resolves a
+    /// semantically-identified `AXSlider`/`AXIncrementor`/`AXSplitter` element and reads its
+    /// authoritative `kAXMinValueAttribute`/`kAXMaxValueAttribute`/current `kAXValueAttribute`
+    /// (all required) plus optional `kAXValueIncrementAttribute`. Directly improves the practical
+    /// safety of the already-shipped `ui.set_slider_value`/`ui.step_incrementor`/
+    /// `ui.set_splitter_position` Level 2 mutations by letting the model learn valid bounds
+    /// before proposing a value for human approval. Every `QAXInteractionError` failure mode is
+    /// caught here and converted into a deterministic, non-throwing `QActionResult`; this method
+    /// never fabricates success, never clamps, never repairs an invalid range.
+    private func executeReadElementRange(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let range = try await QBridgeAccessibility.shared.readElementRange(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "minValue": "\(range.minValue)",
+                "maxValue": "\(range.maxValue)",
+                "currentValue": "\(range.currentValue)"
+            ]
+            if let valueIncrement = range.valueIncrement {
+                outputData["valueIncrement"] = "\(valueIncrement)"
+            }
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Read \(role) element range in \(applicationName): min=\(range.minValue) max=\(range.maxValue) current=\(range.currentValue)",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading element range: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }
