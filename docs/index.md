@@ -3,7 +3,7 @@ title: Pace docs
 description: Index of Pace documentation — the on-device macOS menu-bar voice agent.
 ---
 
-# Pace documentation
+## Pace documentation
 
 This is the canonical documentation index for **Pace** — the on-device macOS
 menu-bar voice agent. Markdown committed to this repository is the source of

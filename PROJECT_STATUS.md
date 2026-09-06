@@ -14,7 +14,7 @@ Last updated: 2026-08-10
 
 ### External
 
-- **Platform:** macOS 14.2+, Apple Silicon recommended, Xcode 16+, ~12–25 GB RAM with models loaded.
+- **Platform:** current 0.3.19 preview targets macOS 26, Apple Silicon recommended, Xcode 26+, ~12–25 GB RAM with models loaded.
 - **On-device models (default vs opt-in):** planner default is Apple Foundation Models (Apple Intelligence Macs) or LM Studio Qwen3-30B-A3B; the bundled in-process **MLX Qwen3-4B planner, Qwen3-VL-4B VLM, and TTSKit Qwen3 TTS are opt-in** (Settings → Models, default OFF). ASR default Apple Speech; WhisperKit Large opt-in. TTS default Kokoro-82M via the mlx-audio sidecar → AVSpeechSynthesizer fallback.
 - **Optional cloud:** Direct API BYO-key (Keychain); CLI bridge; Apple Foundation Models tier.
 - **Legacy path:** LM Studio optional OpenAI-compatible localhost — `./scripts/setup-local.sh`.

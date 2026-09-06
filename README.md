@@ -15,7 +15,7 @@
 
 A menu-bar voice agent for macOS. Hold a hotkey, talk, and Pace answers — reading the screen you're looking at and (optionally) clicking on your behalf. Every byte stays on your Mac.
 
-**[Download for Mac — free](https://github.com/HeyPace/pace/releases/latest)** · macOS 14.2+, Apple Silicon, no account, no email.
+**[Download for Mac — free](https://github.com/HeyPace/pace/releases/latest)** · current preview requires macOS 26, Apple Silicon, no account, no email.
 
 - **Every byte stays on your Mac.** No cloud LLM, no API keys, no Cloudflare Worker. Speech, vision, reasoning, and speech-out all run locally. The "airplane mode" badge is the moat — Wispr Flow, Claude Computer Use, and Superhuman literally cannot ship this.
 - **Time-to-first-spoken-word in milliseconds, not seconds.** Streaming sentence-by-sentence TTS, pre-warmed VLM + OCR during your speech window, prompt-cache reuse across turns, and per-screen hash caching collapse the perceived latency. The number is logged per turn (`⚡ TTFSW: …ms`) and aggregated by [`scripts/benchmark_ttfsw.sh`](./scripts/benchmark_ttfsw.sh) — own the metric, don't just claim the speed.
@@ -53,7 +53,7 @@ Architecture and per-file responsibilities: see [`AGENTS.md`](./AGENTS.md).
 
 ## Requirements
 
-- macOS 14.2+ (ScreenCaptureKit)
+- macOS 26 for the current 0.3.19 preview
 - Xcode 16+ to build from source (SwiftPM synchronized folder groups)
 - Apple Silicon recommended (MLX acceleration)
 - ~12–25 GB free RAM with models loaded (bundled defaults; the optional LM Studio 30B planner wants ~20–28 GB)

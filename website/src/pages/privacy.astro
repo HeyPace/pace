@@ -4,7 +4,7 @@ import Nav from "../components/Nav.astro";
 import Footer from "../components/Footer.astro";
 
 const description =
-  "Pace's privacy policy: your audio, screen, and text stay on your Mac. No accounts, no telemetry, no cloud processing.";
+  "Pace keeps app audio, screen context, and text on your Mac; the public website uses bounded Microsoft Clarity analytics.";
 ---
 
 <BaseLayout
@@ -27,12 +27,20 @@ const description =
         there aren't any in the loop.
       </p>
 
-      <h2 class="pace-display pt-4 text-2xl text-white">What Pace collects</h2>
+      <h2 class="pace-display pt-4 text-2xl text-white">What the Pace app collects</h2>
       <p>
-        Nothing. No account, no email, no analytics SDK, no telemetry, no
-        crash reporter phoning home. The in-app privacy dashboard reads a
-        local audit log and shows "0 bytes sent off this Mac" — that number
-        is computed, not asserted.
+        Nothing. The native app has no account, email collection, analytics
+        SDK, telemetry, or crash reporter phoning home. The in-app privacy
+        dashboard reads a local audit log and shows "0 bytes sent off this
+        Mac" — that number is computed, not asserted.
+      </p>
+
+      <h2 class="pace-display pt-4 text-2xl text-white">Public website analytics</h2>
+      <p>
+        Pages on heypace.app use Microsoft Clarity to measure visits, session
+        interaction, and heatmaps so the public site can be improved. The
+        website has no Pace account or in-app voice, screen, meeting, or
+        journal data, and the native app does not load Clarity.
       </p>
 
       <h2 class="pace-display pt-4 text-2xl text-white">The exceptions, stated plainly</h2>
