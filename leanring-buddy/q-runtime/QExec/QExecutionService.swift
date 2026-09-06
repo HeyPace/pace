@@ -147,6 +147,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_element_attributes":
             result = await executeListElementAttributes(request: request)
 
+        case "ui.read_window_default_button":
+            result = await executeReadWindowDefaultButton(request: request)
+
         case "ui.set_element_state":
             result = await executeSetElementState(request: request)
 
@@ -975,6 +978,83 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing element attributes: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2BM: semantic window default/cancel button read (Level 0, read-only, purely
+    /// observational). Resolves a semantically-identified `AXWindow` and reads its
+    /// `kAXDefaultButtonAttribute`/`kAXCancelButtonAttribute` references — never pressing either
+    /// button, never performing any AX action, never mutating window state. Both fields are
+    /// independently optional; genuine absence is never an error, but a genuine read failure, a
+    /// malformed reference, or a wrong-role reference for EITHER button fails the whole read
+    /// closed (see `QBridgeAccessibility.readWindowDefaultButton`'s own documentation for the
+    /// full rationale). Every `QAXInteractionError` failure mode is caught here and converted
+    /// into a deterministic, non-throwing `QActionResult`; this method never fabricates success.
+    private func executeReadWindowDefaultButton(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        let windowIdentifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let windowTitle = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard windowIdentifier != nil || windowTitle != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.readWindowDefaultButton(
+                applicationName: applicationName,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier
+            )
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "matchIdentifier": windowIdentifier ?? "",
+                "matchTitle": windowTitle ?? "",
+                "windowTitle": metadata.windowTitle ?? "",
+                "windowIdentifier": metadata.windowIdentifier ?? "",
+                "hasDefaultButton": metadata.defaultButton != nil ? "true" : "false",
+                "hasCancelButton": metadata.cancelButton != nil ? "true" : "false"
+            ]
+            if let defaultButton = metadata.defaultButton {
+                outputData["defaultButtonTitle"] = defaultButton.title ?? ""
+                outputData["defaultButtonIdentifier"] = defaultButton.identifier ?? ""
+            }
+            if let cancelButton = metadata.cancelButton {
+                outputData["cancelButtonTitle"] = cancelButton.title ?? ""
+                outputData["cancelButtonIdentifier"] = cancelButton.identifier ?? ""
+            }
+            let defaultDescription = metadata.defaultButton.map { "\($0.title ?? $0.identifier ?? "unnamed")" } ?? "none"
+            let cancelDescription = metadata.cancelButton.map { "\($0.title ?? $0.identifier ?? "unnamed")" } ?? "none"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed window default/cancel button state in \(applicationName): defaultButton=\(defaultDescription), cancelButton=\(cancelDescription). This is observation only — no button was pressed, and neither observation constitutes authorization to press one later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading window default button: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

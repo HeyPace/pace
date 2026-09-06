@@ -524,6 +524,16 @@ public enum QVerificationStrategy: Sendable {
     /// anything. Evidence carries only the application name, role, and an aggregate attribute
     /// COUNT — never any individual attribute-name string.
     case elementAttributeNamesReadSucceeded(applicationName: String, role: String, attributeCount: Int)
+    /// Phase 2BM: semantic window default/cancel button read verification (Level 0, read-only).
+    /// Like every other Level 0 read's verification, there is no separate physical state to
+    /// re-observe after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readWindowDefaultButton` (exact application/window resolution, a
+    /// successfully-handled pair of optional button references), already IS the ground truth.
+    /// This strategy checks the execution result's own `success` flag as a genuine, meaningful
+    /// assertion — never a bare `{ true }` bypass — and never presses either button or mutates
+    /// anything as part of verifying the read. Evidence carries only the application name and
+    /// window identity — never the button titles/identifiers themselves.
+    case windowDefaultButtonReadSucceeded(applicationName: String, windowTitle: String?)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1608,6 +1618,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Element attribute name enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+
+        case .windowDefaultButtonReadSucceeded(let applicationName, let windowTitle):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) window=\(windowTitle ?? "unnamed") status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Window default/cancel button read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) status=failed"
                 )
             }
 

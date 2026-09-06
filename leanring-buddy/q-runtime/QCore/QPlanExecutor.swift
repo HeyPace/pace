@@ -863,6 +863,14 @@ public final class QPlanExecutor: Sendable {
             // strategy only ever carries an aggregate count, by design (mirrors
             // ui.list_element_actions' own identical aggregate-only evidence discipline).
             return .elementAttributeNamesReadSucceeded(applicationName: applicationName, role: role, attributeCount: attributeCount)
+        } else if action.actionName == "ui.read_window_default_button",
+                  let applicationName = action.arguments["applicationName"] {
+            // Level 0, read-only, purely observational — reconstructed from the applicationName
+            // argument used to dispatch, plus the resolved window's own title captured at read
+            // time (if any). Deliberately NOT threaded through here: button titles/identifiers —
+            // this strategy only ever carries application/window identity, by design.
+            let windowTitle = result.outputData["windowTitle"].flatMap { $0.isEmpty ? nil : $0 }
+            return .windowDefaultButtonReadSucceeded(applicationName: applicationName, windowTitle: windowTitle)
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

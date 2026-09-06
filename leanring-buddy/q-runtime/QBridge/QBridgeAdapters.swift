@@ -774,6 +774,25 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// bound — fails closed rather than returning an arbitrarily large model-visible string.
     /// Carries only the offending length, never the string content itself.
     case attributeNameExceedsSafeLength(Int)
+    /// Phase 2BM: `kAXDefaultButtonAttribute`/`kAXCancelButtonAttribute` could not be read due to
+    /// an actual Accessibility API failure (e.g. `kAXErrorFailure`/`kAXErrorCannotComplete`/
+    /// `kAXErrorInvalidUIElement`) — distinct from `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`,
+    /// which mean the window genuinely has no such button and are never treated as an error. The
+    /// payload identifies which button attribute and the underlying `AXError`.
+    case windowButtonReferenceReadFailed(String)
+    /// Phase 2BM: a button-reference attribute's copy call reported success but the returned
+    /// value was not an `AXUIElement` — the returned value is treated as untrusted external
+    /// data, never assumed well-formed merely because the copy call itself reported success.
+    case windowButtonReferenceMalformed(String)
+    /// Phase 2BM: a button-reference attribute resolved to a real element, but that element's own
+    /// `kAXRoleAttribute` is not exactly `AXButton` — the mere existence of a returned reference
+    /// is never sufficient; its own role is independently re-validated before it is ever treated
+    /// as a genuine button, mirroring `targetNotACloseButton`'s identical discipline.
+    case windowButtonReferenceWrongRole(String)
+    /// Phase 2BM: a button's title or identifier exceeds this capability's defensive safe length
+    /// bound (256 characters) — fails closed rather than returning an arbitrarily large
+    /// model-visible string. Carries only the offending length, never the string content itself.
+    case windowButtonMetadataExceedsSafeLength(Int)
 
     public var description: String {
         switch self {
@@ -1033,6 +1052,14 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Attribute names collection count (\(count)) exceeds this capability's defensive safe bound."
         case .attributeNameExceedsSafeLength(let length):
             return "An attribute name (\(length) characters) exceeds this capability's defensive safe length bound."
+        case .windowButtonReferenceReadFailed(let reason):
+            return "The window's \(reason) could not be read due to an Accessibility API failure."
+        case .windowButtonReferenceMalformed(let reason):
+            return "The window's \(reason) reference could not be read as a well-formed Accessibility element."
+        case .windowButtonReferenceWrongRole(let reason):
+            return "The window's \(reason) is not a genuine AXButton element."
+        case .windowButtonMetadataExceedsSafeLength(let length):
+            return "A window button's title/identifier (\(length) characters) exceeds this capability's defensive safe length bound."
         }
     }
 
@@ -1167,6 +1194,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .attributeNamesCollectionMalformed: return "AX_ATTRIBUTE_NAMES_COLLECTION_MALFORMED"
         case .attributeNamesCollectionExceedsSafeBound: return "AX_ATTRIBUTE_NAMES_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .attributeNameExceedsSafeLength: return "AX_ATTRIBUTE_NAME_EXCEEDS_SAFE_LENGTH"
+        case .windowButtonReferenceReadFailed: return "AX_WINDOW_BUTTON_REFERENCE_READ_FAILED"
+        case .windowButtonReferenceMalformed: return "AX_WINDOW_BUTTON_REFERENCE_MALFORMED"
+        case .windowButtonReferenceWrongRole: return "AX_WINDOW_BUTTON_REFERENCE_WRONG_ROLE"
+        case .windowButtonMetadataExceedsSafeLength: return "AX_WINDOW_BUTTON_METADATA_EXCEEDS_SAFE_LENGTH"
         }
     }
 }
@@ -1297,6 +1328,49 @@ public struct QAXElementAttributeNamesMetadata: Sendable, Equatable, Codable {
         self.applicationName = applicationName
         self.role = role
         self.attributeNames = attributeNames
+    }
+}
+
+/// A single window button's safe, non-sensitive structural identity, as returned by
+/// `ui.read_window_default_button` (Phase 2BM) — title/identifier only, never an `AXValue`, never
+/// arbitrary content, never a raw `AXUIElement`.
+public struct QAXWindowButtonReference: Sendable, Equatable, Codable {
+    public let title: String?
+    public let identifier: String?
+
+    public init(title: String?, identifier: String?) {
+        self.title = title
+        self.identifier = identifier
+    }
+}
+
+/// A point-in-time snapshot of a semantically-identified window's default and cancel button
+/// references, captured by `ui.read_window_default_button` (Phase 2BM). Both fields are
+/// independently optional — `nil` is a valid, honestly-reported "this window has no such button"
+/// result, never an error; a genuine read failure, malformed reference, or wrong-role reference
+/// instead fails the WHOLE read closed (see `QBridgeAccessibility.readWindowDefaultButton`'s own
+/// documentation for the exact rationale) rather than silently degrading to `nil`, so a `nil`
+/// value in this type is never ambiguous with an unobserved failure. No raw `AXUIElement`, no
+/// coordinates, no arbitrary AX attributes, ever appear in this type.
+public struct QAXWindowDefaultButtonMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let windowTitle: String?
+    public let windowIdentifier: String?
+    public let defaultButton: QAXWindowButtonReference?
+    public let cancelButton: QAXWindowButtonReference?
+
+    public init(
+        applicationName: String,
+        windowTitle: String?,
+        windowIdentifier: String?,
+        defaultButton: QAXWindowButtonReference?,
+        cancelButton: QAXWindowButtonReference?
+    ) {
+        self.applicationName = applicationName
+        self.windowTitle = windowTitle
+        self.windowIdentifier = windowIdentifier
+        self.defaultButton = defaultButton
+        self.cancelButton = cancelButton
     }
 }
 
@@ -3898,6 +3972,9 @@ extension QBridgeAccessibility {
     /// Phase 2BL: defensive per-string length bound on an individual attribute name — prevents an
     /// arbitrarily large model-visible string; exceeding it fails closed.
     private static let maxAttributeNameLength = 256
+    /// Phase 2BM: defensive per-string length bound on a window button's title/identifier —
+    /// prevents an arbitrarily large model-visible string; exceeding it fails closed.
+    private static let maxWindowButtonMetadataLength = 256
     private static let maxDirectPopoversCount = 16
     private static let maxDirectColorWellsCount = 32
     private static let maxDirectProgressIndicatorsCount = 32
@@ -7274,6 +7351,140 @@ extension QBridgeAccessibility {
 
             return QAXWindowCloseOutcome(changeKind: .closeRequested, targetIdentity: targetIdentity)
         }.value
+    }
+
+    // MARK: - Semantic Window Default/Cancel Button Read (Phase 2BM)
+    //
+    // ui.read_window_default_button — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL
+    // read of a semantically-identified window's kAXDefaultButtonAttribute/
+    // kAXCancelButtonAttribute references. Both are independently optional — many windows have
+    // neither, some have one, some have both; all four combinations are valid, expected results.
+    // This capability never presses either button, never performs any AX action of any kind,
+    // never mutates window state, never changes focus, never activates the application. Reuses
+    // QAXWindowRolePolicy (Phase 2U) unmodified — the identical single-role allowlist (AXWindow
+    // only) every other window capability already establishes.
+    //
+    // MISSING VS FAILURE — the load-bearing design decision this capability makes:
+    // `kAXErrorNoValue` and `kAXErrorAttributeUnsupported` both mean "this window genuinely has no
+    // such button" — a valid, expected, non-error outcome that produces `nil` for that field. Any
+    // OTHER `AXError` (`kAXErrorFailure`, `kAXErrorCannotComplete`, `kAXErrorInvalidUIElement`,
+    // etc.) is a genuine read failure and is NEVER silently folded into "absent." A resolved
+    // reference whose own role is not exactly `AXButton`, or whose copy succeeded but returned a
+    // non-`AXUIElement` value, is likewise never folded into "absent." Deliberately, ANY of these
+    // three non-absence problems — for EITHER button — fails the WHOLE read closed, rather than
+    // returning a result that silently mixes one reliable field with one unreliable field the
+    // caller could not otherwise distinguish. This is a stricter, simpler contract than a
+    // partial-success design, chosen deliberately for auditability.
+
+    /// Resolves exactly one semantic `AXWindow` target and reads its `kAXDefaultButtonAttribute`/
+    /// `kAXCancelButtonAttribute` references. Fails closed (throws `QAXInteractionError`) on a
+    /// disallowed role, missing criteria, permission absence, application/window absence or
+    /// ambiguity, a stale/drifted target, or — for either button attribute — a genuine read
+    /// failure, a malformed reference, or a reference whose own role is not exactly `AXButton`.
+    /// Genuine absence (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an error — it
+    /// produces `nil` for that field. Never performs any AX action; never mutates anything; never
+    /// descends into either referenced button's own children.
+    public func readWindowDefaultButton(
+        applicationName: String,
+        windowTitle: String?,
+        windowIdentifier: String?
+    ) async throws -> QAXWindowDefaultButtonMetadata {
+        guard windowIdentifier != nil || windowTitle != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            // A pure AX object-reference constructor — never activates, focuses, or raises the
+            // target application, the same primitive every prior capability already uses without
+            // any such side effect.
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: "AXWindow", identifier: windowIdentifier, title: windowTitle)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (windowElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // button read and refuse on any drift — identical discipline to every prior AX
+            // capability in this codebase, even though this is a read, not a mutation.
+            guard let observedAtVerify = Self.snapshotIfMatches(windowElement, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                throw QAXInteractionError.staleTarget("target window is no longer resolvable immediately before the button read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target window identity changed between observation and the button read")
+            }
+
+            let defaultButton = try Self.resolveWindowButtonReference(
+                attribute: kAXDefaultButtonAttribute, attributeDescription: "default button", of: windowElement
+            )
+            let cancelButton = try Self.resolveWindowButtonReference(
+                attribute: kAXCancelButtonAttribute, attributeDescription: "cancel button", of: windowElement
+            )
+
+            return QAXWindowDefaultButtonMetadata(
+                applicationName: applicationName,
+                windowTitle: observedAtVerify.titleOrDescription,
+                windowIdentifier: observedAtVerify.identifier,
+                defaultButton: defaultButton,
+                cancelButton: cancelButton
+            )
+        }.value
+    }
+
+    /// Resolves ONE window button-reference attribute (`kAXDefaultButtonAttribute` or
+    /// `kAXCancelButtonAttribute`), distinguishing genuine absence from a genuine read failure —
+    /// see the `MARK` section above for the full missing-vs-failure rationale. Never descends
+    /// into the referenced button's own children; reads only its `kAXTitleAttribute`/
+    /// `AXIdentifier` for structural identity, each bounded to `maxWindowButtonMetadataLength`
+    /// (256 characters) — exceeding it fails closed rather than returning an oversized string.
+    fileprivate nonisolated static func resolveWindowButtonReference(
+        attribute: String,
+        attributeDescription: String,
+        of windowElement: AXUIElement
+    ) throws -> QAXWindowButtonReference? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(windowElement, attribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            // Genuine, expected absence — many windows have no default/cancel button at all.
+            // Never an error.
+            return nil
+        default:
+            throw QAXInteractionError.windowButtonReferenceReadFailed("\(attributeDescription) (AXError(\(copyResult.rawValue)))")
+        }
+
+        guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
+            throw QAXInteractionError.windowButtonReferenceMalformed(attributeDescription)
+        }
+        let buttonElement = value as! AXUIElement
+
+        let buttonRole = Self.axStringAttribute(kAXRoleAttribute, of: buttonElement)
+        guard buttonRole == "AXButton" else {
+            throw QAXInteractionError.windowButtonReferenceWrongRole("\(attributeDescription) reported role '\(buttonRole ?? "none")', expected 'AXButton'")
+        }
+
+        let rawTitle = Self.axStringAttribute(kAXTitleAttribute, of: buttonElement)
+        let title = (rawTitle?.isEmpty == false) ? rawTitle : nil
+        let identifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: buttonElement)
+
+        if let title, title.count > Self.maxWindowButtonMetadataLength {
+            throw QAXInteractionError.windowButtonMetadataExceedsSafeLength(title.count)
+        }
+        if let identifier, identifier.count > Self.maxWindowButtonMetadataLength {
+            throw QAXInteractionError.windowButtonMetadataExceedsSafeLength(identifier.count)
+        }
+
+        return QAXWindowButtonReference(title: title, identifier: identifier)
     }
 
     /// Best-effort, read-only re-observation of whether the exact same target-window criteria

@@ -853,7 +853,35 @@ public struct QModelPlanParser: Sendable {
         // read that does not throw IS its own result. See
         // QBridgeAccessibility.listElementAttributes and
         // docs/PHASE_2BL_SEMANTIC_ELEMENT_ATTRIBUTE_ENUMERATION.md for the full contract.
-        "ui.list_element_attributes": ("ui", .level0ReadOnly)
+        "ui.list_element_attributes": ("ui", .level0ReadOnly),
+        // Phase 2BM: semantic window default/cancel button read — LEVEL 0 (READ-ONLY). Reads a
+        // semantically-identified AXWindow's kAXDefaultButtonAttribute/kAXCancelButtonAttribute
+        // references — a direct AXUIElementRef to the button that activates on Enter/Escape,
+        // where one exists. Both are independently optional; all four combinations (neither,
+        // default only, cancel only, both) are valid, expected results — genuine absence
+        // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is never an error. A genuine read
+        // failure, a malformed reference, or a reference whose own role is not exactly AXButton
+        // is NEVER silently folded into "absent" — any of these three problems for either button
+        // fails the WHOLE read closed instead. No capability has ever surfaced which button
+        // activates on Enter/Escape; ui.list_windows exposes title/identifier/minimized/main per
+        // window but never this. Reuses QAXWindowRolePolicy (Phase 2U) unmodified — the identical
+        // single-role allowlist (AXWindow only) every other window capability already
+        // establishes. Application identity is resolved by exact matching via
+        // QBridgeAccessibility.resolveExactRunningApplication; window identity resolved via the
+        // existing collectMatches/snapshotIfMatches primitives, identical to
+        // ui.set_window_main/ui.close_window. This capability NEVER calls
+        // AXUIElementPerformAction or AXUIElementSetAttributeValue — it is strictly
+        // observational; it never presses either button, never mutates window state, never
+        // changes focus, never activates the application. Registered under toolFamily "ui" —
+        // button title/identifier are short structural labels, never free-form typed content
+        // requiring the sanitize-before-persist boundary. Bounded to a maximum of 3 AX elements
+        // ever touched (the window plus its default and cancel buttons), 0 traversal depth
+        // beyond the two direct reference follows, 0 children enumerated, 0 actions performed, 0
+        // polling, 1 returned record (window-scoped, never a collection). No mutation, no
+        // approval, no recovery: a read that does not throw IS its own result. See
+        // QBridgeAccessibility.readWindowDefaultButton and
+        // docs/PHASE_2BM_SEMANTIC_WINDOW_DEFAULT_BUTTON.md for the full contract.
+        "ui.read_window_default_button": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.
