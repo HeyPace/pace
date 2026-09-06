@@ -144,6 +144,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_element_actions":
             result = await executeListElementActions(request: request)
 
+        case "ui.list_element_attributes":
+            result = await executeListElementAttributes(request: request)
+
         case "ui.set_element_state":
             result = await executeSetElementState(request: request)
 
@@ -894,6 +897,84 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing element actions: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2BL: semantic element attribute name enumeration (Level 0, read-only, purely
+    /// observational). Resolves a semantically-identified element and reads its supported
+    /// Accessibility ATTRIBUTE names via `AXUIElementCopyAttributeNames` — never any attribute's
+    /// actual VALUE. Discovered attribute names are DATA, not authorization: discovering that a
+    /// name like `"AXValue"` exists never itself grants any capability to read that attribute's
+    /// value; a subsequent value read must independently go through an existing, approved
+    /// semantic read capability (e.g. `ui.read_element_value`) and that capability's own full
+    /// role/privacy/security policy, completely unaffected by this capability ever having been
+    /// called. Every `QAXInteractionError` failure mode is caught here and converted into a
+    /// deterministic, non-throwing `QActionResult`; this method never fabricates success.
+    private func executeListElementAttributes(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let attributes = try await QBridgeAccessibility.shared.listElementAttributes(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "attributeCount": "\(attributes.attributeNames.count)"
+            ]
+            for (index, attributeName) in attributes.attributeNames.enumerated() {
+                outputData["attribute\(index)"] = attributeName
+            }
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed \(attributes.attributeNames.count) supported attribute name(s) for \(role) element in \(applicationName): \(attributes.attributeNames.joined(separator: ", ")). This is observation only — no attribute value was read, and none of these names constitute authorization to read one later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing element attributes: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

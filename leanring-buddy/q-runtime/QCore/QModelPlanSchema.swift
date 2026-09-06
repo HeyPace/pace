@@ -824,7 +824,36 @@ public struct QModelPlanParser: Sendable {
         // recovery: a read that does not throw IS its own result. See
         // QBridgeAccessibility.listElementActions and
         // docs/PHASE_2BK_SEMANTIC_ELEMENT_ACTION_ENUMERATION.md for the full contract.
-        "ui.list_element_actions": ("ui", .level0ReadOnly)
+        "ui.list_element_actions": ("ui", .level0ReadOnly),
+        // Phase 2BL: semantic element attribute name enumeration — LEVEL 0 (READ-ONLY). Reads a
+        // semantically-identified element's supported Accessibility ATTRIBUTE names via
+        // AXUIElementCopyAttributeNames — the direct sibling of ui.list_element_actions (Phase
+        // 2BK), which reads ACTION names via the parallel AXUIElementCopyActionNames. Where that
+        // capability answers "what can this element DO", this one answers "what can I ASK this
+        // element". Every existing read capability (ui.read_element_value, ui.read_element_range,
+        // etc.) assumes a fixed, hard-coded attribute per role; this is the first capability that
+        // asks an element to self-report its actual supported attribute vocabulary. Reuses
+        // QAXElementReadRolePolicy (Phase 2J) unmodified — no broader, arbitrary-role allowlist is
+        // introduced. Application identity is resolved by exact matching via
+        // QBridgeAccessibility.resolveExactRunningApplication; target identity resolved via the
+        // existing collectMatches/snapshotIfMatches primitives, identical to
+        // ui.list_element_actions. SECURITY-CRITICAL INVARIANT: discovered attribute NAMES are
+        // DATA, not AUTHORIZATION — this capability NEVER reads any attribute's actual VALUE
+        // merely because its name was discovered, NEVER calls AXUIElementSetAttributeValue or
+        // AXUIElementPerformAction; discovering that an attribute name like "AXValue" exists
+        // never itself authorizes a future read of that attribute's value, which must
+        // independently go through an existing, approved semantic read capability (e.g.
+        // ui.read_element_value) and that capability's own full role/privacy/security policy.
+        // Registered under toolFamily "ui" — not "perception" — since attribute names are a
+        // near-fixed, short structural vocabulary, never free-form typed content requiring the
+        // sanitize-before-persist boundary. Bounded to exactly 1 element touched, 0 traversal
+        // depth, 0 children enumerated, 0 actions performed, 0 polling, and at most 32 returned
+        // attribute-name strings (each individually length-bounded) — exceeding either bound
+        // fails closed rather than silently truncating. No mutation, no approval, no recovery: a
+        // read that does not throw IS its own result. See
+        // QBridgeAccessibility.listElementAttributes and
+        // docs/PHASE_2BL_SEMANTIC_ELEMENT_ATTRIBUTE_ENUMERATION.md for the full contract.
+        "ui.list_element_attributes": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

@@ -852,6 +852,17 @@ public final class QPlanExecutor: Sendable {
             // strategy only ever carries an aggregate count, by design (mirrors every other
             // Level 0 enumeration's aggregate-only evidence discipline).
             return .elementActionsReadSucceeded(applicationName: applicationName, role: role, actionCount: actionCount)
+        } else if action.actionName == "ui.list_element_attributes",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let attributeCountString = result.outputData["attributeCount"],
+                  let attributeCount = Int(attributeCountString) {
+            // Level 0, read-only, purely observational — reconstructed from the applicationName/
+            // role arguments used to dispatch, plus the attribute count captured at read time.
+            // Deliberately NOT threaded through here: any individual attribute-name string — this
+            // strategy only ever carries an aggregate count, by design (mirrors
+            // ui.list_element_actions' own identical aggregate-only evidence discipline).
+            return .elementAttributeNamesReadSucceeded(applicationName: applicationName, role: role, attributeCount: attributeCount)
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

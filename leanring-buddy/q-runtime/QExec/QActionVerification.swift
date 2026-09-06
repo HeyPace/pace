@@ -512,6 +512,18 @@ public enum QVerificationStrategy: Sendable {
     /// this capability's own privacy contract that per-action content never crosses into
     /// persisted evidence text.
     case elementActionsReadSucceeded(applicationName: String, role: String, actionCount: Int)
+    /// Phase 2BL: semantic element attribute-name enumeration verification (Level 0, read-only).
+    /// Like every other Level 0 read's verification, there is no separate physical state to
+    /// re-observe after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.listElementAttributes` (exact application/target resolution, a
+    /// successfully-read and well-formed, bounded attribute-names collection), already IS the
+    /// ground truth. This strategy checks the execution result's own `success` flag as a
+    /// genuine, meaningful assertion — never a bare `{ true }` bypass — and independently
+    /// re-validates the attribute count against the permitted bound rather than blindly trusting
+    /// the dispatch layer. It never reads any attribute's actual value and never mutates
+    /// anything. Evidence carries only the application name, role, and an aggregate attribute
+    /// COUNT — never any individual attribute-name string.
+    case elementAttributeNamesReadSucceeded(applicationName: String, role: String, attributeCount: Int)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1577,6 +1589,24 @@ public final class QActionVerifier: Sendable {
             } else {
                 return .failed(
                     reason: "Element action enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+
+        case .elementAttributeNamesReadSucceeded(let applicationName, let role, let attributeCount):
+            guard attributeCount >= 0, attributeCount <= 32 else {
+                return .failed(
+                    reason: "Attribute count (\(attributeCount)) for application '\(applicationName)' is outside the permitted bound [0, 32].",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) attributeCount=\(attributeCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Element attribute name enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) role=\(role) status=failed"
                 )
             }
