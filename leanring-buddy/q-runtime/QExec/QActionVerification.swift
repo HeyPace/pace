@@ -500,6 +500,18 @@ public enum QVerificationStrategy: Sendable {
     /// assertion — never a bare `{ true }` bypass. Evidence carries only the application name and
     /// role, never the numeric bounds themselves.
     case elementRangeReadSucceeded(applicationName: String, role: String)
+    /// Phase 2BK: semantic element action enumeration verification (Level 0, read-only). Like
+    /// every other Level 0 read's verification, there is no separate physical state to
+    /// re-observe after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.listElementActions` (exact application/target resolution, a
+    /// successfully-read and well-formed, bounded action-names collection), already IS the
+    /// ground truth. This strategy checks the execution result's own `success` flag as a genuine,
+    /// meaningful assertion — never a bare `{ true }` bypass, and never executes any discovered
+    /// action as part of verifying the read. Evidence carries only the application name, role,
+    /// and an aggregate action COUNT — never any individual action-name string, consistent with
+    /// this capability's own privacy contract that per-action content never crosses into
+    /// persisted evidence text.
+    case elementActionsReadSucceeded(applicationName: String, role: String, actionCount: Int)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1547,6 +1559,24 @@ public final class QActionVerifier: Sendable {
             } else {
                 return .failed(
                     reason: "Element range read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+
+        case .elementActionsReadSucceeded(let applicationName, let role, let actionCount):
+            guard actionCount >= 0, actionCount <= 16 else {
+                return .failed(
+                    reason: "Action count (\(actionCount)) for application '\(applicationName)' is outside the permitted bound [0, 16].",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) actionCount=\(actionCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Element action enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) role=\(role) status=failed"
                 )
             }

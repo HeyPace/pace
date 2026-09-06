@@ -747,6 +747,20 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// `AXRoleConstants.h`). Thrown before any AX tree walk, mirroring every prior write-side
     /// role policy's identical discipline.
     case disallowedRangeReadRole(String)
+    /// Phase 2BK: `AXUIElementCopyActionNames` succeeded but the returned value could not be
+    /// cast to `[String]` — the returned value is treated as untrusted external data, never
+    /// assumed to be a well-formed array merely because the copy call itself reported success,
+    /// mirroring `windowsCollectionMalformed`'s identical discipline.
+    case actionNamesCollectionMalformed
+    /// Phase 2BK: the target element's supported-action-names count exceeds this capability's
+    /// defensive safe bound (16) — mirrors `tableColumnCollectionExceedsSafeBound`'s identical
+    /// fail-closed (never silently truncated) discipline.
+    case actionNamesCollectionExceedsSafeBound(Int)
+    /// Phase 2BK: a single action-name string exceeds this capability's defensive safe length
+    /// bound — fails closed rather than returning an arbitrarily large model-visible string.
+    /// Carries only the offending length, never the string content itself, so even the failure
+    /// path never risks surfacing an oversized value into logs or evidence.
+    case actionNameExceedsSafeLength(Int)
 
     public var description: String {
         switch self {
@@ -994,6 +1008,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "Table column collection count (\(count)) exceeds this capability's defensive safe bound."
         case .disallowedRangeReadRole(let role):
             return "Target role '\(role)' is not an allowed range-read target."
+        case .actionNamesCollectionMalformed:
+            return "The target element's supported action names could not be read as a well-formed collection."
+        case .actionNamesCollectionExceedsSafeBound(let count):
+            return "Action names collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .actionNameExceedsSafeLength(let length):
+            return "An action name (\(length) characters) exceeds this capability's defensive safe length bound."
         }
     }
 
@@ -1122,6 +1142,9 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .applicationStateReadFailed: return "AX_APPLICATION_STATE_READ_FAILED"
         case .tableColumnCollectionExceedsSafeBound: return "AX_TABLE_COLUMN_COLLECTION_EXCEEDS_SAFE_BOUND"
         case .disallowedRangeReadRole: return "AX_RANGE_READ_ROLE_NOT_ALLOWED"
+        case .actionNamesCollectionMalformed: return "AX_ACTION_NAMES_COLLECTION_MALFORMED"
+        case .actionNamesCollectionExceedsSafeBound: return "AX_ACTION_NAMES_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .actionNameExceedsSafeLength: return "AX_ACTION_NAME_EXCEEDS_SAFE_LENGTH"
         }
     }
 }
@@ -1197,6 +1220,29 @@ public struct QAXElementRangeMetadata: Sendable, Equatable, Codable {
         self.maxValue = maxValue
         self.currentValue = currentValue
         self.valueIncrement = valueIncrement
+    }
+}
+
+/// A point-in-time snapshot of a semantically-identified element's supported Accessibility action
+/// names, captured by `ui.list_element_actions` (Phase 2BK). `actionNames` is DATA describing what
+/// the element reports it can do — never authorization to perform any of them; discovering that an
+/// action name exists never itself grants any capability, approval, or standing authority. Bounded
+/// to at most `maxElementActionsCount` (16) entries, each individually bounded to
+/// `maxActionNameLength` characters — never an unbounded or arbitrarily large collection. No raw
+/// `AXUIElement`, no coordinates, ever appear in this type.
+public struct QAXElementActionsMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let actionNames: [String]
+
+    public init(
+        applicationName: String,
+        role: String,
+        actionNames: [String]
+    ) {
+        self.applicationName = applicationName
+        self.role = role
+        self.actionNames = actionNames
     }
 }
 
@@ -3783,6 +3829,13 @@ extension QBridgeAccessibility {
     private static let maxDirectBrowserColumnsCount = 32
     /// Phase 2BI: defensive bound on table column-header enumeration.
     private static let maxDirectTableColumnsCount = 32
+    /// Phase 2BK: defensive bound on `ui.list_element_actions`' returned action-name collection —
+    /// exceeding this fails closed rather than silently truncating (never misrepresenting the
+    /// authoritative result).
+    private static let maxElementActionsCount = 16
+    /// Phase 2BK: defensive per-string length bound on an individual action name — prevents an
+    /// arbitrarily large model-visible string; exceeding it fails closed.
+    private static let maxActionNameLength = 256
     private static let maxDirectPopoversCount = 16
     private static let maxDirectColorWellsCount = 32
     private static let maxDirectProgressIndicatorsCount = 32
@@ -4132,6 +4185,108 @@ extension QBridgeAccessibility {
 
             let value = Self.axValueDescription(of: targetElement) ?? snapshot.titleOrDescription ?? ""
             return (value, snapshot)
+        }.value
+    }
+
+    // MARK: - Semantic AX Element Action Enumeration (Phase 2BK)
+    //
+    // ui.list_element_actions — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL read of
+    // a semantically-identified element's supported Accessibility action names via
+    // AXUIElementCopyActionNames — a distinct C API from the AXAttributeConstants.h surface every
+    // prior capability reads, never previously used anywhere in this codebase. Every existing
+    // mutation capability hard-codes a specific action (kAXPressAction/kAXIncrementAction/
+    // kAXDecrementAction) chosen per-role by the implementation; this is the first capability that
+    // asks an element what it ACTUALLY supports, including app-defined custom actions
+    // (NSAccessibilityCustomAction) no fixed role-based policy could anticipate. Reuses
+    // QAXElementReadRolePolicy (Phase 2J) unmodified — no broader, arbitrary-role allowlist is
+    // introduced. SECURITY-CRITICAL INVARIANT: the returned action names are DATA, not
+    // AUTHORIZATION — this capability NEVER calls AXUIElementPerformAction, NEVER grants
+    // permissions, NEVER creates approvals or standing grants, and discovering that an action name
+    // exists never itself authorizes any future action; any subsequent action request must
+    // independently pass its own full capability/risk/approval/execution-identity pipeline,
+    // completely unaffected by this capability having ever been called.
+
+    /// Resolves exactly one semantic target on `QAXElementReadRolePolicy`'s allowlist and reads its
+    /// supported Accessibility action names via `AXUIElementCopyActionNames` — a purely
+    /// observational call; `AXUIElementPerformAction` is never invoked anywhere in this method.
+    /// Fails closed (throws `QAXInteractionError`) on a disallowed/secure role, missing criteria,
+    /// permission absence, application/target absence or ambiguity, a stale/drifted target, a
+    /// malformed returned collection, an action-name count exceeding
+    /// `maxElementActionsCount` (16), or any single action name exceeding
+    /// `maxActionNameLength` (256 characters) — never silently truncates, never fabricates a
+    /// result.
+    public func listElementActions(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXElementActionsMetadata {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Secure field first, for a specific diagnostic; then the general allowlist, which would
+        // also reject AXSecureTextField on its own (it is never listed) — belt and suspenders,
+        // identical discipline to readElementValue's own check.
+        guard role != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+        guard QAXElementReadRolePolicy.isAllowedReadRole(role) else {
+            throw QAXInteractionError.disallowedReadRole(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // action-name read and refuse on any drift — identical discipline to every prior AX
+            // capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before action enumeration")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and action enumeration")
+            }
+
+            // AXUIElementCopyActionNames — the discovery call itself. Purely observational: never
+            // AXUIElementPerformAction, never AXUIElementSetAttributeValue, never any mutation
+            // primitive of any kind.
+            var actionNamesValue: CFArray?
+            let copyResult = AXUIElementCopyActionNames(targetElement, &actionNamesValue)
+            guard copyResult == .success, let actionNamesValue else {
+                throw QAXInteractionError.actionNamesCollectionMalformed
+            }
+            // The returned value is treated as untrusted external data — success from the copy
+            // call is never itself sufficient proof of a well-formed [String] array.
+            guard let rawActionNames = actionNamesValue as? [String] else {
+                throw QAXInteractionError.actionNamesCollectionMalformed
+            }
+            guard rawActionNames.count <= Self.maxElementActionsCount else {
+                throw QAXInteractionError.actionNamesCollectionExceedsSafeBound(rawActionNames.count)
+            }
+            for actionName in rawActionNames {
+                guard actionName.count <= Self.maxActionNameLength else {
+                    throw QAXInteractionError.actionNameExceedsSafeLength(actionName.count)
+                }
+            }
+
+            return QAXElementActionsMetadata(
+                applicationName: applicationName,
+                role: role,
+                actionNames: rawActionNames
+            )
         }.value
     }
 

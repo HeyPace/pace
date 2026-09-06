@@ -795,7 +795,36 @@ public struct QModelPlanParser: Sendable {
         // target resolution, 0 children enumerated, 0 actions, 0 polling. See
         // QBridgeAccessibility.readElementRange and
         // docs/PHASE_2BJ_SEMANTIC_ELEMENT_RANGE_READ.md for the full contract.
-        "ui.read_element_range": ("ui", .level0ReadOnly)
+        "ui.read_element_range": ("ui", .level0ReadOnly),
+        // Phase 2BK: semantic element action enumeration — LEVEL 0 (READ-ONLY). Reads a
+        // semantically-identified element's supported Accessibility action names via
+        // AXUIElementCopyActionNames — a distinct C API from the AXAttributeConstants.h surface
+        // every prior capability reads, never previously used anywhere in this codebase. Every
+        // existing mutation capability hard-codes a specific action (kAXPressAction/
+        // kAXIncrementAction/kAXDecrementAction) chosen per-role by the implementation; this is
+        // the first capability that asks an element what it ACTUALLY supports, including
+        // app-defined custom actions (NSAccessibilityCustomAction) no fixed role-based policy
+        // could anticipate. Reuses QAXElementReadRolePolicy (Phase 2J) unmodified — no broader,
+        // arbitrary-role allowlist is introduced. Application identity is resolved by exact
+        // matching via QBridgeAccessibility.resolveExactRunningApplication; target identity
+        // resolved via the existing collectMatches/snapshotIfMatches primitives, identical to
+        // ui.read_element_value. SECURITY-CRITICAL INVARIANT: the returned action names are DATA,
+        // not AUTHORIZATION — this capability NEVER calls AXUIElementPerformAction, NEVER grants
+        // permissions, NEVER creates approvals or standing grants; discovering that an action
+        // name exists never itself authorizes any future action, which must independently pass
+        // its own full capability/risk/approval/execution-identity pipeline regardless of this
+        // capability ever having been called. Registered under toolFamily "ui" — not
+        // "perception" — since action names are structural UI-affordance labels (the same class
+        // as identifier/title metadata every list_* capability already exposes without
+        // redaction), never typed free-form content requiring the sanitize-before-persist
+        // boundary. Bounded to exactly 1 element touched, 0 traversal depth, 0 children
+        // enumerated, 0 actions PERFORMED (this is discovery-only), 0 polling, and at most 16
+        // returned action-name strings (each individually length-bounded) — exceeding either
+        // bound fails closed rather than silently truncating. No mutation, no approval, no
+        // recovery: a read that does not throw IS its own result. See
+        // QBridgeAccessibility.listElementActions and
+        // docs/PHASE_2BK_SEMANTIC_ELEMENT_ACTION_ENUMERATION.md for the full contract.
+        "ui.list_element_actions": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

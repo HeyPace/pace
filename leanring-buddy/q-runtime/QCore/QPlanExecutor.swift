@@ -841,6 +841,17 @@ public final class QPlanExecutor: Sendable {
             // only, mirroring the more conservative pattern ui.read_focused_element/
             // ui.read_application_state already established for their own evidence strings).
             return .elementRangeReadSucceeded(applicationName: applicationName, role: role)
+        } else if action.actionName == "ui.list_element_actions",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let actionCountString = result.outputData["actionCount"],
+                  let actionCount = Int(actionCountString) {
+            // Level 0, read-only, purely observational — reconstructed from the applicationName/
+            // role arguments used to dispatch, plus the action count captured at read time.
+            // Deliberately NOT threaded through here: any individual action-name string — this
+            // strategy only ever carries an aggregate count, by design (mirrors every other
+            // Level 0 enumeration's aggregate-only evidence discipline).
+            return .elementActionsReadSucceeded(applicationName: applicationName, role: role, actionCount: actionCount)
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],
