@@ -309,7 +309,11 @@ const staticSurfaces: PublicSurface[] = [
       [
         "## Default",
         "",
-        "Pace processes voice, screen, meeting audio, and local journals on the Mac. It does not require an account and does not include analytics or telemetry SDKs.",
+        "Pace processes voice, screen, meeting audio, and local journals on the Mac. The native app does not require an account and does not include analytics or telemetry SDKs.",
+        "",
+        "## Public website analytics",
+        "",
+        "Pages on heypace.app use Microsoft Clarity to measure visits, session interaction, and heatmaps. The website has no Pace account or in-app voice, screen, meeting, or journal data, and the native app does not load Clarity.",
         "",
         "## Explicit network use",
         "",
