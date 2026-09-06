@@ -555,6 +555,18 @@ public enum QVerificationStrategy: Sendable {
     /// identity, and the observed `isModal` boolean itself — unlike button/label text, a single
     /// structural state boolean carries no privacy risk, so it is safe to include directly.
     case windowModalStateReadSucceeded(applicationName: String, windowTitle: String?, isModal: Bool)
+    /// Phase 2BP: semantic element parameterized-attribute-name enumeration verification (Level 0,
+    /// read-only). Like every other Level 0 read's verification, there is no separate physical
+    /// state to re-observe after the fact — the read's own success/failure, established entirely
+    /// inside `QBridgeAccessibility.listElementParameterizedAttributeNames` (exact
+    /// application/target resolution, a successfully-read and well-formed, bounded
+    /// parameterized-attribute-names collection), already IS the ground truth. This strategy
+    /// checks the execution result's own `success` flag as a genuine, meaningful assertion — never
+    /// a bare `{ true }` bypass — and independently re-validates the count against the permitted
+    /// bound rather than blindly trusting the dispatch layer. It never invokes any parameterized
+    /// attribute and never mutates anything. Evidence carries only the application name, role, and
+    /// an aggregate parameterized-attribute-name COUNT — never any individual name string.
+    case elementParameterizedAttributeNamesReadSucceeded(applicationName: String, role: String, parameterizedAttributeCount: Int)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1675,6 +1687,24 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Window modal state read for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) status=failed"
+                )
+            }
+
+        case .elementParameterizedAttributeNamesReadSucceeded(let applicationName, let role, let parameterizedAttributeCount):
+            guard parameterizedAttributeCount >= 0, parameterizedAttributeCount <= 32 else {
+                return .failed(
+                    reason: "Parameterized attribute count (\(parameterizedAttributeCount)) for application '\(applicationName)' is outside the permitted bound [0, 32].",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) parameterizedAttributeCount=\(parameterizedAttributeCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Element parameterized attribute name enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
                 )
             }
 

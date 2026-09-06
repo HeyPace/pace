@@ -831,6 +831,22 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// never assumed well-formed merely because the copy call itself reported success. Fails
     /// closed rather than fabricating a Boolean.
     case windowModalStateMalformed
+    /// Phase 2BP: `AXUIElementCopyParameterizedAttributeNames` succeeded but the returned value
+    /// could not be cast to `[String]` — the returned value is treated as untrusted external data,
+    /// never assumed to be a well-formed array merely because the copy call itself reported
+    /// success, mirroring `attributeNamesCollectionMalformed`'s identical discipline.
+    case parameterizedAttributeNamesCollectionMalformed
+    /// Phase 2BP: the target element's supported-parameterized-attribute-names count exceeds this
+    /// capability's defensive safe bound (32, reusing `maxElementAttributesCount` — parameterized
+    /// attributes are a sibling enumeration surface to plain attributes, not a distinct category
+    /// warranting its own bound) — mirrors `attributeNamesCollectionExceedsSafeBound`'s identical
+    /// fail-closed (never silently truncated) discipline.
+    case parameterizedAttributeNamesCollectionExceedsSafeBound(Int)
+    /// Phase 2BP: a single parameterized-attribute-name string exceeds this capability's defensive
+    /// safe length bound (256 characters, reusing `maxAttributeNameLength`) — fails closed rather
+    /// than returning an arbitrarily large model-visible string. Carries only the offending
+    /// length, never the string content itself.
+    case parameterizedAttributeNameExceedsSafeLength(Int)
 
     public var description: String {
         switch self {
@@ -1110,6 +1126,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The window's modal state could not be read due to an Accessibility API failure: \(reason)."
         case .windowModalStateMalformed:
             return "The window's modal state attribute could not be read as a well-formed Boolean."
+        case .parameterizedAttributeNamesCollectionMalformed:
+            return "The target element's supported parameterized attribute names could not be read as a well-formed collection."
+        case .parameterizedAttributeNamesCollectionExceedsSafeBound(let count):
+            return "Parameterized attribute names collection count (\(count)) exceeds this capability's defensive safe bound."
+        case .parameterizedAttributeNameExceedsSafeLength(let length):
+            return "A parameterized attribute name (\(length) characters) exceeds this capability's defensive safe length bound."
         }
     }
 
@@ -1254,6 +1276,9 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .titleReferenceMetadataExceedsSafeLength: return "AX_TITLE_REFERENCE_METADATA_EXCEEDS_SAFE_LENGTH"
         case .windowModalStateReadFailed: return "AX_WINDOW_MODAL_STATE_READ_FAILED"
         case .windowModalStateMalformed: return "AX_WINDOW_MODAL_STATE_MALFORMED"
+        case .parameterizedAttributeNamesCollectionMalformed: return "AX_PARAMETERIZED_ATTRIBUTE_NAMES_COLLECTION_MALFORMED"
+        case .parameterizedAttributeNamesCollectionExceedsSafeBound: return "AX_PARAMETERIZED_ATTRIBUTE_NAMES_COLLECTION_EXCEEDS_SAFE_BOUND"
+        case .parameterizedAttributeNameExceedsSafeLength: return "AX_PARAMETERIZED_ATTRIBUTE_NAME_EXCEEDS_SAFE_LENGTH"
         }
     }
 }
@@ -1384,6 +1409,44 @@ public struct QAXElementAttributeNamesMetadata: Sendable, Equatable, Codable {
         self.applicationName = applicationName
         self.role = role
         self.attributeNames = attributeNames
+    }
+}
+
+/// A point-in-time snapshot of a semantically-identified element's supported PARAMETERIZED
+/// Accessibility attribute NAMES (never values, never parameters), captured by
+/// `ui.list_element_parameterized_attribute_names` (Phase 2BP). This is the third and final
+/// sibling in the "what can I ask this element" enumeration family alongside
+/// `QAXElementActionsMetadata` (`AXUIElementCopyActionNames`, Phase 2BK) and
+/// `QAXElementAttributeNamesMetadata` (`AXUIElementCopyAttributeNames`, Phase 2BL) — a distinct,
+/// parallel AX API surface (`AXUIElementCopyParameterizedAttributeNames`) that answers "which
+/// queries requiring a parameter (e.g. `AXCellForColumnAndRow`, `AXLineForIndex`) does this
+/// element support". `parameterizedAttributeNames` is DATA describing which parameterized queries
+/// the element reports it supports — it is NOT authorization to invoke any of them; discovering
+/// that `"AXLineForIndex"` is a supported parameterized attribute name never itself grants any
+/// capability, approval, or standing authority to invoke it. Any actual parameterized-attribute
+/// invocation (`AXUIElementCopyParameterizedAttributeValue`) must independently go through its own
+/// future, dedicated semantic capability and that capability's own role/privacy/security policy,
+/// wholly unaffected by this capability ever having been called — this capability itself NEVER
+/// calls `AXUIElementCopyParameterizedAttributeValue`. Bounded to at most
+/// `maxElementAttributesCount` (32, reused verbatim from `ui.list_element_attributes` — a sibling
+/// enumeration surface, not a distinct category warranting its own bound) entries, each
+/// individually bounded to `maxAttributeNameLength` (256 characters, also reused verbatim) — never
+/// an unbounded or arbitrarily large collection, and never deduplicated (the returned array is
+/// passed through exactly as the OS reports it). No raw `AXUIElement`, no coordinates, and no
+/// parameterized-attribute VALUES of any kind ever appear in this type.
+public struct QAXElementParameterizedAttributeNamesMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let parameterizedAttributeNames: [String]
+
+    public init(
+        applicationName: String,
+        role: String,
+        parameterizedAttributeNames: [String]
+    ) {
+        self.applicationName = applicationName
+        self.role = role
+        self.parameterizedAttributeNames = parameterizedAttributeNames
     }
 }
 
@@ -4633,6 +4696,131 @@ extension QBridgeAccessibility {
                 applicationName: applicationName,
                 role: role,
                 attributeNames: rawAttributeNames
+            )
+        }.value
+    }
+
+    // MARK: - Semantic Element Parameterized Attribute Name Enumeration (Phase 2BP)
+    //
+    // ui.list_element_parameterized_attribute_names — a Level 0, read-only, zero-mutation, purely
+    // OBSERVATIONAL read of a semantically-identified element's supported PARAMETERIZED
+    // Accessibility attribute names via AXUIElementCopyParameterizedAttributeNames — the third and
+    // final sibling in the "what can I ask this element" enumeration family alongside
+    // ui.list_element_actions (Phase 2BK, AXUIElementCopyActionNames) and
+    // ui.list_element_attributes (Phase 2BL, AXUIElementCopyAttributeNames), completing that
+    // architectural trio. Reuses QAXElementReadRolePolicy (Phase 2J) unmodified — no broader,
+    // arbitrary-role allowlist is introduced. SECURITY-CRITICAL INVARIANT: the returned
+    // parameterized-attribute names are DATA, not AUTHORIZATION — this capability NEVER calls
+    // AXUIElementCopyParameterizedAttributeValue (no parameterized attribute is ever actually
+    // invoked with any parameter), NEVER calls AXUIElementPerformAction or
+    // AXUIElementSetAttributeValue, NEVER grants permissions, NEVER creates approvals or standing
+    // grants; discovering that a parameterized attribute name like "AXLineForIndex" exists never
+    // itself authorizes any future invocation of it, which must independently pass its own full
+    // capability/risk/approval/execution-identity pipeline via a dedicated future capability,
+    // completely unaffected by this capability ever having been called.
+
+    /// Resolves exactly one semantic target on `QAXElementReadRolePolicy`'s allowlist and reads its
+    /// supported parameterized Accessibility attribute names via
+    /// `AXUIElementCopyParameterizedAttributeNames` — a purely observational call;
+    /// `AXUIElementCopyParameterizedAttributeValue` is never invoked anywhere in this method. Fails
+    /// closed (throws `QAXInteractionError`) on a disallowed/secure role, missing criteria,
+    /// permission absence, application/target absence or ambiguity, a stale/drifted target, a
+    /// malformed returned collection, a parameterized-attribute-name count exceeding
+    /// `maxElementAttributesCount` (32, reused verbatim — a sibling enumeration surface to plain
+    /// attribute names, not a distinct category warranting its own bound), or any single
+    /// parameterized-attribute name exceeding `maxAttributeNameLength` (256 characters, also reused
+    /// verbatim) — never silently truncates, never fabricates a result. `kAXErrorAttributeUnsupported`,
+    /// `kAXErrorParameterizedAttributeUnsupported`, and `kAXErrorNotImplemented` are treated as a
+    /// valid, expected EMPTY result (`success == true`, `parameterizedAttributeNames == []`) —
+    /// many elements genuinely support zero parameterized attributes, and this is not an error;
+    /// every other `AXError` fails closed instead.
+    public func listElementParameterizedAttributeNames(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXElementParameterizedAttributeNamesMetadata {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Secure field first, for a specific diagnostic; then the general allowlist, which would
+        // also reject AXSecureTextField on its own (it is never listed) — belt and suspenders,
+        // identical discipline to listElementActions'/listElementAttributes' own checks.
+        guard role != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+        guard QAXElementReadRolePolicy.isAllowedReadRole(role) else {
+            throw QAXInteractionError.disallowedReadRole(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // parameterized-attribute-name read and refuse on any drift — identical discipline to
+            // every prior AX capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before parameterized attribute enumeration")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and parameterized attribute enumeration")
+            }
+
+            // AXUIElementCopyParameterizedAttributeNames — the discovery call itself. Purely
+            // observational: never AXUIElementCopyParameterizedAttributeValue for any of the
+            // discovered names, never AXUIElementSetAttributeValue, never
+            // AXUIElementPerformAction.
+            var parameterizedAttributeNamesValue: CFArray?
+            let copyResult = AXUIElementCopyParameterizedAttributeNames(targetElement, &parameterizedAttributeNamesValue)
+
+            switch copyResult {
+            case .success:
+                break
+            case .attributeUnsupported, .parameterizedAttributeUnsupported, .notImplemented:
+                // Genuine, expected absence — many elements support zero parameterized
+                // attributes at all. Never an error; a valid empty result.
+                return QAXElementParameterizedAttributeNamesMetadata(
+                    applicationName: applicationName,
+                    role: role,
+                    parameterizedAttributeNames: []
+                )
+            default:
+                throw QAXInteractionError.parameterizedAttributeNamesCollectionMalformed
+            }
+            guard let parameterizedAttributeNamesValue else {
+                throw QAXInteractionError.parameterizedAttributeNamesCollectionMalformed
+            }
+            // The returned value is treated as untrusted external data — success from the copy
+            // call is never itself sufficient proof of a well-formed [String] array.
+            guard let rawParameterizedAttributeNames = parameterizedAttributeNamesValue as? [String] else {
+                throw QAXInteractionError.parameterizedAttributeNamesCollectionMalformed
+            }
+            guard rawParameterizedAttributeNames.count <= Self.maxElementAttributesCount else {
+                throw QAXInteractionError.parameterizedAttributeNamesCollectionExceedsSafeBound(rawParameterizedAttributeNames.count)
+            }
+            for parameterizedAttributeName in rawParameterizedAttributeNames {
+                guard parameterizedAttributeName.count <= Self.maxAttributeNameLength else {
+                    throw QAXInteractionError.parameterizedAttributeNameExceedsSafeLength(parameterizedAttributeName.count)
+                }
+            }
+
+            return QAXElementParameterizedAttributeNamesMetadata(
+                applicationName: applicationName,
+                role: role,
+                parameterizedAttributeNames: rawParameterizedAttributeNames
             )
         }.value
     }

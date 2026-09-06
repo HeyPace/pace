@@ -892,6 +892,18 @@ public final class QPlanExecutor: Sendable {
             // button/label text).
             let windowTitle = result.outputData["windowTitle"].flatMap { $0.isEmpty ? nil : $0 }
             return .windowModalStateReadSucceeded(applicationName: applicationName, windowTitle: windowTitle, isModal: isModalString == "true")
+        } else if action.actionName == "ui.list_element_parameterized_attribute_names",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let parameterizedAttributeCountString = result.outputData["parameterizedAttributeCount"],
+                  let parameterizedAttributeCount = Int(parameterizedAttributeCountString) {
+            // Level 0, read-only, purely observational — reconstructed from the applicationName/
+            // role arguments used to dispatch, plus the parameterized-attribute count captured at
+            // read time. Deliberately NOT threaded through here: any individual parameterized
+            // attribute-name string — this strategy only ever carries an aggregate count, by
+            // design (mirrors ui.list_element_actions'/ui.list_element_attributes' own identical
+            // aggregate-only evidence discipline).
+            return .elementParameterizedAttributeNamesReadSucceeded(applicationName: applicationName, role: role, parameterizedAttributeCount: parameterizedAttributeCount)
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

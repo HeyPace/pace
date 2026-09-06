@@ -156,6 +156,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_window_modal_state":
             result = await executeReadWindowModalState(request: request)
 
+        case "ui.list_element_parameterized_attribute_names":
+            result = await executeListElementParameterizedAttributeNames(request: request)
+
         case "ui.set_element_state":
             result = await executeSetElementState(request: request)
 
@@ -1209,6 +1212,88 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading window modal state: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2BP: semantic element parameterized attribute name enumeration (Level 0, read-only,
+    /// purely observational). Resolves a semantically-identified element and reads its supported
+    /// PARAMETERIZED Accessibility attribute names via
+    /// `AXUIElementCopyParameterizedAttributeNames` — never invoking
+    /// `AXUIElementCopyParameterizedAttributeValue` for any of the discovered names. Discovered
+    /// parameterized attribute names are DATA, not authorization: discovering that a name like
+    /// `"AXLineForIndex"` exists never itself grants any capability to invoke it; a future
+    /// invocation must independently go through its own dedicated capability and that capability's
+    /// own full role/privacy/security policy, completely unaffected by this capability ever having
+    /// been called. `kAXErrorAttributeUnsupported`/`kAXErrorParameterizedAttributeUnsupported`/
+    /// `kAXErrorNotImplemented` are handled inside `QBridgeAccessibility` as a valid, expected empty
+    /// result — never an error. Every `QAXInteractionError` failure mode is caught here and
+    /// converted into a deterministic, non-throwing `QActionResult`; this method never fabricates
+    /// success.
+    private func executeListElementParameterizedAttributeNames(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let parameterizedAttributes = try await QBridgeAccessibility.shared.listElementParameterizedAttributeNames(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "parameterizedAttributeCount": "\(parameterizedAttributes.parameterizedAttributeNames.count)"
+            ]
+            for (index, parameterizedAttributeName) in parameterizedAttributes.parameterizedAttributeNames.enumerated() {
+                outputData["parameterizedAttribute\(index)"] = parameterizedAttributeName
+            }
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed \(parameterizedAttributes.parameterizedAttributeNames.count) supported parameterized attribute name(s) for \(role) element in \(applicationName): \(parameterizedAttributes.parameterizedAttributeNames.joined(separator: ", ")). This is observation only — no parameterized attribute was invoked, and none of these names constitute authorization to invoke one later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing element parameterized attribute names: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

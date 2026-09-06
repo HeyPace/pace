@@ -943,7 +943,43 @@ public struct QModelPlanParser: Sendable {
         // read that does not throw IS its own result. See
         // QBridgeAccessibility.readWindowModalState and
         // docs/PHASE_2BO_SEMANTIC_WINDOW_MODAL_STATE.md for the full contract.
-        "ui.read_window_modal_state": ("ui", .level0ReadOnly)
+        "ui.read_window_modal_state": ("ui", .level0ReadOnly),
+        // Phase 2BP: semantic element parameterized attribute name enumeration — LEVEL 0
+        // (READ-ONLY). Reads a semantically-identified element's supported PARAMETERIZED
+        // Accessibility attribute names via AXUIElementCopyParameterizedAttributeNames — the third
+        // and final sibling in the "what can I ask this element" enumeration family alongside
+        // ui.list_element_actions (Phase 2BK, AXUIElementCopyActionNames) and
+        // ui.list_element_attributes (Phase 2BL, AXUIElementCopyAttributeNames), completing that
+        // architectural trio. Where those two answer "what can this element DO" and "what can I
+        // ask this element directly", this one answers "what queries requiring a PARAMETER (e.g.
+        // AXCellForColumnAndRow on a table, AXLineForIndex on a text element) does this element
+        // support". Reuses QAXElementReadRolePolicy (Phase 2J) unmodified — no broader,
+        // arbitrary-role allowlist is introduced. Application identity is resolved by exact
+        // matching via QBridgeAccessibility.resolveExactRunningApplication; target identity
+        // resolved via the existing collectMatches/snapshotIfMatches primitives, identical to
+        // ui.list_element_attributes. SECURITY-CRITICAL INVARIANT: discovered parameterized
+        // attribute NAMES are DATA, not AUTHORIZATION — this capability NEVER calls
+        // AXUIElementCopyParameterizedAttributeValue (no parameterized attribute is ever actually
+        // invoked with any parameter), NEVER calls AXUIElementSetAttributeValue or
+        // AXUIElementPerformAction; discovering that a name like "AXLineForIndex" exists never
+        // itself authorizes a future invocation of it, which must independently go through its own
+        // dedicated future capability and that capability's own full role/privacy/security policy.
+        // kAXErrorAttributeUnsupported/kAXErrorParameterizedAttributeUnsupported/
+        // kAXErrorNotImplemented are treated as a valid, expected EMPTY result — many elements
+        // genuinely support zero parameterized attributes, and this is never an error; any other
+        // AXError fails closed. Registered under toolFamily "ui" — not "perception" — since
+        // parameterized attribute names are a near-fixed, short structural vocabulary defined by
+        // Apple's own AX API, never free-form typed content requiring the sanitize-before-persist
+        // boundary. Bounded to exactly 1 element touched, 0 traversal depth, 0 children
+        // enumerated, 0 actions performed, 0 polling, and at most 32 returned parameterized
+        // attribute-name strings (reusing maxElementAttributesCount — a sibling enumeration
+        // surface, not a distinct category warranting its own bound), each individually
+        // length-bounded (reusing maxAttributeNameLength) — exceeding either bound fails closed
+        // rather than silently truncating. No mutation, no approval, no recovery: a read that does
+        // not throw IS its own result. See
+        // QBridgeAccessibility.listElementParameterizedAttributeNames and
+        // docs/PHASE_2BP_SEMANTIC_PARAMETERIZED_ATTRIBUTE_NAMES.md for the full contract.
+        "ui.list_element_parameterized_attribute_names": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.
