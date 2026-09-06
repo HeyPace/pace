@@ -198,6 +198,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_table_rows":
             result = await executeListTableRows(request: request)
 
+        case "ui.list_table_columns":
+            result = await executeListTableColumns(request: request)
+
         case "ui.list_outline_items":
             result = await executeListOutlineItems(request: request)
 
@@ -2645,6 +2648,94 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing table rows: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2BI: executes read-only table column-header discovery. Result summary carries an
+    /// aggregate count only, never leaking individual column titles to durable storage (per-column
+    /// titles are still returned in outputData for the model's own reasoning, mirroring
+    /// ui.list_table_rows'/ui.list_browser_columns' identical convention).
+    private func executeListTableColumns(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+
+        let role = request.parameters["role"] ?? "AXTable"
+        guard QAXTableRolePolicy.isAllowedTableRole(role) else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target role '\(role)' is not an allowed table target.",
+                error: "AX_DISALLOWED_ROLE"
+            )
+        }
+
+        let identifier = request.parameters["identifier"] ?? request.parameters["id"]
+        let title = request.parameters["title"] ?? request.parameters["label"]
+
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an identifier or title to match semantically.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listTableColumns(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "columnCount": "\(metadata.columnCount)"
+            ]
+            if let tableTitle = metadata.tableTitle {
+                outputData["tableTitle"] = tableTitle
+            }
+            if let tableIdentifier = metadata.tableIdentifier {
+                outputData["tableIdentifier"] = tableIdentifier
+            }
+
+            for column in metadata.columns {
+                let idx = column.index
+                outputData["column\(idx).index"] = "\(idx)"
+                outputData["column\(idx).title"] = column.title ?? ""
+                outputData["column\(idx).identifier"] = column.identifier ?? ""
+                outputData["column\(idx).role"] = column.role
+                outputData["column\(idx).subrole"] = column.subrole ?? ""
+            }
+
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Enumerated \(metadata.columnCount) table column(s) for table in application '\(applicationName)'. This is a point-in-time snapshot only — ordering is not meaningful, and this result is never itself an actionable target; any subsequent action must independently resolve its own fresh target.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing table columns: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

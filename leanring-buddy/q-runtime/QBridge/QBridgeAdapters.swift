@@ -738,6 +738,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// authoritative state fields `ui.read_application_state` exists to report; without a reliably
     /// readable pair, the whole read is refused rather than defaulting either to `false`.
     case applicationStateReadFailed
+    /// Phase 2BI: the direct table column-header count for a table exceeds this capability's
+    /// defensive safe bound (32) — mirrors `tableRowCollectionExceedsSafeBound`'s/
+    /// `browserColumnCollectionExceedsSafeBound`'s identical discipline.
+    case tableColumnCollectionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -981,6 +985,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The currently focused element is not within window '\(title)'."
         case .applicationStateReadFailed:
             return "The application's authoritative hidden/frontmost state could not be read."
+        case .tableColumnCollectionExceedsSafeBound(let count):
+            return "Table column collection count (\(count)) exceeds this capability's defensive safe bound."
         }
     }
 
@@ -1107,6 +1113,7 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .focusedElementApplicationMismatch: return "AX_FOCUSED_ELEMENT_APPLICATION_MISMATCH"
         case .focusedElementWindowMismatch: return "AX_FOCUSED_ELEMENT_WINDOW_MISMATCH"
         case .applicationStateReadFailed: return "AX_APPLICATION_STATE_READ_FAILED"
+        case .tableColumnCollectionExceedsSafeBound: return "AX_TABLE_COLUMN_COLLECTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -2438,6 +2445,60 @@ public struct QAXTableMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One table column's safe, non-sensitive identity metadata, as returned by
+/// `ui.list_table_columns` (Phase 2BI). This is the column HEADER's own identity only — cell
+/// contents are strictly out of scope, exactly like `ui.list_table_rows`'s own row-identity-only
+/// contract.
+public struct QAXTableColumnItemMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let role: String
+    public let subrole: String?
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        role: String = "AXColumn",
+        subrole: String? = nil
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.role = role
+        self.subrole = subrole
+    }
+}
+
+/// A table's safe, non-sensitive direct column-header metadata, as returned by
+/// `ui.list_table_columns` (Phase 2BI). Deliberately carries ONLY the fields this capability's
+/// contract allows — never raw `AXUIElement` references, never cell contents, never a recursive
+/// descent into any column's own contents. This is a POINT-IN-TIME SNAPSHOT ONLY — informational
+/// only, never itself an actionable target reference; any subsequent capability must independently
+/// perform its own fresh, exact target resolution.
+public struct QAXTableColumnCollectionMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let tableTitle: String?
+    public let tableIdentifier: String?
+    public let columnCount: Int
+    public let columns: [QAXTableColumnItemMetadata]
+
+    public init(
+        applicationName: String,
+        tableTitle: String?,
+        tableIdentifier: String?,
+        columnCount: Int,
+        columns: [QAXTableColumnItemMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.tableTitle = tableTitle
+        self.tableIdentifier = tableIdentifier
+        self.columnCount = columnCount
+        self.columns = columns
+    }
+}
+
 /// One outline item's safe, non-sensitive identity metadata, as returned by `ui.list_outline_items`
 /// (Phase 2AF). Cell contents are strictly out of scope.
 public struct QAXOutlineRowItemMetadata: Sendable, Equatable, Codable {
@@ -3658,6 +3719,8 @@ extension QBridgeAccessibility {
     /// Phase 2AT: defensive bound on split pane enumeration.
     private static let maxDirectSplitPanesCount = 16
     private static let maxDirectBrowserColumnsCount = 32
+    /// Phase 2BI: defensive bound on table column-header enumeration.
+    private static let maxDirectTableColumnsCount = 32
     private static let maxDirectPopoversCount = 16
     private static let maxDirectColorWellsCount = 32
     private static let maxDirectProgressIndicatorsCount = 32
@@ -7160,6 +7223,119 @@ extension QBridgeAccessibility {
                 rowCount: rowsMetadata.count,
                 selectedRowCount: selectedCount,
                 rows: rowsMetadata
+            )
+        }.value
+    }
+
+    /// Phase 2BI: semantic table column enumeration (Level 0, read-only). Enumerates direct
+    /// column-header elements belonging to exactly ONE named AXTable in an application via
+    /// kAXColumnHeaderUIElementsAttribute — a direct child read only, never a recursive descent
+    /// into any column's own contents (cell data is strictly out of scope, exactly like
+    /// `ui.list_table_rows`'s own row-identity-only contract). No mutation, no press, no approval,
+    /// no recovery. Reuses `QAXTableRolePolicy` (Phase 2AE) unmodified — the identical single-role
+    /// allowlist (`AXTable` only) `ui.list_table_rows` already establishes; no new role policy was
+    /// introduced. Application identity is resolved by exact matching via
+    /// `resolveExactRunningApplication`. Bounded by `maxDirectTableColumnsCount` (32) — a maximum
+    /// of 33 AX elements are ever touched in a single call (the table plus at most 32 columns).
+    /// This is a POINT-IN-TIME SNAPSHOT ONLY: result is informational and never enters durable
+    /// persistence snapshots beyond an aggregate count.
+    public func listTableColumns(
+        applicationName: String,
+        role: String = "AXTable",
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXTableColumnCollectionMetadata {
+        guard QAXTableRolePolicy.isAllowedTableRole(role) else {
+            throw QAXInteractionError.disallowedTableRole(role)
+        }
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target table element is no longer resolvable immediately before enumeration")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target table element identity changed between observation and enumeration")
+            }
+
+            // DIRECT CHILD ONLY: kAXColumnHeaderUIElementsAttribute is the OS's own authoritative
+            // list of a table's header elements — never inferred from row content, never a
+            // recursive descent. Falls back to filtering the table's own direct children for
+            // role == "AXColumn" only if the header attribute itself is absent/unreadable (the
+            // same dual-strategy robustness ui.list_table_rows/ui.list_browser_columns already
+            // apply for their own analogous collections).
+            var rawColumnElements: [AXUIElement] = []
+            var headersValue: CFTypeRef?
+            let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXColumnHeaderUIElementsAttribute as CFString, &headersValue)
+            if copyResult == .success, let array = headersValue as? [AXUIElement] {
+                rawColumnElements = array
+            } else if let children = Self.childrenAttribute(of: targetElement) {
+                rawColumnElements = children.filter {
+                    Self.axStringAttribute(kAXRoleAttribute, of: $0) == "AXColumn"
+                }
+            }
+
+            // Every candidate's OWN kAXRoleAttribute is independently re-validated as exactly
+            // "AXColumn" before it is ever trusted — the returned value is treated as untrusted
+            // external data, never assumed well-formed merely because the copy call succeeded.
+            var validColumnElements: [AXUIElement] = []
+            for element in rawColumnElements {
+                guard Self.axStringAttribute(kAXRoleAttribute, of: element) == "AXColumn" else {
+                    continue
+                }
+                validColumnElements.append(element)
+            }
+
+            guard validColumnElements.count <= Self.maxDirectTableColumnsCount else {
+                throw QAXInteractionError.tableColumnCollectionExceedsSafeBound(validColumnElements.count)
+            }
+
+            // Direct, non-recursive metadata reads only — never a column's own children, never
+            // cell contents. Exactly two attribute reads per column beyond the role check above:
+            // kAXTitleAttribute (falling back to kAXDescriptionAttribute) and AXIdentifier, plus
+            // kAXSubroleAttribute for structural completeness.
+            var columnsMetadata: [QAXTableColumnItemMetadata] = []
+            columnsMetadata.reserveCapacity(validColumnElements.count)
+
+            for (index, colElement) in validColumnElements.enumerated() {
+                let colTitle = Self.axStringAttribute(kAXTitleAttribute, of: colElement)
+                    ?? Self.axStringAttribute(kAXDescriptionAttribute, of: colElement)
+                let colIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: colElement)
+                let colSubrole = Self.axStringAttribute(kAXSubroleAttribute, of: colElement)
+
+                columnsMetadata.append(
+                    QAXTableColumnItemMetadata(
+                        index: index,
+                        title: colTitle,
+                        identifier: colIdentifier,
+                        role: "AXColumn",
+                        subrole: colSubrole
+                    )
+                )
+            }
+
+            return QAXTableColumnCollectionMetadata(
+                applicationName: applicationName,
+                tableTitle: observedAtVerify.titleOrDescription,
+                tableIdentifier: observedAtVerify.identifier,
+                columnCount: columnsMetadata.count,
+                columns: columnsMetadata
             )
         }.value
     }

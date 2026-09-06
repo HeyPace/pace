@@ -480,6 +480,17 @@ public enum QVerificationStrategy: Sendable {
     /// `{ true }` bypass. Evidence carries only the application name, never the booleans or window
     /// titles themselves.
     case applicationStateReadSucceeded(applicationName: String)
+    /// Phase 2BI: semantic table column enumeration verification (Level 0, read-only). Like every
+    /// other Level 0 enumeration's verification, there is no separate physical state to
+    /// re-observe after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.listTableColumns` (exact application/table resolution, a
+    /// successfully-read and well-formed column collection), already IS the ground truth. This
+    /// strategy deliberately checks the execution result's own `success` flag as a genuine,
+    /// meaningful assertion — never a bare `{ true }` bypass. Evidence carries only the
+    /// application name and a column COUNT, never any individual column's title/identifier —
+    /// consistent with `ui.list_table_rows`'/`ui.list_browser_columns`' own privacy contract that
+    /// per-item content never crosses into persisted evidence text.
+    case tableColumnEnumerationSucceeded(applicationName: String, columnCount: Int)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1504,6 +1515,18 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Application state read for '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) status=failed"
+                )
+            }
+
+        case .tableColumnEnumerationSucceeded(let applicationName, let columnCount):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) tableRole=AXTable columnCount=\(columnCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Table column enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) tableRole=AXTable status=failed"
                 )
             }
 

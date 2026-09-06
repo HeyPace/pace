@@ -747,7 +747,27 @@ public struct QModelPlanParser: Sendable {
         // referenced windows), zero recursive traversal, zero children enumerated, zero actions,
         // zero polling. See QBridgeAccessibility.readApplicationState and
         // docs/PHASE_2BH_SEMANTIC_APPLICATION_STATE_READ.md for the full contract.
-        "ui.read_application_state": ("app", .level0ReadOnly)
+        "ui.read_application_state": ("app", .level0ReadOnly),
+        // Phase 2BI: semantic table column enumeration — LEVEL 0 (READ-ONLY). Enumerates direct
+        // column-header elements belonging to exactly ONE named AXTable in an application via
+        // kAXColumnHeaderUIElementsAttribute — a direct child read only, never a recursive descent
+        // into any column's own contents. Cell data is strictly out of scope, exactly like
+        // ui.list_table_rows' own row-identity-only contract; this capability complements it by
+        // finally surfacing what each column MEANS, closing an asymmetry independently flagged
+        // across three consecutive discovery phases (2BG, 2BH, 2BI) as the strongest still-
+        // unimplemented gap. No mutation, no press, no approval, no recovery. Reuses
+        // QAXTableRolePolicy (Phase 2AE) unmodified — the identical single-role allowlist
+        // (AXTable only) ui.list_table_rows already establishes; no new role policy was
+        // introduced. Application identity is resolved by exact matching via
+        // QBridgeAccessibility.resolveExactRunningApplication. Bounded by a local defensive
+        // ceiling (maxDirectTableColumnsCount = 32) — a maximum of 33 AX elements are ever
+        // touched in a single call (the table plus at most 32 columns), traversal depth never
+        // exceeds 1, zero actions, zero polling. This is a POINT-IN-TIME SNAPSHOT ONLY: result is
+        // informational and never enters durable persistence snapshots beyond an aggregate count;
+        // every subsequent capability must independently perform its own fresh, exact target
+        // resolution. See QBridgeAccessibility.listTableColumns and
+        // docs/PHASE_2BI_SEMANTIC_TABLE_COLUMN_ENUMERATION.md for the full contract.
+        "ui.list_table_columns": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

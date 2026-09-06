@@ -822,6 +822,15 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual row title or identifier — this strategy only ever
             // carries aggregate counts, by design.
             return .tableRowEnumerationSucceeded(applicationName: applicationName, rowCount: rowCount, selectedCount: selectedCount)
+        } else if action.actionName == "ui.list_table_columns",
+                  let applicationName = action.arguments["applicationName"],
+                  let columnCountString = result.outputData["columnCount"],
+                  let columnCount = Int(columnCountString) {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the column count captured at read time. Deliberately NOT threaded
+            // through here: any individual column title or identifier — this strategy only ever
+            // carries an aggregate count, by design.
+            return .tableColumnEnumerationSucceeded(applicationName: applicationName, columnCount: columnCount)
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],
