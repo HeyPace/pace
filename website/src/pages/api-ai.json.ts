@@ -7,7 +7,7 @@ export const GET: APIRoute = () =>
   new Response(
     JSON.stringify(
       {
-        name: "Pace",
+        name: "HeyPace",
         version: "1",
         url: PRODUCTION_ORIGIN,
         llms: `${PRODUCTION_ORIGIN}/llms.txt`,

@@ -13,11 +13,11 @@ const SITE_URL = "https://heypace.app";
 const OPENAPI_SPEC = {
   openapi: "3.1.0",
   info: {
-    title: "Pace public API",
+    title: "HeyPace public API",
     version: "1.0.0",
     description:
       "Pace is an on-device Mac voice agent that reads your screen and acts with local context. The public web API exposes read-only agent surfaces: the agent catalog, sitemap, llms.txt, and per-page markdown alternates. The voice agent itself runs locally and does not expose a remote API.",
-    contact: { name: "Pace", url: SITE_URL },
+    contact: { name: "HeyPace", url: SITE_URL },
   },
   servers: [{ url: SITE_URL }],
   tags: [{ name: "agent-surfaces", description: "Machine-readable public surfaces" }],
