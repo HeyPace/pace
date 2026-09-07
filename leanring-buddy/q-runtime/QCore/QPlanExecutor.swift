@@ -956,6 +956,26 @@ public final class QPlanExecutor: Sendable {
                 selectionLength: selectionLength,
                 totalCharacterCount: totalCharacterCount
             )
+        } else if action.actionName == "ui.read_column_sort_direction",
+                  let applicationName = action.arguments["applicationName"],
+                  let hasSortDirectionString = result.outputData["hasSortDirection"] {
+            // Level 0, read-only, purely observational — reconstructed from the applicationName
+            // argument used to dispatch, plus the resolved column's own identity and observed sort
+            // direction captured at read time. Deliberately NOT threaded through here: any
+            // table/cell content — this strategy only ever carries application identity, column
+            // identity, and the sort-direction fact itself (or its absence), by design (a bounded
+            // 3-value structural enum carries no privacy risk, unlike table/cell content).
+            let columnIdentifier = result.outputData["columnIdentifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let columnTitle = result.outputData["columnTitle"].flatMap { $0.isEmpty ? nil : $0 }
+            let hasSortDirection = hasSortDirectionString == "true"
+            let sortDirection = hasSortDirection ? result.outputData["sortDirection"] : nil
+            return .columnSortDirectionReadSucceeded(
+                applicationName: applicationName,
+                columnIdentifier: columnIdentifier,
+                columnTitle: columnTitle,
+                hasSortDirection: hasSortDirection,
+                sortDirection: sortDirection
+            )
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

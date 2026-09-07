@@ -908,6 +908,33 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// Never silently clamped or truncated; fails the whole read closed instead, carrying only the
     /// offending numeric relationship, never any selected text content.
     case textSelectionStateInconsistent(String)
+    /// Phase 2BT: the target's role is not on `QAXColumnReadRolePolicy`'s allowlist (`AXColumn`
+    /// only) — thrown before any AX tree walk, mirroring every prior narrow-role-policy
+    /// capability's identical fail-closed discipline. The mere fact that a caller supplied some
+    /// other role is never silently coerced into a column search.
+    case disallowedColumnReadRole(String)
+    /// Phase 2BT: `kAXSortDirectionAttribute` could not be read due to an actual Accessibility API
+    /// failure — distinct from `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`, which mean the
+    /// target genuinely does not report a sort-direction concept (this attribute carries no
+    /// "required for all AXColumn elements"-style universal-presence documentation anywhere in
+    /// this SDK) and are never treated as an error. The payload carries the underlying `AXError`,
+    /// never any table/cell content.
+    case columnSortDirectionReadFailed(String)
+    /// Phase 2BT: `kAXSortDirectionAttribute`'s copy call reported success but the returned value
+    /// was neither a `String` (matching AppKit's `NSAccessibilitySortDirectionValue` wire
+    /// representation) nor an `NSNumber` (matching AppKit's `NSAccessibilitySortDirection`
+    /// integer-enum representation) — the returned value is treated as untrusted external data,
+    /// never assumed well-formed merely because the copy call itself reported success. Fails
+    /// closed rather than fabricating a direction.
+    case columnSortDirectionMalformed
+    /// Phase 2BT: `kAXSortDirectionAttribute`'s returned value was of a recognized CFType (String
+    /// or NSNumber) but did not match any of the three documented values
+    /// (`NSAccessibilityAscendingSortDirectionValue`/`NSAccessibilityDescendingSortDirectionValue`/
+    /// `NSAccessibilityUnknownSortDirectionValue`, or their integer-enum equivalents
+    /// `NSAccessibilitySortDirection.ascending`/`.descending`/`.unknown`). Never silently mapped to
+    /// `"none"` or any other fallback — this is its own distinct, dedicated failure. The payload
+    /// carries only the offending raw representation (never any table/cell content).
+    case columnSortDirectionUnexpectedValue(String)
 
     public var description: String {
         switch self {
@@ -1215,6 +1242,14 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target element's total character count is structurally invalid: \(reason)."
         case .textSelectionStateInconsistent(let reason):
             return "The target element's text selection state is internally inconsistent: \(reason)."
+        case .disallowedColumnReadRole(let role):
+            return "Target role '\(role)' is not an allowed column-read target."
+        case .columnSortDirectionReadFailed(let reason):
+            return "The target column's sort direction could not be read due to an Accessibility API failure: \(reason)."
+        case .columnSortDirectionMalformed:
+            return "The target column's sort direction attribute could not be read as a well-formed String or NSNumber."
+        case .columnSortDirectionUnexpectedValue(let reason):
+            return "The target column's sort direction attribute reported an unexpected, undocumented value: \(reason)."
         }
     }
 
@@ -1373,6 +1408,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .characterCountMalformed: return "AX_CHARACTER_COUNT_MALFORMED"
         case .characterCountInvalid: return "AX_CHARACTER_COUNT_INVALID"
         case .textSelectionStateInconsistent: return "AX_TEXT_SELECTION_STATE_INCONSISTENT"
+        case .disallowedColumnReadRole: return "AX_COLUMN_READ_ROLE_NOT_ALLOWED"
+        case .columnSortDirectionReadFailed: return "AX_COLUMN_SORT_DIRECTION_READ_FAILED"
+        case .columnSortDirectionMalformed: return "AX_COLUMN_SORT_DIRECTION_MALFORMED"
+        case .columnSortDirectionUnexpectedValue: return "AX_COLUMN_SORT_DIRECTION_UNEXPECTED_VALUE"
         }
     }
 }
@@ -1631,6 +1670,36 @@ public struct QAXTextSelectionStateMetadata: Sendable, Equatable, Codable {
         self.selectionLocation = selectionLocation
         self.selectionLength = selectionLength
         self.totalCharacterCount = totalCharacterCount
+    }
+}
+
+/// A point-in-time snapshot of a semantically-identified `AXColumn`'s sort-direction state,
+/// captured by `ui.read_column_sort_direction` (Phase 2BT). `sortDirection` is deliberately
+/// `String?`, never a plain `String`: `kAXSortDirectionAttribute` carries no "required for all
+/// AXColumn elements"-style universal-presence documentation anywhere in this SDK, so genuine
+/// attribute absence (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is a valid, expected `nil`
+/// result — never an error, and never conflated with the DISTINCT, equally valid `"none"` case
+/// (the attribute IS present and reports the column is simply not currently used for sorting).
+/// When non-nil, `sortDirection` is always exactly one of `"ascending"`, `"descending"`, or
+/// `"none"` — an undocumented/unrecognized raw value fails the whole read closed instead of ever
+/// being represented as this field's value. No raw `AXUIElement`, no coordinates, no table/cell
+/// content of any kind, ever appear in this type.
+public struct QAXColumnSortDirectionMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let columnIdentifier: String?
+    public let columnTitle: String?
+    public let sortDirection: String?
+
+    public init(
+        applicationName: String,
+        columnIdentifier: String?,
+        columnTitle: String?,
+        sortDirection: String?
+    ) {
+        self.applicationName = applicationName
+        self.columnIdentifier = columnIdentifier
+        self.columnTitle = columnTitle
+        self.sortDirection = sortDirection
     }
 }
 
@@ -2584,6 +2653,20 @@ public enum QAXWindowRolePolicy {
     public static let allowedRoles: Set<String> = ["AXWindow"]
 
     public static func isAllowedWindowRole(_ role: String) -> Bool {
+        allowedRoles.contains(role)
+    }
+}
+
+/// Fail-closed allowlist of Accessibility roles `ui.read_column_sort_direction` (Phase 2BT) may
+/// target — `AXColumn` only, the exact same role `ui.list_table_columns` (Phase 2BI) already
+/// enumerates as children of a table/browser. A new, narrow single-role policy is minted here
+/// (mirroring `QAXWindowRolePolicy`'s identical single-role shape) rather than broadening the
+/// generic `QAXElementReadRolePolicy` — `AXColumn` is a structural table/browser role, not a
+/// user-interactive control, and does not belong in that allowlist's semantics.
+public enum QAXColumnReadRolePolicy {
+    public static let allowedRoles: Set<String> = ["AXColumn"]
+
+    public static func isAllowedColumnReadRole(_ role: String) -> Bool {
         allowedRoles.contains(role)
     }
 }
@@ -5416,6 +5499,151 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.characterCountInvalid("totalCharacterCount=\(totalCharacterCount)")
         }
         return totalCharacterCount
+    }
+
+    // MARK: - Semantic Column Sort Direction Read (Phase 2BT)
+    //
+    // ui.read_column_sort_direction — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL
+    // read of a semantically-identified AXColumn's kAXSortDirectionAttribute. Complements
+    // ui.list_table_columns (Phase 2BI), which enumerates a table's columns but never reads this
+    // attribute. SDK-VERIFIED REPRESENTATION AMBIGUITY (resolved, not assumed): this SDK documents
+    // TWO distinct representations for sort direction — an NSString-based "value" enum
+    // (NSAccessibilitySortDirectionValue, with NSAccessibilityAscendingSortDirectionValue/
+    // NSAccessibilityDescendingSortDirectionValue/NSAccessibilityUnknownSortDirectionValue,
+    // NSAccessibilityConstants.h) intended for the wire-format ATTRIBUTE VALUE, and a separate
+    // NSInteger enum (NSAccessibilitySortDirection: .unknown=0/.ascending=1/.descending=2) intended
+    // for the app-side SETTABLE PROPERTY. Since this codebase cannot empirically observe which
+    // representation a live AXUIElementCopyAttributeValue call actually returns (no TCC-trusted
+    // execution in this environment), this implementation does NOT assume either — it checks the
+    // returned CFType and validates against BOTH sets of REAL, linked Apple-provided symbols
+    // (never a hardcoded guessed literal), accepting whichever one a real AX provider vends.
+    // Genuine absence of the attribute itself (kAXErrorNoValue/kAXErrorAttributeUnsupported) is
+    // treated as valid, expected nil — kAXSortDirectionAttribute carries no "required for all
+    // AXColumn elements"-style documentation — and is NEVER conflated with the equally valid
+    // "none" result (the attribute present, reporting the column is simply not currently sorted).
+
+    /// Resolves exactly one semantic target on `QAXColumnReadRolePolicy`'s allowlist (`AXColumn`
+    /// only) and reads its `kAXSortDirectionAttribute` — a purely observational call; neither
+    /// `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is invoked anywhere in this
+    /// method. Fails closed (throws `QAXInteractionError`) on a disallowed role, missing criteria,
+    /// permission absence, application/target absence or ambiguity, a stale/drifted target, a
+    /// genuine read failure, a malformed returned CFType, or a recognized-CFType-but-undocumented
+    /// value. Genuine absence of the attribute (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`)
+    /// is NEVER an error — it produces `nil`. Never fabricates a direction.
+    public func readColumnSortDirection(
+        applicationName: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXColumnSortDirectionMetadata {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+        let role = "AXColumn"
+        guard QAXColumnReadRolePolicy.isAllowedColumnReadRole(role) else {
+            throw QAXInteractionError.disallowedColumnReadRole(role)
+        }
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // sort-direction read and refuse on any drift — identical discipline to every prior AX
+            // capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target column is no longer resolvable immediately before the sort-direction read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target column identity changed between observation and the sort-direction read")
+            }
+
+            let sortDirection = try Self.resolveColumnSortDirection(of: targetElement)
+
+            return QAXColumnSortDirectionMetadata(
+                applicationName: applicationName,
+                columnIdentifier: observedAtVerify.identifier,
+                columnTitle: observedAtVerify.titleOrDescription,
+                sortDirection: sortDirection
+            )
+        }.value
+    }
+
+    /// Resolves `kAXSortDirectionAttribute` as an optional sanitized `String?`, distinguishing
+    /// genuine absence from a genuine read failure — see the `MARK` section above for the full
+    /// missing-vs-failure rationale AND the representation-ambiguity rationale.
+    /// `kAXErrorNoValue`/`kAXErrorAttributeUnsupported` produce a valid `nil`; any other `AXError`
+    /// fails closed as `columnSortDirectionReadFailed`. A successful copy is validated against
+    /// BOTH documented native representations — never a guessed literal:
+    /// - `String`, compared against the real `NSAccessibilityAscendingSortDirectionValue`/
+    ///   `NSAccessibilityDescendingSortDirectionValue`/`NSAccessibilityUnknownSortDirectionValue`
+    ///   linked AppKit symbols.
+    /// - `NSNumber`, compared against the real `NSAccessibilitySortDirection.ascending`/
+    ///   `.descending`/`.unknown` linked AppKit enum's own `.rawValue`s.
+    /// Any other CFType fails closed as `columnSortDirectionMalformed`; a recognized CFType whose
+    /// value matches neither documented set fails closed as `columnSortDirectionUnexpectedValue` —
+    /// NEVER silently mapped to `"none"` or any other fallback.
+    fileprivate nonisolated static func resolveColumnSortDirection(of targetElement: AXUIElement) throws -> String? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXSortDirectionAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            // Genuine, expected absence — kAXSortDirectionAttribute carries no universal-presence
+            // documentation for AXColumn elements. Never an error.
+            return nil
+        default:
+            throw QAXInteractionError.columnSortDirectionReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value else {
+            throw QAXInteractionError.columnSortDirectionMalformed
+        }
+
+        if let stringValue = value as? String {
+            // `NSAccessibilitySortDirectionValue` is declared `NS_TYPED_ENUM` (non-extensible) in
+            // NSAccessibilityConstants.h, so Swift imports its three constants as cases of the
+            // namespaced enum `NSAccessibility.SortDirectionValue` rather than as raw `String`
+            // constants. `.rawValue` recovers the real, linked Apple wire-format string each case
+            // represents — never a hardcoded guessed literal.
+            switch stringValue {
+            case NSAccessibility.SortDirectionValue.ascending.rawValue:
+                return "ascending"
+            case NSAccessibility.SortDirectionValue.descending.rawValue:
+                return "descending"
+            case NSAccessibility.SortDirectionValue.unknown.rawValue:
+                return "none"
+            default:
+                throw QAXInteractionError.columnSortDirectionUnexpectedValue(stringValue)
+            }
+        }
+
+        if let numberValue = value as? NSNumber {
+            switch numberValue.intValue {
+            case NSAccessibilitySortDirection.ascending.rawValue:
+                return "ascending"
+            case NSAccessibilitySortDirection.descending.rawValue:
+                return "descending"
+            case NSAccessibilitySortDirection.unknown.rawValue:
+                return "none"
+            default:
+                throw QAXInteractionError.columnSortDirectionUnexpectedValue("\(numberValue.intValue)")
+            }
+        }
+
+        throw QAXInteractionError.columnSortDirectionMalformed
     }
 
     /// Best-effort, polymorphic `kAXValueAttribute` reader — text fields/labels typically carry a

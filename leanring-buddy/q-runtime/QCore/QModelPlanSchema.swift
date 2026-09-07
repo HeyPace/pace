@@ -1077,7 +1077,41 @@ public struct QModelPlanParser: Sendable {
         // record. No mutation, no approval, no recovery: a read that does not throw IS its own
         // result. See QBridgeAccessibility.readTextSelectionState and
         // docs/PHASE_2BS_SEMANTIC_TEXT_SELECTION_STATE.md for the full contract.
-        "ui.read_text_selection_state": ("ui", .level0ReadOnly)
+        "ui.read_text_selection_state": ("ui", .level0ReadOnly),
+        // Phase 2BT: semantic column sort-direction read — LEVEL 0 (READ-ONLY). Reads a
+        // semantically-identified AXColumn's kAXSortDirectionAttribute. Complements
+        // ui.list_table_columns (Phase 2BI), which enumerates a table's columns but never reads
+        // this attribute. This SDK documents TWO distinct native representations for sort
+        // direction: an NSString-based value enum (NSAccessibilitySortDirectionValue —
+        // NSAccessibilityAscendingSortDirectionValue/NSAccessibilityDescendingSortDirectionValue/
+        // NSAccessibilityUnknownSortDirectionValue) intended for the wire-format attribute value,
+        // and a separate NSInteger enum (NSAccessibilitySortDirection: unknown=0/ascending=1/
+        // descending=2) intended for the app-side settable property. Rather than assuming either
+        // (this environment cannot empirically observe a live AX round-trip), the implementation
+        // validates the returned value against BOTH sets of real, linked AppKit symbols — never a
+        // hardcoded guessed literal. Genuine absence of the attribute itself
+        // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is a valid, expected nil result —
+        // kAXSortDirectionAttribute carries no "required for all AXColumn elements"-style
+        // documentation — and is never conflated with the equally valid "none" result (the
+        // attribute present, reporting the column is simply not currently sorted). A recognized
+        // CFType whose value matches neither documented set fails closed instead of ever being
+        // silently mapped to "none". Uses a new, narrow QAXColumnReadRolePolicy (AXColumn only) —
+        // a structural table/browser role that does not belong in the generic
+        // QAXElementReadRolePolicy allowlist, mirroring QAXWindowRolePolicy's identical
+        // single-role shape. Application identity is resolved by exact matching via
+        // QBridgeAccessibility.resolveExactRunningApplication; target identity resolved via the
+        // existing collectMatches/snapshotIfMatches primitives, identical to every prior
+        // window/element-scoped read. This capability NEVER calls AXUIElementPerformAction or
+        // AXUIElementSetAttributeValue — observing the current sort direction never authorizes
+        // clicking the column header or any other mutation, which must independently pass its own
+        // full capability/risk/approval/execution-identity pipeline. Registered under toolFamily
+        // "ui" — the returned sortDirection is a bounded 3-value structural enum, never table/cell
+        // content, never requiring the sanitize-before-persist boundary. Bounded to exactly 1
+        // element touched, 0 traversal depth, 0 children enumerated, 0 actions performed, 0
+        // polling, 1 returned record. No mutation, no approval, no recovery: a read that does not
+        // throw IS its own result. See QBridgeAccessibility.readColumnSortDirection and
+        // docs/PHASE_2BT_SEMANTIC_COLUMN_SORT_DIRECTION.md for the full contract.
+        "ui.read_column_sort_direction": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

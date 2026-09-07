@@ -168,6 +168,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_text_selection_state":
             result = await executeReadTextSelectionState(request: request)
 
+        case "ui.read_column_sort_direction":
+            result = await executeReadColumnSortDirection(request: request)
+
         case "ui.set_element_state":
             result = await executeSetElementState(request: request)
 
@@ -1541,6 +1544,75 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading text selection state: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2BT: semantic column sort-direction read (Level 0, read-only, purely observational).
+    /// Resolves a semantically-identified `AXColumn` and reads its `kAXSortDirectionAttribute` —
+    /// never pressing, focusing, or mutating anything. The role is fixed internally to `"AXColumn"`
+    /// (never caller-supplied — only one role is meaningful for this attribute). Genuine absence
+    /// of the attribute is never an error, but a genuine read failure, a malformed CFType, or an
+    /// undocumented value each fail the whole read closed (see
+    /// `QBridgeAccessibility.readColumnSortDirection`'s own documentation for the full rationale).
+    /// Every `QAXInteractionError` failure mode is caught here and converted into a deterministic,
+    /// non-throwing `QActionResult`; this method never fabricates success and never downgrades an
+    /// undocumented value to `"none"`.
+    private func executeReadColumnSortDirection(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.readColumnSortDirection(
+                applicationName: applicationName,
+                identifier: identifier,
+                title: title
+            )
+            let outputData: [String: String] = [
+                "applicationName": applicationName,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "columnIdentifier": metadata.columnIdentifier ?? "",
+                "columnTitle": metadata.columnTitle ?? "",
+                "hasSortDirection": metadata.sortDirection != nil ? "true" : "false",
+                "sortDirection": metadata.sortDirection ?? ""
+            ]
+            let sortDirectionDescription = metadata.sortDirection ?? "unavailable"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed sort direction for AXColumn element in \(applicationName): sortDirection=\(sortDirectionDescription). This is observation only — no column was clicked or sorted, and this observation does not constitute authorization to sort it later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading column sort direction: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

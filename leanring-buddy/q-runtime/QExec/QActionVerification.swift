@@ -613,6 +613,28 @@ public enum QVerificationStrategy: Sendable {
         selectionLength: Int?,
         totalCharacterCount: Int?
     )
+    /// Phase 2BT: semantic column sort-direction read verification (Level 0, read-only). Like
+    /// every other Level 0 read's verification, there is no separate physical state to re-observe
+    /// after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readColumnSortDirection` (exact application/column resolution, a
+    /// successfully-handled optional sort-direction value), already IS the ground truth. This
+    /// strategy checks the execution result's own `success` flag as a genuine, meaningful
+    /// assertion — never a bare `{ true }` bypass — and, when a sort direction is claimed present,
+    /// INDEPENDENTLY RE-VALIDATES it is exactly one of the three documented values
+    /// (`"ascending"`/`"descending"`/`"none"`) rather than blindly trusting the dispatch layer, the
+    /// same independent-consistency discipline `textSelectionStateReadSucceeded` established for
+    /// its own numeric facts. Genuine absence (`hasSortDirection == false`) is its own valid,
+    /// distinct verified outcome — never conflated with `"none"`. Never mutates anything, never
+    /// clicks the column, as part of verification. Evidence carries the application name, column
+    /// identity, and the sort direction (or its absence) — none of this carries privacy risk
+    /// (bounded structural facts, never table/cell content), so it is safe to include directly.
+    case columnSortDirectionReadSucceeded(
+        applicationName: String,
+        columnIdentifier: String?,
+        columnTitle: String?,
+        hasSortDirection: Bool,
+        sortDirection: String?
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1819,6 +1841,38 @@ public final class QActionVerifier: Sendable {
             }
             return .verified(
                 evidence: "application=\(applicationName) role=\(role) selectionLocation=\(location) selectionLength=\(length) totalCharacterCount=\(total) status=verified"
+            )
+
+        case .columnSortDirectionReadSucceeded(let applicationName, let columnIdentifier, let columnTitle, let hasSortDirection, let sortDirection):
+            let columnDescription = columnTitle ?? columnIdentifier ?? "unnamed"
+            guard result.success else {
+                return .failed(
+                    reason: "Column sort-direction read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) column=\(columnDescription) status=failed"
+                )
+            }
+            guard hasSortDirection else {
+                // Genuine, expected absence is its own valid, distinct verified outcome — never
+                // conflated with "none" (which means the attribute IS present and reports no
+                // active sort).
+                return .verified(
+                    evidence: "application=\(applicationName) column=\(columnDescription) sortDirection=unavailable status=verified"
+                )
+            }
+            // Independent re-validation — never blindly trusting the dispatch layer's own success
+            // flag: the claimed sortDirection must be exactly one of the three documented values,
+            // mirroring textSelectionStateReadSucceeded's/
+            // elementParameterizedAttributeNamesReadSucceeded's identical independent-recheck
+            // discipline.
+            guard let direction = sortDirection,
+                  ["ascending", "descending", "none"].contains(direction) else {
+                return .failed(
+                    reason: "Column sort-direction for application '\(applicationName)' claims presence but is missing or not one of the three documented values.",
+                    evidence: "application=\(applicationName) column=\(columnDescription) status=failed"
+                )
+            }
+            return .verified(
+                evidence: "application=\(applicationName) column=\(columnDescription) sortDirection=\(direction) status=verified"
             )
 
         case .customCheck(let description, let check):
