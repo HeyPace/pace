@@ -170,6 +170,8 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
 
         case "ui.read_column_sort_direction":
             result = await executeReadColumnSortDirection(request: request)
+        case "ui.read_table_dimensions":
+            result = await executeReadTableDimensions(request: request)
 
         case "ui.set_element_state":
             result = await executeSetElementState(request: request)
@@ -1613,6 +1615,64 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading column sort direction: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    private func executeReadTableDimensions(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.readTableDimensions(
+                applicationName: applicationName,
+                identifier: identifier,
+                title: title
+            )
+            let outputData: [String: String] = [
+                "applicationName": applicationName,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "tableIdentifier": metadata.tableIdentifier ?? "",
+                "tableTitle": metadata.tableTitle ?? "",
+                "rowCount": String(metadata.rowCount),
+                "columnCount": String(metadata.columnCount)
+            ]
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed dimensions for AXTable element in \(applicationName): rowCount=\(metadata.rowCount) columnCount=\(metadata.columnCount). This is observation only — no row or column was enumerated, selected, or mutated, and this observation does not constitute authorization for any further table action.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading table dimensions: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

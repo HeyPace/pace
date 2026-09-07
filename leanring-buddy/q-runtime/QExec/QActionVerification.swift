@@ -635,6 +635,30 @@ public enum QVerificationStrategy: Sendable {
         hasSortDirection: Bool,
         sortDirection: String?
     )
+    /// Phase 2BU: semantic table dimensions read verification (Level 0, read-only). Like every
+    /// other Level 0 read's verification, there is no separate physical state to re-observe after
+    /// the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readTableDimensions` (exact application/table resolution, two
+    /// independently-validated non-negative counts), already IS the ground truth. This strategy
+    /// checks the execution result's own `success` flag as a genuine, meaningful assertion — never
+    /// a bare `{ true }` bypass — and INDEPENDENTLY RE-VALIDATES both `rowCount >= 0` and
+    /// `columnCount >= 0` rather than blindly trusting the dispatch layer, the same
+    /// independent-consistency discipline `textSelectionStateReadSucceeded`/
+    /// `columnSortDirectionReadSucceeded` established for their own numeric/enum facts. Unlike
+    /// `columnSortDirectionReadSucceeded`'s `hasSortDirection` flag, this capability's contract has
+    /// no valid-absence outcome (see the INVERTED missing-vs-failure design documented in
+    /// `QBridgeAdapters.swift`'s Phase 2BU section) — a claimed success always carries both counts.
+    /// Never mutates anything, never enumerates rows/columns, as part of verification. Evidence
+    /// carries the application name, table identity, and both counts — none of this carries
+    /// privacy risk (bounded structural facts, never table/cell content), so it is safe to include
+    /// directly.
+    case tableDimensionsReadSucceeded(
+        applicationName: String,
+        tableIdentifier: String?,
+        tableTitle: String?,
+        rowCount: Int,
+        columnCount: Int
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1873,6 +1897,30 @@ public final class QActionVerifier: Sendable {
             }
             return .verified(
                 evidence: "application=\(applicationName) column=\(columnDescription) sortDirection=\(direction) status=verified"
+            )
+
+        case .tableDimensionsReadSucceeded(let applicationName, let tableIdentifier, let tableTitle, let rowCount, let columnCount):
+            let tableDescription = tableTitle ?? tableIdentifier ?? "unnamed"
+            guard result.success else {
+                return .failed(
+                    reason: "Table dimensions read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) table=\(tableDescription) status=failed"
+                )
+            }
+            // Independent re-validation — never blindly trusting the dispatch layer's own success
+            // flag: both counts must be non-negative, mirroring
+            // textSelectionStateReadSucceeded's/columnSortDirectionReadSucceeded's identical
+            // independent-recheck discipline. This capability's contract has no valid-absence
+            // outcome (INVERTED missing-vs-failure design, see QBridgeAdapters.swift) — a claimed
+            // success always carries both counts.
+            guard rowCount >= 0, columnCount >= 0 else {
+                return .failed(
+                    reason: "Table dimensions for application '\(applicationName)' contain a negative value (rowCount=\(rowCount) columnCount=\(columnCount)).",
+                    evidence: "application=\(applicationName) table=\(tableDescription) status=failed"
+                )
+            }
+            return .verified(
+                evidence: "application=\(applicationName) table=\(tableDescription) rowCount=\(rowCount) columnCount=\(columnCount) status=verified"
             )
 
         case .customCheck(let description, let check):

@@ -1111,7 +1111,41 @@ public struct QModelPlanParser: Sendable {
         // polling, 1 returned record. No mutation, no approval, no recovery: a read that does not
         // throw IS its own result. See QBridgeAccessibility.readColumnSortDirection and
         // docs/PHASE_2BT_SEMANTIC_COLUMN_SORT_DIRECTION.md for the full contract.
-        "ui.read_column_sort_direction": ("ui", .level0ReadOnly)
+        "ui.read_column_sort_direction": ("ui", .level0ReadOnly),
+        // Phase 2BU: semantic table dimensions read — LEVEL 0 (READ-ONLY). Reads a
+        // semantically-identified AXTable's kAXRowCountAttribute and kAXColumnCountAttribute.
+        // Complements ui.list_table_rows/ui.list_table_columns (which each perform a full,
+        // traversal-based enumeration) by letting a caller learn a table's bounded structural SIZE
+        // first — exactly two scalar AX reads, zero traversal — before deciding whether a full
+        // enumeration is worth its resource cost. Reuses QAXTableRolePolicy (Phase 2AE) completely
+        // unmodified — the identical single-role allowlist (AXTable only) ui.list_table_rows/
+        // ui.list_table_columns already establish; no new role policy was introduced. Unlike
+        // kAXSortDirectionAttribute, kAXRowCountAttribute/kAXColumnCountAttribute are backed by
+        // NON-OPTIONAL NSInteger properties on the modern AppKit accessibility protocol
+        // (accessibilityRowCount/accessibilityColumnCount, never declared nullable) — this is the
+        // INVERTED missing-vs-failure pattern (matching kAXModalAttribute, Phase 2BO): for a
+        // genuine AXTable-role element, genuine absence of either attribute
+        // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is itself treated as a read FAILURE, never
+        // silently downgraded to a default or a partial result. Both counts are validated as
+        // genuine, non-negative, Int-representable integers (rejecting wrong CFType, floating-point
+        // native subtypes, negative values, and Int overflow) before ever being exposed; the result
+        // is ATOMIC — QAXTableDimensionsMetadata is only ever constructed once BOTH counts have
+        // independently validated, a failure reading either one fails the whole call, never a
+        // partially-populated result. Application identity is resolved by exact matching via
+        // QBridgeAccessibility.resolveExactRunningApplication; target identity resolved via the
+        // existing collectMatches/snapshotIfMatches primitives, identical to every prior
+        // window/element-scoped read. This capability NEVER calls AXUIElementPerformAction or
+        // AXUIElementSetAttributeValue — observing a table's dimensions never authorizes
+        // ui.list_table_rows, ui.list_table_columns, ui.select_table_row, or any other mutation,
+        // which must independently pass its own full capability/risk/approval/execution-identity
+        // pipeline. Registered under toolFamily "ui" — the returned rowCount/columnCount are
+        // bounded non-negative integers, never table/cell content, never requiring the
+        // sanitize-before-persist boundary. Bounded to exactly 1 element touched, 0 traversal
+        // depth, 0 children enumerated, 0 actions performed, 0 polling, 1 returned record. No
+        // mutation, no approval, no recovery: a read that does not throw IS its own result. See
+        // QBridgeAccessibility.readTableDimensions and
+        // docs/PHASE_2BU_SEMANTIC_TABLE_DIMENSIONS.md for the full contract.
+        "ui.read_table_dimensions": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

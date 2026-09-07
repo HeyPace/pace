@@ -976,6 +976,27 @@ public final class QPlanExecutor: Sendable {
                 hasSortDirection: hasSortDirection,
                 sortDirection: sortDirection
             )
+        } else if action.actionName == "ui.read_table_dimensions",
+                  let applicationName = action.arguments["applicationName"],
+                  let rowCountString = result.outputData["rowCount"],
+                  let rowCount = Int(rowCountString),
+                  let columnCountString = result.outputData["columnCount"],
+                  let columnCount = Int(columnCountString) {
+            // Level 0, read-only, purely observational — reconstructed from the applicationName
+            // argument used to dispatch, plus the resolved table's own identity and the two
+            // validated, non-negative counts captured at read time. Deliberately NOT threaded
+            // through here: any table/cell content — this strategy only ever carries application
+            // identity, table identity, and the two bounded structural counts (never table/cell
+            // content).
+            let tableIdentifier = result.outputData["tableIdentifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let tableTitle = result.outputData["tableTitle"].flatMap { $0.isEmpty ? nil : $0 }
+            return .tableDimensionsReadSucceeded(
+                applicationName: applicationName,
+                tableIdentifier: tableIdentifier,
+                tableTitle: tableTitle,
+                rowCount: rowCount,
+                columnCount: columnCount
+            )
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

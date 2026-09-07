@@ -935,6 +935,38 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// `"none"` or any other fallback — this is its own distinct, dedicated failure. The payload
     /// carries only the offending raw representation (never any table/cell content).
     case columnSortDirectionUnexpectedValue(String)
+    /// Phase 2BU: `kAXRowCountAttribute` could not be read due to an actual Accessibility API
+    /// failure — any `AXError` other than `.success`. Unlike `kAXSortDirectionAttribute`,
+    /// `kAXRowCountAttribute` is grouped under this SDK's "Table/Outline" attributes and every
+    /// standard `AXTable` provider (including plain `NSTableView`) is expected to expose it, so
+    /// this failure is always treated as a genuine read error, never silently downgraded to an
+    /// absence. The payload carries only the underlying `AXError`, never any table/cell content.
+    case tableRowCountReadFailed(String)
+    /// Phase 2BU: `kAXColumnCountAttribute` could not be read due to an actual Accessibility API
+    /// failure — the column-count sibling of `tableRowCountReadFailed`, kept as its own distinct
+    /// case so a caller/log can always tell which of the two co-required reads actually failed.
+    case tableColumnCountReadFailed(String)
+    /// Phase 2BU: `kAXRowCountAttribute`'s copy call reported success but the returned value was
+    /// not a `CFNumber`, or was a `CFNumber` of a non-integer numeric subtype (e.g. a float/double
+    /// representation) — a table's row count is fundamentally a whole quantity, so any
+    /// floating-point native representation is itself treated as malformed data rather than
+    /// silently truncated. The returned value is never assumed well-formed merely because the
+    /// copy call itself reported success.
+    case tableRowCountMalformed
+    /// Phase 2BU: `kAXColumnCountAttribute`'s copy call reported success but the returned value
+    /// failed the same CFType/numeric-subtype validation as `tableRowCountMalformed` — kept as its
+    /// own distinct case for the same per-attribute diagnostic clarity.
+    case tableColumnCountMalformed
+    /// Phase 2BU: `kAXRowCountAttribute` decoded to a structurally invalid integer — negative, or
+    /// too large to represent losslessly as a Swift `Int` (checked via `Int(exactly:)`, never a
+    /// silent truncating cast). Never silently clamped to zero, never silently truncated; fails
+    /// closed instead, carrying only the offending numeric diagnostic, never any table/cell
+    /// content.
+    case tableRowCountInvalid(String)
+    /// Phase 2BU: `kAXColumnCountAttribute` decoded to a structurally invalid integer — the
+    /// column-count sibling of `tableRowCountInvalid`, kept as its own distinct case for the same
+    /// per-attribute diagnostic clarity.
+    case tableColumnCountInvalid(String)
 
     public var description: String {
         switch self {
@@ -1250,6 +1282,18 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target column's sort direction attribute could not be read as a well-formed String or NSNumber."
         case .columnSortDirectionUnexpectedValue(let reason):
             return "The target column's sort direction attribute reported an unexpected, undocumented value: \(reason)."
+        case .tableRowCountReadFailed(let reason):
+            return "The target table's row count could not be read due to an Accessibility API failure: \(reason)."
+        case .tableColumnCountReadFailed(let reason):
+            return "The target table's column count could not be read due to an Accessibility API failure: \(reason)."
+        case .tableRowCountMalformed:
+            return "The target table's row count attribute could not be read as a well-formed integer number."
+        case .tableColumnCountMalformed:
+            return "The target table's column count attribute could not be read as a well-formed integer number."
+        case .tableRowCountInvalid(let reason):
+            return "The target table's row count is structurally invalid: \(reason)."
+        case .tableColumnCountInvalid(let reason):
+            return "The target table's column count is structurally invalid: \(reason)."
         }
     }
 
@@ -1412,6 +1456,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .columnSortDirectionReadFailed: return "AX_COLUMN_SORT_DIRECTION_READ_FAILED"
         case .columnSortDirectionMalformed: return "AX_COLUMN_SORT_DIRECTION_MALFORMED"
         case .columnSortDirectionUnexpectedValue: return "AX_COLUMN_SORT_DIRECTION_UNEXPECTED_VALUE"
+        case .tableRowCountReadFailed: return "AX_TABLE_ROW_COUNT_READ_FAILED"
+        case .tableColumnCountReadFailed: return "AX_TABLE_COLUMN_COUNT_READ_FAILED"
+        case .tableRowCountMalformed: return "AX_TABLE_ROW_COUNT_MALFORMED"
+        case .tableColumnCountMalformed: return "AX_TABLE_COLUMN_COUNT_MALFORMED"
+        case .tableRowCountInvalid: return "AX_TABLE_ROW_COUNT_INVALID"
+        case .tableColumnCountInvalid: return "AX_TABLE_COLUMN_COUNT_INVALID"
         }
     }
 }
@@ -1700,6 +1750,35 @@ public struct QAXColumnSortDirectionMetadata: Sendable, Equatable, Codable {
         self.columnIdentifier = columnIdentifier
         self.columnTitle = columnTitle
         self.sortDirection = sortDirection
+    }
+}
+
+/// A single semantically-identified `AXTable`'s bounded structural size, as returned by
+/// `ui.read_table_dimensions` (Phase 2BU) — `rowCount`/`columnCount` only, never row/column
+/// enumeration, never cell contents, never a raw `AXUIElement`. Both counts are non-optional:
+/// this type is only ever constructed once both `kAXRowCountAttribute` and
+/// `kAXColumnCountAttribute` have each been independently read, validated, and normalized —
+/// genuine absence or failure of either attribute fails the whole read closed (see
+/// `readTableDimensions`) rather than ever producing a partially-populated result.
+public struct QAXTableDimensionsMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let tableIdentifier: String?
+    public let tableTitle: String?
+    public let rowCount: Int
+    public let columnCount: Int
+
+    public init(
+        applicationName: String,
+        tableIdentifier: String?,
+        tableTitle: String?,
+        rowCount: Int,
+        columnCount: Int
+    ) {
+        self.applicationName = applicationName
+        self.tableIdentifier = tableIdentifier
+        self.tableTitle = tableTitle
+        self.rowCount = rowCount
+        self.columnCount = columnCount
     }
 }
 
@@ -5644,6 +5723,166 @@ extension QBridgeAccessibility {
         }
 
         throw QAXInteractionError.columnSortDirectionMalformed
+    }
+
+    // MARK: - Semantic Table Dimensions Read (Phase 2BU)
+    //
+    // ui.read_table_dimensions — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL read of
+    // a semantically-identified AXTable's kAXRowCountAttribute and kAXColumnCountAttribute.
+    // Complements ui.list_table_rows/ui.list_table_columns (which enumerate row/column identities
+    // via full traversal) by letting a caller learn a table's bounded structural SIZE first —
+    // exactly two scalar AX reads, zero traversal — before ever deciding whether a full
+    // enumeration is worth its cost. Reuses `QAXTableRolePolicy` (Phase 2AE) completely unmodified
+    // — the identical single-role allowlist (`AXTable` only) `ui.list_table_rows`/
+    // `ui.list_table_columns` already establish; no new role policy was introduced.
+    //
+    // SDK-VERIFIED PRESENCE (fresh, not assumed): unlike `kAXSortDirectionAttribute`,
+    // `kAXRowCountAttribute`/`kAXColumnCountAttribute` are backed by NON-OPTIONAL `NSInteger`
+    // properties on the modern AppKit accessibility protocol (`accessibilityRowCount`/
+    // `accessibilityColumnCount`, NSAccessibilityProtocols.h, grouped under "Table/Outline" — never
+    // declared `nullable`, unlike e.g. `accessibilityPlaceholderValue`). This is the INVERTED
+    // missing-vs-failure pattern (the same one established for `kAXModalAttribute` in Phase 2BO):
+    // for a genuine `AXTable`-role element, genuine absence of either attribute
+    // (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is itself treated as a read FAILURE, never
+    // silently downgraded to a default or a partial result — the whole read fails closed.
+
+    /// Resolves exactly one semantic target on `QAXTableRolePolicy`'s allowlist (`AXTable` only)
+    /// and reads its `kAXRowCountAttribute`/`kAXColumnCountAttribute` — a purely observational
+    /// call; neither `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is invoked
+    /// anywhere in this method. Fails closed (throws `QAXInteractionError`) on a disallowed role,
+    /// missing criteria, permission absence, application/target absence or ambiguity, a
+    /// stale/drifted target, a genuine read failure (INCLUDING genuine attribute absence — see the
+    /// `MARK` section above), a malformed returned CFType, or a structurally invalid (negative,
+    /// fractional, or Int-overflowing) count. The result is ATOMIC: `QAXTableDimensionsMetadata`
+    /// is only ever constructed once BOTH counts have been independently validated — a failure
+    /// reading either one fails the whole call, never a partially-populated result.
+    public func readTableDimensions(
+        applicationName: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXTableDimensionsMetadata {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+        let role = "AXTable"
+        guard QAXTableRolePolicy.isAllowedTableRole(role) else {
+            throw QAXInteractionError.disallowedTableRole(role)
+        }
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // dimension reads and refuse on any drift — identical discipline to every prior AX
+            // capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target table is no longer resolvable immediately before the dimensions read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target table identity changed between observation and the dimensions read")
+            }
+
+            // Exactly two AX reads, both scalar, no traversal. Row count is read first; if it
+            // fails, column count is never read at all (fully atomic — a partial pair of results
+            // is structurally impossible, not merely discarded).
+            let rowCount = try Self.resolveTableCount(
+                attributeName: kAXRowCountAttribute as String,
+                of: targetElement,
+                readFailedError: QAXInteractionError.tableRowCountReadFailed,
+                malformedError: QAXInteractionError.tableRowCountMalformed,
+                invalidError: QAXInteractionError.tableRowCountInvalid
+            )
+            let columnCount = try Self.resolveTableCount(
+                attributeName: kAXColumnCountAttribute as String,
+                of: targetElement,
+                readFailedError: QAXInteractionError.tableColumnCountReadFailed,
+                malformedError: QAXInteractionError.tableColumnCountMalformed,
+                invalidError: QAXInteractionError.tableColumnCountInvalid
+            )
+
+            return QAXTableDimensionsMetadata(
+                applicationName: applicationName,
+                tableIdentifier: observedAtVerify.identifier,
+                tableTitle: observedAtVerify.titleOrDescription,
+                rowCount: rowCount,
+                columnCount: columnCount
+            )
+        }.value
+    }
+
+    /// Reads one grid-size attribute (`kAXRowCountAttribute` or `kAXColumnCountAttribute`) and
+    /// normalizes it to a validated, non-negative Swift `Int`. Per the INVERTED missing-vs-failure
+    /// pattern documented in the `MARK` section above, ANY non-`.success` `AXError` — including
+    /// `.noValue`/`.attributeUnsupported` — is treated as a genuine read failure via
+    /// `readFailedError`, never a valid absence: a real `AXTable`-role element is expected to
+    /// always expose both counts (backed by non-optional `NSInteger` AppKit properties).
+    ///
+    /// Validation, in order, each with its own distinct fail-closed diagnostic:
+    /// 1. The returned value must be a genuine `CFNumber` (`CFGetTypeID(value) ==
+    ///    CFNumberGetTypeID()`) — any other CFType → `malformedError`.
+    /// 2. The `CFNumber`'s own native subtype must be an integer subtype, never a floating-point
+    ///    one (`.float32Type`/`.float64Type`/`.doubleType`/`.cgFloatType`) — a table's row/column
+    ///    count is fundamentally a whole quantity, so a floating-point native representation is
+    ///    itself malformed data, never silently truncated by extraction → `malformedError`.
+    /// 3. `CFNumberGetValue(_:.sInt64Type:_:)` must itself report success extracting the value →
+    ///    `malformedError` otherwise.
+    /// 4. The extracted `Int64` must be non-negative → `invalidError` otherwise.
+    /// 5. The extracted `Int64` must be losslessly representable as a Swift `Int` (`Int(exactly:)`,
+    ///    never a truncating cast) → `invalidError` otherwise (overflow).
+    fileprivate nonisolated static func resolveTableCount(
+        attributeName: String,
+        of targetElement: AXUIElement,
+        readFailedError: (String) -> QAXInteractionError,
+        malformedError: QAXInteractionError,
+        invalidError: (String) -> QAXInteractionError
+    ) throws -> Int {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, attributeName as CFString, &value)
+        guard copyResult == .success else {
+            throw readFailedError("AXError(\(copyResult.rawValue))")
+        }
+        guard let value else {
+            throw malformedError
+        }
+        guard CFGetTypeID(value) == CFNumberGetTypeID() else {
+            throw malformedError
+        }
+        let cfNumber = value as! CFNumber // swiftlint:disable:this force_cast — CFGetTypeID checked above
+
+        switch CFNumberGetType(cfNumber) {
+        case .sInt8Type, .sInt16Type, .sInt32Type, .sInt64Type,
+             .charType, .shortType, .intType, .longType, .longLongType,
+             .cfIndexType, .nsIntegerType:
+            break
+        default:
+            // float32Type/float64Type/floatType/doubleType/cgFloatType, or any future numeric
+            // subtype not explicitly recognized as integral above — never silently truncated.
+            throw malformedError
+        }
+
+        var int64Value: Int64 = 0
+        guard CFNumberGetValue(cfNumber, .sInt64Type, &int64Value) else {
+            throw malformedError
+        }
+        guard int64Value >= 0 else {
+            throw invalidError("negative value: \(int64Value)")
+        }
+        guard let intValue = Int(exactly: int64Value) else {
+            throw invalidError("value \(int64Value) overflows Swift Int")
+        }
+        return intValue
     }
 
     /// Best-effort, polymorphic `kAXValueAttribute` reader — text fields/labels typically carry a
