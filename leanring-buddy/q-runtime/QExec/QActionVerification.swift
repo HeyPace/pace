@@ -659,6 +659,30 @@ public enum QVerificationStrategy: Sendable {
         rowCount: Int,
         columnCount: Int
     )
+    /// Phase 2BV: semantic element allowed-values read verification (Level 0, read-only). Like
+    /// every other Level 0 read's verification, there is no separate physical state to re-observe
+    /// after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readElementAllowedValues` (exact application/element resolution, a
+    /// fully-validated array of finite `Double`s), already IS the ground truth. This strategy
+    /// checks the execution result's own `success` flag as a genuine, meaningful assertion — never
+    /// a bare `{ true }` bypass — and, when values are claimed present, INDEPENDENTLY
+    /// RE-VALIDATES every element is finite (`.isFinite`, rejecting NaN/+Infinity/-Infinity) rather
+    /// than blindly trusting the dispatch layer, the same independent-consistency discipline
+    /// `textSelectionStateReadSucceeded`/`columnSortDirectionReadSucceeded`/
+    /// `tableDimensionsReadSucceeded` established for their own numeric/enum facts. Genuine absence
+    /// (`hasAllowedValues == false`) is its own valid, distinct verified outcome — never conflated
+    /// with a present-but-empty array. Never mutates anything, never sets a value, as part of
+    /// verification. Evidence carries the application name, element identity, and the allowed
+    /// values (or their absence) — none of this carries privacy risk (bounded numeric control
+    /// metadata, never text/credential/user content), so it is safe to include directly.
+    case elementAllowedValuesReadSucceeded(
+        applicationName: String,
+        role: String,
+        elementIdentifier: String?,
+        elementTitle: String?,
+        hasAllowedValues: Bool,
+        allowedValues: [Double]
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1921,6 +1945,38 @@ public final class QActionVerifier: Sendable {
             }
             return .verified(
                 evidence: "application=\(applicationName) table=\(tableDescription) rowCount=\(rowCount) columnCount=\(columnCount) status=verified"
+            )
+
+        case .elementAllowedValuesReadSucceeded(let applicationName, let role, let elementIdentifier, let elementTitle, let hasAllowedValues, let allowedValues):
+            let elementDescription = elementTitle ?? elementIdentifier ?? "unnamed"
+            guard result.success else {
+                return .failed(
+                    reason: "Allowed-values read for \(role) element in application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) status=failed"
+                )
+            }
+            guard hasAllowedValues else {
+                // Genuine, expected absence is its own valid, distinct verified outcome — never
+                // conflated with a present-but-empty array.
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) allowedValues=unavailable status=verified"
+                )
+            }
+            // Independent re-validation — never blindly trusting the dispatch layer's own success
+            // flag: every claimed value must be finite, mirroring
+            // textSelectionStateReadSucceeded's/columnSortDirectionReadSucceeded's/
+            // tableDimensionsReadSucceeded's identical independent-recheck discipline. A fabricated
+            // success claiming NaN/Infinity among the "validated" values is still correctly
+            // rejected.
+            guard allowedValues.allSatisfy({ $0.isFinite }) else {
+                return .failed(
+                    reason: "Allowed values for \(role) element in application '\(applicationName)' contain a non-finite value (NaN or Infinity).",
+                    evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) status=failed"
+                )
+            }
+            let valuesDescription = allowedValues.map { String($0) }.joined(separator: ",")
+            return .verified(
+                evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) allowedValueCount=\(allowedValues.count) allowedValues=[\(valuesDescription)] status=verified"
             )
 
         case .customCheck(let description, let check):

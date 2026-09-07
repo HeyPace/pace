@@ -106,9 +106,10 @@ struct QSemanticColumnSortDirectionReadTests {
         #expect(regCap?.defaultRisk == .level0ReadOnly)
         #expect(regCap?.defaultRisk.requiresExplicitApproval == false)
         // Capability #68 was registered as the 68th capability; the registry has since grown to
-        // 69 with Phase 2BU's ui.read_table_dimensions addition, so this checks the current total
-        // rather than a phase-specific snapshot.
-        #expect(QModelPlanParser.registeredCapabilities.count == 69)
+        // 70 (Phase 2BU's ui.read_table_dimensions, then Phase 2BV's
+        // ui.read_element_allowed_values), so this checks the current total rather than a
+        // phase-specific snapshot.
+        #expect(QModelPlanParser.registeredCapabilities.count == 70)
 
         let json = """
         {

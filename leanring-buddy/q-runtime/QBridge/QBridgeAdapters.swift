@@ -967,6 +967,34 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// column-count sibling of `tableRowCountInvalid`, kept as its own distinct case for the same
     /// per-attribute diagnostic clarity.
     case tableColumnCountInvalid(String)
+    /// Phase 2BV: `kAXAllowedValuesAttribute` could not be read due to an actual Accessibility API
+    /// failure — any `AXError` other than `.success`, `.noValue`, or `.attributeUnsupported`. The
+    /// latter two mean the target genuinely does not expose a constrained allowed-value set (the
+    /// SDK documents this attribute as applying only to "sliders or other widgets... that can only
+    /// be set to a small subset of values", never a universal requirement) and are never treated
+    /// as an error. The payload carries only the underlying `AXError`, never any array content.
+    case allowedValuesReadFailed(String)
+    /// Phase 2BV: `kAXAllowedValuesAttribute`'s copy call reported success but the returned value
+    /// was not a genuine `CFArray` — the returned value is treated as untrusted external data,
+    /// never assumed well-formed merely because the copy call itself reported success.
+    case allowedValuesMalformed
+    /// Phase 2BV: `kAXAllowedValuesAttribute`'s array exceeded `maxAllowedValuesCount` — fails
+    /// closed rather than ever silently truncating the returned collection (never
+    /// misrepresenting the authoritative result). The payload carries only the offending count.
+    case allowedValuesExceedsSafeBound(Int)
+    /// Phase 2BV: one element of `kAXAllowedValuesAttribute`'s array was not a genuine `NSNumber`
+    /// (or its underlying `CFNumber` could not itself be extracted) — a single malformed element
+    /// fails the WHOLE array closed; invalid entries are never silently dropped from an otherwise
+    /// "mostly valid" result.
+    case allowedValuesElementMalformed
+    /// Phase 2BV: one element of `kAXAllowedValuesAttribute`'s array was a genuine `NSNumber` but
+    /// decoded to a structurally invalid value — NaN, positive/negative infinity, or an integer
+    /// representation that cannot be represented exactly as the semantic result's `Double` (an
+    /// exact round-trip `Int64(exactly:) == originalInt64` check, never a silent truncating or
+    /// lossy cast). A single invalid element fails the WHOLE array closed; invalid entries are
+    /// never silently dropped. The payload carries only the offending index/diagnostic, never any
+    /// unrelated array content.
+    case allowedValuesElementInvalid(String)
 
     public var description: String {
         switch self {
@@ -1294,6 +1322,16 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target table's row count is structurally invalid: \(reason)."
         case .tableColumnCountInvalid(let reason):
             return "The target table's column count is structurally invalid: \(reason)."
+        case .allowedValuesReadFailed(let reason):
+            return "The target element's allowed values could not be read due to an Accessibility API failure: \(reason)."
+        case .allowedValuesMalformed:
+            return "The target element's allowed-values attribute could not be read as a well-formed array."
+        case .allowedValuesExceedsSafeBound(let count):
+            return "The target element's allowed-values array (\(count) entries) exceeds the maximum safe bound."
+        case .allowedValuesElementMalformed:
+            return "The target element's allowed-values array contains an element that is not a well-formed number."
+        case .allowedValuesElementInvalid(let reason):
+            return "The target element's allowed-values array contains a structurally invalid element: \(reason)."
         }
     }
 
@@ -1462,6 +1500,11 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .tableColumnCountMalformed: return "AX_TABLE_COLUMN_COUNT_MALFORMED"
         case .tableRowCountInvalid: return "AX_TABLE_ROW_COUNT_INVALID"
         case .tableColumnCountInvalid: return "AX_TABLE_COLUMN_COUNT_INVALID"
+        case .allowedValuesReadFailed: return "AX_ALLOWED_VALUES_READ_FAILED"
+        case .allowedValuesMalformed: return "AX_ALLOWED_VALUES_MALFORMED"
+        case .allowedValuesExceedsSafeBound: return "AX_ALLOWED_VALUES_EXCEEDS_SAFE_BOUND"
+        case .allowedValuesElementMalformed: return "AX_ALLOWED_VALUES_ELEMENT_MALFORMED"
+        case .allowedValuesElementInvalid: return "AX_ALLOWED_VALUES_ELEMENT_INVALID"
         }
     }
 }
@@ -1779,6 +1822,34 @@ public struct QAXTableDimensionsMetadata: Sendable, Equatable, Codable {
         self.tableTitle = tableTitle
         self.rowCount = rowCount
         self.columnCount = columnCount
+    }
+}
+
+/// A semantically-identified element's bounded, validated discrete allowed-value set, as returned
+/// by `ui.read_element_allowed_values` (Phase 2BV) — `allowedValues` only, never a raw AX object,
+/// never any unrelated attribute. `allowedValues` may legitimately be empty (the attribute was
+/// present but reported no entries) — a distinct, valid state from genuine attribute ABSENCE,
+/// which is represented by the overall bridge function returning `nil` rather than ever
+/// constructing this type with a fabricated empty array.
+public struct QAXElementAllowedValuesMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let elementIdentifier: String?
+    public let elementTitle: String?
+    public let allowedValues: [Double]
+
+    public init(
+        applicationName: String,
+        role: String,
+        elementIdentifier: String?,
+        elementTitle: String?,
+        allowedValues: [Double]
+    ) {
+        self.applicationName = applicationName
+        self.role = role
+        self.elementIdentifier = elementIdentifier
+        self.elementTitle = elementTitle
+        self.allowedValues = allowedValues
     }
 }
 
@@ -4497,6 +4568,13 @@ extension QBridgeAccessibility {
     /// Phase 2BF: the maximum number of `AXIncrementAction`/`AXDecrementAction` dispatches
     /// `ui.step_incrementor` may perform against a single target within one approved execution.
     private static let maxIncrementorStepsPerCall = 20
+    /// Phase 2BV: defensive bound on `ui.read_element_allowed_values`'s returned
+    /// `kAXAllowedValuesAttribute` array — exceeding this fails closed rather than silently
+    /// truncating (never misrepresenting the authoritative result). The SDK itself documents this
+    /// attribute as being "for sliders or other widgets... that can only be set to a small subset
+    /// of values" — 128 gives generous headroom above any realistic discrete control while still
+    /// remaining a genuinely bounded, deterministic limit.
+    private static let maxAllowedValuesCount = 128
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -5997,6 +6075,187 @@ extension QBridgeAccessibility {
                 valueIncrement: valueIncrement
             )
         }.value
+    }
+
+    // MARK: - Semantic AX Element Allowed Values Read (Phase 2BV)
+    //
+    // ui.read_element_allowed_values — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL
+    // read of a semantically-identified element's kAXAllowedValuesAttribute. Directly complements
+    // ui.read_element_range (Phase 2BJ, kAXMinValueAttribute/kAXMaxValueAttribute/
+    // kAXValueIncrementAttribute/kAXValueAttribute): range describes the CONTINUOUS bound, while
+    // this capability describes the DISCRETE subset of values within that bound a control may
+    // legitimately be set to — letting a caller learn exactly which values ui.set_slider_value/
+    // ui.step_incrementor/ui.set_splitter_position may safely target before ever attempting a
+    // mutation. Target roles are restricted to QAXRangeReadRolePolicy's existing fail-closed
+    // allowlist (AXSlider/AXIncrementor/AXSplitter) — reused COMPLETELY UNMODIFIED, the identical
+    // policy ui.read_element_range already uses, per the SDK's own documented scope ("Recommended
+    // for sliders or other elements that can only be set to a small set of values").
+    //
+    // SDK-VERIFIED ABSENCE SEMANTICS: kAXAllowedValuesAttribute carries no "required for all
+    // elements of this role"-style documentation anywhere in this SDK — the doc explicitly scopes
+    // it to elements "that can only be set to a small subset of values", implying most sliders
+    // legitimately lack it entirely. Genuine absence (kAXErrorNoValue/kAXErrorAttributeUnsupported)
+    // is therefore the OPTIONAL-REFERENCE pattern (matching kAXTitleUIElementAttribute,
+    // AXRequired, AXContainsProtectedContent) — a valid, expected nil, never an error — distinct
+    // from a genuinely PRESENT but EMPTY array, which is its own valid, non-nil result.
+
+    /// Resolves exactly one semantic target on `QAXRangeReadRolePolicy`'s allowlist and reads its
+    /// `kAXAllowedValuesAttribute` — a purely observational call; neither `AXUIElementPerformAction`
+    /// nor `AXUIElementSetAttributeValue` is invoked anywhere in this method. Fails closed (throws
+    /// `QAXInteractionError`) on a disallowed role, missing criteria, permission absence,
+    /// application/target absence or ambiguity, a stale/drifted target, a genuine read failure, a
+    /// malformed returned CFType, an oversized array, or any malformed/invalid array element.
+    /// Genuine absence of the attribute (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is
+    /// NEVER an error — it produces `nil` for the WHOLE result. A genuinely present but empty
+    /// array is its own valid, non-nil result with `allowedValues == []`. Never fabricates a
+    /// value, never silently drops an invalid element, never silently truncates an oversized
+    /// array.
+    public func readElementAllowedValues(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXElementAllowedValuesMetadata? {
+        guard QAXRangeReadRolePolicy.isAllowedRangeReadRole(role) else {
+            throw QAXInteractionError.disallowedRangeReadRole(role)
+        }
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // allowed-values read and refuse on any drift — identical discipline to every prior AX
+            // capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the allowed-values read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the allowed-values read")
+            }
+
+            guard let allowedValues = try Self.resolveAllowedValues(of: targetElement) else {
+                // Genuine, expected absence — the whole result is nil, never a fabricated empty
+                // array.
+                return nil
+            }
+
+            return QAXElementAllowedValuesMetadata(
+                applicationName: applicationName,
+                role: role,
+                elementIdentifier: observedAtVerify.identifier,
+                elementTitle: observedAtVerify.titleOrDescription,
+                allowedValues: allowedValues
+            )
+        }.value
+    }
+
+    /// Reads `kAXAllowedValuesAttribute` and normalizes it to a validated `[Double]` (empty is a
+    /// valid result), or `nil` for genuine attribute absence. Every check has its own distinct,
+    /// dedicated diagnostic — nothing is ever silently clamped, truncated, or defaulted, and a
+    /// single malformed/invalid element fails the WHOLE array closed rather than being dropped.
+    ///
+    /// Validation, in order:
+    /// 1. `.noValue`/`.attributeUnsupported` → `nil` (genuine, expected absence — see the `MARK`
+    ///    section above); any other non-`.success` `AXError` → `allowedValuesReadFailed`.
+    /// 2. The returned value must be a genuine `CFArray` (`CFGetTypeID(value) ==
+    ///    CFArrayGetTypeID()`) — any other CFType → `allowedValuesMalformed`.
+    /// 3. `CFArrayGetCount(cfArray) <= maxAllowedValuesCount` — exceeding it →
+    ///    `allowedValuesExceedsSafeBound`, checked BEFORE any per-element extraction, never a
+    ///    silent truncation.
+    /// 4. Every element must bridge to `NSNumber` (`value as? [NSNumber]`, which fails as a WHOLE
+    ///    if even one element is not NSNumber-compatible) → `allowedValuesElementMalformed`
+    ///    otherwise.
+    /// 5. Each `NSNumber`'s own native `CFNumberType` determines its validation path:
+    ///    - An integer subtype is extracted via `CFNumberGetValue(_:.sInt64Type:_:)`, then
+    ///      round-tripped through `Double` and back (`Int64(exactly: Double(int64Value)) ==
+    ///      int64Value`) to reject any value that cannot be represented EXACTLY as the semantic
+    ///      result's `Double` — never a silent truncating/lossy cast.
+    ///    - A floating-point subtype is extracted via `CFNumberGetValue(_:.doubleType:_:)`, then
+    ///      validated `.isFinite` — rejecting NaN and positive/negative infinity.
+    ///    - Any other/unrecognized `CFNumberType`, or a `CFNumberGetValue` extraction failure →
+    ///      `allowedValuesElementMalformed`.
+    fileprivate nonisolated static func resolveAllowedValues(of targetElement: AXUIElement) throws -> [Double]? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXAllowedValuesAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            return nil
+        default:
+            throw QAXInteractionError.allowedValuesReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value else {
+            throw QAXInteractionError.allowedValuesMalformed
+        }
+        guard CFGetTypeID(value) == CFArrayGetTypeID() else {
+            throw QAXInteractionError.allowedValuesMalformed
+        }
+        let cfArray = value as! CFArray // swiftlint:disable:this force_cast — CFGetTypeID checked above
+
+        let count = CFArrayGetCount(cfArray)
+        guard count <= maxAllowedValuesCount else {
+            throw QAXInteractionError.allowedValuesExceedsSafeBound(count)
+        }
+
+        // Bridging the WHOLE array to [NSNumber] fails (returns nil) as a whole if even one
+        // element is not NSNumber-compatible — exactly the desired atomic, fail-closed behavior
+        // for a mixed valid/invalid array (never silently dropping the offending entries).
+        guard let numberArray = value as? [NSNumber] else {
+            throw QAXInteractionError.allowedValuesElementMalformed
+        }
+
+        var results: [Double] = []
+        results.reserveCapacity(numberArray.count)
+
+        for (index, number) in numberArray.enumerated() {
+            let cfNumber = number as CFNumber
+            switch CFNumberGetType(cfNumber) {
+            case .sInt8Type, .sInt16Type, .sInt32Type, .sInt64Type,
+                 .charType, .shortType, .intType, .longType, .longLongType,
+                 .cfIndexType, .nsIntegerType:
+                var int64Value: Int64 = 0
+                guard CFNumberGetValue(cfNumber, .sInt64Type, &int64Value) else {
+                    throw QAXInteractionError.allowedValuesElementMalformed
+                }
+                let doubleValue = Double(int64Value)
+                guard Int64(exactly: doubleValue) == int64Value else {
+                    throw QAXInteractionError.allowedValuesElementInvalid("element at index \(index) (\(int64Value)) cannot be represented exactly as Double")
+                }
+                results.append(doubleValue)
+            case .float32Type, .float64Type, .floatType, .doubleType, .cgFloatType:
+                var doubleValue: Double = 0
+                guard CFNumberGetValue(cfNumber, .doubleType, &doubleValue) else {
+                    throw QAXInteractionError.allowedValuesElementMalformed
+                }
+                guard doubleValue.isFinite else {
+                    let reason = doubleValue.isNaN ? "NaN" : (doubleValue > 0 ? "+Infinity" : "-Infinity")
+                    throw QAXInteractionError.allowedValuesElementInvalid("element at index \(index) is not finite (\(reason))")
+                }
+                results.append(doubleValue)
+            default:
+                throw QAXInteractionError.allowedValuesElementMalformed
+            }
+        }
+
+        return results
     }
 
     // MARK: - Semantic AX Element State Change (Phase 2K)

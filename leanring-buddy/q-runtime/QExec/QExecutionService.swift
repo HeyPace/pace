@@ -141,6 +141,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_element_range":
             result = await executeReadElementRange(request: request)
 
+        case "ui.read_element_allowed_values":
+            result = await executeReadElementAllowedValues(request: request)
+
         case "ui.list_element_actions":
             result = await executeListElementActions(request: request)
 
@@ -1752,6 +1755,78 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading element range: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    private func executeReadElementAllowedValues(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.readElementAllowedValues(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            let hasAllowedValues = metadata != nil
+            let allowedValues = metadata?.allowedValues ?? []
+            let outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "elementIdentifier": metadata?.elementIdentifier ?? "",
+                "elementTitle": metadata?.elementTitle ?? "",
+                "hasAllowedValues": hasAllowedValues ? "true" : "false",
+                "allowedValueCount": "\(allowedValues.count)",
+                "allowedValues": allowedValues.map { String($0) }.joined(separator: ",")
+            ]
+            let summaryDescription = hasAllowedValues ? "\(allowedValues.count) allowed value(s)" : "unavailable"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed allowed values for \(role) element in \(applicationName): \(summaryDescription). This is observation only — no value was set, and this observation does not constitute authorization to set the element's value later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading element allowed values: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

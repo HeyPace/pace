@@ -1145,7 +1145,41 @@ public struct QModelPlanParser: Sendable {
         // mutation, no approval, no recovery: a read that does not throw IS its own result. See
         // QBridgeAccessibility.readTableDimensions and
         // docs/PHASE_2BU_SEMANTIC_TABLE_DIMENSIONS.md for the full contract.
-        "ui.read_table_dimensions": ("ui", .level0ReadOnly)
+        "ui.read_table_dimensions": ("ui", .level0ReadOnly),
+        // Phase 2BV: semantic element allowed-values read — LEVEL 0 (READ-ONLY). Reads a
+        // semantically-identified element's kAXAllowedValuesAttribute. Directly complements
+        // ui.read_element_range (Phase 2BJ): range describes the CONTINUOUS bound
+        // (min/max/increment/current), while this capability describes the DISCRETE subset of
+        // values within that bound a control may legitimately be set to — letting a caller learn
+        // exactly which values ui.set_slider_value/ui.step_incrementor/ui.set_splitter_position
+        // may safely target before ever attempting a mutation. Reuses QAXRangeReadRolePolicy
+        // (AXSlider/AXIncrementor/AXSplitter) completely unmodified — the identical policy
+        // ui.read_element_range already uses; no new role policy was introduced. Genuine absence
+        // of the attribute (kAXErrorNoValue/kAXErrorAttributeUnsupported) is a valid, expected nil
+        // whole-result — the SDK documents this attribute as applying only to elements "that can
+        // only be set to a small subset of values", never a universal requirement — distinct from
+        // a genuinely PRESENT but EMPTY array, which is its own valid, non-nil result. Every array
+        // element is independently validated: a genuine NSNumber is required (the whole array
+        // fails closed if even one element is not NSNumber-compatible, never silently dropping
+        // invalid entries), integer representations are round-tripped through Double to reject any
+        // value that cannot be represented exactly, and floating-point representations are
+        // rejected if NaN or +/-Infinity. The array itself is bounded by maxAllowedValuesCount
+        // (128) — exceeding it fails closed rather than ever silently truncating. Application
+        // identity is resolved by exact matching via QBridgeAccessibility.resolveExactRunningApplication;
+        // target identity resolved via the existing collectMatches/snapshotIfMatches primitives,
+        // identical to every prior window/element-scoped read. This capability NEVER calls
+        // AXUIElementPerformAction or AXUIElementSetAttributeValue — observing a control's allowed
+        // values never authorizes ui.set_slider_value, ui.step_incrementor,
+        // ui.set_splitter_position, or any other mutation, which must independently pass its own
+        // full capability/risk/approval/execution-identity pipeline. Registered under toolFamily
+        // "ui" — the returned allowedValues are a bounded array of validated Doubles, never
+        // table/cell/text content, never requiring the sanitize-before-persist boundary. Bounded
+        // to exactly 1 element touched, 0 traversal depth, 0 children enumerated, 0 actions
+        // performed, 0 polling, 1 returned record. No mutation, no approval, no recovery: a read
+        // that does not throw IS its own result. See
+        // QBridgeAccessibility.readElementAllowedValues and
+        // docs/PHASE_2BV_SEMANTIC_ELEMENT_ALLOWED_VALUES.md for the full contract.
+        "ui.read_element_allowed_values": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

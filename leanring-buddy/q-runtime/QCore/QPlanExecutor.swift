@@ -997,6 +997,31 @@ public final class QPlanExecutor: Sendable {
                 rowCount: rowCount,
                 columnCount: columnCount
             )
+        } else if action.actionName == "ui.read_element_allowed_values",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let hasAllowedValuesString = result.outputData["hasAllowedValues"] {
+            // Level 0, read-only, purely observational — reconstructed from the
+            // applicationName/role arguments used to dispatch, plus the resolved element's own
+            // identity and the validated allowed-values array captured at read time. Deliberately
+            // NOT threaded through here: any unrelated attribute — this strategy only ever carries
+            // application/element identity and the bounded numeric array itself (never text/
+            // credential/user content).
+            let elementIdentifier = result.outputData["elementIdentifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let elementTitle = result.outputData["elementTitle"].flatMap { $0.isEmpty ? nil : $0 }
+            let hasAllowedValues = hasAllowedValuesString == "true"
+            let allowedValuesString = result.outputData["allowedValues"] ?? ""
+            let allowedValues: [Double] = hasAllowedValues
+                ? allowedValuesString.split(separator: ",").compactMap { Double($0) }
+                : []
+            return .elementAllowedValuesReadSucceeded(
+                applicationName: applicationName,
+                role: role,
+                elementIdentifier: elementIdentifier,
+                elementTitle: elementTitle,
+                hasAllowedValues: hasAllowedValues,
+                allowedValues: allowedValues
+            )
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],
