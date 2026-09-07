@@ -579,6 +579,19 @@ public enum QVerificationStrategy: Sendable {
     /// fact), so it is safe to include directly, mirroring `windowModalStateReadSucceeded`'s
     /// identical discipline for its own boolean.
     case elementRequiredStateReadSucceeded(applicationName: String, role: String, isRequired: Bool?)
+    /// Phase 2BR: semantic element protected-content state read verification (Level 0, read-only).
+    /// Like every other Level 0 read's verification, there is no separate physical state to
+    /// re-observe after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readElementProtectedContentState` (exact application/target
+    /// resolution, a successfully-handled optional Boolean), already IS the ground truth. This
+    /// strategy checks the execution result's own `success` flag as a genuine, meaningful
+    /// assertion — never a bare `{ true }` bypass — and never mutates anything or reads the
+    /// protected content itself as part of verifying the read. Evidence carries the application
+    /// name, role, and whether a protected-content-state value was present plus its value when
+    /// present — none of this carries privacy risk (a single structural security-state fact,
+    /// never the content itself), so it is safe to include directly, mirroring
+    /// `elementRequiredStateReadSucceeded`'s identical discipline for its own optional boolean.
+    case elementProtectedContentStateReadSucceeded(applicationName: String, role: String, isProtectedContent: Bool?)
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1729,6 +1742,19 @@ public final class QActionVerifier: Sendable {
             } else {
                 return .failed(
                     reason: "Element required-state read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+
+        case .elementProtectedContentStateReadSucceeded(let applicationName, let role, let isProtectedContent):
+            if result.success {
+                let protectedContentDescription = isProtectedContent.map { "\($0)" } ?? "unavailable"
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) isProtectedContent=\(protectedContentDescription) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Element protected-content-state read for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) role=\(role) status=failed"
                 )
             }

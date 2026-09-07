@@ -162,6 +162,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_element_required_state":
             result = await executeReadElementRequiredState(request: request)
 
+        case "ui.read_element_protected_content_state":
+            result = await executeReadElementProtectedContentState(request: request)
+
         case "ui.set_element_state":
             result = await executeSetElementState(request: request)
 
@@ -1372,6 +1375,84 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading element required state: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2BR: semantic element protected-content state read (Level 0, read-only, purely
+    /// observational). Resolves a semantically-identified element and reads its
+    /// `AXContainsProtectedContent` attribute — never pressing, focusing, or mutating anything,
+    /// and never reading any attribute other than this one. Genuine absence is never an error, but
+    /// a genuine read failure or a malformed (non-Boolean) value fails the whole read closed (see
+    /// `QBridgeAccessibility.readElementProtectedContentState`'s own documentation for the full
+    /// rationale). This capability NEVER exposes the protected content itself — only whether it
+    /// exists — and `outputData` here carries only the boolean fact and the caller's own
+    /// already-supplied identity, never any content. Every `QAXInteractionError` failure mode is
+    /// caught here and converted into a deterministic, non-throwing `QActionResult`; this method
+    /// never fabricates success and never downgrades an absent value to `false`.
+    private func executeReadElementProtectedContentState(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.readElementProtectedContentState(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            let outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "hasProtectedContentState": metadata.isProtectedContent != nil ? "true" : "false",
+                "isProtectedContent": metadata.isProtectedContent.map { $0 ? "true" : "false" } ?? ""
+            ]
+            let protectedContentDescription = metadata.isProtectedContent.map { "\($0)" } ?? "unavailable"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed protected-content state for \(role) element in \(applicationName): isProtectedContent=\(protectedContentDescription). This is observation only — the protected content itself was never read, and this observation does not constitute authorization to read it later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading element protected-content state: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

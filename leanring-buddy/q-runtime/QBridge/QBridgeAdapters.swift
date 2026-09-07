@@ -859,6 +859,19 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// assumed well-formed merely because the copy call itself reported success. Fails closed
     /// rather than fabricating a Boolean.
     case elementRequiredStateMalformed
+    /// Phase 2BR: `AXContainsProtectedContent` could not be read due to an actual Accessibility
+    /// API failure — distinct from `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`, which mean
+    /// the target genuinely has no protected-content concept (most non-secure elements) and are
+    /// never treated as an error — see
+    /// `QBridgeAccessibility.readElementProtectedContentState`'s own documentation for the full
+    /// missing-vs-failure rationale. The payload carries the underlying `AXError`, never any
+    /// element content.
+    case elementProtectedContentStateReadFailed(String)
+    /// Phase 2BR: `AXContainsProtectedContent`'s copy call reported success but the returned value
+    /// could not be interpreted as a `Bool` — the returned value is treated as untrusted external
+    /// data, never assumed well-formed merely because the copy call itself reported success.
+    /// Fails closed rather than fabricating a Boolean.
+    case elementProtectedContentStateMalformed
 
     public var description: String {
         switch self {
@@ -1148,6 +1161,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target element's required-field state could not be read due to an Accessibility API failure: \(reason)."
         case .elementRequiredStateMalformed:
             return "The target element's required-field state attribute could not be read as a well-formed Boolean."
+        case .elementProtectedContentStateReadFailed(let reason):
+            return "The target element's protected-content state could not be read due to an Accessibility API failure: \(reason)."
+        case .elementProtectedContentStateMalformed:
+            return "The target element's protected-content state attribute could not be read as a well-formed Boolean."
         }
     }
 
@@ -1297,6 +1314,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .parameterizedAttributeNameExceedsSafeLength: return "AX_PARAMETERIZED_ATTRIBUTE_NAME_EXCEEDS_SAFE_LENGTH"
         case .elementRequiredStateReadFailed: return "AX_ELEMENT_REQUIRED_STATE_READ_FAILED"
         case .elementRequiredStateMalformed: return "AX_ELEMENT_REQUIRED_STATE_MALFORMED"
+        case .elementProtectedContentStateReadFailed: return "AX_ELEMENT_PROTECTED_CONTENT_STATE_READ_FAILED"
+        case .elementProtectedContentStateMalformed: return "AX_ELEMENT_PROTECTED_CONTENT_STATE_MALFORMED"
         }
     }
 }
@@ -1490,6 +1509,33 @@ public struct QAXElementRequiredStateMetadata: Sendable, Equatable, Codable {
         self.applicationName = applicationName
         self.role = role
         self.isRequired = isRequired
+    }
+}
+
+/// A point-in-time snapshot of a semantically-identified element's protected-content state,
+/// captured by `ui.read_element_protected_content_state` (Phase 2BR). `isProtectedContent` is
+/// deliberately `Bool?`, never a plain `Bool`, following `QAXElementRequiredStateMetadata`'s
+/// (Phase 2BQ) identical discipline: `AXContainsProtectedContent` has no "required for all
+/// elements"-style universal-presence documentation — it is meaningful only for elements that can
+/// meaningfully hold sensitive content, so genuine absence
+/// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is a valid, expected `nil` result, never
+/// silently downgraded to `false`. A genuine read failure or a malformed (non-Boolean) value fails
+/// the whole read closed instead of ever being represented as this field's value — see
+/// `QBridgeAccessibility.readElementProtectedContentState`'s own documentation for the full
+/// rationale. This type carries ONLY the boolean fact — it never contains, references, or exposes
+/// the protected content itself (no `AXValue` text, no password/OTP/credential/payment content, no
+/// arbitrary field contents). Field naming (`role`, not `elementRole`) deliberately matches
+/// `QAXElementRequiredStateMetadata`'s and every other element-read type's established convention.
+/// No raw `AXUIElement`, no coordinates, no arbitrary AX attributes, ever appear in this type.
+public struct QAXElementProtectedContentStateMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let isProtectedContent: Bool?
+
+    public init(applicationName: String, role: String, isProtectedContent: Bool?) {
+        self.applicationName = applicationName
+        self.role = role
+        self.isProtectedContent = isProtectedContent
     }
 }
 
@@ -4972,6 +5018,122 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.elementRequiredStateMalformed
         }
         return isRequired
+    }
+
+    // MARK: - Semantic Element Protected Content State Read (Phase 2BR)
+    //
+    // ui.read_element_protected_content_state — a Level 0, read-only, zero-mutation, purely
+    // OBSERVATIONAL read of a semantically-identified element's `AXContainsProtectedContent`
+    // attribute (whether the element contains protected content, e.g. a secure field). Unlike
+    // `kAXModalAttribute` (Phase 2BO, documented "Required for all window elements"),
+    // `AXContainsProtectedContent` has no such universal-presence documentation — it is meaningful
+    // only for elements that can meaningfully hold sensitive content, so this capability follows
+    // the OPTIONAL-reference missing-vs-failure pattern established for `AXRequired` (Phase 2BQ),
+    // `kAXDefaultButtonAttribute`/`kAXCancelButtonAttribute` (Phase 2BM), and
+    // `kAXTitleUIElementAttribute` (Phase 2BN): genuine absence produces a valid `nil`, never an
+    // error, and is never silently downgraded to `false`. This is the first capability in the
+    // program whose entire purpose is defensive/security-aware observation — the boolean it
+    // returns is intended to help a future planner AVOID sensitive content, never to expose any
+    // of that content itself. This capability never reads, references, or exposes the protected
+    // content — only whether it exists.
+
+    /// Resolves exactly one semantic target on `QAXElementReadRolePolicy`'s allowlist and reads its
+    /// `AXContainsProtectedContent` attribute — a purely observational call; neither
+    /// `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is invoked anywhere in this
+    /// method, and no attribute other than `AXContainsProtectedContent` is ever read. Fails closed
+    /// (throws `QAXInteractionError`) on a disallowed/secure role, missing criteria, permission
+    /// absence, application/target absence or ambiguity, a stale/drifted target, a genuine read
+    /// failure, or a malformed (non-Boolean) returned value. Genuine absence
+    /// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an error — it produces `nil`;
+    /// most elements have no protected-content concept at all. Never fabricates a Boolean.
+    public func readElementProtectedContentState(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXElementProtectedContentStateMetadata {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Secure field first, for a specific diagnostic; then the general allowlist, which would
+        // also reject AXSecureTextField on its own (it is never listed) — belt and suspenders,
+        // identical discipline to every prior read capability's own checks. Note: this capability
+        // deliberately rejects AXSecureTextField as a TARGET exactly like every other read
+        // capability — it never reads a secure field's protected-content flag by resolving the
+        // secure field directly; it may still observe the flag on a non-secure-field element that
+        // happens to report protected content via some other AX mechanism.
+        guard role != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+        guard QAXElementReadRolePolicy.isAllowedReadRole(role) else {
+            throw QAXInteractionError.disallowedReadRole(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // protected-content-state read and refuse on any drift — identical discipline to every
+            // prior AX capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the protected-content-state read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the protected-content-state read")
+            }
+
+            let isProtectedContent = try Self.resolveElementProtectedContentState(of: targetElement)
+
+            return QAXElementProtectedContentStateMetadata(
+                applicationName: applicationName,
+                role: role,
+                isProtectedContent: isProtectedContent
+            )
+        }.value
+    }
+
+    /// Resolves `AXContainsProtectedContent` as an optional `Bool?`, distinguishing genuine
+    /// absence from a genuine read failure — see the `MARK` section above for the full
+    /// missing-vs-failure rationale. `kAXErrorNoValue`/`kAXErrorAttributeUnsupported` produce a
+    /// valid `nil`; any other `AXError` fails closed as `elementProtectedContentStateReadFailed`;
+    /// a successful copy whose value cannot be interpreted as a `Bool` fails closed as
+    /// `elementProtectedContentStateMalformed` — the returned value is treated as untrusted
+    /// external data, never assumed well-formed merely because the copy call itself reported
+    /// success. An explicit `false` is a fully valid, distinct outcome from either `nil` or either
+    /// failure case — it is returned directly, never conflated with "missing." This function reads
+    /// exactly one attribute and never descends into the target's own value/content.
+    fileprivate nonisolated static func resolveElementProtectedContentState(of targetElement: AXUIElement) throws -> Bool? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, Self.axContainsProtectedContentAttributeName as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            // Genuine, expected absence — most elements have no protected-content concept at all.
+            // Never an error.
+            return nil
+        default:
+            throw QAXInteractionError.elementProtectedContentStateReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value, let isProtectedContent = value as? Bool else {
+            throw QAXInteractionError.elementProtectedContentStateMalformed
+        }
+        return isProtectedContent
     }
 
     /// Best-effort, polymorphic `kAXValueAttribute` reader — text fields/labels typically carry a
@@ -12060,6 +12222,25 @@ extension QBridgeAccessibility {
     /// unbroken `kAXFooAttribute`/`NSAccessibilityFooAttribute` naming convention already relied
     /// upon for both of those constants — not a guess.
     fileprivate static let axRequiredAttributeName = "AXRequired"
+
+    /// Phase 2BR: `kAXContainsProtectedContentAttribute` has no C-level constant anywhere in this
+    /// SDK's `AXAttributeConstants.h` (`HIServices.framework`) — confirmed by direct grep (empty
+    /// result). The only SDK-level evidence is AppKit's own
+    /// `NSAccessibilityContainsProtectedContentAttribute` (`NSAccessibilityConstants.h`, `extern
+    /// NSAccessibilityAttributeName const NSAccessibilityContainsProtectedContentAttribute
+    /// API_AVAILABLE(macos(10.9))`, comment: "(NSNumber *) - (boolValue) contains protected
+    /// content?"), whose underlying type (`NSAccessibilityAttributeName`) is declared
+    /// `NS_TYPED_ENUM` and therefore imports into Swift as a typed wrapper case, not a plain
+    /// `String`/`CFString` usable directly with `AXUIElementCopyAttributeValue` — the identical
+    /// situation `axRequiredAttributeName` ("AXRequired") already resolved in Phase 2BQ. Note the
+    /// Objective-C property exposing this attribute (`NSAccessibilityProtocols.h`) is named
+    /// `accessibilityProtectedContent`/`isAccessibilityProtectedContent` — a SHORTER name than the
+    /// attribute itself — but its own doc comment reads "Invokes when clients request
+    /// NSAccessibilityContainsProtectedContentAttribute", confirming the wire-format string is
+    /// "AXContainsProtectedContent" (matching the full constant name), not "AXProtectedContent"
+    /// (the shorter property name) — verified from the constant declaration itself, not guessed
+    /// from the property name alone.
+    fileprivate static let axContainsProtectedContentAttributeName = "AXContainsProtectedContent"
 
     fileprivate nonisolated static func axIsAttributeSettable(_ attribute: String, of element: AXUIElement) -> Bool {
         var settable: DarwinBoolean = false

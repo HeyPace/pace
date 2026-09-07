@@ -918,6 +918,21 @@ public final class QPlanExecutor: Sendable {
                 ? (result.outputData["isRequired"] == "true")
                 : nil
             return .elementRequiredStateReadSucceeded(applicationName: applicationName, role: role, isRequired: isRequired)
+        } else if action.actionName == "ui.read_element_protected_content_state",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let hasProtectedContentStateString = result.outputData["hasProtectedContentState"] {
+            // Level 0, read-only, purely observational — reconstructed from the applicationName/
+            // role arguments used to dispatch, plus whether a protected-content-state value was
+            // present and its value, captured at read time. Deliberately NOT threaded through
+            // here: the protected content itself, or any other element attribute — this strategy
+            // only ever carries application identity, source role, and the protected-content
+            // fact itself, by design (the boolean carries no privacy risk — it is the security
+            // fact, never the content — unlike button/label text).
+            let isProtectedContent: Bool? = hasProtectedContentStateString == "true"
+                ? (result.outputData["isProtectedContent"] == "true")
+                : nil
+            return .elementProtectedContentStateReadSucceeded(applicationName: applicationName, role: role, isProtectedContent: isProtectedContent)
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

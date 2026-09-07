@@ -1008,7 +1008,42 @@ public struct QModelPlanParser: Sendable {
         // mutation, no approval, no recovery: a read that does not throw IS its own result. See
         // QBridgeAccessibility.readElementRequiredState and
         // docs/PHASE_2BQ_SEMANTIC_ELEMENT_REQUIRED_STATE.md for the full contract.
-        "ui.read_element_required_state": ("ui", .level0ReadOnly)
+        "ui.read_element_required_state": ("ui", .level0ReadOnly),
+        // Phase 2BR: semantic element protected-content state read — LEVEL 0 (READ-ONLY). Reads a
+        // semantically-identified element's AXContainsProtectedContent attribute — whether the
+        // element contains protected content (e.g. a secure field). AXContainsProtectedContent has
+        // no C-level constant in this SDK's AXAttributeConstants.h; the SDK evidence is AppKit's
+        // own NSAccessibilityContainsProtectedContentAttribute (NSAccessibilityConstants.h,
+        // available since macOS 10.9), whose underlying NS_TYPED_ENUM type does not bridge
+        // directly to the CFString AXUIElementCopyAttributeValue expects — the raw wire-format
+        // string "AXContainsProtectedContent" is used directly, mirroring this file's own
+        // established axRequiredAttributeName precedent (Phase 2BQ) for attributes lacking a
+        // HIServices C constant. Unlike kAXModalAttribute (documented "Required for all window
+        // elements"), AXContainsProtectedContent is meaningful only for elements that can
+        // meaningfully hold sensitive content — genuine absence
+        // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is therefore a valid, expected nil result
+        // here, never an error, and never silently downgraded to false; a genuine read failure or
+        // a malformed (non-Boolean) value fails the whole read closed instead. Reuses
+        // QAXElementReadRolePolicy (Phase 2J) unmodified — no broader, arbitrary-role allowlist is
+        // introduced. Application identity is resolved by exact matching via
+        // QBridgeAccessibility.resolveExactRunningApplication; target identity resolved via the
+        // existing collectMatches/snapshotIfMatches primitives, identical to
+        // ui.read_element_required_state. This is the first capability in the program whose entire
+        // purpose is defensive/security-aware observation — the boolean it returns exists to help
+        // a future planner AVOID sensitive content, never to expose any of that content itself.
+        // This capability NEVER calls AXUIElementPerformAction or AXUIElementSetAttributeValue,
+        // and NEVER reads any attribute other than AXContainsProtectedContent — observing that a
+        // field is protected never authorizes any future read of its actual value (e.g.
+        // ui.read_element_value), which must independently pass its own full
+        // capability/risk/approval/execution-identity pipeline. Registered under toolFamily "ui" —
+        // the returned isProtectedContent boolean is structural security-state metadata, never the
+        // protected content itself, and never requires the sanitize-before-persist boundary since
+        // no content ever crosses it. Bounded to exactly 1 element touched, 0 traversal depth, 0
+        // children enumerated, 0 actions performed, 0 polling, 1 returned record. No mutation, no
+        // approval, no recovery: a read that does not throw IS its own result. See
+        // QBridgeAccessibility.readElementProtectedContentState and
+        // docs/PHASE_2BR_SEMANTIC_ELEMENT_PROTECTED_CONTENT_STATE.md for the full contract.
+        "ui.read_element_protected_content_state": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.
