@@ -995,6 +995,23 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// never silently dropped. The payload carries only the offending index/diagnostic, never any
     /// unrelated array content.
     case allowedValuesElementInvalid(String)
+    /// Phase 2BW: `kAXValueDescriptionAttribute` could not be read due to an actual Accessibility
+    /// API failure — any `AXError` other than `.success`, `.noValue`, or `.attributeUnsupported`.
+    /// The latter two mean the target genuinely does not expose a value description (the SDK
+    /// documents this attribute as merely "Recommended for elements that support
+    /// kAXValueAttribute", never a universal requirement) and are never treated as an error. The
+    /// payload carries only the underlying `AXError`, never any string content.
+    case valueDescriptionReadFailed(String)
+    /// Phase 2BW: `kAXValueDescriptionAttribute`'s copy call reported success but the returned
+    /// value was not a genuine `String` — the returned value is treated as untrusted external
+    /// data, never assumed well-formed merely because the copy call itself reported success. Never
+    /// force-cast.
+    case valueDescriptionMalformed
+    /// Phase 2BW: `kAXValueDescriptionAttribute`'s returned string exceeded
+    /// `maxValueDescriptionLength` — fails closed rather than ever silently truncating (never
+    /// misrepresenting the authoritative result). The payload carries only the offending length,
+    /// never the string content itself.
+    case valueDescriptionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -1332,6 +1349,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target element's allowed-values array contains an element that is not a well-formed number."
         case .allowedValuesElementInvalid(let reason):
             return "The target element's allowed-values array contains a structurally invalid element: \(reason)."
+        case .valueDescriptionReadFailed(let reason):
+            return "The target element's value description could not be read due to an Accessibility API failure: \(reason)."
+        case .valueDescriptionMalformed:
+            return "The target element's value-description attribute could not be read as a well-formed string."
+        case .valueDescriptionExceedsSafeBound(let length):
+            return "The target element's value description (\(length) characters) exceeds the maximum safe bound."
         }
     }
 
@@ -1505,6 +1528,9 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .allowedValuesExceedsSafeBound: return "AX_ALLOWED_VALUES_EXCEEDS_SAFE_BOUND"
         case .allowedValuesElementMalformed: return "AX_ALLOWED_VALUES_ELEMENT_MALFORMED"
         case .allowedValuesElementInvalid: return "AX_ALLOWED_VALUES_ELEMENT_INVALID"
+        case .valueDescriptionReadFailed: return "AX_VALUE_DESCRIPTION_READ_FAILED"
+        case .valueDescriptionMalformed: return "AX_VALUE_DESCRIPTION_MALFORMED"
+        case .valueDescriptionExceedsSafeBound: return "AX_VALUE_DESCRIPTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -1850,6 +1876,36 @@ public struct QAXElementAllowedValuesMetadata: Sendable, Equatable, Codable {
         self.elementIdentifier = elementIdentifier
         self.elementTitle = elementTitle
         self.allowedValues = allowedValues
+    }
+}
+
+/// A semantically-identified element's bounded, validated `kAXValueDescriptionAttribute`, as
+/// returned by `ui.read_element_value_description` (Phase 2BW) — a single descriptive string
+/// only, never a raw AX object, never any unrelated attribute, and NEVER the element's own
+/// `kAXValueAttribute` (that remains `ui.read_element_value`'s exclusive contract). The
+/// `valueDescription` field may legitimately be an EMPTY string (the attribute was present but
+/// described as empty) — a distinct, valid state from genuine attribute ABSENCE, which is
+/// represented by the overall bridge function returning `nil` rather than ever constructing this
+/// type with a fabricated empty string.
+public struct QAXElementValueDescriptionMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let elementIdentifier: String?
+    public let elementTitle: String?
+    public let valueDescription: String
+
+    public init(
+        applicationName: String,
+        role: String,
+        elementIdentifier: String?,
+        elementTitle: String?,
+        valueDescription: String
+    ) {
+        self.applicationName = applicationName
+        self.role = role
+        self.elementIdentifier = elementIdentifier
+        self.elementTitle = elementTitle
+        self.valueDescription = valueDescription
     }
 }
 
@@ -4575,6 +4631,13 @@ extension QBridgeAccessibility {
     /// of values" — 128 gives generous headroom above any realistic discrete control while still
     /// remaining a genuinely bounded, deterministic limit.
     private static let maxAllowedValuesCount = 128
+    /// Phase 2BW: defensive per-string length bound on `ui.read_element_value_description`'s
+    /// returned `kAXValueDescriptionAttribute` string — prevents an arbitrarily large
+    /// model-visible string; exceeding it fails closed rather than truncating. A distinct constant
+    /// from `maxActionNameLength`/`maxAttributeNameLength`/`maxWindowButtonMetadataLength` per this
+    /// codebase's existing convention of not sharing bound constants across unrelated
+    /// capabilities, even when the numeric value is identical.
+    private static let maxValueDescriptionLength = 256
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -6256,6 +6319,143 @@ extension QBridgeAccessibility {
         }
 
         return results
+    }
+
+    // MARK: - Semantic AX Element Value Description Read (Phase 2BW)
+    //
+    // ui.read_element_value_description — a Level 0, read-only, zero-mutation, purely
+    // OBSERVATIONAL read of a semantically-identified element's kAXValueDescriptionAttribute.
+    // Directly complements ui.read_element_value (the raw kAXValueAttribute): this capability
+    // reads the SDK-documented human-readable SUPPLEMENT to that raw value — the canonical
+    // example being a color slider whose numeric kAXValueAttribute position is uninterpretable on
+    // its own, but whose kAXValueDescriptionAttribute reads "Deep Blue". This capability NEVER
+    // reads kAXValueAttribute itself — that remains ui.read_element_value's exclusive contract.
+    // Reuses QAXElementReadRolePolicy (Phase 2J) and the identical secure-field-first-then-general-
+    // allowlist discipline ui.read_element_value/ui.list_element_actions already establish — no
+    // broader, arbitrary-role allowlist is introduced, and AXSecureTextField is rejected before
+    // ever reaching the general allowlist (belt and suspenders).
+    //
+    // NAMING NOTE: this capability's resolver is deliberately named `resolveElementValueDescription`
+    // — NOT `axValueDescription`, which is a pre-existing, unrelated, polymorphic `kAXValueAttribute`
+    // reader used internally by `ui.read_element_value` (see above). The two must never be
+    // confused: `axValueDescription` reads the raw VALUE as a display string; this capability reads
+    // the SDK's own distinct, dedicated DESCRIPTION-of-the-value attribute.
+    //
+    // SDK-VERIFIED ABSENCE SEMANTICS: kAXValueDescriptionAttribute carries no "required for all
+    // elements of this role"-style documentation — the doc says only "Recommended for elements
+    // that support kAXValueAttribute", implying many value-bearing controls legitimately lack it.
+    // Genuine absence (kAXErrorNoValue/kAXErrorAttributeUnsupported) is therefore the
+    // OPTIONAL-REFERENCE pattern — a valid, expected nil WHOLE RESULT — distinct from a genuinely
+    // PRESENT but EMPTY string, which is its own valid, non-nil result.
+
+    /// Resolves exactly one semantic target on `QAXElementReadRolePolicy`'s allowlist (with the
+    /// same `AXSecureTextField` exclusion `ui.read_element_value`/`ui.list_element_actions` already
+    /// enforce) and reads its `kAXValueDescriptionAttribute` — a purely observational call; neither
+    /// `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is invoked anywhere in this
+    /// method. Fails closed (throws `QAXInteractionError`) on a disallowed/secure role, missing
+    /// criteria, permission absence, application/target absence or ambiguity, a stale/drifted
+    /// target, a genuine read failure, a malformed returned CFType, or a string exceeding
+    /// `maxValueDescriptionLength`. Genuine absence of the attribute
+    /// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an error — it produces `nil` for
+    /// the WHOLE result. A genuinely present but empty string is its own valid, non-nil result.
+    /// Never fabricates a value, never silently truncates an oversized string.
+    public func readElementValueDescription(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXElementValueDescriptionMetadata? {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Secure field first, for a specific diagnostic; then the general allowlist, which would
+        // also reject AXSecureTextField on its own (it is never listed) — belt and suspenders,
+        // identical discipline to readElementValue's/listElementActions' own checks.
+        guard role != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+        guard QAXElementReadRolePolicy.isAllowedReadRole(role) else {
+            throw QAXInteractionError.disallowedReadRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // value-description read and refuse on any drift — identical discipline to every
+            // prior AX capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the value-description read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the value-description read")
+            }
+
+            guard let valueDescription = try Self.resolveElementValueDescription(of: targetElement) else {
+                // Genuine, expected absence — the whole result is nil, never a fabricated empty
+                // string.
+                return nil
+            }
+
+            return QAXElementValueDescriptionMetadata(
+                applicationName: applicationName,
+                role: role,
+                elementIdentifier: observedAtVerify.identifier,
+                elementTitle: observedAtVerify.titleOrDescription,
+                valueDescription: valueDescription
+            )
+        }.value
+    }
+
+    /// Reads `kAXValueDescriptionAttribute` and normalizes it to a validated `String` (empty is a
+    /// valid result), or `nil` for genuine attribute absence. Every check has its own distinct,
+    /// dedicated diagnostic — nothing is ever silently truncated or defaulted, and the returned
+    /// value is never force-cast: the copy call's own success alone is never treated as proof the
+    /// returned CFTypeRef is genuinely a `String`.
+    ///
+    /// Validation, in order:
+    /// 1. `.noValue`/`.attributeUnsupported` → `nil` (genuine, expected absence — see the `MARK`
+    ///    section above); any other non-`.success` `AXError` → `valueDescriptionReadFailed`.
+    /// 2. The returned value must bridge to a genuine `String` (`value as? String`) — any other
+    ///    CFType → `valueDescriptionMalformed`.
+    /// 3. `string.count <= maxValueDescriptionLength` — exceeding it → `valueDescriptionExceedsSafeBound`,
+    ///    never a silent truncation.
+    fileprivate nonisolated static func resolveElementValueDescription(of targetElement: AXUIElement) throws -> String? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXValueDescriptionAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            return nil
+        default:
+            throw QAXInteractionError.valueDescriptionReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value else {
+            throw QAXInteractionError.valueDescriptionMalformed
+        }
+        guard let stringValue = value as? String else {
+            throw QAXInteractionError.valueDescriptionMalformed
+        }
+        guard stringValue.count <= maxValueDescriptionLength else {
+            throw QAXInteractionError.valueDescriptionExceedsSafeBound(stringValue.count)
+        }
+
+        return stringValue
     }
 
     // MARK: - Semantic AX Element State Change (Phase 2K)

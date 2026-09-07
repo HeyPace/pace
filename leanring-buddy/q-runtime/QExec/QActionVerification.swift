@@ -683,6 +683,30 @@ public enum QVerificationStrategy: Sendable {
         hasAllowedValues: Bool,
         allowedValues: [Double]
     )
+    /// Phase 2BW: semantic element value-description read verification (Level 0, read-only). Like
+    /// every other Level 0 read's verification, there is no separate physical state to re-observe
+    /// after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readElementValueDescription` (exact application/element resolution, a
+    /// validated, bounded string), already IS the ground truth. This strategy checks the execution
+    /// result's own `success` flag as a genuine, meaningful assertion — never a bare `{ true }`
+    /// bypass — and, when a value description is claimed present, INDEPENDENTLY RE-VALIDATES its
+    /// length is within the same 256-character bound `resolveElementValueDescription` itself
+    /// enforces, rather than blindly trusting the dispatch layer, the same independent-consistency
+    /// discipline `tableDimensionsReadSucceeded`/`elementAllowedValuesReadSucceeded` established
+    /// for their own numeric facts. Genuine absence (`hasValueDescription == false`) is its own
+    /// valid, distinct verified outcome — never conflated with a present-but-empty string. Never
+    /// mutates anything, never reads `kAXValueAttribute`, as part of verification. Evidence
+    /// carries the application name, element identity, and the value description itself (or its
+    /// absence) — bounded semantic UI metadata, the same sensitivity class as an already-exposed
+    /// title/help string, so it is safe to include directly.
+    case elementValueDescriptionReadSucceeded(
+        applicationName: String,
+        role: String,
+        elementIdentifier: String?,
+        elementTitle: String?,
+        hasValueDescription: Bool,
+        valueDescription: String?
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1977,6 +2001,37 @@ public final class QActionVerifier: Sendable {
             let valuesDescription = allowedValues.map { String($0) }.joined(separator: ",")
             return .verified(
                 evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) allowedValueCount=\(allowedValues.count) allowedValues=[\(valuesDescription)] status=verified"
+            )
+
+        case .elementValueDescriptionReadSucceeded(let applicationName, let role, let elementIdentifier, let elementTitle, let hasValueDescription, let valueDescription):
+            let elementDescription = elementTitle ?? elementIdentifier ?? "unnamed"
+            guard result.success else {
+                return .failed(
+                    reason: "Value-description read for \(role) element in application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) status=failed"
+                )
+            }
+            guard hasValueDescription else {
+                // Genuine, expected absence is its own valid, distinct verified outcome — never
+                // conflated with a present-but-empty string.
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) valueDescription=unavailable status=verified"
+                )
+            }
+            // Independent re-validation — never blindly trusting the dispatch layer's own success
+            // flag: the claimed value description must be present and within the same bound
+            // resolveElementValueDescription itself enforces (256 characters), mirroring
+            // tableDimensionsReadSucceeded's/elementAllowedValuesReadSucceeded's identical
+            // independent-recheck discipline. A fabricated success claiming an oversized string is
+            // still correctly rejected.
+            guard let description = valueDescription, description.count <= 256 else {
+                return .failed(
+                    reason: "Value description for \(role) element in application '\(applicationName)' is missing or exceeds the maximum safe bound.",
+                    evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) status=failed"
+                )
+            }
+            return .verified(
+                evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) valueDescription=\(description) status=verified"
             )
 
         case .customCheck(let description, let check):

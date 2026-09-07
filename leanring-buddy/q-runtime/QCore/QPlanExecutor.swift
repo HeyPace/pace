@@ -1022,6 +1022,29 @@ public final class QPlanExecutor: Sendable {
                 hasAllowedValues: hasAllowedValues,
                 allowedValues: allowedValues
             )
+        } else if action.actionName == "ui.read_element_value_description",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let hasValueDescriptionString = result.outputData["hasValueDescription"] {
+            // Level 0, read-only, purely observational — reconstructed from the
+            // applicationName/role arguments used to dispatch, plus the resolved element's own
+            // identity and the validated value-description string captured at read time.
+            // Deliberately NOT threaded through here: any unrelated attribute, and NEVER
+            // kAXValueAttribute itself — this strategy only ever carries application/element
+            // identity and the bounded descriptive string itself (the same sensitivity class as
+            // an already-exposed title/help string, per this capability's own privacy contract).
+            let elementIdentifier = result.outputData["elementIdentifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let elementTitle = result.outputData["elementTitle"].flatMap { $0.isEmpty ? nil : $0 }
+            let hasValueDescription = hasValueDescriptionString == "true"
+            let valueDescription = hasValueDescription ? result.outputData["valueDescription"] : nil
+            return .elementValueDescriptionReadSucceeded(
+                applicationName: applicationName,
+                role: role,
+                elementIdentifier: elementIdentifier,
+                elementTitle: elementTitle,
+                hasValueDescription: hasValueDescription,
+                valueDescription: valueDescription
+            )
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

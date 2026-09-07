@@ -1179,7 +1179,39 @@ public struct QModelPlanParser: Sendable {
         // that does not throw IS its own result. See
         // QBridgeAccessibility.readElementAllowedValues and
         // docs/PHASE_2BV_SEMANTIC_ELEMENT_ALLOWED_VALUES.md for the full contract.
-        "ui.read_element_allowed_values": ("ui", .level0ReadOnly)
+        "ui.read_element_allowed_values": ("ui", .level0ReadOnly),
+        // Phase 2BW: semantic element value-description read — LEVEL 0 (READ-ONLY). Reads a
+        // semantically-identified element's kAXValueDescriptionAttribute. Directly complements
+        // ui.read_element_value (Phase 2J/2K, kAXValueAttribute): this capability reads the
+        // SDK-documented human-readable SUPPLEMENT to the raw value — the canonical example being
+        // a color slider whose numeric kAXValueAttribute position is uninterpretable on its own,
+        // but whose kAXValueDescriptionAttribute reads "Deep Blue". This capability NEVER reads
+        // kAXValueAttribute itself — that remains ui.read_element_value's exclusive contract.
+        // Reuses QAXElementReadRolePolicy (Phase 2J) completely unmodified — the identical
+        // allowlist and secure-field-first-then-general-allowlist discipline
+        // ui.read_element_value/ui.list_element_actions already establish; AXSecureTextField is
+        // rejected before ever reaching the general allowlist. Genuine absence of the attribute
+        // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is a valid, expected nil whole-result —
+        // the SDK documents this attribute as merely "Recommended for elements that support
+        // kAXValueAttribute", never a universal requirement — distinct from a genuinely PRESENT
+        // but EMPTY string, which is its own valid, non-nil result. The returned string is bounded
+        // by maxValueDescriptionLength (256 characters) — exceeding it fails closed rather than
+        // ever silently truncating. Application identity is resolved by exact matching via
+        // QBridgeAccessibility.resolveExactRunningApplication; target identity resolved via the
+        // existing collectMatches/snapshotIfMatches primitives, identical to every prior
+        // window/element-scoped read. This capability NEVER calls AXUIElementPerformAction or
+        // AXUIElementSetAttributeValue — observing an element's value description never
+        // authorizes ui.set_text_value, ui.set_slider_value, ui.step_incrementor,
+        // ui.set_element_state, or any other mutation, which must independently pass its own full
+        // capability/risk/approval/execution-identity pipeline. Registered under toolFamily "ui"
+        // — the returned valueDescription is bounded semantic UI metadata (the same sensitivity
+        // class as an already-exposed title/help string), never arbitrary text content, never
+        // requiring the sanitize-before-persist boundary. Bounded to exactly 1 element touched, 0
+        // traversal depth, 0 children enumerated, 0 actions performed, 0 polling, 1 returned
+        // record. No mutation, no approval, no recovery: a read that does not throw IS its own
+        // result. See QBridgeAccessibility.readElementValueDescription and
+        // docs/PHASE_2BW_SEMANTIC_ELEMENT_VALUE_DESCRIPTION.md for the full contract.
+        "ui.read_element_value_description": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.
