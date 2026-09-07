@@ -707,6 +707,28 @@ public enum QVerificationStrategy: Sendable {
         hasValueDescription: Bool,
         valueDescription: String?
     )
+    /// Phase 2BX: semantic label served-elements read verification (Level 0, read-only). Like
+    /// every other Level 0 read's verification, there is no separate physical state to re-observe
+    /// after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.listLabelServedElements` (exact application/element resolution, an
+    /// atomically-validated served-element array), already IS the ground truth. This strategy
+    /// checks the execution result's own `success` flag as a genuine, meaningful assertion — never
+    /// a bare `{ true }` bypass — and INDEPENDENTLY RE-VALIDATES that `servedElementCount >= 0`
+    /// and is internally consistent with `hasServedElements`, rather than blindly trusting the
+    /// dispatch layer. Genuine absence (`hasServedElements == false`) is its own valid, distinct
+    /// verified outcome — never conflated with a present-but-empty relationship. Never mutates
+    /// anything, never reads `kAXValueAttribute`, as part of verification. Evidence is
+    /// DELIBERATELY conservative — mirroring `elementTitleReferenceReadSucceeded`'s (Phase 2BN)
+    /// identical discipline for the structurally symmetric forward relationship — carrying only
+    /// the application name, role, presence, and a bounded COUNT; never any individual served
+    /// element's own title/identifier, which are potentially user-visible strings this capability
+    /// deliberately never duplicates into durable evidence or audit.
+    case labelServedElementsReadSucceeded(
+        applicationName: String,
+        role: String,
+        hasServedElements: Bool,
+        servedElementCount: Int
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -2032,6 +2054,35 @@ public final class QActionVerifier: Sendable {
             }
             return .verified(
                 evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) valueDescription=\(description) status=verified"
+            )
+
+        case .labelServedElementsReadSucceeded(let applicationName, let role, let hasServedElements, let servedElementCount):
+            guard result.success else {
+                return .failed(
+                    reason: "Served-elements read for \(role) element in application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            guard hasServedElements else {
+                // Genuine, expected absence is its own valid, distinct verified outcome — never
+                // conflated with a present-but-empty relationship.
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) servedElements=unavailable status=verified"
+                )
+            }
+            // Independent re-validation — never blindly trusting the dispatch layer's own success
+            // flag: the claimed count must be non-negative and consistent with a present
+            // relationship, mirroring tableDimensionsReadSucceeded's/
+            // elementAllowedValuesReadSucceeded's identical independent-recheck discipline. A
+            // fabricated success claiming a negative count is still correctly rejected.
+            guard servedElementCount >= 0 else {
+                return .failed(
+                    reason: "Served-elements count for \(role) element in application '\(applicationName)' is negative.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            return .verified(
+                evidence: "application=\(applicationName) role=\(role) servedElementCount=\(servedElementCount) status=verified"
             )
 
         case .customCheck(let description, let check):

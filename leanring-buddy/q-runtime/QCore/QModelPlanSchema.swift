@@ -1211,7 +1211,41 @@ public struct QModelPlanParser: Sendable {
         // record. No mutation, no approval, no recovery: a read that does not throw IS its own
         // result. See QBridgeAccessibility.readElementValueDescription and
         // docs/PHASE_2BW_SEMANTIC_ELEMENT_VALUE_DESCRIPTION.md for the full contract.
-        "ui.read_element_value_description": ("ui", .level0ReadOnly)
+        "ui.read_element_value_description": ("ui", .level0ReadOnly),
+        // Phase 2BX: semantic label served-elements read — LEVEL 0 (READ-ONLY). Reads a
+        // semantically-identified element's kAXServesAsTitleForUIElementsAttribute — the
+        // structural INVERSE of ui.read_element_title_reference (Phase 2BN,
+        // kAXTitleUIElementAttribute): that capability answers "what titles ME"; this one answers
+        // "which elements do I serve as the title FOR". Reuses QAXElementReadRolePolicy
+        // (Phase 2J) completely unmodified — the identical allowlist and secure-field-first-then-
+        // general-allowlist discipline ui.read_element_value/ui.read_element_title_reference
+        // already establish for BOTH the source label element AND every individually-validated
+        // served element. A bounded relationship query, never generic extraction: exactly one AX
+        // attribute read on the resolved source element, then only bounded identity reads
+        // (role/title/identifier) on each already-enumerated served element — never a recursive
+        // descent, never a second relationship hop, never kAXValueAttribute. ATOMIC ARRAY
+        // DISCIPLINE (mirrors ui.read_element_allowed_values, Phase 2BV): a single malformed,
+        // unreadable, or disallowed-role served element fails the WHOLE array closed — invalid
+        // entries are never silently dropped — and the array is bounded by
+        // maxServedElementsCount (32), checked BEFORE any per-element extraction, never
+        // truncated. Genuine absence of the attribute (kAXErrorNoValue/kAXErrorAttributeUnsupported)
+        // is a valid, expected nil whole-result — most elements serve as the title for nothing at
+        // all — distinct from a genuinely PRESENT but EMPTY array, which is its own valid, non-nil
+        // result. Application identity is resolved by exact matching via
+        // QBridgeAccessibility.resolveExactRunningApplication; target identity resolved via the
+        // existing collectMatches/snapshotIfMatches primitives, identical to every prior
+        // window/element-scoped read. This capability NEVER calls AXUIElementPerformAction or
+        // AXUIElementSetAttributeValue — observing this relationship never authorizes any mutation
+        // against either the source label or any served element, which must independently pass
+        // its own full capability/risk/approval/execution-identity pipeline. Registered under
+        // toolFamily "ui" — the returned servedElements are bounded identity-only references
+        // (role/title/identifier), never content, never requiring the sanitize-before-persist
+        // boundary. Bounded to exactly 1 source element touched, 0 traversal depth beyond the
+        // bounded served-element identity reads, 0 actions performed, 0 polling, 1 returned
+        // record. No mutation, no approval, no recovery: a read that does not throw IS its own
+        // result. See QBridgeAccessibility.listLabelServedElements and
+        // docs/PHASE_2BX_SEMANTIC_LABEL_SERVED_ELEMENTS.md for the full contract.
+        "ui.list_label_served_elements": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

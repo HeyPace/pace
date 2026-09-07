@@ -147,6 +147,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_element_value_description":
             result = await executeReadElementValueDescription(request: request)
 
+        case "ui.list_label_served_elements":
+            result = await executeListLabelServedElements(request: request)
+
         case "ui.list_element_actions":
             result = await executeListElementActions(request: request)
 
@@ -1901,6 +1904,84 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading element value description: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    private func executeListLabelServedElements(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listLabelServedElements(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            let hasServedElements = metadata != nil
+            let servedElements = metadata?.servedElements ?? []
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "elementIdentifier": metadata?.elementIdentifier ?? "",
+                "elementTitle": metadata?.elementTitle ?? "",
+                "hasServedElements": hasServedElements ? "true" : "false",
+                "servedElementCount": "\(servedElements.count)"
+            ]
+            // Indexed-key encoding for the bounded identity array — the same convention
+            // ui.list_table_columns already established for its own per-column identity structs.
+            for (index, servedElement) in servedElements.enumerated() {
+                outputData["servedElement\(index).role"] = servedElement.role
+                outputData["servedElement\(index).title"] = servedElement.title ?? ""
+                outputData["servedElement\(index).identifier"] = servedElement.identifier ?? ""
+            }
+            let summaryDescription = hasServedElements ? "\(servedElements.count) served element(s)" : "unavailable"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed served-elements relationship for \(role) element in \(applicationName): \(summaryDescription). This is observation only — no element was mutated, and this observation does not constitute authorization for any action against the source or served elements.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing label served elements: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

@@ -1045,6 +1045,27 @@ public final class QPlanExecutor: Sendable {
                 hasValueDescription: hasValueDescription,
                 valueDescription: valueDescription
             )
+        } else if action.actionName == "ui.list_label_served_elements",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let hasServedElementsString = result.outputData["hasServedElements"],
+                  let servedElementCountString = result.outputData["servedElementCount"],
+                  let servedElementCount = Int(servedElementCountString) {
+            // Level 0, read-only, purely observational — reconstructed from the
+            // applicationName/role arguments used to dispatch, plus whether a served-elements
+            // relationship was present and its count, captured at read time. Deliberately NOT
+            // threaded through here: any individual served element's own title/identifier, and
+            // NEVER kAXValueAttribute — this strategy only ever carries application identity,
+            // source role, presence, and a bounded count, mirroring
+            // elementTitleReferenceReadSucceeded's (Phase 2BN) identical conservative-evidence
+            // discipline for the structurally symmetric forward relationship.
+            let hasServedElements = hasServedElementsString == "true"
+            return .labelServedElementsReadSucceeded(
+                applicationName: applicationName,
+                role: role,
+                hasServedElements: hasServedElements,
+                servedElementCount: servedElementCount
+            )
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

@@ -1012,6 +1012,42 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// misrepresenting the authoritative result). The payload carries only the offending length,
     /// never the string content itself.
     case valueDescriptionExceedsSafeBound(Int)
+    /// Phase 2BX: `kAXServesAsTitleForUIElementsAttribute` could not be read due to an actual
+    /// Accessibility API failure — any `AXError` other than `.success`, `.noValue`, or
+    /// `.attributeUnsupported`. The latter two mean the target genuinely serves as the title for
+    /// no element at all (this is the structural inverse of `kAXTitleUIElementAttribute`, which
+    /// carries no "required for all elements" documentation either) and are never treated as an
+    /// error. The payload carries only the underlying `AXError`, never any served-element content.
+    case servedElementsReadFailed(String)
+    /// Phase 2BX: `kAXServesAsTitleForUIElementsAttribute`'s copy call reported success but the
+    /// returned value was not a genuine `CFArray` — the returned value is treated as untrusted
+    /// external data, never assumed well-formed merely because the copy call itself reported
+    /// success. Never force-cast.
+    case servedElementsMalformed
+    /// Phase 2BX: `kAXServesAsTitleForUIElementsAttribute`'s array exceeded
+    /// `maxServedElementsCount` — fails closed rather than ever silently truncating (never
+    /// misrepresenting the authoritative result), checked BEFORE any per-element extraction. The
+    /// payload carries only the offending count.
+    case servedElementsExceedsSafeBound(Int)
+    /// Phase 2BX: one element of `kAXServesAsTitleForUIElementsAttribute`'s array was not a
+    /// genuine `AXUIElement` — a single malformed element fails the WHOLE array closed; invalid
+    /// entries are never silently dropped from an otherwise "mostly valid" result, mirroring
+    /// `ui.read_element_allowed_values`'s identical atomic-array discipline.
+    case servedElementsElementMalformed
+    /// Phase 2BX: one served element's own `kAXRoleAttribute` is not on
+    /// `QAXElementReadRolePolicy`'s allowlist — the mere existence of a returned reference is
+    /// never sufficient; a served element's role is independently re-validated against the SAME
+    /// allowlist the source label element itself had to satisfy, mirroring
+    /// `readElementTitleReference`'s identical discipline for its single reference. This also
+    /// forecloses a served `AXSecureTextField` (never on the allowlist) from ever being surfaced
+    /// as a "safe" served element. A single disallowed-role element fails the WHOLE array closed —
+    /// never silently omitted.
+    case servedElementsElementDisallowedRole(String)
+    /// Phase 2BX: one served element's title or identifier exceeded
+    /// `maxServedElementMetadataLength` — fails the WHOLE array closed rather than ever silently
+    /// truncating. The payload carries only the offending length, never the string content
+    /// itself.
+    case servedElementsElementMetadataExceedsSafeLength(Int)
 
     public var description: String {
         switch self {
@@ -1355,6 +1391,18 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target element's value-description attribute could not be read as a well-formed string."
         case .valueDescriptionExceedsSafeBound(let length):
             return "The target element's value description (\(length) characters) exceeds the maximum safe bound."
+        case .servedElementsReadFailed(let reason):
+            return "The target element's served-elements relationship could not be read due to an Accessibility API failure: \(reason)."
+        case .servedElementsMalformed:
+            return "The target element's served-elements attribute could not be read as a well-formed array."
+        case .servedElementsExceedsSafeBound(let count):
+            return "The target element's served-elements array (\(count) entries) exceeds the maximum safe bound."
+        case .servedElementsElementMalformed:
+            return "The target element's served-elements array contains an element that is not a well-formed AXUIElement reference."
+        case .servedElementsElementDisallowedRole(let role):
+            return "A served element's role '\(role)' is not on the allowed read-role list."
+        case .servedElementsElementMetadataExceedsSafeLength(let length):
+            return "A served element's identity metadata (\(length) characters) exceeds the maximum safe bound."
         }
     }
 
@@ -1531,6 +1579,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .valueDescriptionReadFailed: return "AX_VALUE_DESCRIPTION_READ_FAILED"
         case .valueDescriptionMalformed: return "AX_VALUE_DESCRIPTION_MALFORMED"
         case .valueDescriptionExceedsSafeBound: return "AX_VALUE_DESCRIPTION_EXCEEDS_SAFE_BOUND"
+        case .servedElementsReadFailed: return "AX_SERVED_ELEMENTS_READ_FAILED"
+        case .servedElementsMalformed: return "AX_SERVED_ELEMENTS_MALFORMED"
+        case .servedElementsExceedsSafeBound: return "AX_SERVED_ELEMENTS_EXCEEDS_SAFE_BOUND"
+        case .servedElementsElementMalformed: return "AX_SERVED_ELEMENTS_ELEMENT_MALFORMED"
+        case .servedElementsElementDisallowedRole: return "AX_SERVED_ELEMENTS_ELEMENT_DISALLOWED_ROLE"
+        case .servedElementsElementMetadataExceedsSafeLength: return "AX_SERVED_ELEMENTS_ELEMENT_METADATA_EXCEEDS_SAFE_LENGTH"
         }
     }
 }
@@ -1906,6 +1960,53 @@ public struct QAXElementValueDescriptionMetadata: Sendable, Equatable, Codable {
         self.elementIdentifier = elementIdentifier
         self.elementTitle = elementTitle
         self.valueDescription = valueDescription
+    }
+}
+
+/// A single served element's safe, non-sensitive structural identity, as returned within
+/// `ui.list_label_served_elements`'s (Phase 2BX) result array — role/title/identifier only,
+/// identical shape to `QAXElementTitleReference` (Phase 2BN, the structural inverse relationship),
+/// never an `AXValue`, never arbitrary content, never a raw `AXUIElement`.
+public struct QAXServedElementReference: Sendable, Equatable, Codable {
+    public let role: String
+    public let title: String?
+    public let identifier: String?
+
+    public init(role: String, title: String?, identifier: String?) {
+        self.role = role
+        self.title = title
+        self.identifier = identifier
+    }
+}
+
+/// A semantically-identified label element's bounded, validated `kAXServesAsTitleForUIElementsAttribute`,
+/// as returned by `ui.list_label_served_elements` (Phase 2BX) — the structural inverse of
+/// `ui.read_element_title_reference` (Phase 2BN): rather than "what titles ME", this answers
+/// "which elements do I serve as the title FOR". `servedElements` is a bounded array of
+/// identity-only references, never raw `AXUIElement`s, never any content beyond
+/// role/title/identifier. `servedElements` may legitimately be EMPTY (the attribute was present
+/// but the label currently serves as the title for no element) — a distinct, valid state from
+/// genuine attribute ABSENCE, which is represented by the overall bridge function returning `nil`
+/// rather than ever constructing this type with a fabricated empty array.
+public struct QAXLabelServedElementsMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let elementIdentifier: String?
+    public let elementTitle: String?
+    public let servedElements: [QAXServedElementReference]
+
+    public init(
+        applicationName: String,
+        role: String,
+        elementIdentifier: String?,
+        elementTitle: String?,
+        servedElements: [QAXServedElementReference]
+    ) {
+        self.applicationName = applicationName
+        self.role = role
+        self.elementIdentifier = elementIdentifier
+        self.elementTitle = elementTitle
+        self.servedElements = servedElements
     }
 }
 
@@ -4638,6 +4739,19 @@ extension QBridgeAccessibility {
     /// codebase's existing convention of not sharing bound constants across unrelated
     /// capabilities, even when the numeric value is identical.
     private static let maxValueDescriptionLength = 256
+    /// Phase 2BX: defensive bound on `ui.list_label_served_elements`'s returned
+    /// `kAXServesAsTitleForUIElementsAttribute` array — exceeding this fails closed rather than
+    /// silently truncating (never misrepresenting the authoritative result), checked BEFORE any
+    /// per-element extraction. A conservative limit: a label realistically titles a small, fixed
+    /// number of controls (rarely more than a handful), so this is deliberately narrower than
+    /// `maxAllowedValuesCount` (128).
+    private static let maxServedElementsCount = 32
+    /// Phase 2BX: defensive per-string length bound on a served element's own title/identifier —
+    /// prevents an arbitrarily large model-visible string; exceeding it fails the whole array
+    /// closed rather than truncating. A distinct constant from `maxTitleReferenceMetadataLength`
+    /// per this codebase's existing convention of not sharing bound constants across unrelated
+    /// capabilities, even when the numeric value is identical.
+    private static let maxServedElementMetadataLength = 256
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -6456,6 +6570,205 @@ extension QBridgeAccessibility {
         }
 
         return stringValue
+    }
+
+    // MARK: - Semantic Label Served-Elements Read (Phase 2BX)
+    //
+    // ui.list_label_served_elements — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL
+    // read of a semantically-identified element's kAXServesAsTitleForUIElementsAttribute. This is
+    // the structural INVERSE of ui.read_element_title_reference (Phase 2BN, kAXTitleUIElementAttribute):
+    // that capability answers "what titles ME"; this one answers "which elements do I serve as the
+    // title FOR". Reuses QAXElementReadRolePolicy (Phase 2J) completely unmodified — the identical
+    // allowlist and secure-field-first-then-general-allowlist discipline
+    // ui.read_element_value/ui.read_element_title_reference already establish for BOTH the source
+    // label element AND, mirroring readElementTitleReference's own discipline exactly, every
+    // individually-validated served element.
+    //
+    // BOUNDED RELATIONSHIP QUERY, NEVER GENERIC EXTRACTION: this capability reads exactly one AX
+    // attribute on exactly one resolved source element, then performs ONLY the bounded identity
+    // reads (role/title/identifier) on each of its already-enumerated served elements — never a
+    // recursive descent, never a traversal of the served elements' own children, never a second
+    // relationship hop. kAXValueAttribute is NEVER read anywhere in this capability.
+    //
+    // ATOMIC ARRAY DISCIPLINE (mirrors ui.read_element_allowed_values, Phase 2BV): a single
+    // malformed, unreadable, or disallowed-role served element fails the WHOLE array closed —
+    // invalid entries are never silently dropped, and the array is bounded
+    // (maxServedElementsCount, checked BEFORE any per-element extraction) rather than ever
+    // truncated.
+    //
+    // SDK-VERIFIED ABSENCE SEMANTICS: kAXServesAsTitleForUIElementsAttribute carries no "required
+    // for all elements of this role"-style documentation — most elements serve as the title for
+    // nothing at all. Genuine absence (kAXErrorNoValue/kAXErrorAttributeUnsupported) is therefore
+    // the OPTIONAL-REFERENCE pattern — a valid, expected nil WHOLE RESULT — distinct from a
+    // genuinely PRESENT but EMPTY array, which is its own valid, non-nil result.
+
+    /// Resolves exactly one semantic target on `QAXElementReadRolePolicy`'s allowlist (with the
+    /// same `AXSecureTextField` exclusion `ui.read_element_value`/`ui.read_element_title_reference`
+    /// already enforce) and reads its `kAXServesAsTitleForUIElementsAttribute` — a purely
+    /// observational call; neither `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is
+    /// invoked anywhere in this method, and `kAXValueAttribute` is never read. Fails closed
+    /// (throws `QAXInteractionError`) on a disallowed/secure role, missing criteria, permission
+    /// absence, application/target absence or ambiguity, a stale/drifted target, a genuine read
+    /// failure, a malformed returned CFType, an oversized array, or any malformed/disallowed-role/
+    /// oversized-metadata served element. Genuine absence of the attribute
+    /// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an error — it produces `nil` for
+    /// the WHOLE result. A genuinely present but empty array is its own valid, non-nil result.
+    /// Never fabricates a value, never silently drops an invalid served element, never silently
+    /// truncates an oversized array.
+    public func listLabelServedElements(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXLabelServedElementsMetadata? {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Secure field first, for a specific diagnostic; then the general allowlist, which would
+        // also reject AXSecureTextField on its own (it is never listed) — belt and suspenders,
+        // identical discipline to readElementValue's/readElementTitleReference's own checks.
+        guard role != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+        guard QAXElementReadRolePolicy.isAllowedReadRole(role) else {
+            throw QAXInteractionError.disallowedReadRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // served-elements read and refuse on any drift — identical discipline to every prior
+            // AX capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the served-elements read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the served-elements read")
+            }
+
+            guard let servedElements = try Self.resolveServedElements(of: targetElement) else {
+                // Genuine, expected absence — the whole result is nil, never a fabricated empty
+                // array.
+                return nil
+            }
+
+            return QAXLabelServedElementsMetadata(
+                applicationName: applicationName,
+                role: role,
+                elementIdentifier: observedAtVerify.identifier,
+                elementTitle: observedAtVerify.titleOrDescription,
+                servedElements: servedElements
+            )
+        }.value
+    }
+
+    /// Reads `kAXServesAsTitleForUIElementsAttribute` and normalizes it to a validated
+    /// `[QAXServedElementReference]` (empty is a valid result), or `nil` for genuine attribute
+    /// absence. Every check has its own distinct, dedicated diagnostic — nothing is ever silently
+    /// truncated or defaulted, and a single malformed/disallowed-role/oversized served element
+    /// fails the WHOLE array closed rather than being dropped.
+    ///
+    /// Validation, in order:
+    /// 1. `.noValue`/`.attributeUnsupported` → `nil` (genuine, expected absence — see the `MARK`
+    ///    section above); any other non-`.success` `AXError` → `servedElementsReadFailed`.
+    /// 2. The returned value must be a genuine `CFArray` (`CFGetTypeID(value) ==
+    ///    CFArrayGetTypeID()`) — any other CFType → `servedElementsMalformed`.
+    /// 3. `CFArrayGetCount(cfArray) <= maxServedElementsCount` — exceeding it →
+    ///    `servedElementsExceedsSafeBound`, checked BEFORE any per-element extraction, never a
+    ///    silent truncation.
+    /// 4. Every element must bridge to `AXUIElement` (`value as? [AXUIElement]`, which fails as a
+    ///    WHOLE if even one element is not `AXUIElement`-compatible) → `servedElementsElementMalformed`
+    ///    otherwise.
+    /// 5. Each served element's own `kAXRoleAttribute` is independently re-validated against
+    ///    `QAXElementReadRolePolicy` — the mere existence of a returned reference is never
+    ///    sufficient, mirroring `resolveElementTitleReference`'s identical discipline for its
+    ///    single reference. A disallowed role (including an unreadable role, which reads as
+    ///    `"none"` and is never on the allowlist) fails the WHOLE array closed →
+    ///    `servedElementsElementDisallowedRole`.
+    /// 6. Each served element's title/identifier is read and bounded by
+    ///    `maxServedElementMetadataLength` — exceeding it fails the WHOLE array closed →
+    ///    `servedElementsElementMetadataExceedsSafeLength`.
+    fileprivate nonisolated static func resolveServedElements(of targetElement: AXUIElement) throws -> [QAXServedElementReference]? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXServesAsTitleForUIElementsAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            return nil
+        default:
+            throw QAXInteractionError.servedElementsReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value else {
+            throw QAXInteractionError.servedElementsMalformed
+        }
+        guard CFGetTypeID(value) == CFArrayGetTypeID() else {
+            throw QAXInteractionError.servedElementsMalformed
+        }
+        let cfArray = value as! CFArray // swiftlint:disable:this force_cast — CFGetTypeID checked above
+
+        let count = CFArrayGetCount(cfArray)
+        guard count <= maxServedElementsCount else {
+            throw QAXInteractionError.servedElementsExceedsSafeBound(count)
+        }
+
+        // Bridging the WHOLE array to [AXUIElement] fails (returns nil) as a whole if even one
+        // element is not AXUIElement-compatible — exactly the desired atomic, fail-closed
+        // behavior for a malformed array (never silently dropping the offending entries).
+        guard let servedElementRefs = value as? [AXUIElement] else {
+            throw QAXInteractionError.servedElementsElementMalformed
+        }
+
+        var results: [QAXServedElementReference] = []
+        results.reserveCapacity(servedElementRefs.count)
+
+        for servedElement in servedElementRefs {
+            // The mere existence of a returned reference is never sufficient — its own role is
+            // independently re-validated against the SAME generic read-role allowlist the source
+            // element itself had to satisfy, before it is ever treated as a genuine, safe served
+            // element. This also forecloses a served AXSecureTextField (never on the allowlist)
+            // from ever being surfaced as a "safe" served element.
+            let servedElementRole = Self.axStringAttribute(kAXRoleAttribute, of: servedElement) ?? "none"
+            guard QAXElementReadRolePolicy.isAllowedReadRole(servedElementRole) else {
+                throw QAXInteractionError.servedElementsElementDisallowedRole(servedElementRole)
+            }
+
+            let rawTitle = Self.axStringAttribute(kAXTitleAttribute, of: servedElement)
+            let servedElementTitle = (rawTitle?.isEmpty == false) ? rawTitle : nil
+            let servedElementIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: servedElement)
+
+            if let servedElementTitle, servedElementTitle.count > maxServedElementMetadataLength {
+                throw QAXInteractionError.servedElementsElementMetadataExceedsSafeLength(servedElementTitle.count)
+            }
+            if let servedElementIdentifier, servedElementIdentifier.count > maxServedElementMetadataLength {
+                throw QAXInteractionError.servedElementsElementMetadataExceedsSafeLength(servedElementIdentifier.count)
+            }
+
+            results.append(
+                QAXServedElementReference(
+                    role: servedElementRole,
+                    title: servedElementTitle,
+                    identifier: servedElementIdentifier
+                )
+            )
+        }
+
+        return results
     }
 
     // MARK: - Semantic AX Element State Change (Phase 2K)
