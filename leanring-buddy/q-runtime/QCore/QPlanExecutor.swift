@@ -933,6 +933,29 @@ public final class QPlanExecutor: Sendable {
                 ? (result.outputData["isProtectedContent"] == "true")
                 : nil
             return .elementProtectedContentStateReadSucceeded(applicationName: applicationName, role: role, isProtectedContent: isProtectedContent)
+        } else if action.actionName == "ui.read_text_selection_state",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let hasSelectionStateString = result.outputData["hasSelectionState"] {
+            // Level 0, read-only, purely observational — reconstructed from the applicationName/
+            // role arguments used to dispatch, plus whether a selection-state value was present
+            // and its three numeric facts, captured at read time. Deliberately NOT threaded
+            // through here: the selected TEXT itself — this strategy only ever carries
+            // application identity, source role, and the three bounded numeric facts (or their
+            // absence), by design (they carry no privacy risk — they are the structural facts,
+            // never content).
+            let hasSelectionState = hasSelectionStateString == "true"
+            let selectionLocation = result.outputData["selectionLocation"].flatMap { Int($0) }
+            let selectionLength = result.outputData["selectionLength"].flatMap { Int($0) }
+            let totalCharacterCount = result.outputData["totalCharacterCount"].flatMap { Int($0) }
+            return .textSelectionStateReadSucceeded(
+                applicationName: applicationName,
+                role: role,
+                hasSelectionState: hasSelectionState,
+                selectionLocation: selectionLocation,
+                selectionLength: selectionLength,
+                totalCharacterCount: totalCharacterCount
+            )
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

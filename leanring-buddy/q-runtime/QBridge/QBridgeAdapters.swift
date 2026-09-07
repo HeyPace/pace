@@ -872,6 +872,42 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// data, never assumed well-formed merely because the copy call itself reported success.
     /// Fails closed rather than fabricating a Boolean.
     case elementProtectedContentStateMalformed
+    /// Phase 2BS: `kAXSelectedTextRangeAttribute` could not be read due to an actual Accessibility
+    /// API failure — distinct from `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`, which mean the
+    /// target genuinely has no text-selection concept (most non-text elements) and are never
+    /// treated as an error — see `QBridgeAccessibility.readTextSelectionState`'s own documentation
+    /// for the full missing-vs-failure rationale. The payload carries the underlying `AXError`,
+    /// never any selected text content.
+    case textSelectionRangeReadFailed(String)
+    /// Phase 2BS: `kAXSelectedTextRangeAttribute`'s copy call reported success but the returned
+    /// value could not be interpreted as a well-formed `AXValue` of type `kAXValueTypeCFRange` —
+    /// the returned value is treated as untrusted external data, never assumed well-formed merely
+    /// because the copy call itself reported success. Fails closed rather than fabricating a range.
+    case textSelectionRangeMalformed
+    /// Phase 2BS: `kAXSelectedTextRangeAttribute` decoded to a structurally invalid `CFRange` —
+    /// a negative `location` or `length`. Never silently clamped to zero; fails closed instead,
+    /// carrying only the offending values, never any selected text content.
+    case textSelectionRangeInvalid(String)
+    /// Phase 2BS: `kAXNumberOfCharactersAttribute` could not be read due to an actual
+    /// Accessibility API failure — distinct from `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`,
+    /// which are treated as genuine absence exactly like `kAXSelectedTextRangeAttribute`'s own
+    /// identical cases. The payload carries the underlying `AXError`.
+    case characterCountReadFailed(String)
+    /// Phase 2BS: `kAXNumberOfCharactersAttribute`'s copy call reported success but the returned
+    /// value could not be interpreted as a numeric (`NSNumber`-boxed) value — the returned value
+    /// is treated as untrusted external data, never assumed well-formed merely because the copy
+    /// call itself reported success. Fails closed rather than fabricating a count.
+    case characterCountMalformed
+    /// Phase 2BS: `kAXNumberOfCharactersAttribute` decoded to a structurally invalid (negative)
+    /// count. Never silently clamped to zero; fails closed instead.
+    case characterCountInvalid(String)
+    /// Phase 2BS: the two independently-read text-selection facts
+    /// (`kAXSelectedTextRangeAttribute`'s location/length and `kAXNumberOfCharactersAttribute`'s
+    /// total) are individually well-formed but mutually inconsistent — `selectionLocation +
+    /// selectionLength` exceeds `totalCharacterCount`, or that addition would overflow `Int`.
+    /// Never silently clamped or truncated; fails the whole read closed instead, carrying only the
+    /// offending numeric relationship, never any selected text content.
+    case textSelectionStateInconsistent(String)
 
     public var description: String {
         switch self {
@@ -1165,6 +1201,20 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target element's protected-content state could not be read due to an Accessibility API failure: \(reason)."
         case .elementProtectedContentStateMalformed:
             return "The target element's protected-content state attribute could not be read as a well-formed Boolean."
+        case .textSelectionRangeReadFailed(let reason):
+            return "The target element's selected text range could not be read due to an Accessibility API failure: \(reason)."
+        case .textSelectionRangeMalformed:
+            return "The target element's selected text range attribute could not be read as a well-formed CFRange."
+        case .textSelectionRangeInvalid(let reason):
+            return "The target element's selected text range is structurally invalid: \(reason)."
+        case .characterCountReadFailed(let reason):
+            return "The target element's total character count could not be read due to an Accessibility API failure: \(reason)."
+        case .characterCountMalformed:
+            return "The target element's total character count attribute could not be read as a well-formed number."
+        case .characterCountInvalid(let reason):
+            return "The target element's total character count is structurally invalid: \(reason)."
+        case .textSelectionStateInconsistent(let reason):
+            return "The target element's text selection state is internally inconsistent: \(reason)."
         }
     }
 
@@ -1316,6 +1366,13 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .elementRequiredStateMalformed: return "AX_ELEMENT_REQUIRED_STATE_MALFORMED"
         case .elementProtectedContentStateReadFailed: return "AX_ELEMENT_PROTECTED_CONTENT_STATE_READ_FAILED"
         case .elementProtectedContentStateMalformed: return "AX_ELEMENT_PROTECTED_CONTENT_STATE_MALFORMED"
+        case .textSelectionRangeReadFailed: return "AX_TEXT_SELECTION_RANGE_READ_FAILED"
+        case .textSelectionRangeMalformed: return "AX_TEXT_SELECTION_RANGE_MALFORMED"
+        case .textSelectionRangeInvalid: return "AX_TEXT_SELECTION_RANGE_INVALID"
+        case .characterCountReadFailed: return "AX_CHARACTER_COUNT_READ_FAILED"
+        case .characterCountMalformed: return "AX_CHARACTER_COUNT_MALFORMED"
+        case .characterCountInvalid: return "AX_CHARACTER_COUNT_INVALID"
+        case .textSelectionStateInconsistent: return "AX_TEXT_SELECTION_STATE_INCONSISTENT"
         }
     }
 }
@@ -1536,6 +1593,44 @@ public struct QAXElementProtectedContentStateMetadata: Sendable, Equatable, Coda
         self.applicationName = applicationName
         self.role = role
         self.isProtectedContent = isProtectedContent
+    }
+}
+
+/// A point-in-time snapshot of a semantically-identified element's text-selection STATE — never
+/// its content — captured by `ui.read_text_selection_state` (Phase 2BS). Deliberately carries only
+/// three numeric facts (`selectionLocation`, `selectionLength`, `totalCharacterCount`), derived
+/// from `kAXSelectedTextRangeAttribute` and `kAXNumberOfCharactersAttribute` — both documented
+/// "Required for all editable text elements." `kAXSelectedTextAttribute` (the actual selected
+/// text) is deliberately NEVER read anywhere in this capability's implementation. The overall
+/// result from `QBridgeAccessibility.readTextSelectionState` is this type wrapped in an
+/// `Optional` — `nil` represents genuine, expected absence (most non-text elements, or an
+/// editable-text element whose AX provider reports neither attribute), never an error; a non-nil
+/// value is always a fully validated, internally consistent triple
+/// (`selectionLocation >= 0`, `selectionLength >= 0`, `totalCharacterCount >= 0`,
+/// `selectionLocation + selectionLength <= totalCharacterCount`, checked with overflow-safe
+/// arithmetic) — a partially-known or inconsistent state is never represented; it fails the whole
+/// read closed instead. A `selectionLength` of `0` is a fully valid result representing a plain
+/// caret/insertion point, never treated as an error or as absence. No raw `AXUIElement`, no
+/// coordinates, no selected or surrounding text content, ever appear in this type.
+public struct QAXTextSelectionStateMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let selectionLocation: Int
+    public let selectionLength: Int
+    public let totalCharacterCount: Int
+
+    public init(
+        applicationName: String,
+        role: String,
+        selectionLocation: Int,
+        selectionLength: Int,
+        totalCharacterCount: Int
+    ) {
+        self.applicationName = applicationName
+        self.role = role
+        self.selectionLocation = selectionLocation
+        self.selectionLength = selectionLength
+        self.totalCharacterCount = totalCharacterCount
     }
 }
 
@@ -5134,6 +5229,193 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.elementProtectedContentStateMalformed
         }
         return isProtectedContent
+    }
+
+    // MARK: - Semantic Text Selection State Read (Phase 2BS)
+    //
+    // ui.read_text_selection_state — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL
+    // read of a semantically-identified element's text-SELECTION STATE — never its content.
+    // `kAXSelectedTextRangeAttribute` and `kAXNumberOfCharactersAttribute` are both documented
+    // "Required for all editable text elements", but neither is documented as universally present
+    // on every AX element, so this capability follows the OPTIONAL-reference missing-vs-failure
+    // pattern established for `AXRequired`/`AXContainsProtectedContent` (Phases 2BQ/2BR): genuine
+    // absence produces a valid `nil` for the WHOLE result, never an error, and is never silently
+    // downgraded to a fabricated zero/empty state. SECURITY-CRITICAL INVARIANT: this capability
+    // deliberately NEVER reads `kAXSelectedTextAttribute` (the actual selected text) or any other
+    // content-bearing attribute — only the numeric location/length/total-count facts ever cross
+    // this capability's boundary. This capability NEVER calls `AXUIElementSetAttributeValue` —
+    // even though `kAXSelectedTextRangeAttribute` is itself documented `Writable? Yes` at the
+    // native API level, this capability is strictly read-only and never writes it.
+
+    /// Resolves exactly one semantic target on `QAXElementReadRolePolicy`'s allowlist and reads its
+    /// text-selection STATE (`kAXSelectedTextRangeAttribute` + `kAXNumberOfCharactersAttribute`) —
+    /// a purely observational read; neither `AXUIElementPerformAction` nor
+    /// `AXUIElementSetAttributeValue` is invoked anywhere in this method, and
+    /// `kAXSelectedTextAttribute` (the actual selected text) is never read. Fails closed (throws
+    /// `QAXInteractionError`) on a disallowed/secure role, missing criteria, permission absence,
+    /// application/target absence or ambiguity, a stale/drifted target, a genuine read failure, a
+    /// malformed returned value, a structurally invalid range/count (negative
+    /// location/length/total), or an internally inconsistent triple (`selectionLocation +
+    /// selectionLength` exceeding `totalCharacterCount`, checked with overflow-safe arithmetic).
+    /// Genuine absence of EITHER attribute (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) makes
+    /// the WHOLE result `nil` — never a partially-known state; most non-text elements have no
+    /// text-selection concept at all. A `selectionLength` of `0` is a fully valid, honestly
+    /// distinct result (a caret/insertion point), never treated as an error or as absence. Never
+    /// fabricates a value.
+    public func readTextSelectionState(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXTextSelectionStateMetadata? {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Secure field first, for a specific diagnostic; then the general allowlist, which would
+        // also reject AXSecureTextField on its own (it is never listed) — belt and suspenders,
+        // identical discipline to every prior read capability's own checks. This capability never
+        // broadens secure-field access and never reads secure text content — it never resolves an
+        // AXSecureTextField as its target at all.
+        guard role != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+        guard QAXElementReadRolePolicy.isAllowedReadRole(role) else {
+            throw QAXInteractionError.disallowedReadRole(role)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // text-selection-state read and refuse on any drift — identical discipline to every
+            // prior AX capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the text-selection-state read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the text-selection-state read")
+            }
+
+            guard let (selectionLocation, selectionLength) = try Self.resolveSelectedTextRange(of: targetElement) else {
+                // Genuine, expected absence of the selection-range attribute — the whole result is
+                // absent, never a partially-known state.
+                return nil
+            }
+            guard let totalCharacterCount = try Self.resolveNumberOfCharacters(of: targetElement) else {
+                // The selection range was present but the character count is genuinely absent —
+                // per this capability's contract, absence of EITHER attribute makes the whole
+                // result absent, since both are documented as co-required for editable text
+                // elements and a partial state cannot be validated for internal consistency.
+                return nil
+            }
+
+            let (locationPlusLength, overflowed) = selectionLocation.addingReportingOverflow(selectionLength)
+            guard !overflowed else {
+                throw QAXInteractionError.textSelectionStateInconsistent("selectionLocation (\(selectionLocation)) + selectionLength (\(selectionLength)) overflowed")
+            }
+            guard locationPlusLength <= totalCharacterCount else {
+                throw QAXInteractionError.textSelectionStateInconsistent("selectionLocation (\(selectionLocation)) + selectionLength (\(selectionLength)) exceeds totalCharacterCount (\(totalCharacterCount))")
+            }
+
+            return QAXTextSelectionStateMetadata(
+                applicationName: applicationName,
+                role: role,
+                selectionLocation: selectionLocation,
+                selectionLength: selectionLength,
+                totalCharacterCount: totalCharacterCount
+            )
+        }.value
+    }
+
+    /// Resolves `kAXSelectedTextRangeAttribute` as an optional `(location, length)` tuple,
+    /// distinguishing genuine absence from a genuine read failure — see the `MARK` section above
+    /// for the full missing-vs-failure rationale. `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`
+    /// produce a valid `nil`; any other `AXError` fails closed as `textSelectionRangeReadFailed`;
+    /// a successful copy whose value is not a well-formed `AXValue` of type `kAXValueTypeCFRange`
+    /// fails closed as `textSelectionRangeMalformed` — the returned value is treated as untrusted
+    /// external data, never assumed well-formed merely because the copy call itself reported
+    /// success. A structurally invalid range (negative `location`/`length`) fails closed as
+    /// `textSelectionRangeInvalid` — never silently clamped to zero. Never reads
+    /// `kAXSelectedTextAttribute` (the actual selected text).
+    fileprivate nonisolated static func resolveSelectedTextRange(of targetElement: AXUIElement) throws -> (location: Int, length: Int)? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXSelectedTextRangeAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            // Genuine, expected absence — most non-text elements have no selection-range concept
+            // at all. Never an error.
+            return nil
+        default:
+            throw QAXInteractionError.textSelectionRangeReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value, CFGetTypeID(value) == AXValueGetTypeID() else {
+            throw QAXInteractionError.textSelectionRangeMalformed
+        }
+        let axValue = value as! AXValue
+        guard AXValueGetType(axValue) == .cfRange else {
+            throw QAXInteractionError.textSelectionRangeMalformed
+        }
+        var range = CFRange()
+        guard AXValueGetValue(axValue, .cfRange, &range) else {
+            throw QAXInteractionError.textSelectionRangeMalformed
+        }
+
+        let location = range.location
+        let length = range.length
+        guard location >= 0, length >= 0 else {
+            throw QAXInteractionError.textSelectionRangeInvalid("location=\(location) length=\(length)")
+        }
+
+        return (location, length)
+    }
+
+    /// Resolves `kAXNumberOfCharactersAttribute` as an optional `Int`, distinguishing genuine
+    /// absence from a genuine read failure — see the `MARK` section above for the full
+    /// missing-vs-failure rationale. `kAXErrorNoValue`/`kAXErrorAttributeUnsupported` produce a
+    /// valid `nil`; any other `AXError` fails closed as `characterCountReadFailed`; a successful
+    /// copy whose value cannot be interpreted as a number fails closed as
+    /// `characterCountMalformed`. A structurally invalid (negative) count fails closed as
+    /// `characterCountInvalid` — never silently clamped to zero.
+    fileprivate nonisolated static func resolveNumberOfCharacters(of targetElement: AXUIElement) throws -> Int? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXNumberOfCharactersAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            // Genuine, expected absence — most non-text elements have no character-count concept
+            // at all. Never an error.
+            return nil
+        default:
+            throw QAXInteractionError.characterCountReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value, let numberValue = value as? NSNumber else {
+            throw QAXInteractionError.characterCountMalformed
+        }
+        let totalCharacterCount = numberValue.intValue
+        guard totalCharacterCount >= 0 else {
+            throw QAXInteractionError.characterCountInvalid("totalCharacterCount=\(totalCharacterCount)")
+        }
+        return totalCharacterCount
     }
 
     /// Best-effort, polymorphic `kAXValueAttribute` reader — text fields/labels typically carry a

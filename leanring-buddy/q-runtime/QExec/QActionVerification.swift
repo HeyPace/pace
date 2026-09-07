@@ -592,6 +592,27 @@ public enum QVerificationStrategy: Sendable {
     /// never the content itself), so it is safe to include directly, mirroring
     /// `elementRequiredStateReadSucceeded`'s identical discipline for its own optional boolean.
     case elementProtectedContentStateReadSucceeded(applicationName: String, role: String, isProtectedContent: Bool?)
+    /// Phase 2BS: semantic text selection state read verification (Level 0, read-only). Unlike
+    /// every prior single-scalar Level 0 read's verification, this strategy independently
+    /// RE-VALIDATES the structural consistency of the three reconstructed numeric facts —
+    /// `selectionLocation >= 0`, `selectionLength >= 0`, `totalCharacterCount >= 0`, and
+    /// `selectionLocation + selectionLength <= totalCharacterCount` (checked with overflow-safe
+    /// arithmetic) — rather than blindly trusting the dispatch layer's own `success` flag, mirroring
+    /// `elementAttributeNamesReadSucceeded`'s/`elementParameterizedAttributeNamesReadSucceeded`'s
+    /// identical independent-bound-recheck discipline. `hasSelectionState == false` (genuine
+    /// absence) is its own valid, distinct verified outcome — never conflated with a
+    /// zero/empty selection. Never mutates anything, never reads the selected text itself as part
+    /// of verification. Evidence carries the application name, role, and the three numeric facts
+    /// (or their absence) — none of this carries privacy risk (bounded structural numbers, never
+    /// content), so it is safe to include directly.
+    case textSelectionStateReadSucceeded(
+        applicationName: String,
+        role: String,
+        hasSelectionState: Bool,
+        selectionLocation: Int?,
+        selectionLength: Int?,
+        totalCharacterCount: Int?
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -1758,6 +1779,47 @@ public final class QActionVerifier: Sendable {
                     evidence: "application=\(applicationName) role=\(role) status=failed"
                 )
             }
+
+        case .textSelectionStateReadSucceeded(let applicationName, let role, let hasSelectionState, let selectionLocation, let selectionLength, let totalCharacterCount):
+            guard result.success else {
+                return .failed(
+                    reason: "Text selection state read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            guard hasSelectionState else {
+                // Genuine, expected absence is its own valid, distinct verified outcome — never
+                // conflated with a zero/empty selection.
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) selectionState=unavailable status=verified"
+                )
+            }
+            // Independent re-validation of structural consistency — never blindly trusting the
+            // dispatch layer's own success flag, mirroring
+            // elementAttributeNamesReadSucceeded's/elementParameterizedAttributeNamesReadSucceeded's
+            // identical independent-bound-recheck discipline.
+            guard let location = selectionLocation, let length = selectionLength, let total = totalCharacterCount else {
+                return .failed(
+                    reason: "Text selection state for application '\(applicationName)' claims presence but is missing one or more numeric fields.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            guard location >= 0, length >= 0, total >= 0 else {
+                return .failed(
+                    reason: "Text selection state for application '\(applicationName)' contains a negative value (location=\(location) length=\(length) total=\(total)).",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            let (locationPlusLength, overflowed) = location.addingReportingOverflow(length)
+            guard !overflowed, locationPlusLength <= total else {
+                return .failed(
+                    reason: "Text selection state for application '\(applicationName)' is internally inconsistent (location=\(location) length=\(length) total=\(total)).",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            return .verified(
+                evidence: "application=\(applicationName) role=\(role) selectionLocation=\(location) selectionLength=\(length) totalCharacterCount=\(total) status=verified"
+            )
 
         case .customCheck(let description, let check):
             let passed = await check()

@@ -1043,7 +1043,41 @@ public struct QModelPlanParser: Sendable {
         // approval, no recovery: a read that does not throw IS its own result. See
         // QBridgeAccessibility.readElementProtectedContentState and
         // docs/PHASE_2BR_SEMANTIC_ELEMENT_PROTECTED_CONTENT_STATE.md for the full contract.
-        "ui.read_element_protected_content_state": ("ui", .level0ReadOnly)
+        "ui.read_element_protected_content_state": ("ui", .level0ReadOnly),
+        // Phase 2BS: semantic text selection state read — LEVEL 0 (READ-ONLY). Reads a
+        // semantically-identified element's text-selection STATE via
+        // kAXSelectedTextRangeAttribute (location/length) and kAXNumberOfCharactersAttribute
+        // (total) — never the selected TEXT itself (kAXSelectedTextAttribute is never read).
+        // Both attributes are documented "Required for all editable text elements" but not
+        // universally present on every AX element, so this capability follows the
+        // OPTIONAL-reference missing-vs-failure pattern established for AXRequired/
+        // AXContainsProtectedContent (Phases 2BQ/2BR): genuine absence of EITHER attribute makes
+        // the WHOLE result nil, never a partially-known state, and is never silently downgraded
+        // to a fabricated zero/empty state. A structurally invalid range/count (negative
+        // location/length/total) or an internally inconsistent triple (selectionLocation +
+        // selectionLength exceeding totalCharacterCount, checked with overflow-safe arithmetic)
+        // fails the whole read closed instead. A selectionLength of 0 is a fully valid result
+        // (a caret/insertion point), never an error. Reuses QAXElementReadRolePolicy (Phase 2J)
+        // unmodified — no broader, arbitrary-role allowlist is introduced, and AXSecureTextField
+        // remains excluded as a target exactly as for every other read capability. Application
+        // identity is resolved by exact matching via
+        // QBridgeAccessibility.resolveExactRunningApplication; target identity resolved via the
+        // existing collectMatches/snapshotIfMatches primitives, identical to
+        // ui.read_element_protected_content_state. This capability NEVER calls
+        // AXUIElementPerformAction or AXUIElementSetAttributeValue — even though
+        // kAXSelectedTextRangeAttribute is itself documented Writable? Yes at the native API
+        // level, this capability is strictly read-only and never writes it; observing selection
+        // state never authorizes any future read of the actual text (ui.read_element_value) or
+        // any mutation (ui.set_text_value), both of which must independently pass their own full
+        // capability/risk/approval/execution-identity pipeline. Registered under toolFamily "ui"
+        // — the returned fields are bounded numeric structural metadata, never the text content
+        // itself, and never require the sanitize-before-persist boundary since no content ever
+        // crosses it. Bounded to exactly 1 element touched, at most 2 AX attributes read, 0
+        // traversal depth, 0 children enumerated, 0 actions performed, 0 polling, 1 returned
+        // record. No mutation, no approval, no recovery: a read that does not throw IS its own
+        // result. See QBridgeAccessibility.readTextSelectionState and
+        // docs/PHASE_2BS_SEMANTIC_TEXT_SELECTION_STATE.md for the full contract.
+        "ui.read_text_selection_state": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.
