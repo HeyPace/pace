@@ -90,3 +90,20 @@ MIT — see [`LICENSE`](./LICENSE).
 ---
 
 *Wispr Flow needs a server. Claude Computer Use needs the cloud. Pace needs neither — and it answers in under 500ms.*
+
+<!-- portfolio-retained-work:2026-09-07 -->
+## Retained work from the portfolio review
+
+These are unresolved requirements retained at the owner’s request. They are not completed features. Work should follow a concrete need and fresh evidence.
+
+### Expose Pace's local Mac capabilities to Codex through MCP
+
+Expose bounded local Mac capabilities through MCP with explicit permission and locality boundaries.
+
+Original requirements and discussion: [#172](https://github.com/HeyPace/pace/issues/172).
+
+### Build Spatial Teach Mode and evidence-rich compiled flows
+
+Prove one spatial teaching workflow with useful recorded evidence before broadening automation.
+
+Original requirements and discussion: [#157](https://github.com/HeyPace/pace/issues/157).
