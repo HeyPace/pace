@@ -2053,6 +2053,45 @@ public struct QAXWindowDefaultButtonMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// A point-in-time snapshot of a semantically-identified window's standard auxiliary
+/// title-bar-control button references, captured by `ui.read_window_auxiliary_buttons`
+/// (Phase 2BY) — a direct sibling of `QAXWindowDefaultButtonMetadata` (Phase 2BM), extended from
+/// 2 to 4 button attributes (`kAXZoomButtonAttribute`/`kAXMinimizeButtonAttribute`/
+/// `kAXToolbarButtonAttribute`/`kAXFullScreenButtonAttribute`). All four fields are independently
+/// optional — `nil` is a valid, honestly-reported "this window has no such button" result, never
+/// an error; a genuine read failure, malformed reference, or wrong-role reference for ANY of the
+/// four instead fails the WHOLE read closed (identical atomic discipline to
+/// `QAXWindowDefaultButtonMetadata`) rather than silently degrading to `nil`, so a `nil` value in
+/// this type is never ambiguous with an unobserved failure. No raw `AXUIElement`, no coordinates,
+/// no arbitrary AX attributes, ever appear in this type.
+public struct QAXWindowAuxiliaryButtonsMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let windowTitle: String?
+    public let windowIdentifier: String?
+    public let zoomButton: QAXWindowButtonReference?
+    public let minimizeButton: QAXWindowButtonReference?
+    public let toolbarButton: QAXWindowButtonReference?
+    public let fullScreenButton: QAXWindowButtonReference?
+
+    public init(
+        applicationName: String,
+        windowTitle: String?,
+        windowIdentifier: String?,
+        zoomButton: QAXWindowButtonReference?,
+        minimizeButton: QAXWindowButtonReference?,
+        toolbarButton: QAXWindowButtonReference?,
+        fullScreenButton: QAXWindowButtonReference?
+    ) {
+        self.applicationName = applicationName
+        self.windowTitle = windowTitle
+        self.windowIdentifier = windowIdentifier
+        self.zoomButton = zoomButton
+        self.minimizeButton = minimizeButton
+        self.toolbarButton = toolbarButton
+        self.fullScreenButton = fullScreenButton
+    }
+}
+
 /// A single element's safe, non-sensitive structural identity, as returned by
 /// `ui.read_element_title_reference` (Phase 2BN) — role/title/identifier only, never an
 /// `AXValue`, never arbitrary content, never a raw `AXUIElement`. Mirrors
@@ -9607,6 +9646,106 @@ extension QBridgeAccessibility {
         }
 
         return QAXWindowButtonReference(title: title, identifier: identifier)
+    }
+
+    // MARK: - Semantic Window Auxiliary Buttons Read (Phase 2BY)
+    //
+    // ui.read_window_auxiliary_buttons — a Level 0, read-only, zero-mutation, purely
+    // OBSERVATIONAL read of a semantically-identified window's kAXZoomButtonAttribute/
+    // kAXMinimizeButtonAttribute/kAXToolbarButtonAttribute/kAXFullScreenButtonAttribute
+    // references. A direct sibling of ui.read_window_default_button (Phase 2BM), extended from 2
+    // to 4 button attributes — this capability NEVER reads kAXDefaultButtonAttribute/
+    // kAXCancelButtonAttribute (that remains ui.read_window_default_button's exclusive contract)
+    // and NEVER reads kAXCloseButtonAttribute (already used internally, for mutation, by
+    // ui.close_window — never exposed as its own queryable identity fact by any capability). All
+    // four fields are independently optional — many windows have none of these buttons, most have
+    // some subset; all sixteen combinations are valid, expected results. This capability never
+    // presses any button, never performs any AX action of any kind, never mutates window state,
+    // never changes focus, never activates the application. Reuses QAXWindowRolePolicy (Phase 2U)
+    // unmodified — the identical single-role allowlist (AXWindow only) every other window
+    // capability already establishes; role is fixed internally to "AXWindow" (never
+    // caller-supplied), the identical shape ui.read_window_default_button itself already uses.
+    //
+    // MISSING VS FAILURE — reuses ui.read_window_default_button's own load-bearing design decision
+    // verbatim, via its own resolveWindowButtonReference resolver (zero new resolver logic, zero
+    // new QAXInteractionError cases): kAXErrorNoValue/kAXErrorAttributeUnsupported both mean "this
+    // window genuinely has no such button" — a valid, expected, non-error outcome that produces
+    // nil for that field. Any OTHER AXError is a genuine read failure and is NEVER silently folded
+    // into "absent." A resolved reference whose own role is not exactly AXButton, or whose copy
+    // succeeded but returned a non-AXUIElement value, is likewise never folded into "absent."
+    // Deliberately, ANY of these three non-absence problems — for ANY of the four buttons — fails
+    // the WHOLE read closed, rather than returning a result that silently mixes reliable fields
+    // with an unreliable one the caller could not otherwise distinguish.
+
+    /// Resolves exactly one semantic `AXWindow` target and reads its `kAXZoomButtonAttribute`/
+    /// `kAXMinimizeButtonAttribute`/`kAXToolbarButtonAttribute`/`kAXFullScreenButtonAttribute`
+    /// references. Fails closed (throws `QAXInteractionError`) on missing criteria, permission
+    /// absence, application/window absence or ambiguity, a stale/drifted target, or — for any of
+    /// the four button attributes — a genuine read failure, a malformed reference, or a reference
+    /// whose own role is not exactly `AXButton`. Genuine absence
+    /// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an error — it produces `nil` for
+    /// that field. Never performs any AX action; never mutates anything; never descends into any
+    /// referenced button's own children.
+    public func readWindowAuxiliaryButtons(
+        applicationName: String,
+        windowTitle: String?,
+        windowIdentifier: String?
+    ) async throws -> QAXWindowAuxiliaryButtonsMetadata {
+        guard windowIdentifier != nil || windowTitle != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            // A pure AX object-reference constructor — never activates, focuses, or raises the
+            // target application, the same primitive every prior capability already uses without
+            // any such side effect.
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: "AXWindow", identifier: windowIdentifier, title: windowTitle)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (windowElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // button reads and refuse on any drift — identical discipline to every prior AX
+            // capability in this codebase, even though this is a read, not a mutation.
+            guard let observedAtVerify = Self.snapshotIfMatches(windowElement, role: "AXWindow", identifier: windowIdentifier, title: windowTitle) else {
+                throw QAXInteractionError.staleTarget("target window is no longer resolvable immediately before the button read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target window identity changed between observation and the button read")
+            }
+
+            let zoomButton = try Self.resolveWindowButtonReference(
+                attribute: kAXZoomButtonAttribute, attributeDescription: "zoom button", of: windowElement
+            )
+            let minimizeButton = try Self.resolveWindowButtonReference(
+                attribute: kAXMinimizeButtonAttribute, attributeDescription: "minimize button", of: windowElement
+            )
+            let toolbarButton = try Self.resolveWindowButtonReference(
+                attribute: kAXToolbarButtonAttribute, attributeDescription: "toolbar button", of: windowElement
+            )
+            let fullScreenButton = try Self.resolveWindowButtonReference(
+                attribute: kAXFullScreenButtonAttribute, attributeDescription: "full screen button", of: windowElement
+            )
+
+            return QAXWindowAuxiliaryButtonsMetadata(
+                applicationName: applicationName,
+                windowTitle: observedAtVerify.titleOrDescription,
+                windowIdentifier: observedAtVerify.identifier,
+                zoomButton: zoomButton,
+                minimizeButton: minimizeButton,
+                toolbarButton: toolbarButton,
+                fullScreenButton: fullScreenButton
+            )
+        }.value
     }
 
     // MARK: - Semantic Element Title Reference Read (Phase 2BN)

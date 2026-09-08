@@ -159,6 +159,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_window_default_button":
             result = await executeReadWindowDefaultButton(request: request)
 
+        case "ui.read_window_auxiliary_buttons":
+            result = await executeReadWindowAuxiliaryButtons(request: request)
+
         case "ui.read_element_title_reference":
             result = await executeReadElementTitleReference(request: request)
 
@@ -1087,6 +1090,86 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading window default button: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    private func executeReadWindowAuxiliaryButtons(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        let windowIdentifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let windowTitle = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard windowIdentifier != nil || windowTitle != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.readWindowAuxiliaryButtons(
+                applicationName: applicationName,
+                windowTitle: windowTitle,
+                windowIdentifier: windowIdentifier
+            )
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "matchIdentifier": windowIdentifier ?? "",
+                "matchTitle": windowTitle ?? "",
+                "windowTitle": metadata.windowTitle ?? "",
+                "windowIdentifier": metadata.windowIdentifier ?? "",
+                "hasZoomButton": metadata.zoomButton != nil ? "true" : "false",
+                "hasMinimizeButton": metadata.minimizeButton != nil ? "true" : "false",
+                "hasToolbarButton": metadata.toolbarButton != nil ? "true" : "false",
+                "hasFullScreenButton": metadata.fullScreenButton != nil ? "true" : "false"
+            ]
+            if let zoomButton = metadata.zoomButton {
+                outputData["zoomButtonTitle"] = zoomButton.title ?? ""
+                outputData["zoomButtonIdentifier"] = zoomButton.identifier ?? ""
+            }
+            if let minimizeButton = metadata.minimizeButton {
+                outputData["minimizeButtonTitle"] = minimizeButton.title ?? ""
+                outputData["minimizeButtonIdentifier"] = minimizeButton.identifier ?? ""
+            }
+            if let toolbarButton = metadata.toolbarButton {
+                outputData["toolbarButtonTitle"] = toolbarButton.title ?? ""
+                outputData["toolbarButtonIdentifier"] = toolbarButton.identifier ?? ""
+            }
+            if let fullScreenButton = metadata.fullScreenButton {
+                outputData["fullScreenButtonTitle"] = fullScreenButton.title ?? ""
+                outputData["fullScreenButtonIdentifier"] = fullScreenButton.identifier ?? ""
+            }
+            let zoomDescription = metadata.zoomButton != nil ? "present" : "none"
+            let minimizeDescription = metadata.minimizeButton != nil ? "present" : "none"
+            let toolbarDescription = metadata.toolbarButton != nil ? "present" : "none"
+            let fullScreenDescription = metadata.fullScreenButton != nil ? "present" : "none"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed window auxiliary buttons in \(applicationName): zoom=\(zoomDescription), minimize=\(minimizeDescription), toolbar=\(toolbarDescription), fullScreen=\(fullScreenDescription). This is observation only — no button was pressed, and this observation does not constitute authorization to press one later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading window auxiliary buttons: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

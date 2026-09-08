@@ -1245,7 +1245,41 @@ public struct QModelPlanParser: Sendable {
         // record. No mutation, no approval, no recovery: a read that does not throw IS its own
         // result. See QBridgeAccessibility.listLabelServedElements and
         // docs/PHASE_2BX_SEMANTIC_LABEL_SERVED_ELEMENTS.md for the full contract.
-        "ui.list_label_served_elements": ("ui", .level0ReadOnly)
+        "ui.list_label_served_elements": ("ui", .level0ReadOnly),
+        // Phase 2BY: semantic window auxiliary buttons read — LEVEL 0 (READ-ONLY). Reads a
+        // semantically-identified window's kAXZoomButtonAttribute/kAXMinimizeButtonAttribute/
+        // kAXToolbarButtonAttribute/kAXFullScreenButtonAttribute references. A direct sibling of
+        // ui.read_window_default_button (Phase 2BM), extended from 2 to 4 button attributes —
+        // this capability NEVER reads kAXDefaultButtonAttribute/kAXCancelButtonAttribute (that
+        // remains ui.read_window_default_button's exclusive contract) and NEVER reads
+        // kAXCloseButtonAttribute (already used internally, for mutation, by ui.close_window).
+        // All four fields are independently optional — many windows have none of these buttons;
+        // all sixteen combinations are valid, expected results. Reuses QAXWindowRolePolicy
+        // (Phase 2U) unmodified and, critically, reuses ui.read_window_default_button's own
+        // resolveWindowButtonReference resolver and its complete QAXInteractionError taxonomy
+        // VERBATIM — zero new error cases were introduced. Genuine absence
+        // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is a valid, expected nil for that field —
+        // many windows have no such button — distinct from a genuine read failure, a malformed
+        // reference, or a reference whose own role is not exactly AXButton, any of which for ANY
+        // of the four buttons fails the WHOLE read closed (identical atomic discipline to
+        // ui.read_window_default_button). Application identity is resolved by exact matching via
+        // QBridgeAccessibility.resolveExactRunningApplication; window identity resolved via the
+        // existing collectMatches/snapshotIfMatches primitives, identical to
+        // ui.read_window_default_button/ui.set_window_main/ui.close_window. This capability NEVER
+        // calls AXUIElementPerformAction or AXUIElementSetAttributeValue — it is strictly
+        // observational; it never presses any button, never mutates window state, never changes
+        // focus, never activates the application, and never authorizes ui.set_window_full_screen
+        // or ui.set_window_minimized, which retain their own independent
+        // capability/risk/approval/execution-identity pipelines. Registered under toolFamily "ui"
+        // — button title/identifier are short structural labels, never free-form typed content
+        // requiring the sanitize-before-persist boundary. Bounded to a maximum of 5 AX elements
+        // ever touched (the window plus its four button references), 0 traversal depth beyond
+        // the four direct reference follows, 0 children enumerated, 0 actions performed, 0
+        // polling, 1 returned record (window-scoped, never a collection). No mutation, no
+        // approval, no recovery: a read that does not throw IS its own result. See
+        // QBridgeAccessibility.readWindowAuxiliaryButtons and
+        // docs/PHASE_2BY_SEMANTIC_WINDOW_AUXILIARY_BUTTONS.md for the full contract.
+        "ui.read_window_auxiliary_buttons": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

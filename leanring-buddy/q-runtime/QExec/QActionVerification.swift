@@ -729,6 +729,26 @@ public enum QVerificationStrategy: Sendable {
         hasServedElements: Bool,
         servedElementCount: Int
     )
+    /// Phase 2BY: semantic window auxiliary-buttons read verification (Level 0, read-only). A
+    /// direct sibling of `windowDefaultButtonReadSucceeded` (Phase 2BM), extended from 2 to 4
+    /// button presence flags. Like every other Level 0 read's verification, there is no separate
+    /// physical state to re-observe after the fact — the read's own success/failure, established
+    /// entirely inside `QBridgeAccessibility.readWindowAuxiliaryButtons` (exact application/window
+    /// resolution, a successfully-handled quartet of optional button references), already IS the
+    /// ground truth. This strategy checks the execution result's own `success` flag as a genuine,
+    /// meaningful assertion — never a bare `{ true }` bypass — and never presses any button or
+    /// mutates anything as part of verifying the read. Evidence carries the application name,
+    /// window identity, and each button's PRESENCE (a bounded boolean) — never the button
+    /// titles/identifiers themselves, mirroring `windowDefaultButtonReadSucceeded`'s identical
+    /// conservative-evidence discipline.
+    case windowAuxiliaryButtonsReadSucceeded(
+        applicationName: String,
+        windowTitle: String?,
+        hasZoomButton: Bool,
+        hasMinimizeButton: Bool,
+        hasToolbarButton: Bool,
+        hasFullScreenButton: Bool
+    )
     case customCheck(description: String, check: @Sendable () async -> Bool)
 }
 
@@ -2083,6 +2103,17 @@ public final class QActionVerifier: Sendable {
             }
             return .verified(
                 evidence: "application=\(applicationName) role=\(role) servedElementCount=\(servedElementCount) status=verified"
+            )
+
+        case .windowAuxiliaryButtonsReadSucceeded(let applicationName, let windowTitle, let hasZoomButton, let hasMinimizeButton, let hasToolbarButton, let hasFullScreenButton):
+            guard result.success else {
+                return .failed(
+                    reason: "Window auxiliary-buttons read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) status=failed"
+                )
+            }
+            return .verified(
+                evidence: "application=\(applicationName) window=\(windowTitle ?? "unnamed") hasZoomButton=\(hasZoomButton) hasMinimizeButton=\(hasMinimizeButton) hasToolbarButton=\(hasToolbarButton) hasFullScreenButton=\(hasFullScreenButton) status=verified"
             )
 
         case .customCheck(let description, let check):

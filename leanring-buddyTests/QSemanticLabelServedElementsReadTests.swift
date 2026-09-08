@@ -123,7 +123,10 @@ struct QSemanticLabelServedElementsReadTests {
         #expect(regCap?.toolFamily == "ui")
         #expect(regCap?.defaultRisk == .level0ReadOnly)
         #expect(regCap?.defaultRisk.requiresExplicitApproval == false)
-        #expect(QModelPlanParser.registeredCapabilities.count == 72)
+        // Capability #72 was registered as the 72nd capability; the registry has since grown to
+        // 73 with Phase 2BY's ui.read_window_auxiliary_buttons addition, so this checks the
+        // current total rather than a phase-specific snapshot.
+        #expect(QModelPlanParser.registeredCapabilities.count == 73)
 
         let json = """
         {

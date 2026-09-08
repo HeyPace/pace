@@ -108,10 +108,11 @@ struct QSemanticTableDimensionsReadTests {
         #expect(regCap?.defaultRisk == .level0ReadOnly)
         #expect(regCap?.defaultRisk.requiresExplicitApproval == false)
         // Capability #69 was registered as the 69th capability; the registry has since grown to
-        // 72 (Phase 2BV's ui.read_element_allowed_values, Phase 2BW's
-        // ui.read_element_value_description, then Phase 2BX's ui.list_label_served_elements), so
-        // this checks the current total rather than a phase-specific snapshot.
-        #expect(QModelPlanParser.registeredCapabilities.count == 72)
+        // 73 (Phase 2BV's ui.read_element_allowed_values, Phase 2BW's
+        // ui.read_element_value_description, Phase 2BX's ui.list_label_served_elements, then
+        // Phase 2BY's ui.read_window_auxiliary_buttons), so this checks the current total rather
+        // than a phase-specific snapshot.
+        #expect(QModelPlanParser.registeredCapabilities.count == 73)
 
         let json = """
         {
