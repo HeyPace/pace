@@ -831,6 +831,15 @@ public final class QPlanExecutor: Sendable {
             // through here: any individual column title or identifier — this strategy only ever
             // carries an aggregate count, by design.
             return .tableColumnEnumerationSucceeded(applicationName: applicationName, columnCount: columnCount)
+        } else if action.actionName == "ui.list_table_row_headers",
+                  let applicationName = action.arguments["applicationName"],
+                  let rowHeaderCountString = result.outputData["rowHeaderCount"],
+                  let rowHeaderCount = Int(rowHeaderCountString) {
+            // Level 0, read-only — reconstructed from the applicationName argument used to
+            // dispatch, plus the row-header count captured at read time. Deliberately NOT
+            // threaded through here: any individual row header's title or identifier — this
+            // strategy only ever carries an aggregate count, by design.
+            return .tableRowHeaderEnumerationSucceeded(applicationName: applicationName, rowHeaderCount: rowHeaderCount)
         } else if action.actionName == "ui.read_element_range",
                   let applicationName = action.arguments["applicationName"],
                   let role = action.arguments["role"] {

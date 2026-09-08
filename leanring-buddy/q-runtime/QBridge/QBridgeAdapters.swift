@@ -1048,6 +1048,40 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// truncating. The payload carries only the offending length, never the string content
     /// itself.
     case servedElementsElementMetadataExceedsSafeLength(Int)
+    /// Phase 2BZ: `kAXRowHeaderUIElementsAttribute` could not be read due to an actual
+    /// Accessibility API failure — any `AXError` other than `.success`, `.noValue`, or
+    /// `.attributeUnsupported`. The latter two mean the target table genuinely exposes no row
+    /// headers at all (the common, expected case for an ordinary table) and are never treated as
+    /// an error. The payload carries only the underlying `AXError`, never any row-header content.
+    case tableRowHeadersReadFailed(String)
+    /// Phase 2BZ: `kAXRowHeaderUIElementsAttribute`'s copy call reported success but the returned
+    /// value was not a genuine `CFArray` — the returned value is treated as untrusted external
+    /// data, never assumed well-formed merely because the copy call itself reported success.
+    /// Never force-cast.
+    case tableRowHeadersMalformed
+    /// Phase 2BZ: `kAXRowHeaderUIElementsAttribute`'s array exceeded
+    /// `maxDirectTableRowHeadersCount` — fails closed rather than ever silently truncating (never
+    /// misrepresenting the authoritative result), checked BEFORE any per-element extraction. The
+    /// payload carries only the offending count.
+    case tableRowHeadersExceedsSafeBound(Int)
+    /// Phase 2BZ: one element of `kAXRowHeaderUIElementsAttribute`'s array was not a genuine
+    /// `AXUIElement` — a single malformed element fails the WHOLE array closed; invalid entries
+    /// are never silently dropped from an otherwise "mostly valid" result, mirroring
+    /// `ui.list_label_served_elements`'s identical atomic-array discipline.
+    case tableRowHeadersElementMalformed
+    /// Phase 2BZ: one row-header element's own `kAXRoleAttribute` is not exactly `AXRow` — the
+    /// SDK-symmetric counterpart to `ui.list_table_columns`'s own `AXColumn` role check for
+    /// column headers (`kAXRowRole`/`kAXColumnRole` are direct sibling constants in
+    /// `AXRoleConstants.h`, exactly mirroring `kAXRowHeaderUIElementsAttribute`/
+    /// `kAXColumnHeaderUIElementsAttribute`'s own naming symmetry). The mere existence of a
+    /// returned reference is never sufficient. A single disallowed-role element fails the WHOLE
+    /// array closed — never silently omitted.
+    case tableRowHeadersElementDisallowedRole(String)
+    /// Phase 2BZ: one row-header element's title or identifier exceeded
+    /// `maxTableRowHeaderMetadataLength` — fails the WHOLE array closed rather than ever silently
+    /// truncating. The payload carries only the offending length, never the string content
+    /// itself.
+    case tableRowHeadersElementMetadataExceedsSafeLength(Int)
 
     public var description: String {
         switch self {
@@ -1403,6 +1437,18 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "A served element's role '\(role)' is not on the allowed read-role list."
         case .servedElementsElementMetadataExceedsSafeLength(let length):
             return "A served element's identity metadata (\(length) characters) exceeds the maximum safe bound."
+        case .tableRowHeadersReadFailed(let reason):
+            return "The target table's row-header attribute could not be read due to an Accessibility API failure: \(reason)."
+        case .tableRowHeadersMalformed:
+            return "The target table's row-header attribute could not be read as a well-formed array."
+        case .tableRowHeadersExceedsSafeBound(let count):
+            return "The target table's row-header array (\(count) entries) exceeds the maximum safe bound."
+        case .tableRowHeadersElementMalformed:
+            return "The target table's row-header array contains an element that is not a well-formed AXUIElement reference."
+        case .tableRowHeadersElementDisallowedRole(let role):
+            return "A row-header element's role '\(role)' is not the expected AXRow role."
+        case .tableRowHeadersElementMetadataExceedsSafeLength(let length):
+            return "A row-header element's identity metadata (\(length) characters) exceeds the maximum safe bound."
         }
     }
 
@@ -1585,6 +1631,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .servedElementsElementMalformed: return "AX_SERVED_ELEMENTS_ELEMENT_MALFORMED"
         case .servedElementsElementDisallowedRole: return "AX_SERVED_ELEMENTS_ELEMENT_DISALLOWED_ROLE"
         case .servedElementsElementMetadataExceedsSafeLength: return "AX_SERVED_ELEMENTS_ELEMENT_METADATA_EXCEEDS_SAFE_LENGTH"
+        case .tableRowHeadersReadFailed: return "AX_TABLE_ROW_HEADERS_READ_FAILED"
+        case .tableRowHeadersMalformed: return "AX_TABLE_ROW_HEADERS_MALFORMED"
+        case .tableRowHeadersExceedsSafeBound: return "AX_TABLE_ROW_HEADERS_EXCEEDS_SAFE_BOUND"
+        case .tableRowHeadersElementMalformed: return "AX_TABLE_ROW_HEADERS_ELEMENT_MALFORMED"
+        case .tableRowHeadersElementDisallowedRole: return "AX_TABLE_ROW_HEADERS_ELEMENT_DISALLOWED_ROLE"
+        case .tableRowHeadersElementMetadataExceedsSafeLength: return "AX_TABLE_ROW_HEADERS_ELEMENT_METADATA_EXCEEDS_SAFE_LENGTH"
         }
     }
 }
@@ -3507,6 +3559,63 @@ public struct QAXTableColumnCollectionMetadata: Sendable, Equatable, Codable {
     }
 }
 
+/// One table row-header's safe, non-sensitive identity metadata, as returned by
+/// `ui.list_table_row_headers` (Phase 2BZ). This is the row HEADER's own identity only — cell
+/// contents are strictly out of scope, exactly like `ui.list_table_columns`'s own column-header-
+/// identity-only contract. The direct structural mirror of `QAXTableColumnItemMetadata`, using the
+/// SDK-symmetric `AXRow` role in place of `AXColumn`.
+public struct QAXTableRowHeaderItemMetadata: Sendable, Equatable, Codable {
+    public let index: Int
+    public let title: String?
+    public let identifier: String?
+    public let role: String
+    public let subrole: String?
+
+    public init(
+        index: Int,
+        title: String?,
+        identifier: String?,
+        role: String = "AXRow",
+        subrole: String? = nil
+    ) {
+        self.index = index
+        self.title = title
+        self.identifier = identifier
+        self.role = role
+        self.subrole = subrole
+    }
+}
+
+/// A table's safe, non-sensitive direct row-header metadata, as returned by
+/// `ui.list_table_row_headers` (Phase 2BZ). Deliberately carries ONLY the fields this capability's
+/// contract allows — never raw `AXUIElement` references, never cell contents, never a recursive
+/// descent into any row-header's own contents. This is a POINT-IN-TIME SNAPSHOT ONLY —
+/// informational only, never itself an actionable target reference; any subsequent capability must
+/// independently perform its own fresh, exact target resolution. A genuinely empty
+/// `rowHeaders` array is a valid, expected result — most ordinary tables expose no row headers at
+/// all.
+public struct QAXTableRowHeaderCollectionMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let tableTitle: String?
+    public let tableIdentifier: String?
+    public let rowHeaderCount: Int
+    public let rowHeaders: [QAXTableRowHeaderItemMetadata]
+
+    public init(
+        applicationName: String,
+        tableTitle: String?,
+        tableIdentifier: String?,
+        rowHeaderCount: Int,
+        rowHeaders: [QAXTableRowHeaderItemMetadata]
+    ) {
+        self.applicationName = applicationName
+        self.tableTitle = tableTitle
+        self.tableIdentifier = tableIdentifier
+        self.rowHeaderCount = rowHeaderCount
+        self.rowHeaders = rowHeaders
+    }
+}
+
 /// One outline item's safe, non-sensitive identity metadata, as returned by `ui.list_outline_items`
 /// (Phase 2AF). Cell contents are strictly out of scope.
 public struct QAXOutlineRowItemMetadata: Sendable, Equatable, Codable {
@@ -4729,6 +4838,11 @@ extension QBridgeAccessibility {
     private static let maxDirectBrowserColumnsCount = 32
     /// Phase 2BI: defensive bound on table column-header enumeration.
     private static let maxDirectTableColumnsCount = 32
+    /// Phase 2BZ: defensive bound on `ui.list_table_row_headers`'s returned
+    /// `kAXRowHeaderUIElementsAttribute` array — exceeding this fails closed rather than silently
+    /// truncating (never misrepresenting the authoritative result), checked BEFORE any
+    /// per-element extraction. The direct structural mirror of `maxDirectTableColumnsCount`.
+    private static let maxDirectTableRowHeadersCount = 32
     /// Phase 2BK: defensive bound on `ui.list_element_actions`' returned action-name collection —
     /// exceeding this fails closed rather than silently truncating (never misrepresenting the
     /// authoritative result).
@@ -4791,6 +4905,13 @@ extension QBridgeAccessibility {
     /// per this codebase's existing convention of not sharing bound constants across unrelated
     /// capabilities, even when the numeric value is identical.
     private static let maxServedElementMetadataLength = 256
+    /// Phase 2BZ: defensive per-string length bound on a row-header element's own
+    /// title/identifier — prevents an arbitrarily large model-visible string; exceeding it fails
+    /// the whole array closed rather than truncating. A distinct constant from
+    /// `maxServedElementMetadataLength`/`maxTitleReferenceMetadataLength` per this codebase's
+    /// existing convention of not sharing bound constants across unrelated capabilities, even
+    /// when the numeric value is identical.
+    private static let maxTableRowHeaderMetadataLength = 256
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -10515,6 +10636,176 @@ extension QBridgeAccessibility {
                 columns: columnsMetadata
             )
         }.value
+    }
+
+    /// Phase 2BZ: semantic table row-header enumeration (Level 0, read-only). Enumerates direct
+    /// row-header elements belonging to exactly ONE named AXTable in an application via
+    /// kAXRowHeaderUIElementsAttribute — a direct child read only, never a recursive descent into
+    /// any row-header's own contents (cell data is strictly out of scope, exactly like
+    /// `ui.list_table_columns`'s own column-header-identity-only contract). No mutation, no press,
+    /// no approval, no recovery. Reuses `QAXTableRolePolicy` (Phase 2AE) unmodified — the
+    /// identical single-role allowlist (`AXTable` only) `ui.list_table_columns`/
+    /// `ui.list_table_rows` already establish; no new role policy was introduced.
+    ///
+    /// Unlike `ui.list_table_columns` (2BI), which falls back to filtering the table's direct
+    /// children when `kAXColumnHeaderUIElementsAttribute` itself is absent/malformed, this
+    /// capability applies the STRICTER, later-established atomic fail-closed discipline first
+    /// proven by `ui.read_element_allowed_values` (2BV) and `ui.list_label_served_elements`
+    /// (2BX): a malformed outer CFType, an oversized array, a non-`AXUIElement` element, a
+    /// disallowed-role element, or oversized element metadata each fails the WHOLE result closed
+    /// — never a silent fallback, never a silently filtered "mostly valid" result. Genuine
+    /// attribute absence (`.noValue`/`.attributeUnsupported`) remains a fully valid, expected
+    /// result (`rowHeaders == []`) — most ordinary tables have no row headers at all.
+    ///
+    /// Application identity is resolved by exact matching via `resolveExactRunningApplication`.
+    /// Bounded by `maxDirectTableRowHeadersCount` (32) — a maximum of 33 AX elements are ever
+    /// touched in a single call (the table plus at most 32 row headers), checked BEFORE any
+    /// per-element extraction. This is a POINT-IN-TIME SNAPSHOT ONLY: result is informational and
+    /// never enters durable persistence snapshots beyond an aggregate count.
+    public func listTableRowHeaders(
+        applicationName: String,
+        role: String = "AXTable",
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXTableRowHeaderCollectionMetadata {
+        guard QAXTableRolePolicy.isAllowedTableRole(role) else {
+            throw QAXInteractionError.disallowedTableRole(role)
+        }
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target table element is no longer resolvable immediately before enumeration")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target table element identity changed between observation and enumeration")
+            }
+
+            let rowHeadersMetadata = try Self.resolveTableRowHeaders(of: targetElement)
+
+            return QAXTableRowHeaderCollectionMetadata(
+                applicationName: applicationName,
+                tableTitle: observedAtVerify.titleOrDescription,
+                tableIdentifier: observedAtVerify.identifier,
+                rowHeaderCount: rowHeadersMetadata.count,
+                rowHeaders: rowHeadersMetadata
+            )
+        }.value
+    }
+
+    /// Reads `kAXRowHeaderUIElementsAttribute` and normalizes it to a validated
+    /// `[QAXTableRowHeaderItemMetadata]` array (empty is a valid, expected result — most ordinary
+    /// tables have no row headers). Every check has its own distinct, dedicated diagnostic —
+    /// nothing is ever silently truncated, defaulted, or filtered; a single malformed/disallowed-
+    /// role/oversized row header fails the WHOLE array closed rather than being dropped, mirroring
+    /// `resolveServedElements`'s (2BX) identical atomic discipline.
+    ///
+    /// Validation, in order:
+    /// 1. `.noValue`/`.attributeUnsupported` → `[]` (genuine, expected absence); any other
+    ///    non-`.success` `AXError` → `tableRowHeadersReadFailed`.
+    /// 2. The returned value must be a genuine `CFArray` (`CFGetTypeID(value) ==
+    ///    CFArrayGetTypeID()`) — any other CFType, including a `.success` result with a nil
+    ///    value, → `tableRowHeadersMalformed`.
+    /// 3. `CFArrayGetCount(cfArray) <= maxDirectTableRowHeadersCount` — exceeding it →
+    ///    `tableRowHeadersExceedsSafeBound`, checked BEFORE any per-element extraction, never a
+    ///    silent truncation.
+    /// 4. Every element must bridge to `AXUIElement` (`value as? [AXUIElement]`, which fails as a
+    ///    WHOLE if even one element is not `AXUIElement`-compatible) →
+    ///    `tableRowHeadersElementMalformed` otherwise.
+    /// 5. Each row-header element's own `kAXRoleAttribute` is independently re-validated as
+    ///    exactly `AXRow` — the SDK-symmetric counterpart to `ui.list_table_columns`'s own
+    ///    `AXColumn` check (`kAXRowRole`/`kAXColumnRole` are direct sibling constants in
+    ///    `AXRoleConstants.h`). A disallowed role fails the WHOLE array closed →
+    ///    `tableRowHeadersElementDisallowedRole`.
+    /// 6. Each row-header element's title/identifier is read and bounded by
+    ///    `maxTableRowHeaderMetadataLength` — exceeding it fails the WHOLE array closed →
+    ///    `tableRowHeadersElementMetadataExceedsSafeLength`.
+    fileprivate nonisolated static func resolveTableRowHeaders(of targetElement: AXUIElement) throws -> [QAXTableRowHeaderItemMetadata] {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXRowHeaderUIElementsAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            return []
+        default:
+            throw QAXInteractionError.tableRowHeadersReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value else {
+            throw QAXInteractionError.tableRowHeadersMalformed
+        }
+        guard CFGetTypeID(value) == CFArrayGetTypeID() else {
+            throw QAXInteractionError.tableRowHeadersMalformed
+        }
+        let cfArray = value as! CFArray // swiftlint:disable:this force_cast — CFGetTypeID checked above
+
+        let count = CFArrayGetCount(cfArray)
+        guard count <= maxDirectTableRowHeadersCount else {
+            throw QAXInteractionError.tableRowHeadersExceedsSafeBound(count)
+        }
+
+        // Bridging the WHOLE array to [AXUIElement] fails (returns nil) as a whole if even one
+        // element is not AXUIElement-compatible — exactly the desired atomic, fail-closed
+        // behavior for a malformed array (never silently dropping the offending entries).
+        guard let rowHeaderRefs = value as? [AXUIElement] else {
+            throw QAXInteractionError.tableRowHeadersElementMalformed
+        }
+
+        var results: [QAXTableRowHeaderItemMetadata] = []
+        results.reserveCapacity(rowHeaderRefs.count)
+
+        for (index, rowHeaderElement) in rowHeaderRefs.enumerated() {
+            // The mere existence of a returned reference is never sufficient — its own role is
+            // independently re-validated as exactly "AXRow" before it is ever treated as a
+            // genuine, safe row-header element.
+            let rowHeaderRole = Self.axStringAttribute(kAXRoleAttribute, of: rowHeaderElement) ?? "none"
+            guard rowHeaderRole == "AXRow" else {
+                throw QAXInteractionError.tableRowHeadersElementDisallowedRole(rowHeaderRole)
+            }
+
+            let rawTitle = Self.axStringAttribute(kAXTitleAttribute, of: rowHeaderElement)
+                ?? Self.axStringAttribute(kAXDescriptionAttribute, of: rowHeaderElement)
+            let rowHeaderTitle = (rawTitle?.isEmpty == false) ? rawTitle : nil
+            let rowHeaderIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: rowHeaderElement)
+            let rowHeaderSubrole = Self.axStringAttribute(kAXSubroleAttribute, of: rowHeaderElement)
+
+            if let rowHeaderTitle, rowHeaderTitle.count > maxTableRowHeaderMetadataLength {
+                throw QAXInteractionError.tableRowHeadersElementMetadataExceedsSafeLength(rowHeaderTitle.count)
+            }
+            if let rowHeaderIdentifier, rowHeaderIdentifier.count > maxTableRowHeaderMetadataLength {
+                throw QAXInteractionError.tableRowHeadersElementMetadataExceedsSafeLength(rowHeaderIdentifier.count)
+            }
+
+            results.append(
+                QAXTableRowHeaderItemMetadata(
+                    index: index,
+                    title: rowHeaderTitle,
+                    identifier: rowHeaderIdentifier,
+                    role: rowHeaderRole,
+                    subrole: rowHeaderSubrole
+                )
+            )
+        }
+
+        return results
     }
 
     /// Phase 2AF: semantic outline item enumeration (Level 0, read-only). Enumerates direct rows

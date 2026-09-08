@@ -491,6 +491,17 @@ public enum QVerificationStrategy: Sendable {
     /// consistent with `ui.list_table_rows`'/`ui.list_browser_columns`' own privacy contract that
     /// per-item content never crosses into persisted evidence text.
     case tableColumnEnumerationSucceeded(applicationName: String, columnCount: Int)
+    /// Phase 2BZ: semantic table row-header enumeration verification (Level 0, read-only). The
+    /// direct structural mirror of `tableColumnEnumerationSucceeded` (2BI) — there is no separate
+    /// physical state to re-observe after the fact — the read's own success/failure, established
+    /// entirely inside `QBridgeAccessibility.listTableRowHeaders` (exact application/table
+    /// resolution, a successfully-read and well-formed row-header collection), already IS the
+    /// ground truth. This strategy deliberately checks the execution result's own `success` flag
+    /// as a genuine, meaningful assertion — never a bare `{ true }` bypass. Evidence carries only
+    /// the application name and a row-header COUNT, never any individual row header's
+    /// title/identifier — consistent with `ui.list_table_columns`'s own privacy contract that
+    /// per-item content never crosses into persisted evidence text.
+    case tableRowHeaderEnumerationSucceeded(applicationName: String, rowHeaderCount: Int)
     /// Phase 2BJ: semantic element range read verification (Level 0, read-only). Like every other
     /// Level 0 read's verification, there is no separate physical state to re-observe after the
     /// fact — the read's own success/failure, established entirely inside
@@ -1784,6 +1795,18 @@ public final class QActionVerifier: Sendable {
             } else {
                 return .failed(
                     reason: "Table column enumeration for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) tableRole=AXTable status=failed"
+                )
+            }
+
+        case .tableRowHeaderEnumerationSucceeded(let applicationName, let rowHeaderCount):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) tableRole=AXTable rowHeaderCount=\(rowHeaderCount) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Table row-header enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) tableRole=AXTable status=failed"
                 )
             }

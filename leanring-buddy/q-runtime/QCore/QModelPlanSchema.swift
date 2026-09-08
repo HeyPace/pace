@@ -1279,7 +1279,36 @@ public struct QModelPlanParser: Sendable {
         // approval, no recovery: a read that does not throw IS its own result. See
         // QBridgeAccessibility.readWindowAuxiliaryButtons and
         // docs/PHASE_2BY_SEMANTIC_WINDOW_AUXILIARY_BUTTONS.md for the full contract.
-        "ui.read_window_auxiliary_buttons": ("ui", .level0ReadOnly)
+        "ui.read_window_auxiliary_buttons": ("ui", .level0ReadOnly),
+        // Phase 2BZ: semantic table row-header enumeration — LEVEL 0 (READ-ONLY). Enumerates
+        // direct row-header elements belonging to exactly ONE named AXTable in an application via
+        // kAXRowHeaderUIElementsAttribute — a direct child read only, never a recursive descent
+        // into any row-header's own contents. Cell data is strictly out of scope, exactly like
+        // ui.list_table_columns' own column-header-identity-only contract; this capability is the
+        // direct structural mirror of ui.list_table_columns (Phase 2BI), using the SDK-symmetric
+        // AXRow role in place of AXColumn (kAXRowRole/kAXColumnRole are direct sibling constants
+        // in AXRoleConstants.h, exactly mirroring kAXRowHeaderUIElementsAttribute/
+        // kAXColumnHeaderUIElementsAttribute's own naming symmetry). No mutation, no press, no
+        // approval, no recovery. Reuses QAXTableRolePolicy (Phase 2AE) unmodified — the identical
+        // single-role allowlist (AXTable only) ui.list_table_columns/ui.list_table_rows already
+        // establish; no new role policy was introduced. Application identity is resolved by exact
+        // matching via QBridgeAccessibility.resolveExactRunningApplication. Bounded by
+        // maxDirectTableRowHeadersCount (32) — a maximum of 33 AX elements are ever touched in a
+        // single call (the table plus at most 32 row headers), traversal depth never exceeds 1,
+        // zero actions, zero polling. Unlike ui.list_table_columns' own dual-strategy fallback,
+        // this capability applies the stricter, later-established atomic fail-closed discipline
+        // (ui.read_element_allowed_values, Phase 2BV; ui.list_label_served_elements, Phase 2BX):
+        // a malformed outer CFType, an oversized array, a non-AXUIElement element, a
+        // disallowed-role element, or oversized element metadata each fails the WHOLE result
+        // closed — never a silent fallback, never a silently filtered "mostly valid" result.
+        // Genuine attribute absence (kAXErrorNoValue/kAXErrorAttributeUnsupported) remains a
+        // fully valid, expected result (rowHeaders == []) — most ordinary tables have no row
+        // headers at all. This is a POINT-IN-TIME SNAPSHOT ONLY: result is informational and
+        // never enters durable persistence snapshots beyond an aggregate count; every subsequent
+        // capability must independently perform its own fresh, exact target resolution. See
+        // QBridgeAccessibility.listTableRowHeaders and
+        // docs/PHASE_2BZ_SEMANTIC_TABLE_ROW_HEADER_ENUMERATION.md for the full contract.
+        "ui.list_table_row_headers": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

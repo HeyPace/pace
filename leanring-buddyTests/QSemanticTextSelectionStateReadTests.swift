@@ -128,10 +128,11 @@ struct QSemanticTextSelectionStateReadTests {
         // Capability #67 was registered as the 67th capability; the registry has since grown to
         // 73 (Phase 2BT's ui.read_column_sort_direction, Phase 2BU's ui.read_table_dimensions,
         // Phase 2BV's ui.read_element_allowed_values, Phase 2BW's
-        // ui.read_element_value_description, Phase 2BX's ui.list_label_served_elements, then
-        // Phase 2BY's ui.read_window_auxiliary_buttons), so this checks the current total rather
-        // than a phase-specific snapshot.
-        #expect(QModelPlanParser.registeredCapabilities.count == 73)
+        // ui.read_element_value_description, Phase 2BX's ui.list_label_served_elements, Phase
+        // 2BY's ui.read_window_auxiliary_buttons, then Phase 2BZ's
+        // ui.list_table_row_headers), so this checks the current total rather than a
+        // phase-specific snapshot.
+        #expect(QModelPlanParser.registeredCapabilities.count == 74)
 
         let json = """
         {
