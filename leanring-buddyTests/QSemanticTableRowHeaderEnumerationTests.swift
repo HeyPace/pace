@@ -74,9 +74,10 @@ struct QSemanticTableRowHeaderEnumerationTests {
         #expect(regCap?.defaultRisk == .level0ReadOnly)
         #expect(regCap?.defaultRisk.requiresExplicitApproval == false)
         #expect(regCap?.defaultRisk.isConsideredReversible == true)
-        // Capability #74 was registered as the 74th capability — the total registry count as of
-        // this phase.
-        #expect(QModelPlanParser.registeredCapabilities.count == 74)
+        // Capability #74 was registered as the 74th capability; the registry has since grown to
+        // 75 (Phase 2CA's ui.read_scroll_position), so this checks the current total rather than
+        // a phase-specific snapshot.
+        #expect(QModelPlanParser.registeredCapabilities.count == 75)
 
         let json = """
         {

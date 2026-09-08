@@ -502,6 +502,20 @@ public enum QVerificationStrategy: Sendable {
     /// title/identifier — consistent with `ui.list_table_columns`'s own privacy contract that
     /// per-item content never crosses into persisted evidence text.
     case tableRowHeaderEnumerationSucceeded(applicationName: String, rowHeaderCount: Int)
+    /// Phase 2CA: semantic scroll position read verification (Level 0, read-only). Unlike a bare
+    /// single-scalar Level 0 read's verification, this strategy independently RE-VALIDATES that
+    /// the reconstructed `position` is `.isFinite` and falls within the documented `[0.0, 1.0]`
+    /// bound, and that `orientation` is exactly `"horizontal"` or `"vertical"` — rather than
+    /// blindly trusting the dispatch layer's own `success` flag alone, mirroring
+    /// `elementParameterizedAttributeNamesReadSucceeded`'s/`textSelectionStateReadSucceeded`'s
+    /// identical independent-bound-recheck discipline. This re-validation reuses the ALREADY-READ
+    /// value carried in the execution result's own output — it never performs a second AX read,
+    /// staying within this capability's declared one-target/one-read resource budget. Never
+    /// mutates anything, never resolves a fresh element reference as part of verifying the read.
+    /// Evidence carries the application name, role, orientation, and the position itself — a
+    /// single bounded structural number carries no privacy risk (the same tier as
+    /// `windowModalStateReadSucceeded`'s own boolean), so it is safe to include directly.
+    case scrollPositionReadSucceeded(applicationName: String, role: String, orientation: String, position: Double)
     /// Phase 2BJ: semantic element range read verification (Level 0, read-only). Like every other
     /// Level 0 read's verification, there is no separate physical state to re-observe after the
     /// fact — the read's own success/failure, established entirely inside
@@ -1808,6 +1822,30 @@ public final class QActionVerifier: Sendable {
                 return .failed(
                     reason: "Table row-header enumeration for application '\(applicationName)' did not succeed.",
                     evidence: "application=\(applicationName) tableRole=AXTable status=failed"
+                )
+            }
+
+        case .scrollPositionReadSucceeded(let applicationName, let role, let orientation, let position):
+            guard orientation == "horizontal" || orientation == "vertical" else {
+                return .failed(
+                    reason: "Scroll position orientation '\(orientation)' for application '\(applicationName)' is not exactly 'horizontal' or 'vertical'.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            guard position.isFinite, position >= 0.0, position <= 1.0 else {
+                return .failed(
+                    reason: "Scroll position (\(position)) for application '\(applicationName)' is outside the permitted bound [0.0, 1.0] or is not finite.",
+                    evidence: "application=\(applicationName) role=\(role) orientation=\(orientation) status=failed"
+                )
+            }
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) orientation=\(orientation) position=\(position) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Scroll position read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) orientation=\(orientation) status=failed"
                 )
             }
 

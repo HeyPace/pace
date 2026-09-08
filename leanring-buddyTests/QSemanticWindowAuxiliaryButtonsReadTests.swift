@@ -122,9 +122,9 @@ struct QSemanticWindowAuxiliaryButtonsReadTests {
         #expect(regCap?.defaultRisk == .level0ReadOnly)
         #expect(regCap?.defaultRisk.requiresExplicitApproval == false)
         // Capability #73 was registered as the 73rd capability; the registry has since grown to
-        // 74 with Phase 2BZ's ui.list_table_row_headers addition, so this checks the current
-        // total rather than a phase-specific snapshot.
-        #expect(QModelPlanParser.registeredCapabilities.count == 74)
+        // 75 (Phase 2BZ's ui.list_table_row_headers, then Phase 2CA's ui.read_scroll_position),
+        // so this checks the current total rather than a phase-specific snapshot.
+        #expect(QModelPlanParser.registeredCapabilities.count == 75)
 
         let json = """
         {

@@ -1308,7 +1308,27 @@ public struct QModelPlanParser: Sendable {
         // capability must independently perform its own fresh, exact target resolution. See
         // QBridgeAccessibility.listTableRowHeaders and
         // docs/PHASE_2BZ_SEMANTIC_TABLE_ROW_HEADER_ENUMERATION.md for the full contract.
-        "ui.list_table_row_headers": ("ui", .level0ReadOnly)
+        "ui.list_table_row_headers": ("ui", .level0ReadOnly),
+        // Phase 2CA: semantic scroll position read — LEVEL 0 (READ-ONLY). Read-only counterpart to
+        // ui.set_scroll_position (Phase 2W): reads exactly one AXScrollBar's kAXValueAttribute,
+        // resolved via the identical, completely unmodified target-resolution chain
+        // ui.set_scroll_position already established — QAXScrollAreaRolePolicy (AXScrollArea only)
+        // as the search-criterion role, an explicit never-inferred orientation argument mapped to
+        // kAXHorizontalScrollBarAttribute/kAXVerticalScrollBarAttribute, and the resolved scroll
+        // bar's own kAXRoleAttribute independently re-validated as exactly AXScrollBar before ever
+        // being treated as genuine. No mutation, no press, no approval, no recovery: neither
+        // AXUIElementPerformAction nor AXUIElementSetAttributeValue is invoked anywhere in this
+        // capability. Unlike kAXAllowedValuesAttribute/kAXValueDescriptionAttribute's own
+        // optional-reference absence semantics, kAXValueAttribute on a genuine AXScrollBar has NO
+        // valid-absence case — every failure mode (permission denial, unresolvable target, stale
+        // target, a genuine AXError, a non-CFNumberRef returned value, a CFNumberGetValue
+        // extraction failure, a non-finite value, or a value outside [0.0, 1.0]) fails closed with
+        // its own dedicated diagnostic; nothing is ever silently defaulted, clamped, or guessed.
+        // Bounded to exactly 1 resolved scroll-area target, 1 scroll-bar reference follow, 1
+        // kAXValueAttribute read, 0 traversal beyond the single documented convenience-reference
+        // hop, 0 actions, 0 polling, 0 retries. See QBridgeAccessibility.readScrollPosition and
+        // docs/PHASE_2CA_SEMANTIC_SCROLL_POSITION.md for the full contract.
+        "ui.read_scroll_position": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

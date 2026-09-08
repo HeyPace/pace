@@ -1082,6 +1082,29 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// truncating. The payload carries only the offending length, never the string content
     /// itself.
     case tableRowHeadersElementMetadataExceedsSafeLength(Int)
+    /// Phase 2CA: `kAXValueAttribute` could not be read from the resolved `AXScrollBar` due to an
+    /// actual Accessibility API failure — any `AXError` other than `.success`. Unlike optional-
+    /// reference attributes, a genuine `AXScrollBar`'s value has NO valid-absence case (mirroring
+    /// `windowModalStateReadFailed`'s identical reasoning for `kAXModalAttribute`), so
+    /// `kAXErrorNoValue`/`kAXErrorAttributeUnsupported` are treated as this same failure, never a
+    /// silently-guessed default. The payload carries only the underlying `AXError`, never any
+    /// scroll-bar content.
+    case scrollPositionReadFailed(String)
+    /// Phase 2CA: `kAXValueAttribute`'s copy call reported success but the returned value was not
+    /// a genuine `CFNumberRef` — the returned value is treated as untrusted external data, never
+    /// assumed well-formed merely because the copy call itself reported success. Never force-cast.
+    case scrollPositionMalformed
+    /// Phase 2CA: the returned `CFNumberRef` failed `CFNumberGetValue(_:.doubleType:_:)`
+    /// extraction — a genuine, distinct failure from a wrong CFType entirely (`scrollPositionMalformed`)
+    /// or a well-extracted but non-finite/out-of-range value.
+    case scrollPositionConversionFailed
+    /// Phase 2CA: the extracted `Double` was not `.isFinite` (NaN or ±Infinity) — never silently
+    /// substituted with 0.0, 0.5, or 1.0. The payload names which non-finite case was observed,
+    /// never the raw bit pattern.
+    case scrollPositionNonFinite(String)
+    /// Phase 2CA: the extracted, finite `Double` fell outside the documented `[0.0, 1.0]` bound —
+    /// never silently clamped into range. The payload carries only the offending value.
+    case scrollPositionOutOfRange(Double)
 
     public var description: String {
         switch self {
@@ -1449,6 +1472,16 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "A row-header element's role '\(role)' is not the expected AXRow role."
         case .tableRowHeadersElementMetadataExceedsSafeLength(let length):
             return "A row-header element's identity metadata (\(length) characters) exceeds the maximum safe bound."
+        case .scrollPositionReadFailed(let reason):
+            return "The target scroll bar's value could not be read due to an Accessibility API failure: \(reason)."
+        case .scrollPositionMalformed:
+            return "The target scroll bar's value could not be read as a well-formed number."
+        case .scrollPositionConversionFailed:
+            return "The target scroll bar's value could not be converted to a numeric position."
+        case .scrollPositionNonFinite(let reason):
+            return "The target scroll bar's value is not a finite number: \(reason)."
+        case .scrollPositionOutOfRange(let value):
+            return "The target scroll bar's value (\(value)) is outside the documented [0.0, 1.0] bound."
         }
     }
 
@@ -1637,6 +1670,11 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .tableRowHeadersElementMalformed: return "AX_TABLE_ROW_HEADERS_ELEMENT_MALFORMED"
         case .tableRowHeadersElementDisallowedRole: return "AX_TABLE_ROW_HEADERS_ELEMENT_DISALLOWED_ROLE"
         case .tableRowHeadersElementMetadataExceedsSafeLength: return "AX_TABLE_ROW_HEADERS_ELEMENT_METADATA_EXCEEDS_SAFE_LENGTH"
+        case .scrollPositionReadFailed: return "AX_SCROLL_POSITION_READ_FAILED"
+        case .scrollPositionMalformed: return "AX_SCROLL_POSITION_MALFORMED"
+        case .scrollPositionConversionFailed: return "AX_SCROLL_POSITION_CONVERSION_FAILED"
+        case .scrollPositionNonFinite: return "AX_SCROLL_POSITION_NON_FINITE"
+        case .scrollPositionOutOfRange: return "AX_SCROLL_POSITION_OUT_OF_RANGE"
         }
     }
 }
@@ -3193,6 +3231,39 @@ public enum QAXScrollPositionEvidence: Sendable, Equatable {
     case resolved(currentValue: Double)
     case rangeInvalid(currentValue: Double)
     case targetUnavailable
+}
+
+/// A semantically-identified scroll bar's bounded, validated `kAXValueAttribute` read, as returned
+/// by `ui.read_scroll_position` (Phase 2CA) — `position` only, always a finite `Double` in
+/// `[0.0, 1.0]`, never a raw AX object, never any unrelated attribute. Unlike
+/// `QAXElementAllowedValuesMetadata`/`QAXElementValueDescriptionMetadata`'s own optional-reference
+/// absence semantics, this type has NO valid-absence case — `kAXValueAttribute` on a genuine
+/// `AXScrollBar` is always expected present and well-formed, so the bridge function that
+/// constructs this type either returns a fully-populated, in-range instance or throws; it never
+/// returns `nil` and never fabricates a default position.
+public struct QAXScrollPositionReadMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let elementIdentifier: String?
+    public let elementTitle: String?
+    public let orientation: String
+    public let position: Double
+
+    public init(
+        applicationName: String,
+        role: String,
+        elementIdentifier: String?,
+        elementTitle: String?,
+        orientation: String,
+        position: Double
+    ) {
+        self.applicationName = applicationName
+        self.role = role
+        self.elementIdentifier = elementIdentifier
+        self.elementTitle = elementTitle
+        self.orientation = orientation
+        self.position = position
+    }
 }
 
 /// Whether a `setWindowMain` call actually performed an attribute write, or found the target
@@ -9236,6 +9307,167 @@ extension QBridgeAccessibility {
             }
             return .resolved(currentValue: currentValue)
         }.value
+    }
+
+    // MARK: - Semantic Scroll Position Read (Phase 2CA)
+    //
+    // ui.read_scroll_position — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL
+    // counterpart to ui.set_scroll_position (Phase 2W). Reuses that capability's exact,
+    // COMPLETELY UNMODIFIED target-resolution chain: QAXScrollAreaRolePolicy (AXScrollArea only)
+    // as the search-criterion role, scrollBarConvenienceAttribute(forOrientation:) to map an
+    // explicit, never-inferred orientation argument to kAXHorizontalScrollBarAttribute/
+    // kAXVerticalScrollBarAttribute, and the resolved scroll bar's own kAXRoleAttribute
+    // independently re-validated as exactly AXScrollBar (scrollBarRole) before ever being treated
+    // as genuine — the mere existence of the reference is never sufficient. This is deliberately a
+    // NEW, distinct resolver (never a parallel one for the SAME target-resolution logic, which is
+    // shared via the reused static helpers above) rather than a variant of setScrollPosition
+    // itself, since a read has no desiredValue to validate and must never touch
+    // AXUIElementSetAttributeValue.
+    //
+    // CONTRACT NOTE — [0.0, 1.0], not [minValue, maxValue]: unlike setScrollPosition, which reads
+    // the scroll bar's own kAXMinValueAttribute/kAXMaxValueAttribute to validate a caller-supplied
+    // desiredValue against its actual reported range, this read-only capability's contract is
+    // fixed to the SDK-documented [0.0, 1.0] normalized bound alone (kAXValueAttribute's own
+    // discussion block frames a scroll bar's value as "an efficient way ... to get to a specific
+    // position" — the same universal 0.0–1.0 normalization every standard AXScrollBar reports,
+    // distinct from AXSlider's arbitrary min/max range). This keeps the capability to its declared
+    // one-target/one-read resource budget: reading kAXMinValueAttribute/kAXMaxValueAttribute here
+    // as well would be a second and third AX call this capability's contract does not authorize.
+    //
+    // SDK-VERIFIED ABSENCE SEMANTICS: unlike kAXAllowedValuesAttribute/kAXValueDescriptionAttribute
+    // (optional-reference pattern, valid absence), a genuine AXScrollBar's kAXValueAttribute has NO
+    // valid-absence case — kAXValueAttribute's own discussion block documents it as the scroll
+    // bar's authoritative position, always expected present and settable. Every failure mode
+    // (including kAXErrorNoValue/kAXErrorAttributeUnsupported) is therefore treated as a genuine
+    // read failure, mirroring readWindowModalState's (Phase 2BO) identical required-attribute
+    // reasoning — never silently downgraded to a guessed default.
+
+    /// Resolves exactly one semantic `AXScrollArea` target, follows its documented orientation
+    /// convenience-reference to the actual scroll bar, independently re-validates that element's
+    /// own role as exactly `AXScrollBar`, and reads its `kAXValueAttribute` — a purely
+    /// observational call; neither `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue`
+    /// is invoked anywhere in this method. Fails closed (throws `QAXInteractionError`) on a
+    /// disallowed scroll-area role, a missing/invalid orientation, missing match criteria,
+    /// permission absence, application/target absence or ambiguity, a stale/drifted target, an
+    /// unresolvable scroll-bar reference, a misqualified (non-`AXScrollBar`) reference, ANY
+    /// `AXError` reading `kAXValueAttribute` (including `kAXErrorNoValue`/
+    /// `kAXErrorAttributeUnsupported` — see the `MARK` section above), a non-`CFNumberRef`
+    /// returned value, a `CFNumberGetValue` extraction failure, a non-finite value, or a value
+    /// outside `[0.0, 1.0]`. Never fabricates, clamps, or defaults a position.
+    public func readScrollPosition(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?,
+        orientation: String
+    ) async throws -> QAXScrollPositionReadMetadata {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Role is validated as a search CRITERION, before any tree walk — an unauthorized role is
+        // refused outright rather than allowed to shape what gets searched for, mirroring
+        // setScrollPosition's own write-side role policy.
+        guard QAXScrollAreaRolePolicy.isAllowedScrollAreaRole(role) else {
+            throw QAXInteractionError.disallowedScrollAreaRole(role)
+        }
+        // Orientation is explicit and never inferred — validated before any AX call is even
+        // attempted.
+        guard let scrollBarAttribute = Self.scrollBarConvenienceAttribute(forOrientation: orientation) else {
+            throw QAXInteractionError.invalidOrientation(orientation)
+        }
+
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (scrollAreaElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // scroll-bar reference follow and refuse on any drift — identical discipline to every
+            // prior AX capability in this codebase, even though this is a read, not a mutation.
+            guard let observedAtVerify = Self.snapshotIfMatches(scrollAreaElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target scroll area is no longer resolvable immediately before the position read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target scroll area identity changed between observation and the position read")
+            }
+
+            // Resolve the actual scroll bar via the documented, read-only convenience-reference
+            // attribute — resolution only, never mutated.
+            guard let scrollBarElement = Self.axElementAttribute(scrollBarAttribute, of: scrollAreaElement) else {
+                throw QAXInteractionError.scrollBarReferenceUnavailable(orientation)
+            }
+
+            // The mandatory, non-negotiable role gate: the mere existence of the convenience
+            // reference is never sufficient — its own kAXRoleAttribute must independently report
+            // exactly AXScrollBar before it is ever treated as a genuine scroll bar target.
+            guard let scrollBarRole = Self.axStringAttribute(kAXRoleAttribute, of: scrollBarElement), scrollBarRole == Self.scrollBarRole else {
+                throw QAXInteractionError.targetNotAScrollBar(Self.axStringAttribute(kAXRoleAttribute, of: scrollBarElement) ?? "none")
+            }
+
+            let position = try Self.resolveScrollBarPosition(of: scrollBarElement)
+
+            return QAXScrollPositionReadMetadata(
+                applicationName: applicationName,
+                role: role,
+                elementIdentifier: observedAtVerify.identifier,
+                elementTitle: observedAtVerify.titleOrDescription,
+                orientation: orientation,
+                position: position
+            )
+        }.value
+    }
+
+    /// Resolves `kAXValueAttribute` on a genuine `AXScrollBar` as a definite, bounded `Double` —
+    /// never optional, since this attribute has no valid-absence case (see the `MARK` section
+    /// above). Every check has its own distinct, dedicated diagnostic — nothing is ever silently
+    /// clamped, truncated, or defaulted:
+    /// 1. Any non-`.success` `AXError` (including `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`)
+    ///    → `scrollPositionReadFailed`.
+    /// 2. The returned value must be a genuine `CFNumberRef` (`CFGetTypeID(value) ==
+    ///    CFNumberGetTypeID()`) — any other CFType (including `CFBooleanRef`, which can otherwise
+    ///    silently bridge through an `as? NSNumber` cast) → `scrollPositionMalformed`. Never
+    ///    force-cast.
+    /// 3. `CFNumberGetValue(_:.doubleType:_:)` extraction must succeed → `scrollPositionConversionFailed`
+    ///    otherwise.
+    /// 4. The extracted `Double` must be `.isFinite` → `scrollPositionNonFinite` otherwise
+    ///    (rejects NaN and positive/negative infinity).
+    /// 5. The extracted, finite `Double` must fall within `[0.0, 1.0]` → `scrollPositionOutOfRange`
+    ///    otherwise — never clamped into range.
+    fileprivate nonisolated static func resolveScrollBarPosition(of scrollBarElement: AXUIElement) throws -> Double {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(scrollBarElement, kAXValueAttribute as CFString, &value)
+
+        guard copyResult == .success else {
+            throw QAXInteractionError.scrollPositionReadFailed("AXError(\(copyResult.rawValue))")
+        }
+        guard let value, CFGetTypeID(value) == CFNumberGetTypeID() else {
+            throw QAXInteractionError.scrollPositionMalformed
+        }
+        let cfNumber = value as! CFNumber // swiftlint:disable:this force_cast — CFGetTypeID checked above
+
+        var doubleValue: Double = 0
+        guard CFNumberGetValue(cfNumber, .doubleType, &doubleValue) else {
+            throw QAXInteractionError.scrollPositionConversionFailed
+        }
+        guard doubleValue.isFinite else {
+            let reason = doubleValue.isNaN ? "NaN" : (doubleValue > 0 ? "+Infinity" : "-Infinity")
+            throw QAXInteractionError.scrollPositionNonFinite(reason)
+        }
+        guard doubleValue >= 0.0, doubleValue <= 1.0 else {
+            throw QAXInteractionError.scrollPositionOutOfRange(doubleValue)
+        }
+        return doubleValue
     }
 
     // MARK: - Semantic Window Main Designation (Phase 2X)

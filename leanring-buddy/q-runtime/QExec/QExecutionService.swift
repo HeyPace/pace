@@ -185,6 +185,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_table_dimensions":
             result = await executeReadTableDimensions(request: request)
 
+        case "ui.read_scroll_position":
+            result = await executeReadScrollPosition(request: request)
+
         case "ui.set_element_state":
             result = await executeSetElementState(request: request)
 
@@ -3428,6 +3431,103 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while setting scroll position: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2CA: semantic scroll position read — Level 0 (read-only, no approval, no mutation
+    /// authority). Read-only counterpart to `ui.set_scroll_position`, reusing its exact,
+    /// unmodified target-resolution chain (`QAXScrollAreaRolePolicy`, the orientation
+    /// convenience-reference, and the resolved scroll bar's own role re-validation). Every
+    /// `QAXInteractionError` failure mode — disallowed scroll-area role, missing/invalid
+    /// orientation, missing criteria, permission absence, application/target absence or ambiguity,
+    /// a stale target, an unresolvable/misqualified scroll-bar reference, a genuine AX read
+    /// failure, a malformed CFType, a conversion failure, a non-finite value, or an out-of-range
+    /// value — is caught here and converted into a deterministic, non-throwing `QActionResult`;
+    /// this method never fabricates success and never defaults, clamps, or guesses a position.
+    /// Only the bounded numeric position and non-secret targeting metadata cross this method's
+    /// boundary — never a raw AXUIElement, never table/document/cell content.
+    private func executeReadScrollPosition(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+        guard let orientation = request.parameters["orientation"], !orientation.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'orientation' parameter — must be exactly 'horizontal' or 'vertical'.",
+                error: "orientation missing"
+            )
+        }
+        guard orientation == "horizontal" || orientation == "vertical" else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Invalid 'orientation' parameter '\(orientation)' — must be exactly 'horizontal' or 'vertical'; never inferred.",
+                error: "AX_INVALID_ORIENTATION"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.readScrollPosition(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title,
+                orientation: orientation
+            )
+            let outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "elementIdentifier": metadata.elementIdentifier ?? "",
+                "elementTitle": metadata.elementTitle ?? "",
+                "orientation": metadata.orientation,
+                "position": "\(metadata.position)"
+            ]
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed scroll position for \(role) element (\(orientation)) in \(applicationName): position=\(metadata.position). This is observation only — no value was set, and this observation does not constitute authorization to set the scroll position later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading scroll position: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

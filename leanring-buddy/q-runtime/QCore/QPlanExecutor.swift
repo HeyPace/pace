@@ -840,6 +840,18 @@ public final class QPlanExecutor: Sendable {
             // threaded through here: any individual row header's title or identifier — this
             // strategy only ever carries an aggregate count, by design.
             return .tableRowHeaderEnumerationSucceeded(applicationName: applicationName, rowHeaderCount: rowHeaderCount)
+        } else if action.actionName == "ui.read_scroll_position",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let orientation = result.outputData["orientation"],
+                  let positionString = result.outputData["position"],
+                  let position = Double(positionString) {
+            // Level 0, read-only — reconstructed from the applicationName/role arguments used to
+            // dispatch, plus the resolved orientation and validated position captured at read
+            // time. Deliberately NOT threaded through here: any unrelated attribute — this
+            // strategy only ever carries application/element identity, orientation, and the
+            // bounded numeric position itself (never table/document/cell content).
+            return .scrollPositionReadSucceeded(applicationName: applicationName, role: role, orientation: orientation, position: position)
         } else if action.actionName == "ui.read_element_range",
                   let applicationName = action.arguments["applicationName"],
                   let role = action.arguments["role"] {
