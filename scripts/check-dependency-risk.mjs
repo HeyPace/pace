@@ -13,7 +13,7 @@ const scopes = [
   {
     name: 'website',
     directory: 'website',
-    acceptedHigh: new Set(['1124066', '1139377', '1139378']),
+    acceptedHigh: new Set([]),
   },
 ];
 
