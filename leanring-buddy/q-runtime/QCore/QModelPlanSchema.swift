@@ -1328,7 +1328,32 @@ public struct QModelPlanParser: Sendable {
         // kAXValueAttribute read, 0 traversal beyond the single documented convenience-reference
         // hop, 0 actions, 0 polling, 0 retries. See QBridgeAccessibility.readScrollPosition and
         // docs/PHASE_2CA_SEMANTIC_SCROLL_POSITION.md for the full contract.
-        "ui.read_scroll_position": ("ui", .level0ReadOnly)
+        "ui.read_scroll_position": ("ui", .level0ReadOnly),
+        // Phase 2CB: semantic element role description read — LEVEL 0 (READ-ONLY). Reads exactly
+        // one semantically-identified element's kAXRoleDescriptionAttribute — the SDK's own
+        // localized, human-readable explanation of an element's basic type or purpose (e.g. "push
+        // button", "checkbox", "text field"), distinct from both kAXRoleAttribute (the raw,
+        // non-localized internal role string, e.g. "AXButton") and kAXValueDescriptionAttribute
+        // (ui.read_element_value_description, Phase 2BW — a description of the element's CURRENT
+        // VALUE, never its type). Reuses QAXElementReadRolePolicy (Phase 2J) and the identical
+        // secure-field-first-then-general-allowlist discipline ui.read_element_value/
+        // ui.list_element_actions/ui.read_element_value_description already establish — no
+        // broader, arbitrary-role allowlist is introduced, and AXSecureTextField is rejected
+        // before the general allowlist is ever consulted. No mutation, no press, no approval, no
+        // recovery: neither AXUIElementPerformAction nor AXUIElementSetAttributeValue is invoked
+        // anywhere in this capability, and kAXValueAttribute is never read. Unlike
+        // kAXValueDescriptionAttribute's own optional-reference absence semantics,
+        // kAXRoleDescriptionAttribute's SDK documentation states it is "Required for all
+        // elements" (even a truly unclassifiable element must supply "unknown") — there is no
+        // genuine, expected absence case, so every failure mode (permission denial, unresolvable
+        // target, stale target, a genuine AXError, a non-CFStringRef returned value, a genuinely
+        // empty string, or a string exceeding the defensive length bound) fails closed with its
+        // own dedicated diagnostic; nothing is ever silently defaulted, derived from
+        // kAXRoleAttribute, or truncated. Bounded to exactly 1 resolved target, 0 relationship
+        // hops, 1 kAXRoleDescriptionAttribute read, 0 traversal, 0 actions, 0 polling, 0 retries.
+        // See QBridgeAccessibility.readElementRoleDescription and
+        // docs/PHASE_2CB_SEMANTIC_ROLE_DESCRIPTION.md for the full contract.
+        "ui.read_element_role_description": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

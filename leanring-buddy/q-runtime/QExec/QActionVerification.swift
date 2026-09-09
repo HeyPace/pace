@@ -732,6 +732,30 @@ public enum QVerificationStrategy: Sendable {
         hasValueDescription: Bool,
         valueDescription: String?
     )
+    /// Phase 2CB: semantic element role-description read verification (Level 0, read-only). Like
+    /// every other Level 0 read's verification, there is no separate physical state to re-observe
+    /// after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readElementRoleDescription` (exact application/element resolution, a
+    /// validated, bounded, non-empty string), already IS the ground truth. This strategy checks
+    /// the execution result's own `success` flag as a genuine, meaningful assertion — never a bare
+    /// `{ true }` bypass — and INDEPENDENTLY RE-VALIDATES that `roleDescription` is non-empty and
+    /// within the same 256-character bound `resolveElementRoleDescription` itself enforces, rather
+    /// than blindly trusting the dispatch layer, the same independent-consistency discipline
+    /// `elementValueDescriptionReadSucceeded`/`elementAllowedValuesReadSucceeded` established for
+    /// their own facts. Unlike `elementValueDescriptionReadSucceeded`'s optional-reference shape,
+    /// this attribute has no valid-absence or valid-empty case, so a claimed-successful empty or
+    /// oversized string is still correctly rejected. Never mutates anything, never reads
+    /// `kAXValueAttribute`/`kAXRoleAttribute`, as part of verification. Evidence carries the
+    /// application name, element identity, and the role description itself — bounded semantic UI
+    /// taxonomy metadata, the same sensitivity class as an already-exposed title/help string, so
+    /// it is safe to include directly.
+    case elementRoleDescriptionReadSucceeded(
+        applicationName: String,
+        role: String,
+        elementIdentifier: String?,
+        elementTitle: String?,
+        roleDescription: String
+    )
     /// Phase 2BX: semantic label served-elements read verification (Level 0, read-only). Like
     /// every other Level 0 read's verification, there is no separate physical state to re-observe
     /// after the fact — the read's own success/failure, established entirely inside
@@ -2135,6 +2159,31 @@ public final class QActionVerifier: Sendable {
             }
             return .verified(
                 evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) valueDescription=\(description) status=verified"
+            )
+
+        case .elementRoleDescriptionReadSucceeded(let applicationName, let role, let elementIdentifier, let elementTitle, let roleDescription):
+            let elementDescription = elementTitle ?? elementIdentifier ?? "unnamed"
+            guard result.success else {
+                return .failed(
+                    reason: "Role-description read for \(role) element in application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) status=failed"
+                )
+            }
+            // Independent re-validation — never blindly trusting the dispatch layer's own success
+            // flag: unlike elementValueDescriptionReadSucceeded's optional-reference shape, this
+            // attribute has no valid-absence case, so the claimed role description must be
+            // non-empty and within the same bound resolveElementRoleDescription itself enforces
+            // (256 characters), mirroring that strategy's identical independent-recheck
+            // discipline. A fabricated success claiming an empty or oversized string is still
+            // correctly rejected.
+            guard !roleDescription.isEmpty, roleDescription.count <= 256 else {
+                return .failed(
+                    reason: "Role description for \(role) element in application '\(applicationName)' is empty or exceeds the maximum safe bound.",
+                    evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) status=failed"
+                )
+            }
+            return .verified(
+                evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) roleDescription=\(roleDescription) status=verified"
             )
 
         case .labelServedElementsReadSucceeded(let applicationName, let role, let hasServedElements, let servedElementCount):

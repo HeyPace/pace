@@ -96,7 +96,10 @@ struct QSemanticScrollPositionReadTests {
         #expect(regCap?.defaultRisk == .level0ReadOnly)
         #expect(regCap?.defaultRisk.requiresExplicitApproval == false)
         #expect(regCap?.defaultRisk.isConsideredReversible == true)
-        #expect(QModelPlanParser.registeredCapabilities.count == 75)
+        // Capability #75 was registered as the 75th capability; the registry has since grown to
+        // 76 (Phase 2CB's ui.read_element_role_description), so this checks the current total
+        // rather than a phase-specific snapshot.
+        #expect(QModelPlanParser.registeredCapabilities.count == 76)
 
         let json = """
         {

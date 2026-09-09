@@ -1105,6 +1105,29 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// Phase 2CA: the extracted, finite `Double` fell outside the documented `[0.0, 1.0]` bound —
     /// never silently clamped into range. The payload carries only the offending value.
     case scrollPositionOutOfRange(Double)
+    /// Phase 2CB: `kAXRoleDescriptionAttribute` could not be read from the resolved target due to
+    /// an actual Accessibility API failure — any `AXError` other than `.success`. Unlike
+    /// optional-reference attributes, `kAXRoleDescriptionAttribute` is documented "Required for
+    /// all elements" (mirroring `windowModalStateReadFailed`'s/`scrollPositionReadFailed`'s
+    /// identical required-attribute reasoning), so `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`
+    /// are treated as this same failure, never a silently-derived fallback from `kAXRoleAttribute`.
+    /// The payload carries only the underlying `AXError`, never any role-description content.
+    case roleDescriptionReadFailed(String)
+    /// Phase 2CB: `kAXRoleDescriptionAttribute`'s copy call reported success but the returned
+    /// value was not a genuine `String` — the returned value is treated as untrusted external
+    /// data, never assumed well-formed merely because the copy call itself reported success.
+    /// Never force-cast.
+    case roleDescriptionMalformed
+    /// Phase 2CB: `kAXRoleDescriptionAttribute` returned a genuine, non-`nil` `String`, but it was
+    /// empty. Since this attribute is documented "Required for all elements" — even a truly
+    /// unclassifiable element must supply the literal string "unknown" — a genuinely empty result
+    /// is treated as an anomaly and fails closed, never silently accepted or derived from
+    /// `kAXRoleAttribute` as a fallback.
+    case roleDescriptionEmpty
+    /// Phase 2CB: `kAXRoleDescriptionAttribute`'s returned string exceeded
+    /// `maxRoleDescriptionLength` — fails closed rather than ever silently truncating. The payload
+    /// carries only the offending length, never the string content itself.
+    case roleDescriptionExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -1482,6 +1505,14 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target scroll bar's value is not a finite number: \(reason)."
         case .scrollPositionOutOfRange(let value):
             return "The target scroll bar's value (\(value)) is outside the documented [0.0, 1.0] bound."
+        case .roleDescriptionReadFailed(let reason):
+            return "The target element's role description could not be read due to an Accessibility API failure: \(reason)."
+        case .roleDescriptionMalformed:
+            return "The target element's role description could not be read as a well-formed string."
+        case .roleDescriptionEmpty:
+            return "The target element's role description was unexpectedly empty."
+        case .roleDescriptionExceedsSafeBound(let length):
+            return "The target element's role description (\(length) characters) exceeds the maximum safe bound."
         }
     }
 
@@ -1675,6 +1706,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .scrollPositionConversionFailed: return "AX_SCROLL_POSITION_CONVERSION_FAILED"
         case .scrollPositionNonFinite: return "AX_SCROLL_POSITION_NON_FINITE"
         case .scrollPositionOutOfRange: return "AX_SCROLL_POSITION_OUT_OF_RANGE"
+        case .roleDescriptionReadFailed: return "AX_ROLE_DESCRIPTION_READ_FAILED"
+        case .roleDescriptionMalformed: return "AX_ROLE_DESCRIPTION_MALFORMED"
+        case .roleDescriptionEmpty: return "AX_ROLE_DESCRIPTION_EMPTY"
+        case .roleDescriptionExceedsSafeBound: return "AX_ROLE_DESCRIPTION_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -2050,6 +2085,38 @@ public struct QAXElementValueDescriptionMetadata: Sendable, Equatable, Codable {
         self.elementIdentifier = elementIdentifier
         self.elementTitle = elementTitle
         self.valueDescription = valueDescription
+    }
+}
+
+/// A semantically-identified element's bounded, validated `kAXRoleDescriptionAttribute`, as
+/// returned by `ui.read_element_role_description` (Phase 2CB) — a single, non-empty, localized
+/// type-description string only, never a raw AX object, never any unrelated attribute, and NEVER
+/// the element's own `kAXValueAttribute` or `kAXRoleAttribute` (the raw, non-localized internal
+/// role string remains distinct and is never read by this capability). Unlike
+/// `QAXElementValueDescriptionMetadata`'s own optional-reference absence semantics, this type has
+/// NO valid-absence and NO valid-empty state — `kAXRoleDescriptionAttribute` is documented
+/// "Required for all elements", so the bridge function that constructs this type either returns a
+/// fully-populated, non-empty, bounded instance or throws; it never returns `nil` and never
+/// fabricates a description derived from `kAXRoleAttribute`.
+public struct QAXElementRoleDescriptionMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let elementIdentifier: String?
+    public let elementTitle: String?
+    public let roleDescription: String
+
+    public init(
+        applicationName: String,
+        role: String,
+        elementIdentifier: String?,
+        elementTitle: String?,
+        roleDescription: String
+    ) {
+        self.applicationName = applicationName
+        self.role = role
+        self.elementIdentifier = elementIdentifier
+        self.elementTitle = elementTitle
+        self.roleDescription = roleDescription
     }
 }
 
@@ -4983,6 +5050,13 @@ extension QBridgeAccessibility {
     /// existing convention of not sharing bound constants across unrelated capabilities, even
     /// when the numeric value is identical.
     private static let maxTableRowHeaderMetadataLength = 256
+    /// Phase 2CB: defensive per-string length bound on `ui.read_element_role_description`'s
+    /// returned `kAXRoleDescriptionAttribute` string — prevents an arbitrarily large model-visible
+    /// string; exceeding it fails closed rather than truncating. A distinct constant from
+    /// `maxValueDescriptionLength`/`maxServedElementMetadataLength`/`maxTableRowHeaderMetadataLength`
+    /// per this codebase's existing convention of not sharing bound constants across unrelated
+    /// capabilities, even when the numeric value is identical.
+    private static let maxRoleDescriptionLength = 256
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -6798,6 +6872,138 @@ extension QBridgeAccessibility {
         }
         guard stringValue.count <= maxValueDescriptionLength else {
             throw QAXInteractionError.valueDescriptionExceedsSafeBound(stringValue.count)
+        }
+
+        return stringValue
+    }
+
+    // MARK: - Semantic Element Role Description Read (Phase 2CB)
+    //
+    // ui.read_element_role_description — a Level 0, read-only, zero-mutation, purely
+    // OBSERVATIONAL read of a semantically-identified element's kAXRoleDescriptionAttribute — the
+    // SDK's own localized, human-readable explanation of an element's basic type or purpose (e.g.
+    // "push button", "checkbox", "text field"). Distinct from BOTH kAXRoleAttribute (the raw,
+    // non-localized internal role string, e.g. "AXButton" — never read here) and
+    // kAXValueDescriptionAttribute (ui.read_element_value_description, Phase 2BW — a description
+    // of the element's CURRENT VALUE, an entirely different semantic axis). Reuses
+    // QAXElementReadRolePolicy (Phase 2J) and the identical secure-field-first-then-general-
+    // allowlist discipline ui.read_element_value/ui.list_element_actions/
+    // ui.read_element_value_description already establish — no broader, arbitrary-role allowlist
+    // is introduced, and AXSecureTextField is rejected before the general allowlist is ever
+    // consulted (belt and suspenders — AXSecureTextField is never listed in the allowlist either).
+    // This capability NEVER reads kAXValueAttribute and NEVER derives or fabricates a description
+    // from kAXRoleAttribute — the returned string always comes from the genuine
+    // kAXRoleDescriptionAttribute read itself.
+    //
+    // SDK-VERIFIED REQUIRED-ATTRIBUTE SEMANTICS: unlike kAXValueDescriptionAttribute (optional-
+    // reference pattern, valid absence — "Recommended for elements that support
+    // kAXValueAttribute"), kAXRoleDescriptionAttribute's own SDK documentation states it is
+    // "Required for all elements" — "Even in the worst case scenario where an element cannot
+    // figure out what its basic type is, it can still supply the value 'unknown'." There is
+    // therefore NO genuine, expected absence case and NO genuine, expected empty-string case:
+    // every failure mode (permission denial, unresolvable/stale target, ANY AXError reading the
+    // attribute — including kAXErrorNoValue/kAXErrorAttributeUnsupported — a malformed returned
+    // CFType, a genuinely empty string, or a string exceeding the defensive length bound) fails
+    // closed with its own dedicated diagnostic, mirroring readWindowModalState's (Phase 2BO) and
+    // resolveScrollBarPosition's (Phase 2CA) identical required-attribute reasoning — never
+    // silently downgraded to a guessed or derived fallback.
+
+    /// Resolves exactly one semantic target on `QAXElementReadRolePolicy`'s allowlist (with the
+    /// same `AXSecureTextField` exclusion `ui.read_element_value`/`ui.list_element_actions`/
+    /// `ui.read_element_value_description` already enforce) and reads its
+    /// `kAXRoleDescriptionAttribute` — a purely observational call; neither
+    /// `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is invoked anywhere in this
+    /// method, and `kAXValueAttribute` is never read. Fails closed (throws `QAXInteractionError`)
+    /// on a disallowed/secure role, missing criteria, permission absence, application/target
+    /// absence or ambiguity, a stale/drifted target, ANY `AXError` reading
+    /// `kAXRoleDescriptionAttribute` (including `kAXErrorNoValue`/`kAXErrorAttributeUnsupported` —
+    /// see the `MARK` section above for why this attribute has no valid-absence case), a malformed
+    /// (non-`String`) returned value, a genuinely empty string, or a string exceeding
+    /// `maxRoleDescriptionLength`. Never fabricates, derives, or truncates a description.
+    public func readElementRoleDescription(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXElementRoleDescriptionMetadata {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Secure field first, for a specific diagnostic; then the general allowlist, which would
+        // also reject AXSecureTextField on its own (it is never listed) — belt and suspenders,
+        // identical discipline to readElementValue's/listElementActions'/
+        // readElementValueDescription's own checks.
+        guard role != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+        guard QAXElementReadRolePolicy.isAllowedReadRole(role) else {
+            throw QAXInteractionError.disallowedReadRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // role-description read and refuse on any drift — identical discipline to every prior
+            // AX capability in this codebase, even though this is a read, not a mutation.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the role-description read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the role-description read")
+            }
+
+            let roleDescription = try Self.resolveElementRoleDescription(of: targetElement)
+
+            return QAXElementRoleDescriptionMetadata(
+                applicationName: applicationName,
+                role: role,
+                elementIdentifier: observedAtVerify.identifier,
+                elementTitle: observedAtVerify.titleOrDescription,
+                roleDescription: roleDescription
+            )
+        }.value
+    }
+
+    /// Resolves `kAXRoleDescriptionAttribute` as a definite, non-empty, bounded `String` — never
+    /// optional, since this attribute has no valid-absence case (see the `MARK` section above).
+    /// Every check has its own distinct, dedicated diagnostic — nothing is ever silently
+    /// defaulted, derived from `kAXRoleAttribute`, or truncated:
+    /// 1. Any non-`.success` `AXError` (including `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`)
+    ///    → `roleDescriptionReadFailed`.
+    /// 2. The returned value must bridge to a genuine `String` (`value as? String`) — any other
+    ///    CFType → `roleDescriptionMalformed`. Never force-cast.
+    /// 3. The string must be non-empty → `roleDescriptionEmpty` otherwise — a genuinely empty
+    ///    result is an anomaly for a required-for-all-elements attribute, never a valid outcome.
+    /// 4. `string.count <= maxRoleDescriptionLength` → `roleDescriptionExceedsSafeBound` otherwise
+    ///    — never a silent truncation.
+    fileprivate nonisolated static func resolveElementRoleDescription(of targetElement: AXUIElement) throws -> String {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXRoleDescriptionAttribute as CFString, &value)
+
+        guard copyResult == .success else {
+            throw QAXInteractionError.roleDescriptionReadFailed("AXError(\(copyResult.rawValue))")
+        }
+        guard let value, let stringValue = value as? String else {
+            throw QAXInteractionError.roleDescriptionMalformed
+        }
+        guard !stringValue.isEmpty else {
+            throw QAXInteractionError.roleDescriptionEmpty
+        }
+        guard stringValue.count <= maxRoleDescriptionLength else {
+            throw QAXInteractionError.roleDescriptionExceedsSafeBound(stringValue.count)
         }
 
         return stringValue

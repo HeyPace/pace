@@ -1087,6 +1087,27 @@ public final class QPlanExecutor: Sendable {
                 hasValueDescription: hasValueDescription,
                 valueDescription: valueDescription
             )
+        } else if action.actionName == "ui.read_element_role_description",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let roleDescription = result.outputData["roleDescription"] {
+            // Level 0, read-only, purely observational — reconstructed from the
+            // applicationName/role arguments used to dispatch, plus the resolved element's own
+            // identity and the validated role-description string captured at read time.
+            // Deliberately NOT threaded through here: any unrelated attribute, and NEVER
+            // kAXValueAttribute/kAXRoleAttribute themselves — this strategy only ever carries
+            // application/element identity and the bounded descriptive string itself (the same
+            // sensitivity class as an already-exposed title/help string, per this capability's own
+            // privacy contract).
+            let elementIdentifier = result.outputData["elementIdentifier"].flatMap { $0.isEmpty ? nil : $0 }
+            let elementTitle = result.outputData["elementTitle"].flatMap { $0.isEmpty ? nil : $0 }
+            return .elementRoleDescriptionReadSucceeded(
+                applicationName: applicationName,
+                role: role,
+                elementIdentifier: elementIdentifier,
+                elementTitle: elementTitle,
+                roleDescription: roleDescription
+            )
         } else if action.actionName == "ui.list_label_served_elements",
                   let applicationName = action.arguments["applicationName"],
                   let role = action.arguments["role"],
