@@ -15,11 +15,19 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
-    "astro": "^5.18.2",
+    "astro": "7.2.8",
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "lightningcss": "^1.33.0",
     "wrangler": "^4.120.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "sharp@<0.35.4": "0.35.4",
+      "js-yaml@>=3.0.0 <3.15.2": "3.15.2",
+      "js-yaml@>=4.0.0 <4.3.2": "4.3.2",
+      "svgo@>=4.0.0 <4.1.0": "4.1.0"
+    }
   }
 }

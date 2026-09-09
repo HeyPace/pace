@@ -41,10 +41,11 @@ const releasesPageURL = releaseInfo.releasesPageURL;
 
       <div class="pace-prose mb-12">
         <p>
-          One zip. Unzip it, move Pace to Applications if you want, then use
-          right-click → Open for the first launch. The current preview is
-          ad-hoc signed and not notarized, so an ordinary double-click is
-          expected to be blocked by Gatekeeper.
+          Unzip the download and move Pace to Applications. The current preview
+          is ad-hoc signed and not notarized, so macOS may block the first launch.
+          If you choose to run this preview, first try opening Pace, then go to
+          System Settings → Privacy &amp; Security and use Open Anyway for Pace
+          under Security. Confirm the per-app approval when macOS asks.
         </p>
         <p>
           <strong>Updates itself.</strong> Once Pace is running, it checks the
@@ -111,9 +112,9 @@ const releasesPageURL = releaseInfo.releasesPageURL;
           </p>
           <p>
             <strong>2. Open it.</strong> Double-click <code class="font-mono text-sm text-[var(--color-accent)]">Pace.app</code>.
-            macOS will ask about Accessibility, Microphone, and Screen Recording
-            permissions — grant all three. Pace needs them to hear you, see your
-            screen, and click for you.
+            If macOS blocks it, follow the Privacy &amp; Security approval above.
+            Once Pace opens, review its Microphone, Screen Recording, and
+            Accessibility requests for voice, screen context, and approved actions.
           </p>
           <p>
             <strong>3. Hold ctrl+option and talk.</strong> That's push-to-talk.
@@ -123,8 +124,10 @@ const releasesPageURL = releaseInfo.releasesPageURL;
         </div>
 
         <p class="pace-margin-note mt-8 max-w-md">
-          Pace is ad-hoc signed (no Apple Developer Program). On first launch,
-          right-click → Open to bypass Gatekeeper. After that it's normal.
+          This preview is not Developer ID signed or notarized. See
+          <a href="https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac">Apple's current opening instructions</a>
+          for the per-app approval in Privacy &amp; Security. The Open Anyway
+          option is available for about an hour after an opening attempt.
         </p>
       </section>
 

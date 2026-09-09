@@ -12,6 +12,7 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   site: "https://heypace.app",
   output: "static",
+  compressHTML: true,
   build: {
     // Flat-inlines per-page CSS so the LCP element doesn't wait on
     // a separate stylesheet round-trip.
