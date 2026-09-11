@@ -150,6 +150,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_element_role_description":
             result = await executeReadElementRoleDescription(request: request)
 
+        case "ui.read_element_help_text":
+            result = await executeReadElementHelpText(request: request)
+
         case "ui.list_label_served_elements":
             result = await executeListLabelServedElements(request: request)
 
@@ -2078,6 +2081,93 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading element role description: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2CC: semantic element help text read — Level 0 (read-only, no approval, no mutation
+    /// authority). Reads `kAXHelpAttribute` — the SDK's own localized help/tooltip content for an
+    /// element, distinct from both `kAXRoleDescriptionAttribute` (the element's TYPE) and
+    /// `kAXValueDescriptionAttribute` (the element's CURRENT VALUE). Reuses
+    /// `QAXElementReadRolePolicy` and its `AXSecureTextField` exclusion exactly as
+    /// `ui.read_element_value`/`ui.list_element_actions`/`ui.read_element_value_description`/
+    /// `ui.read_element_role_description` already do. Like `ui.read_element_value_description`
+    /// (and unlike `ui.read_element_role_description`), this attribute has a valid-absence case:
+    /// genuine absence (`hasHelpText == false`) is its own valid, distinct outcome, never conflated
+    /// with a present-but-empty string. Every `QAXInteractionError` failure mode — disallowed/
+    /// secure role, missing criteria, permission absence, application/target absence or ambiguity,
+    /// a stale target, a genuine AX read failure, a malformed CFType, or an oversized string — is
+    /// caught here and converted into a deterministic, non-throwing `QActionResult`; this method
+    /// never fabricates success. Only the bounded help-text string and non-secret targeting
+    /// metadata cross this method's boundary — never `kAXValueAttribute`, never a raw AXUIElement,
+    /// never table/document/cell content.
+    private func executeReadElementHelpText(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.readElementHelpText(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            let hasHelpText = metadata != nil
+            let helpText = metadata?.helpText ?? ""
+            let outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "elementIdentifier": metadata?.elementIdentifier ?? "",
+                "elementTitle": metadata?.elementTitle ?? "",
+                "hasHelpText": hasHelpText ? "true" : "false",
+                "helpText": helpText
+            ]
+            let summaryDescription = hasHelpText ? "\"\(helpText)\"" : "unavailable"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed help text for \(role) element in \(applicationName): \(summaryDescription). This is observation only — no value was set, and this observation does not constitute authorization to mutate the element later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading element help text: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

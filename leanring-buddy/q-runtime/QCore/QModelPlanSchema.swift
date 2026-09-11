@@ -1353,7 +1353,34 @@ public struct QModelPlanParser: Sendable {
         // hops, 1 kAXRoleDescriptionAttribute read, 0 traversal, 0 actions, 0 polling, 0 retries.
         // See QBridgeAccessibility.readElementRoleDescription and
         // docs/PHASE_2CB_SEMANTIC_ROLE_DESCRIPTION.md for the full contract.
-        "ui.read_element_role_description": ("ui", .level0ReadOnly)
+        "ui.read_element_role_description": ("ui", .level0ReadOnly),
+        // Phase 2CC: semantic element help text read — LEVEL 0 (READ-ONLY). Reads exactly one
+        // semantically-identified element's kAXHelpAttribute — the SDK's own localized,
+        // human-readable help/tooltip content for an element ("often the same information that
+        // would be provided in a help tag for the element"), distinct from both
+        // kAXRoleDescriptionAttribute (ui.read_element_role_description, Phase 2CB — a description
+        // of the element's TYPE) and kAXValueDescriptionAttribute (ui.read_element_value_description,
+        // Phase 2BW — a description of the element's CURRENT VALUE). Reuses QAXElementReadRolePolicy
+        // (Phase 2J) and the identical secure-field-first-then-general-allowlist discipline
+        // ui.read_element_value/ui.list_element_actions/ui.read_element_value_description/
+        // ui.read_element_role_description already establish — no broader, arbitrary-role allowlist
+        // is introduced, and AXSecureTextField is rejected before the general allowlist is ever
+        // consulted. No mutation, no press, no approval, no recovery: neither
+        // AXUIElementPerformAction nor AXUIElementSetAttributeValue is invoked anywhere in this
+        // capability, and kAXValueAttribute is never read. kAXHelpAttribute carries no
+        // "required for all elements"-style documentation — the doc says only "Recommended for any
+        // element that has help data available" — so genuine absence
+        // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is the OPTIONAL-REFERENCE pattern, a valid,
+        // expected nil WHOLE RESULT, identical to ui.read_element_value_description's own absence
+        // semantics (unlike ui.read_element_role_description's required-attribute, no-valid-absence
+        // contract). Every other failure mode (permission denial, unresolvable target, stale target,
+        // a genuine AXError, a non-CFStringRef returned value, or a string exceeding the defensive
+        // length bound) fails closed with its own dedicated diagnostic; nothing is ever silently
+        // defaulted or truncated. Bounded to exactly 1 resolved target, 0 relationship hops, 1
+        // kAXHelpAttribute read, 0 traversal, 0 actions, 0 polling, 0 retries. See
+        // QBridgeAccessibility.readElementHelpText and
+        // docs/PHASE_2CC_SEMANTIC_HELP_TEXT.md for the full contract.
+        "ui.read_element_help_text": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

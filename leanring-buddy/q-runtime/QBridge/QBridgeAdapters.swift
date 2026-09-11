@@ -1128,6 +1128,20 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// `maxRoleDescriptionLength` — fails closed rather than ever silently truncating. The payload
     /// carries only the offending length, never the string content itself.
     case roleDescriptionExceedsSafeBound(Int)
+    /// Phase 2CC: `kAXHelpAttribute` could not be read from the resolved target due to an actual
+    /// Accessibility API failure — any `AXError` other than `.success`, `.noValue`, or
+    /// `.attributeUnsupported`. The latter two mean the target genuinely has no help data (the
+    /// common, expected case for most controls) and are never treated as an error. The payload
+    /// carries only the underlying `AXError`, never any help-text content.
+    case helpTextReadFailed(String)
+    /// Phase 2CC: `kAXHelpAttribute`'s copy call reported success but the returned value was not a
+    /// genuine `String` — the returned value is treated as untrusted external data, never assumed
+    /// well-formed merely because the copy call itself reported success. Never force-cast.
+    case helpTextMalformed
+    /// Phase 2CC: `kAXHelpAttribute`'s returned string exceeded `maxHelpTextLength` — fails closed
+    /// rather than ever silently truncating. The payload carries only the offending length, never
+    /// the string content itself.
+    case helpTextExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -1513,6 +1527,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target element's role description was unexpectedly empty."
         case .roleDescriptionExceedsSafeBound(let length):
             return "The target element's role description (\(length) characters) exceeds the maximum safe bound."
+        case .helpTextReadFailed(let reason):
+            return "The target element's help text could not be read due to an Accessibility API failure: \(reason)."
+        case .helpTextMalformed:
+            return "The target element's help text could not be read as a well-formed string."
+        case .helpTextExceedsSafeBound(let length):
+            return "The target element's help text (\(length) characters) exceeds the maximum safe bound."
         }
     }
 
@@ -1710,6 +1730,9 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .roleDescriptionMalformed: return "AX_ROLE_DESCRIPTION_MALFORMED"
         case .roleDescriptionEmpty: return "AX_ROLE_DESCRIPTION_EMPTY"
         case .roleDescriptionExceedsSafeBound: return "AX_ROLE_DESCRIPTION_EXCEEDS_SAFE_BOUND"
+        case .helpTextReadFailed: return "AX_HELP_TEXT_READ_FAILED"
+        case .helpTextMalformed: return "AX_HELP_TEXT_MALFORMED"
+        case .helpTextExceedsSafeBound: return "AX_HELP_TEXT_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -2117,6 +2140,38 @@ public struct QAXElementRoleDescriptionMetadata: Sendable, Equatable, Codable {
         self.elementIdentifier = elementIdentifier
         self.elementTitle = elementTitle
         self.roleDescription = roleDescription
+    }
+}
+
+/// A semantically-identified element's bounded, validated `kAXHelpAttribute`, as returned by
+/// `ui.read_element_help_text` (Phase 2CC) — a single descriptive help/tooltip string only, never
+/// a raw AX object, never any unrelated attribute, and NEVER the element's own `kAXValueAttribute`
+/// (that remains `ui.read_element_value`'s exclusive contract). The `helpText` field may
+/// legitimately be an EMPTY string (the attribute was present but described as empty) — a
+/// distinct, valid state from genuine attribute ABSENCE, which is represented by the overall
+/// bridge function returning `nil` rather than ever constructing this type with a fabricated empty
+/// string. Identical optional-reference absence shape to `QAXElementValueDescriptionMetadata`
+/// (Phase 2BW) — unlike `QAXElementRoleDescriptionMetadata`'s (Phase 2CB) required-attribute, no-
+/// valid-absence contract.
+public struct QAXElementHelpTextMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let elementIdentifier: String?
+    public let elementTitle: String?
+    public let helpText: String
+
+    public init(
+        applicationName: String,
+        role: String,
+        elementIdentifier: String?,
+        elementTitle: String?,
+        helpText: String
+    ) {
+        self.applicationName = applicationName
+        self.role = role
+        self.elementIdentifier = elementIdentifier
+        self.elementTitle = elementTitle
+        self.helpText = helpText
     }
 }
 
@@ -5057,6 +5112,13 @@ extension QBridgeAccessibility {
     /// per this codebase's existing convention of not sharing bound constants across unrelated
     /// capabilities, even when the numeric value is identical.
     private static let maxRoleDescriptionLength = 256
+    /// Phase 2CC: defensive per-string length bound on `ui.read_element_help_text`'s returned
+    /// `kAXHelpAttribute` string — prevents an arbitrarily large model-visible string; exceeding
+    /// it fails closed rather than truncating. A distinct constant from
+    /// `maxValueDescriptionLength`/`maxRoleDescriptionLength`/`maxServedElementMetadataLength`/
+    /// `maxTableRowHeaderMetadataLength` per this codebase's existing convention of not sharing
+    /// bound constants across unrelated capabilities, even when the numeric value is identical.
+    private static let maxHelpTextLength = 256
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -7004,6 +7066,143 @@ extension QBridgeAccessibility {
         }
         guard stringValue.count <= maxRoleDescriptionLength else {
             throw QAXInteractionError.roleDescriptionExceedsSafeBound(stringValue.count)
+        }
+
+        return stringValue
+    }
+
+    // MARK: - Semantic Element Help Text Read (Phase 2CC)
+    //
+    // ui.read_element_help_text — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL read
+    // of a semantically-identified element's kAXHelpAttribute — the SDK's own localized,
+    // human-readable help/tooltip content for an element ("often the same information that would
+    // be provided in a help tag for the element"). Distinct from kAXRoleDescriptionAttribute
+    // (ui.read_element_role_description, Phase 2CB — a description of the element's TYPE, e.g.
+    // "push button") and kAXValueDescriptionAttribute (ui.read_element_value_description, Phase
+    // 2BW — a description of the element's CURRENT VALUE). This capability NEVER reads
+    // kAXValueAttribute. Reuses QAXElementReadRolePolicy (Phase 2J) and the identical
+    // secure-field-first-then-general-allowlist discipline ui.read_element_value/
+    // ui.list_element_actions/ui.read_element_value_description/ui.read_element_role_description
+    // already establish — no broader, arbitrary-role allowlist is introduced, and AXSecureTextField
+    // is rejected before the general allowlist is ever consulted (belt and suspenders —
+    // AXSecureTextField is never listed in the allowlist either).
+    //
+    // SDK-VERIFIED ABSENCE SEMANTICS: kAXHelpAttribute carries no "required for all elements"-style
+    // documentation — the doc says only "Recommended for any element that has help data
+    // available", implying most controls legitimately lack it. Genuine absence
+    // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is therefore the OPTIONAL-REFERENCE pattern —
+    // a valid, expected nil WHOLE RESULT, identical to ui.read_element_value_description's own
+    // absence semantics (and unlike ui.read_element_role_description's required-attribute,
+    // no-valid-absence contract) — distinct from a genuinely PRESENT but EMPTY string, which is
+    // its own valid, non-nil result.
+
+    /// Resolves exactly one semantic target on `QAXElementReadRolePolicy`'s allowlist (with the
+    /// same `AXSecureTextField` exclusion `ui.read_element_value`/`ui.list_element_actions`/
+    /// `ui.read_element_value_description`/`ui.read_element_role_description` already enforce) and
+    /// reads its `kAXHelpAttribute` — a purely observational call; neither
+    /// `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is invoked anywhere in this
+    /// method, and `kAXValueAttribute` is never read. Fails closed (throws `QAXInteractionError`)
+    /// on a disallowed/secure role, missing criteria, permission absence, application/target
+    /// absence or ambiguity, a stale/drifted target, a genuine read failure, a malformed returned
+    /// CFType, or a string exceeding `maxHelpTextLength`. Genuine absence of the attribute
+    /// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an error — it produces `nil` for
+    /// the WHOLE result. A genuinely present but empty string is its own valid, non-nil result.
+    /// Never fabricates a value, never silently truncates an oversized string.
+    public func readElementHelpText(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXElementHelpTextMetadata? {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Secure field first, for a specific diagnostic; then the general allowlist, which would
+        // also reject AXSecureTextField on its own (it is never listed) — belt and suspenders,
+        // identical discipline to readElementValue's/listElementActions'/
+        // readElementValueDescription's/readElementRoleDescription's own checks.
+        guard role != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+        guard QAXElementReadRolePolicy.isAllowedReadRole(role) else {
+            throw QAXInteractionError.disallowedReadRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // help-text read and refuse on any drift — identical discipline to every prior AX
+            // capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the help-text read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the help-text read")
+            }
+
+            guard let helpText = try Self.resolveElementHelpText(of: targetElement) else {
+                // Genuine, expected absence — the whole result is nil, never a fabricated empty
+                // string.
+                return nil
+            }
+
+            return QAXElementHelpTextMetadata(
+                applicationName: applicationName,
+                role: role,
+                elementIdentifier: observedAtVerify.identifier,
+                elementTitle: observedAtVerify.titleOrDescription,
+                helpText: helpText
+            )
+        }.value
+    }
+
+    /// Reads `kAXHelpAttribute` and normalizes it to a validated `String` (empty is a valid
+    /// result), or `nil` for genuine attribute absence. Every check has its own distinct,
+    /// dedicated diagnostic — nothing is ever silently truncated or defaulted, and the returned
+    /// value is never force-cast: the copy call's own success alone is never treated as proof the
+    /// returned CFTypeRef is genuinely a `String`.
+    ///
+    /// Validation, in order:
+    /// 1. `.noValue`/`.attributeUnsupported` → `nil` (genuine, expected absence — see the `MARK`
+    ///    section above); any other non-`.success` `AXError` → `helpTextReadFailed`.
+    /// 2. The returned value must bridge to a genuine `String` (`value as? String`) — any other
+    ///    CFType → `helpTextMalformed`.
+    /// 3. `string.count <= maxHelpTextLength` — exceeding it → `helpTextExceedsSafeBound`, never a
+    ///    silent truncation.
+    fileprivate nonisolated static func resolveElementHelpText(of targetElement: AXUIElement) throws -> String? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXHelpAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            return nil
+        default:
+            throw QAXInteractionError.helpTextReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value else {
+            throw QAXInteractionError.helpTextMalformed
+        }
+        guard let stringValue = value as? String else {
+            throw QAXInteractionError.helpTextMalformed
+        }
+        guard stringValue.count <= maxHelpTextLength else {
+            throw QAXInteractionError.helpTextExceedsSafeBound(stringValue.count)
         }
 
         return stringValue

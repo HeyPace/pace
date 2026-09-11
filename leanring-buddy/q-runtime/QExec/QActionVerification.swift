@@ -756,6 +756,34 @@ public enum QVerificationStrategy: Sendable {
         elementTitle: String?,
         roleDescription: String
     )
+    /// Phase 2CC: semantic element help-text read verification (Level 0, read-only). Like every
+    /// other Level 0 read's verification, there is no separate physical state to re-observe after
+    /// the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readElementHelpText` (exact application/element resolution, a
+    /// validated, bounded string), already IS the ground truth. This strategy checks the execution
+    /// result's own `success` flag as a genuine, meaningful assertion — never a bare `{ true }`
+    /// bypass — and, when help text is claimed present, INDEPENDENTLY RE-VALIDATES its length is
+    /// within the same 256-character bound `resolveElementHelpText` itself enforces, rather than
+    /// blindly trusting the dispatch layer, the same independent-consistency discipline
+    /// `elementValueDescriptionReadSucceeded`/`elementRoleDescriptionReadSucceeded` established for
+    /// their own facts. Genuine absence (`hasHelpText == false`) is its own valid, distinct
+    /// verified outcome — never conflated with a present-but-empty string, identical to
+    /// `elementValueDescriptionReadSucceeded`'s own optional-reference discipline (unlike
+    /// `elementRoleDescriptionReadSucceeded`'s required-attribute, no-valid-absence contract).
+    /// Never mutates anything, never reads `kAXValueAttribute`, as part of verification. This
+    /// strategy performs NO additional AX read of any kind — it reuses only the already-dispatched
+    /// result's own output. Evidence carries the application name, element identity, and the help
+    /// text itself (or its absence) — bounded semantic UI metadata, the same sensitivity class as
+    /// an already-exposed title/value-description/role-description string, so it is safe to
+    /// include directly.
+    case elementHelpTextReadSucceeded(
+        applicationName: String,
+        role: String,
+        elementIdentifier: String?,
+        elementTitle: String?,
+        hasHelpText: Bool,
+        helpText: String?
+    )
     /// Phase 2BX: semantic label served-elements read verification (Level 0, read-only). Like
     /// every other Level 0 read's verification, there is no separate physical state to re-observe
     /// after the fact — the read's own success/failure, established entirely inside
@@ -2184,6 +2212,38 @@ public final class QActionVerifier: Sendable {
             }
             return .verified(
                 evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) roleDescription=\(roleDescription) status=verified"
+            )
+
+        case .elementHelpTextReadSucceeded(let applicationName, let role, let elementIdentifier, let elementTitle, let hasHelpText, let helpText):
+            let elementDescription = elementTitle ?? elementIdentifier ?? "unnamed"
+            guard result.success else {
+                return .failed(
+                    reason: "Help-text read for \(role) element in application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) status=failed"
+                )
+            }
+            guard hasHelpText else {
+                // Genuine, expected absence is its own valid, distinct verified outcome — never
+                // conflated with a present-but-empty string.
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) helpText=unavailable status=verified"
+                )
+            }
+            // Independent re-validation — never blindly trusting the dispatch layer's own success
+            // flag: the claimed help text must be present and within the same bound
+            // resolveElementHelpText itself enforces (256 characters), mirroring
+            // elementValueDescriptionReadSucceeded's/elementRoleDescriptionReadSucceeded's
+            // identical independent-recheck discipline. A fabricated success claiming an oversized
+            // string is still correctly rejected. This performs NO additional AX read — only the
+            // already-dispatched result's own claimed value is re-checked.
+            guard let text = helpText, text.count <= 256 else {
+                return .failed(
+                    reason: "Help text for \(role) element in application '\(applicationName)' is missing or exceeds the maximum safe bound.",
+                    evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) status=failed"
+                )
+            }
+            return .verified(
+                evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) helpText=\(text) status=verified"
             )
 
         case .labelServedElementsReadSucceeded(let applicationName, let role, let hasServedElements, let servedElementCount):
