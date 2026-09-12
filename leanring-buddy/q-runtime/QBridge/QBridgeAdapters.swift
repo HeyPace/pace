@@ -1202,6 +1202,30 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// never assumed well-formed merely because the copy call itself reported success. Fails
     /// closed rather than fabricating a Boolean.
     case elementEditedStateMalformed
+    /// Phase 2CH: `kAXVisibleChildrenAttribute` could not be read due to an actual Accessibility
+    /// API failure — distinct from `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`, which mean
+    /// the target genuinely has no visible-children concept and are never treated as an error —
+    /// see `QBridgeAccessibility.listVisibleChildren`'s own documentation for the full
+    /// missing-vs-failure rationale. The payload carries the underlying `AXError`, never any
+    /// element content.
+    case visibleChildrenReadFailed(String)
+    /// Phase 2CH: `kAXVisibleChildrenAttribute`'s copy call reported success but the returned
+    /// value was not a genuine `CFArray` — the returned value is treated as untrusted external
+    /// data, never assumed well-formed merely because the copy call itself reported success.
+    case visibleChildrenMalformed
+    /// Phase 2CH: `kAXVisibleChildrenAttribute`'s returned array exceeded
+    /// `maxVisibleChildrenCount` — fails closed rather than ever silently truncating. The payload
+    /// carries only the offending count, never any element content.
+    case visibleChildrenExceedsSafeBound(Int)
+    /// Phase 2CH: at least one entry of `kAXVisibleChildrenAttribute`'s returned array did not
+    /// bridge to a genuine `AXUIElement` — the whole array fails closed atomically rather than
+    /// silently dropping the offending entry, mirroring `ui.list_label_served_elements`'s
+    /// identical discipline.
+    case visibleChildrenElementMalformed
+    /// Phase 2CH: a visible child's own title/identifier exceeded `maxVisibleChildMetadataLength`
+    /// — fails the WHOLE array closed rather than truncating. The payload carries only the
+    /// offending length, never the string content itself.
+    case visibleChildrenElementMetadataExceedsSafeLength(Int)
 
     public var description: String {
         switch self {
@@ -1613,6 +1637,16 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target element's edited state could not be read due to an Accessibility API failure: \(reason)."
         case .elementEditedStateMalformed:
             return "The target element's edited state could not be read as a well-formed Boolean."
+        case .visibleChildrenReadFailed(let reason):
+            return "The target scroll area's visible children could not be read due to an Accessibility API failure: \(reason)."
+        case .visibleChildrenMalformed:
+            return "The target scroll area's visible children could not be read as a well-formed array."
+        case .visibleChildrenExceedsSafeBound(let count):
+            return "The target scroll area's visible children (\(count)) exceeds the maximum safe bound."
+        case .visibleChildrenElementMalformed:
+            return "A visible child could not be read as a well-formed Accessibility element reference."
+        case .visibleChildrenElementMetadataExceedsSafeLength(let length):
+            return "A visible child's title/identifier (\(length) characters) exceeds the maximum safe bound."
         }
     }
 
@@ -1823,6 +1857,11 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .elementDisclosureLevelInvalid: return "AX_ELEMENT_DISCLOSURE_LEVEL_INVALID"
         case .elementEditedStateReadFailed: return "AX_ELEMENT_EDITED_STATE_READ_FAILED"
         case .elementEditedStateMalformed: return "AX_ELEMENT_EDITED_STATE_MALFORMED"
+        case .visibleChildrenReadFailed: return "AX_VISIBLE_CHILDREN_READ_FAILED"
+        case .visibleChildrenMalformed: return "AX_VISIBLE_CHILDREN_MALFORMED"
+        case .visibleChildrenExceedsSafeBound: return "AX_VISIBLE_CHILDREN_EXCEEDS_SAFE_BOUND"
+        case .visibleChildrenElementMalformed: return "AX_VISIBLE_CHILDREN_ELEMENT_MALFORMED"
+        case .visibleChildrenElementMetadataExceedsSafeLength: return "AX_VISIBLE_CHILDREN_ELEMENT_METADATA_EXCEEDS_SAFE_LENGTH"
         }
     }
 }
@@ -2360,6 +2399,53 @@ public struct QAXElementEditedStateMetadata: Sendable, Equatable, Codable {
         self.applicationName = applicationName
         self.role = role
         self.isEdited = isEdited
+    }
+}
+
+/// A single visible child's safe, non-sensitive structural identity, as returned within
+/// `ui.list_visible_children`'s (Phase 2CH) `visibleChildren` array — role/title/identifier only,
+/// identical minimal shape to `QAXServedElementReference` (Phase 2BX), never an `AXValue`, never
+/// arbitrary content, never a raw `AXUIElement`. A distinct nominal type from
+/// `QAXServedElementReference`/`QAXElementTitleReference` per this codebase's existing convention
+/// of one dedicated result type per capability, even when the field shape is identical.
+public struct QAXVisibleChildReference: Sendable, Equatable, Codable {
+    public let role: String
+    public let title: String?
+    public let identifier: String?
+
+    public init(role: String, title: String?, identifier: String?) {
+        self.role = role
+        self.title = title
+        self.identifier = identifier
+    }
+}
+
+/// A semantically-identified scroll area's bounded, validated `kAXVisibleChildrenAttribute`, as
+/// returned by `ui.list_visible_children` (Phase 2CH). `visibleChildren` is a bounded array of
+/// identity-only references, never raw `AXUIElement`s, never any content beyond
+/// role/title/identifier. `visibleChildren` may legitimately be EMPTY (the attribute was present
+/// but nothing is currently visible in the scroll area) — a distinct, valid state from genuine
+/// attribute ABSENCE, which is represented by the overall bridge function returning `nil` rather
+/// than ever constructing this type with a fabricated empty array.
+public struct QAXVisibleChildrenMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let elementIdentifier: String?
+    public let elementTitle: String?
+    public let visibleChildren: [QAXVisibleChildReference]
+
+    public init(
+        applicationName: String,
+        role: String,
+        elementIdentifier: String?,
+        elementTitle: String?,
+        visibleChildren: [QAXVisibleChildReference]
+    ) {
+        self.applicationName = applicationName
+        self.role = role
+        self.elementIdentifier = elementIdentifier
+        self.elementTitle = elementTitle
+        self.visibleChildren = visibleChildren
     }
 }
 
@@ -5308,6 +5394,19 @@ extension QBridgeAccessibility {
     /// bound constants across unrelated capabilities, even when the numeric value is identical.
     private static let maxHelpTextLength = 256
     private static let maxPlaceholderValueLength = 256
+    /// Phase 2CH: defensive bound on `ui.list_visible_children`'s returned
+    /// `kAXVisibleChildrenAttribute` array — exceeding this fails closed rather than silently
+    /// truncating (never misrepresenting the authoritative result), checked BEFORE any
+    /// per-element extraction. Matches `maxServedElementsCount`'s own conservative value, but is
+    /// deliberately a distinct constant per this codebase's existing convention of not sharing
+    /// bound constants across unrelated capabilities, even when the numeric value is identical.
+    private static let maxVisibleChildrenCount = 32
+    /// Phase 2CH: defensive per-string length bound on a visible child's own title/identifier —
+    /// prevents an arbitrarily large model-visible string; exceeding it fails the whole array
+    /// closed rather than truncating. A distinct constant from `maxServedElementMetadataLength`/
+    /// `maxTableRowHeaderMetadataLength` per this codebase's existing convention of not sharing
+    /// bound constants across unrelated capabilities, even when the numeric value is identical.
+    private static let maxVisibleChildMetadataLength = 256
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -7927,6 +8026,202 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.elementEditedStateMalformed
         }
         return isEdited
+    }
+
+    // MARK: - Semantic Visible Children Enumeration (Phase 2CH)
+    //
+    // ui.list_visible_children — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL read of
+    // a semantically-identified scroll area's kAXVisibleChildrenAttribute — the bounded set of
+    // child elements currently rendered/visible, letting an agent see what's actually on screen in
+    // a scrollable container without recursively walking the full (potentially large) children
+    // tree itself, and without ever reading coordinates. Complements ui.read_scroll_position
+    // (Phase 2CA/2W, "where is the scroll thumb") with "what content is that scroll position
+    // currently showing". kAXVisibleChildrenAttribute had zero references anywhere in production
+    // prior to this phase.
+    //
+    // ROLE POLICY: reuses QAXScrollAreaRolePolicy (Phase 2W) — the SAME dedicated, narrow role
+    // policy ui.read_scroll_position/ui.set_scroll_position already established for AXScrollArea
+    // targets — completely unmodified. "Visible children" is fundamentally a viewport-relative
+    // concept, and AXScrollArea is the one role in this codebase's existing policy set that
+    // genuinely has a bounded, well-defined visible viewport.
+    //
+    // BOUNDED RELATIONSHIP QUERY, NEVER GENERIC EXTRACTION (mirrors ui.list_label_served_elements,
+    // Phase 2BX): exactly one AX attribute read on the resolved scroll area, then ONLY bounded
+    // identity reads (role/title/identifier) on each already-enumerated visible child — never a
+    // recursive descent, never a second relationship hop, never kAXValueAttribute. Each child's own
+    // role is checked against ONLY the single privacy-sensitive exclusion (AXSecureTextField) —
+    // deliberately NOT QAXElementReadRolePolicy's narrower allowlist, since a scroll area's visible
+    // children are legitimately varied (rows, cells, groups, tables, outlines, arbitrary content),
+    // unlike a served element (which stands in for the label's own text content and so is held to
+    // the same allowlist the label itself must satisfy).
+    //
+    // ATOMIC ARRAY DISCIPLINE (mirrors ui.list_label_served_elements): a single malformed,
+    // unreadable, or secure-field child fails the WHOLE array closed — invalid entries are never
+    // silently dropped — and the array is bounded (maxVisibleChildrenCount, checked BEFORE any
+    // per-element extraction) rather than ever truncated.
+    //
+    // SDK-VERIFIED ABSENCE SEMANTICS: kAXVisibleChildrenAttribute carries no "required for all
+    // elements"-style documentation. Genuine absence (kAXErrorNoValue/kAXErrorAttributeUnsupported)
+    // is therefore the OPTIONAL-REFERENCE pattern — a valid, expected nil WHOLE RESULT — distinct
+    // from a genuinely PRESENT but EMPTY array (nothing currently visible), which is its own valid,
+    // non-nil result.
+
+    /// Resolves exactly one semantic target on `QAXScrollAreaRolePolicy`'s allowlist (`AXScrollArea`)
+    /// and reads its `kAXVisibleChildrenAttribute` — a purely observational call; neither
+    /// `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is invoked anywhere in this
+    /// method, and `kAXValueAttribute` is never read. Fails closed (throws `QAXInteractionError`)
+    /// on a disallowed role, missing criteria, permission absence, application/target absence or
+    /// ambiguity, a stale/drifted target, a genuine read failure, a malformed returned CFType, an
+    /// oversized array, or any malformed/secure-field/oversized-metadata visible child. Genuine
+    /// absence of the attribute (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an
+    /// error — it produces `nil` for the WHOLE result. A genuinely present but empty array is its
+    /// own valid, non-nil result. Never fabricates a value, never silently drops an invalid visible
+    /// child, never silently truncates an oversized array.
+    public func listVisibleChildren(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXVisibleChildrenMetadata? {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard QAXScrollAreaRolePolicy.isAllowedScrollAreaRole(role) else {
+            throw QAXInteractionError.disallowedScrollAreaRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // visible-children read and refuse on any drift — identical discipline to every prior
+            // AX capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target scroll area is no longer resolvable immediately before the visible-children read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target scroll area identity changed between observation and the visible-children read")
+            }
+
+            guard let visibleChildren = try Self.resolveVisibleChildren(of: targetElement) else {
+                // Genuine, expected absence — the whole result is nil, never a fabricated empty
+                // array.
+                return nil
+            }
+
+            return QAXVisibleChildrenMetadata(
+                applicationName: applicationName,
+                role: role,
+                elementIdentifier: observedAtVerify.identifier,
+                elementTitle: observedAtVerify.titleOrDescription,
+                visibleChildren: visibleChildren
+            )
+        }.value
+    }
+
+    /// Reads `kAXVisibleChildrenAttribute` and normalizes it to a validated
+    /// `[QAXVisibleChildReference]` (empty is a valid result), or `nil` for genuine attribute
+    /// absence. Every check has its own distinct, dedicated diagnostic — nothing is ever silently
+    /// truncated or defaulted, and a single malformed/secure-field/oversized visible child fails
+    /// the WHOLE array closed rather than being dropped.
+    ///
+    /// Validation, in order (mirrors `resolveServedElements`'s exact atomic-array discipline):
+    /// 1. `.noValue`/`.attributeUnsupported` → `nil` (genuine, expected absence — see the `MARK`
+    ///    section above); any other non-`.success` `AXError` → `visibleChildrenReadFailed`.
+    /// 2. The returned value must be a genuine `CFArray` (`CFGetTypeID(value) ==
+    ///    CFArrayGetTypeID()`) — any other CFType → `visibleChildrenMalformed`.
+    /// 3. `CFArrayGetCount(cfArray) <= maxVisibleChildrenCount` — exceeding it →
+    ///    `visibleChildrenExceedsSafeBound`, checked BEFORE any per-element extraction, never a
+    ///    silent truncation.
+    /// 4. Every element must bridge to `AXUIElement` (`value as? [AXUIElement]`, which fails as a
+    ///    WHOLE if even one element is not `AXUIElement`-compatible) → `visibleChildrenElementMalformed`
+    ///    otherwise.
+    /// 5. Each visible child's own `kAXRoleAttribute` is checked against the single
+    ///    privacy-sensitive exclusion — `AXSecureTextField` — never surfaced as a "safe" visible
+    ///    child even as identity-only metadata, reusing the exact same
+    ///    `QAXInteractionError.secureFieldReadDenied` diagnostic every other capability's
+    ///    secure-field check already uses.
+    /// 6. Each visible child's title/identifier is read and bounded by
+    ///    `maxVisibleChildMetadataLength` — exceeding it fails the WHOLE array closed →
+    ///    `visibleChildrenElementMetadataExceedsSafeLength`.
+    fileprivate nonisolated static func resolveVisibleChildren(of targetElement: AXUIElement) throws -> [QAXVisibleChildReference]? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXVisibleChildrenAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            return nil
+        default:
+            throw QAXInteractionError.visibleChildrenReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value else {
+            throw QAXInteractionError.visibleChildrenMalformed
+        }
+        guard CFGetTypeID(value) == CFArrayGetTypeID() else {
+            throw QAXInteractionError.visibleChildrenMalformed
+        }
+        let cfArray = value as! CFArray // swiftlint:disable:this force_cast — CFGetTypeID checked above
+
+        let count = CFArrayGetCount(cfArray)
+        guard count <= maxVisibleChildrenCount else {
+            throw QAXInteractionError.visibleChildrenExceedsSafeBound(count)
+        }
+
+        // Bridging the WHOLE array to [AXUIElement] fails (returns nil) as a whole if even one
+        // element is not AXUIElement-compatible — exactly the desired atomic, fail-closed
+        // behavior for a malformed array (never silently dropping the offending entries).
+        guard let visibleChildRefs = value as? [AXUIElement] else {
+            throw QAXInteractionError.visibleChildrenElementMalformed
+        }
+
+        var results: [QAXVisibleChildReference] = []
+        results.reserveCapacity(visibleChildRefs.count)
+
+        for visibleChild in visibleChildRefs {
+            let visibleChildRole = Self.axStringAttribute(kAXRoleAttribute, of: visibleChild) ?? "none"
+            // The single privacy-sensitive exclusion — never a broader role allowlist, since a
+            // scroll area's visible children are legitimately varied (rows, cells, groups, tables,
+            // outlines, arbitrary content).
+            guard visibleChildRole != "AXSecureTextField" else {
+                throw QAXInteractionError.secureFieldReadDenied(visibleChildRole)
+            }
+
+            let rawTitle = Self.axStringAttribute(kAXTitleAttribute, of: visibleChild)
+            let visibleChildTitle = (rawTitle?.isEmpty == false) ? rawTitle : nil
+            let visibleChildIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: visibleChild)
+
+            if let visibleChildTitle, visibleChildTitle.count > maxVisibleChildMetadataLength {
+                throw QAXInteractionError.visibleChildrenElementMetadataExceedsSafeLength(visibleChildTitle.count)
+            }
+            if let visibleChildIdentifier, visibleChildIdentifier.count > maxVisibleChildMetadataLength {
+                throw QAXInteractionError.visibleChildrenElementMetadataExceedsSafeLength(visibleChildIdentifier.count)
+            }
+
+            results.append(
+                QAXVisibleChildReference(
+                    role: visibleChildRole,
+                    title: visibleChildTitle,
+                    identifier: visibleChildIdentifier
+                )
+            )
+        }
+
+        return results
     }
 
     // MARK: - Semantic Label Served-Elements Read (Phase 2BX)

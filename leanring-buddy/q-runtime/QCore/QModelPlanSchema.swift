@@ -1478,7 +1478,33 @@ public struct QModelPlanParser: Sendable {
         // target, 0 relationship hops, 1 kAXEditedAttribute read, 0 traversal, 0 actions, 0
         // polling, 0 retries. See QBridgeAccessibility.readElementEditedState and
         // docs/PHASE_2CG_SEMANTIC_EDITED_STATE.md for the full contract.
-        "ui.read_element_edited_state": ("ui", .level0ReadOnly)
+        "ui.read_element_edited_state": ("ui", .level0ReadOnly),
+        // Phase 2CH: `ui.list_visible_children` reads a semantically-identified scroll area's
+        // kAXVisibleChildrenAttribute — the bounded set of child elements currently rendered/
+        // visible, letting an agent see what content a scroll position is currently showing
+        // without recursively walking the full children tree or reading coordinates. Reuses
+        // QAXScrollAreaRolePolicy (Phase 2W) completely unmodified. A bounded relationship query,
+        // never generic extraction: exactly one AX attribute read on the resolved scroll area,
+        // then only bounded identity reads (role/title/identifier) on each already-enumerated
+        // visible child — never a recursive descent, never a second relationship hop, never
+        // kAXValueAttribute. Each visible child's role is checked against only the single
+        // privacy-sensitive exclusion (AXSecureTextField) — deliberately not the narrower
+        // QAXElementReadRolePolicy allowlist, since a scroll area's visible children are
+        // legitimately varied (rows, cells, groups, tables, outlines, arbitrary content). ATOMIC
+        // ARRAY DISCIPLINE (mirrors ui.list_label_served_elements, Phase 2BX): a single malformed,
+        // unreadable, or secure-field visible child fails the WHOLE array closed — invalid
+        // entries are never silently dropped — and the array is bounded by
+        // maxVisibleChildrenCount (32), checked BEFORE any per-element extraction, never
+        // truncated. Genuine absence of the attribute (kAXErrorNoValue/kAXErrorAttributeUnsupported)
+        // is a valid, expected nil whole-result; a genuinely present but empty array (nothing
+        // currently visible) is its own valid, non-nil result. No mutation, no press, no approval,
+        // no recovery: neither AXUIElementPerformAction nor AXUIElementSetAttributeValue is
+        // invoked anywhere in this capability, and kAXValueAttribute is never read. Bounded to
+        // exactly 1 resolved target, 0 relationship hops beyond the bounded visible-child
+        // identity reads, 1 kAXVisibleChildrenAttribute read, 0 traversal, 0 actions, 0 polling,
+        // 0 retries, 1 returned record. See QBridgeAccessibility.listVisibleChildren and
+        // docs/PHASE_2CH_SEMANTIC_VISIBLE_CHILDREN.md for the full contract.
+        "ui.list_visible_children": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

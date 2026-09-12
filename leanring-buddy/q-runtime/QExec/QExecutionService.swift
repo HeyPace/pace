@@ -165,6 +165,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_element_edited_state":
             result = await executeReadElementEditedState(request: request)
 
+        case "ui.list_visible_children":
+            result = await executeListVisibleChildren(request: request)
+
         case "ui.list_label_served_elements":
             result = await executeListLabelServedElements(request: request)
 
@@ -2523,6 +2526,101 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading element edited state: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2CH: semantic visible-children enumeration — Level 0 (read-only, no approval, no
+    /// mutation authority). Reads `kAXVisibleChildrenAttribute` on a semantically-identified
+    /// `AXScrollArea` — the bounded set of child elements currently rendered/visible, letting an
+    /// agent see what content is on screen without recursively walking the full children tree or
+    /// reading coordinates. Reuses `QAXScrollAreaRolePolicy` exactly as
+    /// `ui.read_scroll_position`/`ui.set_scroll_position` already do for role validation. Like
+    /// `ui.list_label_served_elements`, a single malformed/secure-field/oversized visible child
+    /// fails the WHOLE array closed — invalid entries are never silently dropped — and genuine
+    /// absence (`hasVisibleChildren == false`) is its own valid, distinct outcome, never conflated
+    /// with a present-but-empty array. Every `QAXInteractionError` failure mode — disallowed role,
+    /// missing criteria, permission absence, application/target absence or ambiguity, a stale
+    /// target, a genuine AX read failure, a malformed CFType, an oversized array, or any
+    /// malformed/secure-field/oversized-metadata visible child — is caught here and converted into
+    /// a deterministic, non-throwing `QActionResult`; this method never fabricates success. Only
+    /// the bounded visible-child identity references and non-secret targeting metadata cross this
+    /// method's boundary — never `kAXValueAttribute`, never a raw AXUIElement, never coordinates.
+    private func executeListVisibleChildren(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listVisibleChildren(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            let hasVisibleChildren = metadata != nil
+            let visibleChildren = metadata?.visibleChildren ?? []
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "elementIdentifier": metadata?.elementIdentifier ?? "",
+                "elementTitle": metadata?.elementTitle ?? "",
+                "hasVisibleChildren": hasVisibleChildren ? "true" : "false",
+                "visibleChildrenCount": "\(visibleChildren.count)"
+            ]
+            // Indexed-key encoding for the bounded identity array — the same convention
+            // ui.list_label_served_elements already established for its own per-element identity
+            // structs.
+            for (index, visibleChild) in visibleChildren.enumerated() {
+                outputData["visibleChild\(index).role"] = visibleChild.role
+                outputData["visibleChild\(index).title"] = visibleChild.title ?? ""
+                outputData["visibleChild\(index).identifier"] = visibleChild.identifier ?? ""
+            }
+            let summaryDescription = hasVisibleChildren ? "\(visibleChildren.count) visible child/children" : "unavailable"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed visible children for \(role) element in \(applicationName): \(summaryDescription). This is observation only — no element was mutated, and this observation does not constitute authorization for any action against the scroll area or its visible children.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing visible children: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

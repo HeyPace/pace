@@ -1223,6 +1223,26 @@ public final class QPlanExecutor: Sendable {
                 hasServedElements: hasServedElements,
                 servedElementCount: servedElementCount
             )
+        } else if action.actionName == "ui.list_visible_children",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let hasVisibleChildrenString = result.outputData["hasVisibleChildren"],
+                  let visibleChildrenCountString = result.outputData["visibleChildrenCount"],
+                  let visibleChildrenCount = Int(visibleChildrenCountString) {
+            // Level 0, read-only, purely observational — reconstructed from the
+            // applicationName/role arguments used to dispatch, plus whether a visible-children
+            // array was present and its count, captured at read time. Deliberately NOT threaded
+            // through here: any individual visible child's own title/identifier, and NEVER
+            // kAXValueAttribute — this strategy only ever carries application identity, source
+            // role, presence, and a bounded count, mirroring labelServedElementsReadSucceeded's
+            // identical conservative-evidence discipline.
+            let hasVisibleChildren = hasVisibleChildrenString == "true"
+            return .visibleChildrenListSucceeded(
+                applicationName: applicationName,
+                role: role,
+                hasVisibleChildren: hasVisibleChildren,
+                visibleChildrenCount: visibleChildrenCount
+            )
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

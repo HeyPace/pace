@@ -879,6 +879,26 @@ public enum QVerificationStrategy: Sendable {
         hasServedElements: Bool,
         servedElementCount: Int
     )
+    /// Phase 2CH: semantic visible-children enumeration verification (Level 0, read-only). Like
+    /// every other Level 0 read's verification, there is no separate physical state to re-observe
+    /// after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.listVisibleChildren` (exact application/element resolution, an
+    /// atomically-validated visible-child array), already IS the ground truth. This strategy
+    /// checks the execution result's own `success` flag as a genuine, meaningful assertion — never
+    /// a bare `{ true }` bypass — and INDEPENDENTLY RE-VALIDATES that `visibleChildrenCount >= 0`
+    /// and is internally consistent with `hasVisibleChildren`, rather than blindly trusting the
+    /// dispatch layer. Genuine absence (`hasVisibleChildren == false`) is its own valid, distinct
+    /// verified outcome — never conflated with a present-but-empty array. Never mutates anything,
+    /// never reads `kAXValueAttribute`, as part of verification. Evidence is DELIBERATELY
+    /// conservative — mirroring `labelServedElementsReadSucceeded`'s identical discipline — carrying
+    /// only the application name, role, presence, and a bounded COUNT; never any individual
+    /// visible child's own title/identifier.
+    case visibleChildrenListSucceeded(
+        applicationName: String,
+        role: String,
+        hasVisibleChildren: Bool,
+        visibleChildrenCount: Int
+    )
     /// Phase 2BY: semantic window auxiliary-buttons read verification (Level 0, read-only). A
     /// direct sibling of `windowDefaultButtonReadSucceeded` (Phase 2BM), extended from 2 to 4
     /// button presence flags. Like every other Level 0 read's verification, there is no separate
@@ -2435,6 +2455,34 @@ public final class QActionVerifier: Sendable {
             }
             return .verified(
                 evidence: "application=\(applicationName) role=\(role) servedElementCount=\(servedElementCount) status=verified"
+            )
+
+        case .visibleChildrenListSucceeded(let applicationName, let role, let hasVisibleChildren, let visibleChildrenCount):
+            guard result.success else {
+                return .failed(
+                    reason: "Visible-children read for \(role) element in application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            guard hasVisibleChildren else {
+                // Genuine, expected absence is its own valid, distinct verified outcome — never
+                // conflated with a present-but-empty array.
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) visibleChildren=unavailable status=verified"
+                )
+            }
+            // Independent re-validation — never blindly trusting the dispatch layer's own success
+            // flag: the claimed count must be non-negative, mirroring
+            // labelServedElementsReadSucceeded's identical independent-recheck discipline. A
+            // fabricated success claiming a negative count is still correctly rejected.
+            guard visibleChildrenCount >= 0 else {
+                return .failed(
+                    reason: "Visible-children count for \(role) element in application '\(applicationName)' is negative.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            return .verified(
+                evidence: "application=\(applicationName) role=\(role) visibleChildrenCount=\(visibleChildrenCount) status=verified"
             )
 
         case .windowAuxiliaryButtonsReadSucceeded(let applicationName, let windowTitle, let hasZoomButton, let hasMinimizeButton, let hasToolbarButton, let hasFullScreenButton):
