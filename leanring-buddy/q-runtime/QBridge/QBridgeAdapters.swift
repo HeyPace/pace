@@ -1142,6 +1142,22 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// rather than ever silently truncating. The payload carries only the offending length, never
     /// the string content itself.
     case helpTextExceedsSafeBound(Int)
+    /// Phase 2CD: `kAXPlaceholderValueAttribute` could not be read from the resolved target due to
+    /// an actual Accessibility API failure — any `AXError` other than `.success`, `.noValue`, or
+    /// `.attributeUnsupported`. The latter two mean the target genuinely has no placeholder text
+    /// (the common, expected case for most controls, including every non-empty text field) and are
+    /// never treated as an error. The payload carries only the underlying `AXError`, never any
+    /// placeholder content.
+    case placeholderValueReadFailed(String)
+    /// Phase 2CD: `kAXPlaceholderValueAttribute`'s copy call reported success but the returned
+    /// value was not a genuine `String` — the returned value is treated as untrusted external
+    /// data, never assumed well-formed merely because the copy call itself reported success. Never
+    /// force-cast.
+    case placeholderValueMalformed
+    /// Phase 2CD: `kAXPlaceholderValueAttribute`'s returned string exceeded
+    /// `maxPlaceholderValueLength` — fails closed rather than ever silently truncating. The
+    /// payload carries only the offending length, never the string content itself.
+    case placeholderValueExceedsSafeBound(Int)
 
     public var description: String {
         switch self {
@@ -1533,6 +1549,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target element's help text could not be read as a well-formed string."
         case .helpTextExceedsSafeBound(let length):
             return "The target element's help text (\(length) characters) exceeds the maximum safe bound."
+        case .placeholderValueReadFailed(let reason):
+            return "The target element's placeholder value could not be read due to an Accessibility API failure: \(reason)."
+        case .placeholderValueMalformed:
+            return "The target element's placeholder value could not be read as a well-formed string."
+        case .placeholderValueExceedsSafeBound(let length):
+            return "The target element's placeholder value (\(length) characters) exceeds the maximum safe bound."
         }
     }
 
@@ -1733,6 +1755,9 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .helpTextReadFailed: return "AX_HELP_TEXT_READ_FAILED"
         case .helpTextMalformed: return "AX_HELP_TEXT_MALFORMED"
         case .helpTextExceedsSafeBound: return "AX_HELP_TEXT_EXCEEDS_SAFE_BOUND"
+        case .placeholderValueReadFailed: return "AX_PLACEHOLDER_VALUE_READ_FAILED"
+        case .placeholderValueMalformed: return "AX_PLACEHOLDER_VALUE_MALFORMED"
+        case .placeholderValueExceedsSafeBound: return "AX_PLACEHOLDER_VALUE_EXCEEDS_SAFE_BOUND"
         }
     }
 }
@@ -2172,6 +2197,40 @@ public struct QAXElementHelpTextMetadata: Sendable, Equatable, Codable {
         self.elementIdentifier = elementIdentifier
         self.elementTitle = elementTitle
         self.helpText = helpText
+    }
+}
+
+/// A semantically-identified element's bounded, validated `kAXPlaceholderValueAttribute`, as
+/// returned by `ui.read_element_placeholder_value` (Phase 2CD) — a single descriptive hint string
+/// only, never a raw AX object, never any unrelated attribute, and NEVER the element's own
+/// `kAXValueAttribute` (that remains `ui.read_element_value`'s exclusive contract — the
+/// placeholder is UI-author-provided guidance text shown when a field is EMPTY, never the user's
+/// own entered content). The `placeholderValue` field may legitimately be an EMPTY string (the
+/// attribute was present but described as empty) — a distinct, valid state from genuine attribute
+/// ABSENCE, which is represented by the overall bridge function returning `nil` rather than ever
+/// constructing this type with a fabricated empty string. Identical optional-reference absence
+/// shape to `QAXElementHelpTextMetadata` (Phase 2CC) and `QAXElementValueDescriptionMetadata`
+/// (Phase 2BW) — unlike `QAXElementRoleDescriptionMetadata`'s (Phase 2CB) required-attribute, no-
+/// valid-absence contract.
+public struct QAXElementPlaceholderValueMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let elementIdentifier: String?
+    public let elementTitle: String?
+    public let placeholderValue: String
+
+    public init(
+        applicationName: String,
+        role: String,
+        elementIdentifier: String?,
+        elementTitle: String?,
+        placeholderValue: String
+    ) {
+        self.applicationName = applicationName
+        self.role = role
+        self.elementIdentifier = elementIdentifier
+        self.elementTitle = elementTitle
+        self.placeholderValue = placeholderValue
     }
 }
 
@@ -5119,6 +5178,7 @@ extension QBridgeAccessibility {
     /// `maxTableRowHeaderMetadataLength` per this codebase's existing convention of not sharing
     /// bound constants across unrelated capabilities, even when the numeric value is identical.
     private static let maxHelpTextLength = 256
+    private static let maxPlaceholderValueLength = 256
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -7203,6 +7263,145 @@ extension QBridgeAccessibility {
         }
         guard stringValue.count <= maxHelpTextLength else {
             throw QAXInteractionError.helpTextExceedsSafeBound(stringValue.count)
+        }
+
+        return stringValue
+    }
+
+    // MARK: - Semantic Element Placeholder Value Read (Phase 2CD)
+    //
+    // ui.read_element_placeholder_value — a Level 0, read-only, zero-mutation, purely
+    // OBSERVATIONAL read of a semantically-identified element's kAXPlaceholderValueAttribute — the
+    // UI-author-provided hint text shown inside a field while it is empty (e.g. a search field's
+    // "Search" ghost text). Distinct from kAXValueAttribute (the field's actual, potentially
+    // sensitive, user-entered content — never read here) and from kAXHelpAttribute/
+    // kAXValueDescriptionAttribute/kAXRoleDescriptionAttribute (Phase 2CC/2BW/2CB — tooltip/value-
+    // description/type strings, none of which describe what a field EXPECTS before it holds a
+    // value). Reuses QAXElementReadRolePolicy and its AXSecureTextField exclusion completely
+    // unmodified from ui.read_element_value/ui.list_element_actions/
+    // ui.read_element_value_description/ui.read_element_role_description/ui.read_element_help_text
+    // — no broader, arbitrary-role allowlist is introduced, and AXSecureTextField is rejected
+    // before the general allowlist is ever consulted (belt and suspenders — AXSecureTextField is
+    // never listed in the allowlist either).
+    //
+    // SDK-VERIFIED ABSENCE SEMANTICS: kAXPlaceholderValueAttribute carries no "required for all
+    // elements"-style documentation — only text-entry-style controls that were ever given a
+    // placeholder expose it at all; most controls, and even most text fields, legitimately lack it.
+    // Genuine absence (kAXErrorNoValue/kAXErrorAttributeUnsupported) is therefore the OPTIONAL-
+    // REFERENCE pattern — a valid, expected nil WHOLE RESULT, identical to
+    // ui.read_element_help_text's/ui.read_element_value_description's own absence semantics (and
+    // unlike ui.read_element_role_description's required-attribute, no-valid-absence contract) —
+    // distinct from a genuinely PRESENT but EMPTY string, which is its own valid, non-nil result.
+
+    /// Resolves exactly one semantic target on `QAXElementReadRolePolicy`'s allowlist (with the
+    /// same `AXSecureTextField` exclusion `ui.read_element_value`/`ui.list_element_actions`/
+    /// `ui.read_element_value_description`/`ui.read_element_role_description`/
+    /// `ui.read_element_help_text` already enforce) and reads its `kAXPlaceholderValueAttribute` —
+    /// a purely observational call; neither `AXUIElementPerformAction` nor
+    /// `AXUIElementSetAttributeValue` is invoked anywhere in this method, and `kAXValueAttribute` is
+    /// never read. Fails closed (throws `QAXInteractionError`) on a disallowed/secure role, missing
+    /// criteria, permission absence, application/target absence or ambiguity, a stale/drifted
+    /// target, a genuine read failure, a malformed returned CFType, or a string exceeding
+    /// `maxPlaceholderValueLength`. Genuine absence of the attribute
+    /// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an error — it produces `nil` for
+    /// the WHOLE result. A genuinely present but empty string is its own valid, non-nil result.
+    /// Never fabricates a value, never silently truncates an oversized string.
+    public func readElementPlaceholderValue(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXElementPlaceholderValueMetadata? {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Secure field first, for a specific diagnostic; then the general allowlist, which would
+        // also reject AXSecureTextField on its own (it is never listed) — belt and suspenders,
+        // identical discipline to readElementValue's/listElementActions'/
+        // readElementValueDescription's/readElementRoleDescription's/readElementHelpText's own
+        // checks.
+        guard role != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+        guard QAXElementReadRolePolicy.isAllowedReadRole(role) else {
+            throw QAXInteractionError.disallowedReadRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // placeholder-value read and refuse on any drift — identical discipline to every prior
+            // AX capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the placeholder-value read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the placeholder-value read")
+            }
+
+            guard let placeholderValue = try Self.resolveElementPlaceholderValue(of: targetElement) else {
+                // Genuine, expected absence — the whole result is nil, never a fabricated empty
+                // string.
+                return nil
+            }
+
+            return QAXElementPlaceholderValueMetadata(
+                applicationName: applicationName,
+                role: role,
+                elementIdentifier: observedAtVerify.identifier,
+                elementTitle: observedAtVerify.titleOrDescription,
+                placeholderValue: placeholderValue
+            )
+        }.value
+    }
+
+    /// Reads `kAXPlaceholderValueAttribute` and normalizes it to a validated `String` (empty is a
+    /// valid result), or `nil` for genuine attribute absence. Every check has its own distinct,
+    /// dedicated diagnostic — nothing is ever silently truncated or defaulted, and the returned
+    /// value is never force-cast: the copy call's own success alone is never treated as proof the
+    /// returned CFTypeRef is genuinely a `String`.
+    ///
+    /// Validation, in order:
+    /// 1. `.noValue`/`.attributeUnsupported` → `nil` (genuine, expected absence — see the `MARK`
+    ///    section above); any other non-`.success` `AXError` → `placeholderValueReadFailed`.
+    /// 2. The returned value must bridge to a genuine `String` (`value as? String`) — any other
+    ///    CFType → `placeholderValueMalformed`.
+    /// 3. `string.count <= maxPlaceholderValueLength` — exceeding it →
+    ///    `placeholderValueExceedsSafeBound`, never a silent truncation.
+    fileprivate nonisolated static func resolveElementPlaceholderValue(of targetElement: AXUIElement) throws -> String? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXPlaceholderValueAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            return nil
+        default:
+            throw QAXInteractionError.placeholderValueReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value else {
+            throw QAXInteractionError.placeholderValueMalformed
+        }
+        guard let stringValue = value as? String else {
+            throw QAXInteractionError.placeholderValueMalformed
+        }
+        guard stringValue.count <= maxPlaceholderValueLength else {
+            throw QAXInteractionError.placeholderValueExceedsSafeBound(stringValue.count)
         }
 
         return stringValue

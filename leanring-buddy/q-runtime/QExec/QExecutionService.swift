@@ -153,6 +153,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_element_help_text":
             result = await executeReadElementHelpText(request: request)
 
+        case "ui.read_element_placeholder_value":
+            result = await executeReadElementPlaceholderValue(request: request)
+
         case "ui.list_label_served_elements":
             result = await executeListLabelServedElements(request: request)
 
@@ -2168,6 +2171,95 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading element help text: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2CD: semantic element placeholder value read — Level 0 (read-only, no approval, no
+    /// mutation authority). Reads `kAXPlaceholderValueAttribute` — the UI-author-provided hint text
+    /// a field shows while empty, distinct from `kAXValueAttribute` (the field's actual,
+    /// potentially sensitive, user-entered content — never read here) and from
+    /// `kAXHelpAttribute`/`kAXValueDescriptionAttribute`/`kAXRoleDescriptionAttribute` (tooltip/
+    /// value-description/type strings). Reuses `QAXElementReadRolePolicy` and its
+    /// `AXSecureTextField` exclusion exactly as `ui.read_element_value`/`ui.list_element_actions`/
+    /// `ui.read_element_value_description`/`ui.read_element_role_description`/
+    /// `ui.read_element_help_text` already do. Like `ui.read_element_help_text` (and unlike
+    /// `ui.read_element_role_description`), this attribute has a valid-absence case: genuine
+    /// absence (`hasPlaceholderValue == false`) is its own valid, distinct outcome, never conflated
+    /// with a present-but-empty string. Every `QAXInteractionError` failure mode — disallowed/
+    /// secure role, missing criteria, permission absence, application/target absence or ambiguity,
+    /// a stale target, a genuine AX read failure, a malformed CFType, or an oversized string — is
+    /// caught here and converted into a deterministic, non-throwing `QActionResult`; this method
+    /// never fabricates success. Only the bounded placeholder-value string and non-secret targeting
+    /// metadata cross this method's boundary — never `kAXValueAttribute`, never a raw AXUIElement,
+    /// never table/document/cell content.
+    private func executeReadElementPlaceholderValue(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.readElementPlaceholderValue(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            let hasPlaceholderValue = metadata != nil
+            let placeholderValue = metadata?.placeholderValue ?? ""
+            let outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "elementIdentifier": metadata?.elementIdentifier ?? "",
+                "elementTitle": metadata?.elementTitle ?? "",
+                "hasPlaceholderValue": hasPlaceholderValue ? "true" : "false",
+                "placeholderValue": placeholderValue
+            ]
+            let summaryDescription = hasPlaceholderValue ? "\"\(placeholderValue)\"" : "unavailable"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed placeholder value for \(role) element in \(applicationName): \(summaryDescription). This is observation only — no value was set, and this observation does not constitute authorization to mutate the element later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading element placeholder value: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

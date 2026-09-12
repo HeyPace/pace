@@ -1380,7 +1380,32 @@ public struct QModelPlanParser: Sendable {
         // kAXHelpAttribute read, 0 traversal, 0 actions, 0 polling, 0 retries. See
         // QBridgeAccessibility.readElementHelpText and
         // docs/PHASE_2CC_SEMANTIC_HELP_TEXT.md for the full contract.
-        "ui.read_element_help_text": ("ui", .level0ReadOnly)
+        "ui.read_element_help_text": ("ui", .level0ReadOnly),
+        // Phase 2CD: `ui.read_element_placeholder_value` reads a semantically-identified element's
+        // kAXPlaceholderValueAttribute — the UI-author-provided hint text a field shows while
+        // empty, distinct from kAXValueAttribute (the field's actual, potentially sensitive,
+        // user-entered content — never read here) and from kAXHelpAttribute/
+        // kAXValueDescriptionAttribute/kAXRoleDescriptionAttribute (tooltip/value-description/type
+        // strings). Reuses QAXElementReadRolePolicy and its AXSecureTextField exclusion completely
+        // unmodified from every prior read capability in this family — no broader, arbitrary-role
+        // allowlist is introduced, and AXSecureTextField is rejected before the general allowlist
+        // is ever consulted. No mutation, no press, no approval, no recovery: neither
+        // AXUIElementPerformAction nor AXUIElementSetAttributeValue is invoked anywhere in this
+        // capability, and kAXValueAttribute is never read. kAXPlaceholderValueAttribute carries no
+        // "required for all elements"-style documentation — most controls, and even most text
+        // fields, legitimately lack a placeholder — so genuine absence
+        // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is the OPTIONAL-REFERENCE pattern, a
+        // valid, expected nil WHOLE RESULT, identical to ui.read_element_help_text's/
+        // ui.read_element_value_description's own absence semantics (unlike
+        // ui.read_element_role_description's required-attribute, no-valid-absence contract). Every
+        // other failure mode (permission denial, unresolvable target, stale target, a genuine
+        // AXError, a non-CFStringRef returned value, or a string exceeding the defensive length
+        // bound) fails closed with its own dedicated diagnostic; nothing is ever silently defaulted
+        // or truncated. Bounded to exactly 1 resolved target, 0 relationship hops, 1
+        // kAXPlaceholderValueAttribute read, 0 traversal, 0 actions, 0 polling, 0 retries. See
+        // QBridgeAccessibility.readElementPlaceholderValue and
+        // docs/PHASE_2CD_SEMANTIC_PLACEHOLDER_VALUE.md for the full contract.
+        "ui.read_element_placeholder_value": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.
