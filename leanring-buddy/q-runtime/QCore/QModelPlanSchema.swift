@@ -1527,7 +1527,29 @@ public struct QModelPlanParser: Sendable {
         // relationship hops, 1 kAXIndexAttribute read, 0 traversal, 0 actions, 0 polling, 0
         // retries. See QBridgeAccessibility.readElementIndex and
         // docs/PHASE_2CI_SEMANTIC_ELEMENT_INDEX.md for the full contract.
-        "ui.read_element_index": ("ui", .level0ReadOnly)
+        "ui.read_element_index": ("ui", .level0ReadOnly),
+        // Phase 2CJ: `ui.read_element_insertion_point_line_number` reads a semantically-identified
+        // text element's kAXInsertionPointLineNumberAttribute — which line the text caret
+        // currently sits on, letting an agent understand cursor navigation context in a
+        // multi-line text field without ever reading the field's own typed content
+        // (kAXValueAttribute is never read). Reuses QAXElementReadRolePolicy and its
+        // AXSecureTextField exclusion completely unmodified from every prior read capability in
+        // this family — no broader, arbitrary-role allowlist is introduced, and AXSecureTextField
+        // is rejected before the general allowlist is ever consulted. No mutation, no press, no
+        // approval, no recovery: neither AXUIElementPerformAction nor AXUIElementSetAttributeValue
+        // is invoked anywhere in this capability. kAXInsertionPointLineNumberAttribute carries no
+        // "required for all elements"-style documentation — most controls have no text caret at
+        // all — so genuine absence (kAXErrorNoValue/kAXErrorAttributeUnsupported) is the
+        // OPTIONAL-REFERENCE pattern, a valid, expected nil result, identical to
+        // ui.read_element_index's own absence semantics. Every other failure mode (permission
+        // denial, unresolvable target, stale target, a genuine AXError, a malformed non-integer
+        // returned value, or a negative/overflowing integer) fails closed with its own dedicated
+        // diagnostic; nothing is ever silently defaulted or truncated. Bounded to exactly 1
+        // resolved target, 0 relationship hops, 1 kAXInsertionPointLineNumberAttribute read, 0
+        // traversal, 0 actions, 0 polling, 0 retries. See
+        // QBridgeAccessibility.readElementInsertionPointLine and
+        // docs/PHASE_2CJ_SEMANTIC_INSERTION_POINT_LINE.md for the full contract.
+        "ui.read_element_insertion_point_line_number": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

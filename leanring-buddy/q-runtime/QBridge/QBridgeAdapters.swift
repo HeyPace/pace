@@ -1243,6 +1243,25 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// non-negative index. Fails closed rather than ever silently clamping or truncating. The
     /// payload carries only a description of the offending value, never any other element content.
     case elementIndexInvalid(String)
+    /// Phase 2CJ: `kAXInsertionPointLineNumberAttribute` could not be read due to an actual
+    /// Accessibility API failure — distinct from `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`,
+    /// which mean the target genuinely has no text-caret concept and are never treated as an
+    /// error — see `QBridgeAccessibility.readElementInsertionPointLine`'s own documentation for
+    /// the full missing-vs-failure rationale. The payload carries the underlying `AXError`, never
+    /// any element content.
+    case elementInsertionPointLineReadFailed(String)
+    /// Phase 2CJ: `kAXInsertionPointLineNumberAttribute`'s copy call reported success but the
+    /// returned value was not a genuine `CFNumber`, or was a `CFNumber` of a non-integer native
+    /// subtype — the returned value is treated as untrusted external data, never assumed
+    /// well-formed merely because the copy call itself reported success. Never force-cast, never
+    /// silently coerced from a floating-point representation.
+    case elementInsertionPointLineMalformed
+    /// Phase 2CJ: `kAXInsertionPointLineNumberAttribute`'s returned integer was negative, or could
+    /// not be losslessly represented as a Swift `Int` (`Int64` overflow) — a line number is
+    /// fundamentally non-negative. Fails closed rather than ever silently clamping or truncating.
+    /// The payload carries only a description of the offending value, never any other element
+    /// content.
+    case elementInsertionPointLineInvalid(String)
 
     public var description: String {
         switch self {
@@ -1670,6 +1689,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target element's index could not be read as a well-formed non-negative integer."
         case .elementIndexInvalid(let reason):
             return "The target element's index is invalid: \(reason)."
+        case .elementInsertionPointLineReadFailed(let reason):
+            return "The target element's insertion point line number could not be read due to an Accessibility API failure: \(reason)."
+        case .elementInsertionPointLineMalformed:
+            return "The target element's insertion point line number could not be read as a well-formed non-negative integer."
+        case .elementInsertionPointLineInvalid(let reason):
+            return "The target element's insertion point line number is invalid: \(reason)."
         }
     }
 
@@ -1888,6 +1913,9 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .elementIndexReadFailed: return "AX_ELEMENT_INDEX_READ_FAILED"
         case .elementIndexMalformed: return "AX_ELEMENT_INDEX_MALFORMED"
         case .elementIndexInvalid: return "AX_ELEMENT_INDEX_INVALID"
+        case .elementInsertionPointLineReadFailed: return "AX_ELEMENT_INSERTION_POINT_LINE_READ_FAILED"
+        case .elementInsertionPointLineMalformed: return "AX_ELEMENT_INSERTION_POINT_LINE_MALFORMED"
+        case .elementInsertionPointLineInvalid: return "AX_ELEMENT_INSERTION_POINT_LINE_INVALID"
         }
     }
 }
@@ -2448,6 +2476,28 @@ public struct QAXElementIndexMetadata: Sendable, Equatable, Codable {
         self.applicationName = applicationName
         self.role = role
         self.index = index
+    }
+}
+
+/// A point-in-time snapshot of a semantically-identified text element's caret line number,
+/// captured by `ui.read_element_insertion_point_line_number` (Phase 2CJ). `lineNumber` is
+/// deliberately `Int?`, never a plain `Int`, following `QAXElementIndexMetadata`'s (Phase 2CI)
+/// identical discipline: `kAXInsertionPointLineNumberAttribute` has no "required for all
+/// elements"-style documentation — it is meaningful only for text-entry-style elements that
+/// currently have a caret, so genuine absence (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`)
+/// is a valid, expected `nil` result, never silently downgraded to `0`. A genuine read failure or
+/// a malformed (non-integer, or negative/overflowing) value fails the whole read closed instead of
+/// ever being represented as this field's value. No document/field text content, no coordinates,
+/// no raw `AXUIElement`, ever appears in this type — only the bounded line-number integer itself.
+public struct QAXElementInsertionPointLineMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let lineNumber: Int?
+
+    public init(applicationName: String, role: String, lineNumber: Int?) {
+        self.applicationName = applicationName
+        self.role = role
+        self.lineNumber = lineNumber
     }
 }
 
@@ -8414,6 +8464,163 @@ extension QBridgeAccessibility {
         }
         guard let intValue = Int(exactly: int64Value) else {
             throw QAXInteractionError.elementIndexInvalid("value \(int64Value) overflows Swift Int")
+        }
+        return intValue
+    }
+
+    // MARK: - Semantic Element Insertion Point Line Number Read (Phase 2CJ)
+    //
+    // ui.read_element_insertion_point_line_number — a Level 0, read-only, zero-mutation, purely
+    // OBSERVATIONAL read of a semantically-identified text element's
+    // kAXInsertionPointLineNumberAttribute — which line the text caret currently sits on, letting
+    // an agent understand cursor position/navigation context in a multi-line text field without
+    // ever reading the field's own typed content (kAXValueAttribute is never read). Genuinely new
+    // information: no existing capability exposes caret line position.
+    //
+    // ROLE POLICY: reuses QAXElementReadRolePolicy (Phase 2J) and its AXSecureTextField exclusion
+    // completely unmodified — exactly as ui.read_element_expanded_state/ui.read_element_edited_state/
+    // ui.read_element_help_text/ui.read_element_placeholder_value already do. This is the correct,
+    // minimal-footprint choice: `accessibilityInsertionPointLineNumber` sits in the general "Text"
+    // property cluster of `NSAccessibilityProtocols.h`, not gated behind any specialized,
+    // `NS_PROTOCOL_REQUIRES_EXPLICIT_IMPLEMENTATION` protocol (unlike `accessibilityIndex`,
+    // Phase 2CI) — a broadly-applicable, generic per-element property, so the shared allowlist —
+    // not a new, parallel role mechanism — is correct.
+    //
+    // No mutation, no press, no approval, no recovery: neither AXUIElementPerformAction nor
+    // AXUIElementSetAttributeValue is invoked anywhere in this capability, and kAXValueAttribute is
+    // never read — only the bounded line-number integer crosses the boundary, never the field's own
+    // typed text.
+    //
+    // SDK-VERIFIED ABSENCE SEMANTICS: kAXInsertionPointLineNumberAttribute carries no "required for
+    // all elements"-style documentation — most controls have no text caret at all. Genuine absence
+    // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is therefore the OPTIONAL-REFERENCE pattern — a
+    // valid, expected nil WHOLE RESULT, identical to ui.read_element_index's own absence semantics.
+
+    /// Resolves exactly one semantic target on `QAXElementReadRolePolicy`'s allowlist (with the
+    /// same `AXSecureTextField` exclusion `ui.read_element_expanded_state`/`ui.read_element_value`
+    /// already enforce) and reads its `kAXInsertionPointLineNumberAttribute` — a purely
+    /// observational call; neither `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is
+    /// invoked anywhere in this method, and `kAXValueAttribute` is never read. Fails closed (throws
+    /// `QAXInteractionError`) on a disallowed/secure role, missing criteria, permission absence,
+    /// application/target absence or ambiguity, a stale/drifted target, a genuine read failure, a
+    /// malformed (non-integer) returned value, or a negative/overflowing integer. Genuine absence
+    /// of the attribute (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an error — it
+    /// produces `nil` for the `lineNumber` field. Never fabricates a line number.
+    public func readElementInsertionPointLine(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXElementInsertionPointLineMetadata {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Secure field first, for a specific diagnostic; then the general allowlist, which would
+        // also reject AXSecureTextField on its own (it is never listed) — belt and suspenders,
+        // identical discipline to every prior read capability's own checks.
+        guard role != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+        guard QAXElementReadRolePolicy.isAllowedReadRole(role) else {
+            throw QAXInteractionError.disallowedReadRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // insertion-point-line read and refuse on any drift — identical discipline to every
+            // prior AX capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the insertion-point-line read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the insertion-point-line read")
+            }
+
+            let lineNumber = try Self.resolveElementInsertionPointLine(of: targetElement)
+
+            return QAXElementInsertionPointLineMetadata(
+                applicationName: applicationName,
+                role: role,
+                lineNumber: lineNumber
+            )
+        }.value
+    }
+
+    /// Resolves `kAXInsertionPointLineNumberAttribute` and normalizes it to a validated,
+    /// non-negative `Int`, or `nil` for genuine attribute absence. Every check has its own
+    /// distinct, dedicated diagnostic — nothing is ever silently truncated, clamped, or defaulted,
+    /// and the returned value is never force-cast: the copy call's own success alone is never
+    /// treated as proof the returned CFTypeRef is genuinely a well-formed integer.
+    ///
+    /// Validation, in order (mirrors `resolveElementIndex`'s exact CFNumber-decoding rigor):
+    /// 1. `.noValue`/`.attributeUnsupported` → `nil` (genuine, expected absence); any other
+    ///    non-`.success` `AXError` → `elementInsertionPointLineReadFailed`.
+    /// 2. The returned value must be a genuine `CFNumber` (`CFGetTypeID(value) ==
+    ///    CFNumberGetTypeID()`) → `elementInsertionPointLineMalformed` otherwise.
+    /// 3. The `CFNumber`'s own native subtype must be an integer subtype, never a floating-point
+    ///    one → `elementInsertionPointLineMalformed` otherwise.
+    /// 4. `CFNumberGetValue(_:.sInt64Type:_:)` must itself report success →
+    ///    `elementInsertionPointLineMalformed` otherwise.
+    /// 5. The extracted `Int64` must be non-negative → `elementInsertionPointLineInvalid`
+    ///    otherwise.
+    /// 6. The extracted `Int64` must be losslessly representable as a Swift `Int`
+    ///    (`Int(exactly:)`, never a truncating cast) → `elementInsertionPointLineInvalid` otherwise
+    ///    (overflow).
+    fileprivate nonisolated static func resolveElementInsertionPointLine(of targetElement: AXUIElement) throws -> Int? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXInsertionPointLineNumberAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            return nil
+        default:
+            throw QAXInteractionError.elementInsertionPointLineReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value else {
+            throw QAXInteractionError.elementInsertionPointLineMalformed
+        }
+        guard CFGetTypeID(value) == CFNumberGetTypeID() else {
+            throw QAXInteractionError.elementInsertionPointLineMalformed
+        }
+        let cfNumber = value as! CFNumber // swiftlint:disable:this force_cast — CFGetTypeID checked above
+
+        switch CFNumberGetType(cfNumber) {
+        case .sInt8Type, .sInt16Type, .sInt32Type, .sInt64Type,
+             .charType, .shortType, .intType, .longType, .longLongType,
+             .cfIndexType, .nsIntegerType:
+            break
+        default:
+            // float32Type/float64Type/floatType/doubleType/cgFloatType, or any future numeric
+            // subtype not explicitly recognized as integral above — never silently truncated.
+            throw QAXInteractionError.elementInsertionPointLineMalformed
+        }
+
+        var int64Value: Int64 = 0
+        guard CFNumberGetValue(cfNumber, .sInt64Type, &int64Value) else {
+            throw QAXInteractionError.elementInsertionPointLineMalformed
+        }
+        guard int64Value >= 0 else {
+            throw QAXInteractionError.elementInsertionPointLineInvalid("negative value: \(int64Value)")
+        }
+        guard let intValue = Int(exactly: int64Value) else {
+            throw QAXInteractionError.elementInsertionPointLineInvalid("value \(int64Value) overflows Swift Int")
         }
         return intValue
     }

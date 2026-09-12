@@ -171,6 +171,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_element_index":
             result = await executeReadElementIndex(request: request)
 
+        case "ui.read_element_insertion_point_line_number":
+            result = await executeReadElementInsertionPointLine(request: request)
+
         case "ui.list_label_served_elements":
             result = await executeListLabelServedElements(request: request)
 
@@ -2705,6 +2708,88 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading element index: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2CJ: semantic element insertion-point line number read — Level 0 (read-only, no
+    /// approval, no mutation authority). Reads `kAXInsertionPointLineNumberAttribute` — which line
+    /// the text caret currently sits on, letting an agent understand cursor navigation context in
+    /// a multi-line text field without ever reading the field's own typed content. Reuses
+    /// `QAXElementReadRolePolicy` and its `AXSecureTextField` exclusion exactly as
+    /// `ui.read_element_expanded_state`/`ui.read_element_edited_state`/`ui.read_element_help_text`
+    /// already do. Like `ui.read_element_index`, this attribute has a valid-absence case: genuine
+    /// absence (`hasLineNumber == false`) is its own valid, distinct outcome, never conflated with
+    /// a present line number of `0`. Every `QAXInteractionError` failure mode — disallowed/secure
+    /// role, missing criteria, permission absence, application/target absence or ambiguity, a
+    /// stale target, a genuine AX read failure, a malformed (non-integer) CFType, or a
+    /// negative/overflowing integer — is caught here and converted into a deterministic,
+    /// non-throwing `QActionResult`; this method never fabricates success. Only the bounded,
+    /// non-negative line-number integer and non-secret targeting metadata cross this method's
+    /// boundary — never `kAXValueAttribute`, never a raw AXUIElement, never document/field content.
+    private func executeReadElementInsertionPointLine(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.readElementInsertionPointLine(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            let outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "hasLineNumber": metadata.lineNumber != nil ? "true" : "false",
+                "lineNumber": metadata.lineNumber.map { "\($0)" } ?? ""
+            ]
+            let lineNumberDescription = metadata.lineNumber.map { "\($0)" } ?? "unavailable"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed insertion point line number for \(role) element in \(applicationName): lineNumber=\(lineNumberDescription). This is observation only — no element was modified, and this observation does not constitute authorization to modify it later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading element insertion point line number: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

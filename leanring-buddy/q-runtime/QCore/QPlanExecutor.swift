@@ -1256,6 +1256,19 @@ public final class QPlanExecutor: Sendable {
             let hasIndex = hasIndexString == "true"
             let indexRaw = hasIndex ? result.outputData["index"] : nil
             return .elementIndexReadSucceeded(applicationName: applicationName, role: role, hasIndex: hasIndex, indexRaw: indexRaw)
+        } else if action.actionName == "ui.read_element_insertion_point_line_number",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let hasLineNumberString = result.outputData["hasLineNumber"] {
+            // Level 0, read-only, purely observational — reconstructed from the
+            // applicationName/role arguments used to dispatch, plus whether a line-number value
+            // was claimed present, captured at read time. The RAW claimed string (not a
+            // pre-parsed Int) is threaded through to the verification strategy so it can
+            // independently re-parse and bounds-check it itself — mirroring
+            // elementIndexReadSucceeded's identical independent-recheck discipline.
+            let hasLineNumber = hasLineNumberString == "true"
+            let lineNumberRaw = hasLineNumber ? result.outputData["lineNumber"] : nil
+            return .elementInsertionPointLineReadSucceeded(applicationName: applicationName, role: role, hasLineNumber: hasLineNumber, lineNumberRaw: lineNumberRaw)
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

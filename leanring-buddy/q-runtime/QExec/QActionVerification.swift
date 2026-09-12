@@ -918,6 +918,25 @@ public enum QVerificationStrategy: Sendable {
     /// pre-validated `Int?`, precisely so `evaluate` can perform its own independent
     /// parse-and-bounds-check re-validation below.
     case elementIndexReadSucceeded(applicationName: String, role: String, hasIndex: Bool, indexRaw: String?)
+    /// Phase 2CJ: semantic element insertion-point-line-number read verification (Level 0,
+    /// read-only). Like every other Level 0 read's verification, there is no separate physical
+    /// state to re-observe after the fact — the read's own success/failure, established entirely
+    /// inside `QBridgeAccessibility.readElementInsertionPointLine` (exact application/target
+    /// resolution, a validated, non-negative integer), already IS the ground truth. This strategy
+    /// checks the execution result's own `success` flag as a genuine, meaningful assertion — never
+    /// a bare `{ true }` bypass — and, when a line number is claimed present, INDEPENDENTLY
+    /// RE-VALIDATES it is non-negative, mirroring `elementIndexReadSucceeded`'s identical
+    /// independent-recheck discipline. A fabricated success claiming a negative line number is
+    /// still correctly rejected. This performs NO additional AX read — only the already-dispatched
+    /// result's own claimed value is re-checked. Genuine absence (`hasLineNumber == false`) is its
+    /// own valid, distinct verified outcome — never conflated with a present line number of `0`.
+    /// Never mutates anything, never reads `kAXValueAttribute`, as part of verification. Evidence
+    /// carries the application name, role, and the line-number fact itself — none of this carries
+    /// privacy risk (a single bounded, non-negative integer), so it is safe to include directly.
+    /// Carries `hasLineNumber`/`lineNumberRaw` (the RAW claimed string, not a pre-parsed `Int`)
+    /// rather than a pre-validated `Int?`, precisely so `evaluate` can perform its own independent
+    /// parse-and-bounds-check re-validation below.
+    case elementInsertionPointLineReadSucceeded(applicationName: String, role: String, hasLineNumber: Bool, lineNumberRaw: String?)
     /// Phase 2BY: semantic window auxiliary-buttons read verification (Level 0, read-only). A
     /// direct sibling of `windowDefaultButtonReadSucceeded` (Phase 2BM), extended from 2 to 4
     /// button presence flags. Like every other Level 0 read's verification, there is no separate
@@ -2532,6 +2551,36 @@ public final class QActionVerifier: Sendable {
             }
             return .verified(
                 evidence: "application=\(applicationName) role=\(role) index=\(index) status=verified"
+            )
+
+        case .elementInsertionPointLineReadSucceeded(let applicationName, let role, let hasLineNumber, let lineNumberRaw):
+            guard result.success else {
+                return .failed(
+                    reason: "Element insertion-point-line-number read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            guard hasLineNumber else {
+                // Genuine, expected absence is its own valid, distinct verified outcome — never
+                // conflated with a present line number of 0.
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) lineNumber=unavailable status=verified"
+                )
+            }
+            // Independent re-validation — never blindly trusting the dispatch layer's own success
+            // flag: the claimed line number must parse as a genuine integer and be non-negative,
+            // mirroring elementIndexReadSucceeded's identical independent-recheck discipline. A
+            // fabricated success claiming a non-numeric or negative line number is still correctly
+            // rejected. This performs NO additional AX read — only the already-dispatched result's
+            // own claimed value is re-checked.
+            guard let raw = lineNumberRaw, let lineNumber = Int(raw), lineNumber >= 0 else {
+                return .failed(
+                    reason: "Insertion-point line number for \(role) element in application '\(applicationName)' is missing or invalid.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            return .verified(
+                evidence: "application=\(applicationName) role=\(role) lineNumber=\(lineNumber) status=verified"
             )
 
         case .windowAuxiliaryButtonsReadSucceeded(let applicationName, let windowTitle, let hasZoomButton, let hasMinimizeButton, let hasToolbarButton, let hasFullScreenButton):
