@@ -1269,6 +1269,18 @@ public final class QPlanExecutor: Sendable {
             let hasLineNumber = hasLineNumberString == "true"
             let lineNumberRaw = hasLineNumber ? result.outputData["lineNumber"] : nil
             return .elementInsertionPointLineReadSucceeded(applicationName: applicationName, role: role, hasLineNumber: hasLineNumber, lineNumberRaw: lineNumberRaw)
+        } else if action.actionName == "ui.read_table_header",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let hasTableHeaderString = result.outputData["hasTableHeader"] {
+            // Level 0, read-only, purely observational — reconstructed from the
+            // applicationName/role arguments used to dispatch, plus whether a header reference
+            // was present, captured at read time. Deliberately NOT threaded through here: the
+            // referenced header element's own title/identifier — this strategy only ever carries
+            // application identity, source role, and a presence boolean, mirroring
+            // elementTitleReferenceReadSucceeded's (Phase 2BN) identical conservative-evidence
+            // discipline.
+            return .tableHeaderReadSucceeded(applicationName: applicationName, role: role, hasTableHeader: hasTableHeaderString == "true")
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

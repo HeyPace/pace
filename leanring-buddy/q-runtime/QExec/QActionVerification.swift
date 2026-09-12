@@ -937,6 +937,19 @@ public enum QVerificationStrategy: Sendable {
     /// rather than a pre-validated `Int?`, precisely so `evaluate` can perform its own independent
     /// parse-and-bounds-check re-validation below.
     case elementInsertionPointLineReadSucceeded(applicationName: String, role: String, hasLineNumber: Bool, lineNumberRaw: String?)
+    /// Phase 2CK: semantic table-header reference read verification (Level 0, read-only). Like
+    /// every other Level 0 read's verification, there is no separate physical state to re-observe
+    /// after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readTableHeader` (exact application/target resolution, an atomically
+    /// re-validated header reference), already IS the ground truth. This strategy checks the
+    /// execution result's own `success` flag as a genuine, meaningful assertion — never a bare
+    /// `{ true }` bypass — and never mutates anything as part of verifying the read. Evidence is
+    /// DELIBERATELY conservative — mirroring `elementTitleReferenceReadSucceeded`'s (Phase 2BN)
+    /// identical discipline — carrying only the application name, role, and whether a header
+    /// reference was present; never the referenced element's own title/identifier, which are
+    /// potentially user-visible strings this capability deliberately never duplicates into durable
+    /// evidence or audit.
+    case tableHeaderReadSucceeded(applicationName: String, role: String, hasTableHeader: Bool)
     /// Phase 2BY: semantic window auxiliary-buttons read verification (Level 0, read-only). A
     /// direct sibling of `windowDefaultButtonReadSucceeded` (Phase 2BM), extended from 2 to 4
     /// button presence flags. Like every other Level 0 read's verification, there is no separate
@@ -2582,6 +2595,18 @@ public final class QActionVerifier: Sendable {
             return .verified(
                 evidence: "application=\(applicationName) role=\(role) lineNumber=\(lineNumber) status=verified"
             )
+
+        case .tableHeaderReadSucceeded(let applicationName, let role, let hasTableHeader):
+            if result.success {
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) hasTableHeader=\(hasTableHeader) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Table-header read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
 
         case .windowAuxiliaryButtonsReadSucceeded(let applicationName, let windowTitle, let hasZoomButton, let hasMinimizeButton, let hasToolbarButton, let hasFullScreenButton):
             guard result.success else {

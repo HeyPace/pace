@@ -174,6 +174,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_element_insertion_point_line_number":
             result = await executeReadElementInsertionPointLine(request: request)
 
+        case "ui.read_table_header":
+            result = await executeReadTableHeader(request: request)
+
         case "ui.list_label_served_elements":
             result = await executeListLabelServedElements(request: request)
 
@@ -2790,6 +2793,88 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading element insertion point line number: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2CK: semantic table-header reference read — Level 0 (read-only, no approval, no
+    /// mutation authority). Reads `kAXHeaderAttribute` — the element serving as a semantically-
+    /// identified table's overall header row. Reuses `QAXTableRolePolicy` exactly as
+    /// `ui.read_table_dimensions`/`ui.list_table_row_headers` already do for role validation.
+    /// Every `QAXInteractionError` failure mode — disallowed role, missing criteria, permission
+    /// absence, application/target absence or ambiguity, a stale target, a genuine AX read
+    /// failure, a malformed returned CFType, or a secure-field/oversized-metadata header
+    /// reference — is caught here and converted into a deterministic, non-throwing
+    /// `QActionResult`; this method never fabricates success. Only the bounded header-reference
+    /// identity and non-secret targeting metadata cross this method's boundary — never
+    /// `kAXValueAttribute`, never a raw AXUIElement, never table/document/cell content.
+    private func executeReadTableHeader(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let reference = try await QBridgeAccessibility.shared.readTableHeader(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "hasTableHeader": reference != nil ? "true" : "false"
+            ]
+            if let reference {
+                outputData["tableHeaderRole"] = reference.role
+                outputData["tableHeaderTitle"] = reference.title ?? ""
+                outputData["tableHeaderIdentifier"] = reference.identifier ?? ""
+            }
+            let referenceDescription = reference.map { "\($0.title ?? $0.identifier ?? $0.role)" } ?? "none"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed header reference for \(role) element in \(applicationName): \(referenceDescription). This is observation only — no interaction was performed with the referenced element, and this observation does not constitute authorization to act on it later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading table header: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

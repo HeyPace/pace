@@ -1549,7 +1549,31 @@ public struct QModelPlanParser: Sendable {
         // traversal, 0 actions, 0 polling, 0 retries. See
         // QBridgeAccessibility.readElementInsertionPointLine and
         // docs/PHASE_2CJ_SEMANTIC_INSERTION_POINT_LINE.md for the full contract.
-        "ui.read_element_insertion_point_line_number": ("ui", .level0ReadOnly)
+        "ui.read_element_insertion_point_line_number": ("ui", .level0ReadOnly),
+        // Phase 2CK: `ui.read_table_header` reads a semantically-identified table's
+        // kAXHeaderAttribute — the element serving as its overall header row, letting an agent
+        // identify a table's header without enumerating individual column/row headers
+        // (ui.list_table_row_headers, Phase 2BZ, covers that distinct relationship). Reuses
+        // QAXTableRolePolicy (Phase 2AE) completely unmodified — the SAME dedicated AXTable role
+        // policy ui.read_table_dimensions/ui.list_table_row_headers already establish; scoped to
+        // AXTable only (AXOutline support deferred as an independent future capability). A bounded
+        // relationship query, never generic extraction: exactly one AX attribute read on the
+        // resolved table, then only a bounded identity read (role/title/identifier) on the
+        // referenced header element — never a recursive descent, never a second relationship hop,
+        // never kAXValueAttribute. The referenced header element's own role is checked against
+        // only the single privacy-sensitive exclusion (AXSecureTextField) — deliberately NOT
+        // QAXElementReadRolePolicy's narrower leaf-control allowlist, mirroring
+        // ui.list_visible_children's (Phase 2CH) identical design difference: a table's header is
+        // a structural/compound view, not a leaf label. Genuine absence of the
+        // attribute (kAXErrorNoValue/kAXErrorAttributeUnsupported) is a valid, expected nil
+        // whole-result — many tables have no distinct header element. No mutation, no press, no
+        // approval, no recovery: neither AXUIElementPerformAction nor AXUIElementSetAttributeValue
+        // is invoked anywhere in this capability. Bounded to exactly 1 resolved target, 0
+        // relationship hops beyond the bounded header-reference identity read, 1
+        // kAXHeaderAttribute read, 0 traversal, 0 actions, 0 polling, 0 retries, 1 returned
+        // record. See QBridgeAccessibility.readTableHeader and
+        // docs/PHASE_2CK_SEMANTIC_TABLE_HEADER.md for the full contract.
+        "ui.read_table_header": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

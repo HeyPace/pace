@@ -1262,6 +1262,22 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// The payload carries only a description of the offending value, never any other element
     /// content.
     case elementInsertionPointLineInvalid(String)
+    /// Phase 2CK: `kAXHeaderAttribute` could not be read due to an actual Accessibility API
+    /// failure (e.g. `kAXErrorFailure`/`kAXErrorCannotComplete`/`kAXErrorInvalidUIElement`) —
+    /// distinct from `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`, which mean the target
+    /// genuinely has no header reference and are never treated as an error. The payload carries
+    /// the underlying `AXError`, never any element content.
+    case tableHeaderReadFailed(String)
+    /// Phase 2CK: `kAXHeaderAttribute`'s copy call reported success but the returned value was not
+    /// an `AXUIElement` — the returned value is treated as untrusted external data, never assumed
+    /// well-formed merely because the copy call itself reported success, mirroring
+    /// `titleReferenceMalformed`'s identical discipline.
+    case tableHeaderMalformed
+    /// Phase 2CK: a table-header reference element's title or identifier exceeds this
+    /// capability's defensive safe length bound (256 characters) — fails closed rather than
+    /// returning an arbitrarily large model-visible string. Carries only the offending length,
+    /// never the string content itself.
+    case tableHeaderMetadataExceedsSafeLength(Int)
 
     public var description: String {
         switch self {
@@ -1695,6 +1711,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target element's insertion point line number could not be read as a well-formed non-negative integer."
         case .elementInsertionPointLineInvalid(let reason):
             return "The target element's insertion point line number is invalid: \(reason)."
+        case .tableHeaderReadFailed(let reason):
+            return "The target table's header reference could not be read due to an Accessibility API failure: \(reason)."
+        case .tableHeaderMalformed:
+            return "The target table's header reference could not be read as a well-formed Accessibility element."
+        case .tableHeaderMetadataExceedsSafeLength(let length):
+            return "The table-header element's title/identifier (\(length) characters) exceeds this capability's defensive safe length bound."
         }
     }
 
@@ -1916,6 +1938,9 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .elementInsertionPointLineReadFailed: return "AX_ELEMENT_INSERTION_POINT_LINE_READ_FAILED"
         case .elementInsertionPointLineMalformed: return "AX_ELEMENT_INSERTION_POINT_LINE_MALFORMED"
         case .elementInsertionPointLineInvalid: return "AX_ELEMENT_INSERTION_POINT_LINE_INVALID"
+        case .tableHeaderReadFailed: return "AX_TABLE_HEADER_READ_FAILED"
+        case .tableHeaderMalformed: return "AX_TABLE_HEADER_MALFORMED"
+        case .tableHeaderMetadataExceedsSafeLength: return "AX_TABLE_HEADER_METADATA_EXCEEDS_SAFE_LENGTH"
         }
     }
 }
@@ -2498,6 +2523,24 @@ public struct QAXElementInsertionPointLineMetadata: Sendable, Equatable, Codable
         self.applicationName = applicationName
         self.role = role
         self.lineNumber = lineNumber
+    }
+}
+
+/// A semantically-identified table's `kAXHeaderAttribute` reference's safe, non-sensitive
+/// structural identity, as returned by `ui.read_table_header` (Phase 2CK) — role/title/identifier
+/// only, identical minimal shape to `QAXElementTitleReference` (Phase 2BN)/`QAXServedElementReference`
+/// (Phase 2BX)/`QAXVisibleChildReference` (Phase 2CH), never an `AXValue`, never arbitrary content,
+/// never a raw `AXUIElement`. A distinct nominal type from those per this codebase's existing
+/// convention of one dedicated result type per capability, even when the field shape is identical.
+public struct QAXTableHeaderReference: Sendable, Equatable, Codable {
+    public let role: String
+    public let title: String?
+    public let identifier: String?
+
+    public init(role: String, title: String?, identifier: String?) {
+        self.role = role
+        self.title = title
+        self.identifier = identifier
     }
 }
 
@@ -5506,6 +5549,13 @@ extension QBridgeAccessibility {
     /// `maxTableRowHeaderMetadataLength` per this codebase's existing convention of not sharing
     /// bound constants across unrelated capabilities, even when the numeric value is identical.
     private static let maxVisibleChildMetadataLength = 256
+    /// Phase 2CK: defensive per-string length bound on `ui.read_table_header`'s returned header
+    /// reference's own title/identifier — prevents an arbitrarily large model-visible string;
+    /// exceeding it fails closed rather than truncating. A distinct constant from
+    /// `maxTitleReferenceMetadataLength`/`maxVisibleChildMetadataLength` per this codebase's
+    /// existing convention of not sharing bound constants across unrelated capabilities, even when
+    /// the numeric value is identical.
+    private static let maxTableHeaderMetadataLength = 256
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -8623,6 +8673,150 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.elementInsertionPointLineInvalid("value \(int64Value) overflows Swift Int")
         }
         return intValue
+    }
+
+    // MARK: - Semantic Table Header Reference Read (Phase 2CK)
+    //
+    // ui.read_table_header — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL read of a
+    // semantically-identified table's kAXHeaderAttribute — the element serving as its header row,
+    // letting an agent identify a table's header without enumerating column headers individually
+    // (ui.list_table_row_headers, Phase 2BZ, covers per-row/per-column headers; this is the
+    // single, overall header reference). kAXHeaderAttribute had zero references anywhere in
+    // production prior to this phase.
+    //
+    // ROLE POLICY: reuses QAXTableRolePolicy (Phase 2AE) — the SAME dedicated, narrow role policy
+    // ui.read_table_dimensions/ui.list_table_row_headers already established for AXTable targets —
+    // completely unmodified. kAXHeaderAttribute's own AppKit doc-comment sits under a "Table/
+    // Outline" pragma implying it could also apply to AXOutline, but scoping this phase to
+    // AXTable only (mirroring the existing table-level capability family exactly) is the correct,
+    // minimal-footprint choice — extending to AXOutline is a natural, independently-decidable
+    // future capability, not invented here.
+    //
+    // BOUNDED RELATIONSHIP QUERY, NEVER GENERIC EXTRACTION (mirrors ui.read_element_title_reference,
+    // Phase 2BN): exactly one AX attribute read on the resolved table, then ONLY a bounded identity
+    // read (role/title/identifier) on the referenced header element — never a recursive descent,
+    // never a second relationship hop, never kAXValueAttribute. The referenced header element's own
+    // role is checked against ONLY the single privacy-sensitive exclusion (AXSecureTextField) —
+    // deliberately NOT QAXElementReadRolePolicy's narrower leaf-control allowlist, mirroring
+    // ui.list_visible_children's (Phase 2CH) identical design difference: a table's header is a
+    // structural/compound view (a genuine NSTableHeaderView reports a generic container role, never
+    // one of that allowlist's leaf-control roles), unlike a title-reference label.
+    //
+    // SDK-VERIFIED ABSENCE SEMANTICS: kAXHeaderAttribute carries no "required for all elements"-
+    // style documentation — many tables have no distinct header element. Genuine absence
+    // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is therefore the OPTIONAL-REFERENCE pattern —
+    // a valid, expected nil WHOLE RESULT, identical to ui.read_element_title_reference's own
+    // absence semantics.
+
+    /// Resolves exactly one semantic target on `QAXTableRolePolicy`'s allowlist (`AXTable`) and
+    /// reads its `kAXHeaderAttribute` — a purely observational call; neither
+    /// `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is invoked anywhere in this
+    /// method, and `kAXValueAttribute` is never read. Fails closed (throws `QAXInteractionError`)
+    /// on a disallowed role, missing criteria, permission absence, application/target absence or
+    /// ambiguity, a stale/drifted target, a genuine read failure, a malformed returned CFType, or a
+    /// secure-field/oversized-metadata header reference. Genuine absence of the attribute
+    /// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an error — it produces `nil` for
+    /// the WHOLE result. Never fabricates a reference, never silently accepts an unsafe one.
+    public func readTableHeader(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXTableHeaderReference? {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard QAXTableRolePolicy.isAllowedTableRole(role) else {
+            throw QAXInteractionError.disallowedTableRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // header-reference read and refuse on any drift — identical discipline to every prior
+            // AX capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target table is no longer resolvable immediately before the header-reference read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target table identity changed between observation and the header-reference read")
+            }
+
+            return try Self.resolveTableHeader(of: targetElement)
+        }.value
+    }
+
+    /// Resolves the target table's `kAXHeaderAttribute` reference, distinguishing genuine absence
+    /// from a genuine read failure — see the `MARK` section above for the full missing-vs-failure
+    /// rationale. Never descends into the referenced element's own children; reads only its
+    /// `kAXRoleAttribute` (checked against the single privacy-sensitive `AXSecureTextField`
+    /// exclusion — never a broader allowlist, since a table header is a structural/compound
+    /// reference) and, once confirmed safe, its `kAXTitleAttribute`/`AXIdentifier` for structural
+    /// identity, each bounded to `maxTableHeaderMetadataLength` (256 characters) — exceeding it
+    /// fails closed rather than returning an oversized string.
+    fileprivate nonisolated static func resolveTableHeader(
+        of targetElement: AXUIElement
+    ) throws -> QAXTableHeaderReference? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXHeaderAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            // Genuine, expected absence — many tables have no distinct header element at all.
+            // Never an error.
+            return nil
+        default:
+            throw QAXInteractionError.tableHeaderReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
+            throw QAXInteractionError.tableHeaderMalformed
+        }
+        let headerElement = value as! AXUIElement // swiftlint:disable:this force_cast — CFGetTypeID checked above
+
+        // The mere existence of a returned reference is never sufficient — its own role is
+        // checked against the single privacy-sensitive exclusion (AXSecureTextField), mirroring
+        // ui.list_visible_children's (Phase 2CH) identical deliberate design difference from
+        // ui.read_element_title_reference: a table's header is a structural/compound view (the
+        // real-world AX role for a genuine NSTableHeaderView is a generic container role, never
+        // one of QAXElementReadRolePolicy's leaf-control roles), not a leaf label, so it is
+        // deliberately NOT held to that narrower allowlist.
+        let headerElementRole = Self.axStringAttribute(kAXRoleAttribute, of: headerElement) ?? "none"
+        guard headerElementRole != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(headerElementRole)
+        }
+
+        let rawTitle = Self.axStringAttribute(kAXTitleAttribute, of: headerElement)
+        let headerTitle = (rawTitle?.isEmpty == false) ? rawTitle : nil
+        let headerIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: headerElement)
+
+        if let headerTitle, headerTitle.count > maxTableHeaderMetadataLength {
+            throw QAXInteractionError.tableHeaderMetadataExceedsSafeLength(headerTitle.count)
+        }
+        if let headerIdentifier, headerIdentifier.count > maxTableHeaderMetadataLength {
+            throw QAXInteractionError.tableHeaderMetadataExceedsSafeLength(headerIdentifier.count)
+        }
+
+        return QAXTableHeaderReference(
+            role: headerElementRole,
+            title: headerTitle,
+            identifier: headerIdentifier
+        )
     }
 
     // MARK: - Semantic Label Served-Elements Read (Phase 2BX)
