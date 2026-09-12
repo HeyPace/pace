@@ -1243,6 +1243,19 @@ public final class QPlanExecutor: Sendable {
                 hasVisibleChildren: hasVisibleChildren,
                 visibleChildrenCount: visibleChildrenCount
             )
+        } else if action.actionName == "ui.read_element_index",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let hasIndexString = result.outputData["hasIndex"] {
+            // Level 0, read-only, purely observational — reconstructed from the
+            // applicationName/role arguments used to dispatch, plus whether an index value was
+            // claimed present, captured at read time. The RAW claimed string (not a pre-parsed
+            // Int) is threaded through to the verification strategy so it can independently
+            // re-parse and bounds-check it itself — mirroring
+            // elementDisclosureLevelReadSucceeded's identical independent-recheck discipline.
+            let hasIndex = hasIndexString == "true"
+            let indexRaw = hasIndex ? result.outputData["index"] : nil
+            return .elementIndexReadSucceeded(applicationName: applicationName, role: role, hasIndex: hasIndex, indexRaw: indexRaw)
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

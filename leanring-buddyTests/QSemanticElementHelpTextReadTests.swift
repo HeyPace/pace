@@ -101,7 +101,7 @@ struct QSemanticElementHelpTextReadTests {
         #expect(regCap?.defaultRisk == .level0ReadOnly)
         #expect(regCap?.defaultRisk.requiresExplicitApproval == false)
         #expect(regCap?.defaultRisk.isConsideredReversible == true)
-        #expect(QModelPlanParser.registeredCapabilities.count == 82)
+        #expect(QModelPlanParser.registeredCapabilities.count == 83)
 
         let json = """
         {
@@ -714,9 +714,9 @@ struct QSemanticElementHelpTextReadTests {
 
     // MARK: - 25. Capability-count integrity
 
-    @Test("25. Capability count integrity: 76 → 77 was this phase's own registry-size delta; the registry has since grown further (Phase 2CD's ui.read_element_placeholder_value, Phase 2CE's ui.read_element_expanded_state, Phase 2CF's ui.read_element_disclosure_level, Phase 2CG's ui.read_element_edited_state, then Phase 2CH's ui.list_visible_children), so this checks the current total rather than a phase-specific snapshot — structural, confirmed by the registration test's own count assertion above")
+    @Test("25. Capability count integrity: 76 → 77 was this phase's own registry-size delta; the registry has since grown further (Phase 2CD's ui.read_element_placeholder_value, Phase 2CE's ui.read_element_expanded_state, Phase 2CF's ui.read_element_disclosure_level, Phase 2CG's ui.read_element_edited_state, Phase 2CH's ui.list_visible_children, then Phase 2CI's ui.read_element_index), so this checks the current total rather than a phase-specific snapshot — structural, confirmed by the registration test's own count assertion above")
     func capabilityCountIntegrityIsStructural() {
-        #expect(QModelPlanParser.registeredCapabilities.count == 82)
+        #expect(QModelPlanParser.registeredCapabilities.count == 83)
     }
 
     // MARK: - Architecture integration: normal QPlanExecutor pipeline

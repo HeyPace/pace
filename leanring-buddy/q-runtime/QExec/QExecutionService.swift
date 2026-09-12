@@ -168,6 +168,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.list_visible_children":
             result = await executeListVisibleChildren(request: request)
 
+        case "ui.read_element_index":
+            result = await executeReadElementIndex(request: request)
+
         case "ui.list_label_served_elements":
             result = await executeListLabelServedElements(request: request)
 
@@ -2621,6 +2624,87 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while listing visible children: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2CI: semantic element index read — Level 0 (read-only, no approval, no mutation
+    /// authority). Reads `kAXIndexAttribute` — a row's authoritative, AX-reported ordinal position
+    /// within its container, letting an agent understand precisely which position a row occupies
+    /// without first enumerating the entire container. Reuses `QAXOutlineRowRolePolicy` exactly as
+    /// `ui.read_element_disclosure_level` already does for role validation. Like
+    /// `ui.read_element_disclosure_level`, this attribute has a valid-absence case: genuine
+    /// absence (`hasIndex == false`) is its own valid, distinct outcome, never conflated with a
+    /// present index of `0`. Every `QAXInteractionError` failure mode — disallowed role, missing
+    /// criteria, permission absence, application/target absence or ambiguity, a stale target, a
+    /// genuine AX read failure, a malformed (non-integer) CFType, or a negative/overflowing
+    /// integer — is caught here and converted into a deterministic, non-throwing `QActionResult`;
+    /// this method never fabricates success. Only the bounded, non-negative index integer and
+    /// non-secret targeting metadata cross this method's boundary — never `kAXValueAttribute`,
+    /// never a raw AXUIElement, never table/document/cell content.
+    private func executeReadElementIndex(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.readElementIndex(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            let outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "hasIndex": metadata.index != nil ? "true" : "false",
+                "index": metadata.index.map { "\($0)" } ?? ""
+            ]
+            let indexDescription = metadata.index.map { "\($0)" } ?? "unavailable"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed index for \(role) element in \(applicationName): index=\(indexDescription). This is observation only — no element was modified, and this observation does not constitute authorization to modify it later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading element index: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

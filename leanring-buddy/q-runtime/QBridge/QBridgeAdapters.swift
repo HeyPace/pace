@@ -1226,6 +1226,23 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// — fails the WHOLE array closed rather than truncating. The payload carries only the
     /// offending length, never the string content itself.
     case visibleChildrenElementMetadataExceedsSafeLength(Int)
+    /// Phase 2CI: `kAXIndexAttribute` could not be read due to an actual Accessibility API
+    /// failure — distinct from `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`, which mean the
+    /// target genuinely has no ordinal-position concept and are never treated as an error — see
+    /// `QBridgeAccessibility.readElementIndex`'s own documentation for the full missing-vs-failure
+    /// rationale. The payload carries the underlying `AXError`, never any element content.
+    case elementIndexReadFailed(String)
+    /// Phase 2CI: `kAXIndexAttribute`'s copy call reported success but the returned value was not
+    /// a genuine `CFNumber`, or was a `CFNumber` of a non-integer native subtype — the returned
+    /// value is treated as untrusted external data, never assumed well-formed merely because the
+    /// copy call itself reported success. Never force-cast, never silently coerced from a
+    /// floating-point representation.
+    case elementIndexMalformed
+    /// Phase 2CI: `kAXIndexAttribute`'s returned integer was negative, or could not be losslessly
+    /// represented as a Swift `Int` (`Int64` overflow) — an ordinal position is fundamentally a
+    /// non-negative index. Fails closed rather than ever silently clamping or truncating. The
+    /// payload carries only a description of the offending value, never any other element content.
+    case elementIndexInvalid(String)
 
     public var description: String {
         switch self {
@@ -1647,6 +1664,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "A visible child could not be read as a well-formed Accessibility element reference."
         case .visibleChildrenElementMetadataExceedsSafeLength(let length):
             return "A visible child's title/identifier (\(length) characters) exceeds the maximum safe bound."
+        case .elementIndexReadFailed(let reason):
+            return "The target element's index could not be read due to an Accessibility API failure: \(reason)."
+        case .elementIndexMalformed:
+            return "The target element's index could not be read as a well-formed non-negative integer."
+        case .elementIndexInvalid(let reason):
+            return "The target element's index is invalid: \(reason)."
         }
     }
 
@@ -1862,6 +1885,9 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .visibleChildrenExceedsSafeBound: return "AX_VISIBLE_CHILDREN_EXCEEDS_SAFE_BOUND"
         case .visibleChildrenElementMalformed: return "AX_VISIBLE_CHILDREN_ELEMENT_MALFORMED"
         case .visibleChildrenElementMetadataExceedsSafeLength: return "AX_VISIBLE_CHILDREN_ELEMENT_METADATA_EXCEEDS_SAFE_LENGTH"
+        case .elementIndexReadFailed: return "AX_ELEMENT_INDEX_READ_FAILED"
+        case .elementIndexMalformed: return "AX_ELEMENT_INDEX_MALFORMED"
+        case .elementIndexInvalid: return "AX_ELEMENT_INDEX_INVALID"
         }
     }
 }
@@ -2399,6 +2425,29 @@ public struct QAXElementEditedStateMetadata: Sendable, Equatable, Codable {
         self.applicationName = applicationName
         self.role = role
         self.isEdited = isEdited
+    }
+}
+
+/// A point-in-time snapshot of a semantically-identified row's ordinal position, captured by
+/// `ui.read_element_index` (Phase 2CI). `index` is deliberately `Int?`, never a plain `Int`,
+/// following `QAXElementDisclosureLevelMetadata`'s (Phase 2CF) identical discipline:
+/// `kAXIndexAttribute` has no "required for all elements"-style documentation, so genuine absence
+/// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is a valid, expected `nil` result, never
+/// silently downgraded to `0`. A genuine read failure or a malformed (non-integer, or
+/// negative/overflowing) value fails the whole read closed instead of ever being represented as
+/// this field's value. Distinct from `ui.list_outline_items`'s own `index` field (Phase 2AF),
+/// which is a SYNTHETIC array-position computed during enumeration, never a read of
+/// `kAXIndexAttribute` itself — this capability reads the authoritative, AX-reported position of
+/// one already-resolved row directly, without first enumerating the whole container.
+public struct QAXElementIndexMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let index: Int?
+
+    public init(applicationName: String, role: String, index: Int?) {
+        self.applicationName = applicationName
+        self.role = role
+        self.index = index
     }
 }
 
@@ -8222,6 +8271,151 @@ extension QBridgeAccessibility {
         }
 
         return results
+    }
+
+    // MARK: - Semantic Element Index Read (Phase 2CI)
+    //
+    // ui.read_element_index — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL read of a
+    // semantically-identified outline/table row's kAXIndexAttribute — its authoritative,
+    // AX-reported ordinal position within its container ("row index for a row" per the SDK's own
+    // accessor doc-comment), letting an agent understand precisely which position a row occupies
+    // without first enumerating the entire container via ui.list_outline_items. Complements
+    // ui.read_element_disclosure_level (Phase 2CF, "how deeply nested") and
+    // ui.read_element_expanded_state (Phase 2CE, "is this row open") with a third piece of
+    // positional information. kAXIndexAttribute had zero references anywhere in production prior
+    // to this phase.
+    //
+    // ROLE POLICY: reuses QAXOutlineRowRolePolicy (Phase 2T) — the SAME dedicated, narrow role
+    // policy ui.read_element_disclosure_level (Phase 2CF) already established for AXRow reads —
+    // completely unmodified. Exactly like disclosure level, this read does NOT additionally
+    // require the AXOutlineRow subrole or an AXOutline parent context: a read of an ordinary
+    // AXTableRow simply, honestly reports its own real index; no fabrication risk exists the way
+    // it would for a mutation.
+    //
+    // SDK-VERIFIED ABSENCE SEMANTICS: kAXIndexAttribute carries no "required for all elements"-
+    // style documentation. Genuine absence (kAXErrorNoValue/kAXErrorAttributeUnsupported) is
+    // therefore the OPTIONAL-REFERENCE pattern — a valid, expected nil WHOLE RESULT, identical to
+    // ui.read_element_disclosure_level's own absence semantics.
+
+    /// Resolves exactly one semantic target on `QAXOutlineRowRolePolicy`'s allowlist (`AXRow`) and
+    /// reads its `kAXIndexAttribute` — a purely observational call; neither
+    /// `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is invoked anywhere in this
+    /// method, and `kAXValueAttribute` is never read. Fails closed (throws `QAXInteractionError`)
+    /// on a disallowed role, missing criteria, permission absence, application/target absence or
+    /// ambiguity, a stale/drifted target, a genuine read failure, a malformed (non-integer)
+    /// returned value, or a negative/overflowing integer. Genuine absence of the attribute
+    /// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an error — it produces `nil` for
+    /// the `index` field. Never fabricates an index.
+    public func readElementIndex(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXElementIndexMetadata {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard QAXOutlineRowRolePolicy.isAllowedOutlineRowRole(role) else {
+            throw QAXInteractionError.disallowedOutlineRowRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // index read and refuse on any drift — identical discipline to every prior AX
+            // capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the index read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the index read")
+            }
+
+            let index = try Self.resolveElementIndex(of: targetElement)
+
+            return QAXElementIndexMetadata(
+                applicationName: applicationName,
+                role: role,
+                index: index
+            )
+        }.value
+    }
+
+    /// Resolves `kAXIndexAttribute` and normalizes it to a validated, non-negative `Int`, or `nil`
+    /// for genuine attribute absence. Every check has its own distinct, dedicated diagnostic —
+    /// nothing is ever silently truncated, clamped, or defaulted, and the returned value is never
+    /// force-cast: the copy call's own success alone is never treated as proof the returned
+    /// CFTypeRef is genuinely a well-formed integer.
+    ///
+    /// Validation, in order (mirrors `resolveElementDisclosureLevel`'s exact CFNumber-decoding
+    /// rigor):
+    /// 1. `.noValue`/`.attributeUnsupported` → `nil` (genuine, expected absence); any other
+    ///    non-`.success` `AXError` → `elementIndexReadFailed`.
+    /// 2. The returned value must be a genuine `CFNumber` (`CFGetTypeID(value) ==
+    ///    CFNumberGetTypeID()`) → `elementIndexMalformed` otherwise.
+    /// 3. The `CFNumber`'s own native subtype must be an integer subtype, never a floating-point
+    ///    one → `elementIndexMalformed` otherwise.
+    /// 4. `CFNumberGetValue(_:.sInt64Type:_:)` must itself report success → `elementIndexMalformed`
+    ///    otherwise.
+    /// 5. The extracted `Int64` must be non-negative → `elementIndexInvalid` otherwise.
+    /// 6. The extracted `Int64` must be losslessly representable as a Swift `Int`
+    ///    (`Int(exactly:)`, never a truncating cast) → `elementIndexInvalid` otherwise (overflow).
+    fileprivate nonisolated static func resolveElementIndex(of targetElement: AXUIElement) throws -> Int? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXIndexAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            return nil
+        default:
+            throw QAXInteractionError.elementIndexReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value else {
+            throw QAXInteractionError.elementIndexMalformed
+        }
+        guard CFGetTypeID(value) == CFNumberGetTypeID() else {
+            throw QAXInteractionError.elementIndexMalformed
+        }
+        let cfNumber = value as! CFNumber // swiftlint:disable:this force_cast — CFGetTypeID checked above
+
+        switch CFNumberGetType(cfNumber) {
+        case .sInt8Type, .sInt16Type, .sInt32Type, .sInt64Type,
+             .charType, .shortType, .intType, .longType, .longLongType,
+             .cfIndexType, .nsIntegerType:
+            break
+        default:
+            // float32Type/float64Type/floatType/doubleType/cgFloatType, or any future numeric
+            // subtype not explicitly recognized as integral above — never silently truncated.
+            throw QAXInteractionError.elementIndexMalformed
+        }
+
+        var int64Value: Int64 = 0
+        guard CFNumberGetValue(cfNumber, .sInt64Type, &int64Value) else {
+            throw QAXInteractionError.elementIndexMalformed
+        }
+        guard int64Value >= 0 else {
+            throw QAXInteractionError.elementIndexInvalid("negative value: \(int64Value)")
+        }
+        guard let intValue = Int(exactly: int64Value) else {
+            throw QAXInteractionError.elementIndexInvalid("value \(int64Value) overflows Swift Int")
+        }
+        return intValue
     }
 
     // MARK: - Semantic Label Served-Elements Read (Phase 2BX)

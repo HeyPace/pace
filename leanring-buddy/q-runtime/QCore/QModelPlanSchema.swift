@@ -1504,7 +1504,30 @@ public struct QModelPlanParser: Sendable {
         // identity reads, 1 kAXVisibleChildrenAttribute read, 0 traversal, 0 actions, 0 polling,
         // 0 retries, 1 returned record. See QBridgeAccessibility.listVisibleChildren and
         // docs/PHASE_2CH_SEMANTIC_VISIBLE_CHILDREN.md for the full contract.
-        "ui.list_visible_children": ("ui", .level0ReadOnly)
+        "ui.list_visible_children": ("ui", .level0ReadOnly),
+        // Phase 2CI: `ui.read_element_index` reads a semantically-identified outline/table row's
+        // kAXIndexAttribute — its authoritative, AX-reported ordinal position within its
+        // container ("row index for a row" per the SDK's own accessor doc-comment), letting an
+        // agent understand precisely which position a row occupies without first enumerating the
+        // entire container via ui.list_outline_items. Distinct from ui.list_outline_items' own
+        // `index` field, which is a SYNTHETIC array-position computed during enumeration, never a
+        // read of kAXIndexAttribute itself. Reuses QAXOutlineRowRolePolicy (Phase 2T) — the SAME
+        // dedicated AXRow role policy ui.read_element_disclosure_level (Phase 2CF) already
+        // established for reads — completely unmodified; no new, parallel role mechanism is
+        // introduced. No mutation, no press, no approval, no recovery: neither
+        // AXUIElementPerformAction nor AXUIElementSetAttributeValue is invoked anywhere in this
+        // capability, and kAXValueAttribute is never read. kAXIndexAttribute carries no "required
+        // for all elements"-style documentation, so genuine absence
+        // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is the OPTIONAL-REFERENCE pattern, a
+        // valid, expected nil result, identical to ui.read_element_disclosure_level's own absence
+        // semantics. Every other failure mode (permission denial, unresolvable target, stale
+        // target, a genuine AXError, a malformed non-integer returned value, or a
+        // negative/overflowing integer) fails closed with its own dedicated diagnostic; nothing is
+        // ever silently defaulted or truncated. Bounded to exactly 1 resolved target, 0
+        // relationship hops, 1 kAXIndexAttribute read, 0 traversal, 0 actions, 0 polling, 0
+        // retries. See QBridgeAccessibility.readElementIndex and
+        // docs/PHASE_2CI_SEMANTIC_ELEMENT_INDEX.md for the full contract.
+        "ui.read_element_index": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.
