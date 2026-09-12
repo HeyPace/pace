@@ -1158,6 +1158,18 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// `maxPlaceholderValueLength` — fails closed rather than ever silently truncating. The
     /// payload carries only the offending length, never the string content itself.
     case placeholderValueExceedsSafeBound(Int)
+    /// Phase 2CE: `kAXExpandedAttribute` could not be read due to an actual Accessibility API
+    /// failure — distinct from `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`, which mean the
+    /// target genuinely has no expanded/collapsed concept (most non-expandable elements) and are
+    /// never treated as an error — see `QBridgeAccessibility.readElementExpandedState`'s own
+    /// documentation for the full missing-vs-failure rationale. The payload carries the underlying
+    /// `AXError`, never any element content.
+    case elementExpandedStateReadFailed(String)
+    /// Phase 2CE: `kAXExpandedAttribute`'s copy call reported success but the returned value could
+    /// not be interpreted as a `Bool` — the returned value is treated as untrusted external data,
+    /// never assumed well-formed merely because the copy call itself reported success. Fails closed
+    /// rather than fabricating a Boolean.
+    case elementExpandedStateMalformed
 
     public var description: String {
         switch self {
@@ -1555,6 +1567,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target element's placeholder value could not be read as a well-formed string."
         case .placeholderValueExceedsSafeBound(let length):
             return "The target element's placeholder value (\(length) characters) exceeds the maximum safe bound."
+        case .elementExpandedStateReadFailed(let reason):
+            return "The target element's expanded state could not be read due to an Accessibility API failure: \(reason)."
+        case .elementExpandedStateMalformed:
+            return "The target element's expanded state could not be read as a well-formed Boolean."
         }
     }
 
@@ -1758,6 +1774,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .placeholderValueReadFailed: return "AX_PLACEHOLDER_VALUE_READ_FAILED"
         case .placeholderValueMalformed: return "AX_PLACEHOLDER_VALUE_MALFORMED"
         case .placeholderValueExceedsSafeBound: return "AX_PLACEHOLDER_VALUE_EXCEEDS_SAFE_BOUND"
+        case .elementExpandedStateReadFailed: return "AX_ELEMENT_EXPANDED_STATE_READ_FAILED"
+        case .elementExpandedStateMalformed: return "AX_ELEMENT_EXPANDED_STATE_MALFORMED"
         }
     }
 }
@@ -2231,6 +2249,27 @@ public struct QAXElementPlaceholderValueMetadata: Sendable, Equatable, Codable {
         self.elementIdentifier = elementIdentifier
         self.elementTitle = elementTitle
         self.placeholderValue = placeholderValue
+    }
+}
+
+/// A point-in-time snapshot of a semantically-identified element's expanded/collapsed state,
+/// captured by `ui.read_element_expanded_state` (Phase 2CE). `isExpanded` is deliberately `Bool?`,
+/// never a plain `Bool`, following `QAXElementRequiredStateMetadata`'s (Phase 2BQ) identical
+/// discipline: `kAXExpandedAttribute` has no "required for all elements"-style universal-presence
+/// documentation — it is meaningful only for elements that can meaningfully be expanded or
+/// collapsed (disclosure triangles, popup/combo/menu buttons), so genuine absence
+/// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is a valid, expected `nil` result, never
+/// silently downgraded to `false`. A genuine read failure or a malformed (non-Boolean) value fails
+/// the whole read closed instead of ever being represented as this field's value.
+public struct QAXElementExpandedStateMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let isExpanded: Bool?
+
+    public init(applicationName: String, role: String, isExpanded: Bool?) {
+        self.applicationName = applicationName
+        self.role = role
+        self.isExpanded = isExpanded
     }
 }
 
@@ -7405,6 +7444,125 @@ extension QBridgeAccessibility {
         }
 
         return stringValue
+    }
+
+    // MARK: - Semantic Element Expanded State Read (Phase 2CE)
+    //
+    // ui.read_element_expanded_state — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL
+    // read of a semantically-identified element's kAXExpandedAttribute — whether a disclosure
+    // triangle, popup button, combo box, or menu button is currently expanded/open, letting an
+    // agent check state before deciding to act (e.g. before calling ui.toggle_disclosure) rather
+    // than guessing or unconditionally toggling. Distinct from ui.toggle_disclosure's own
+    // current-state check, which reads kAXValueAttribute (AXDisclosureTriangle's own 0/1
+    // convention) — this capability reads a different attribute and, unlike ui.toggle_disclosure,
+    // is not restricted to AXDisclosureTriangle: it reuses QAXElementReadRolePolicy's existing
+    // allowlist completely unmodified from ui.read_element_value/ui.list_element_actions/
+    // ui.read_element_value_description/ui.read_element_role_description/ui.read_element_help_text/
+    // ui.read_element_placeholder_value/ui.read_element_required_state — no broader, arbitrary-role
+    // allowlist is introduced, and AXSecureTextField is rejected before the general allowlist is
+    // ever consulted (belt and suspenders — AXSecureTextField is never listed in the allowlist
+    // either). Before this phase, kAXExpandedAttribute was read only as an internal bundled field
+    // inside ui.list_combo_boxes's enumeration output — never independently targetable by
+    // identifier/title for one specific element, and never available for any other expandable role
+    // (AXPopUpButton, AXMenuButton, AXDisclosureTriangle).
+    //
+    // SDK-VERIFIED ABSENCE SEMANTICS: kAXExpandedAttribute carries no "required for all
+    // elements"-style documentation — it is meaningful only for elements that can meaningfully be
+    // expanded or collapsed; most controls have no expanded/collapsed concept at all. Genuine
+    // absence (kAXErrorNoValue/kAXErrorAttributeUnsupported) is therefore the OPTIONAL-REFERENCE
+    // pattern — a valid, expected nil result, identical to ui.read_element_required_state's own
+    // absence semantics (and unlike ui.read_element_role_description's required-attribute,
+    // no-valid-absence contract) — never silently downgraded to false.
+
+    /// Resolves exactly one semantic target on `QAXElementReadRolePolicy`'s allowlist (with the
+    /// same `AXSecureTextField` exclusion `ui.read_element_value`/`ui.list_element_actions`/
+    /// `ui.read_element_value_description`/`ui.read_element_role_description`/
+    /// `ui.read_element_help_text`/`ui.read_element_placeholder_value` already enforce) and reads
+    /// its `kAXExpandedAttribute` — a purely observational call; neither
+    /// `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is invoked anywhere in this
+    /// method, and `kAXValueAttribute` is never read. Fails closed (throws `QAXInteractionError`)
+    /// on a disallowed/secure role, missing criteria, permission absence, application/target
+    /// absence or ambiguity, a stale/drifted target, a genuine read failure, or a malformed
+    /// (non-Boolean) returned value. Genuine absence of the attribute
+    /// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an error — it produces `nil` for
+    /// the `isExpanded` field, never fabricated as `false`. Never fabricates a Boolean.
+    public func readElementExpandedState(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXElementExpandedStateMetadata {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Secure field first, for a specific diagnostic; then the general allowlist, which would
+        // also reject AXSecureTextField on its own (it is never listed) — belt and suspenders,
+        // identical discipline to every prior read capability's own checks.
+        guard role != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+        guard QAXElementReadRolePolicy.isAllowedReadRole(role) else {
+            throw QAXInteractionError.disallowedReadRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // expanded-state read and refuse on any drift — identical discipline to every prior AX
+            // capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the expanded-state read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the expanded-state read")
+            }
+
+            let isExpanded = try Self.resolveElementExpandedState(of: targetElement)
+
+            return QAXElementExpandedStateMetadata(
+                applicationName: applicationName,
+                role: role,
+                isExpanded: isExpanded
+            )
+        }.value
+    }
+
+    /// Resolves `kAXExpandedAttribute` as an optional `Bool?`, distinguishing genuine absence from
+    /// a genuine read failure — see the `MARK` section above for the full missing-vs-failure
+    /// rationale. `kAXErrorNoValue`/`kAXErrorAttributeUnsupported` produce a valid `nil`; any other
+    /// `AXError` fails closed as `elementExpandedStateReadFailed`; a successful copy whose value
+    /// cannot be interpreted as a `Bool` fails closed as `elementExpandedStateMalformed` — the
+    /// returned value is never force-cast.
+    fileprivate nonisolated static func resolveElementExpandedState(of targetElement: AXUIElement) throws -> Bool? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXExpandedAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            return nil
+        default:
+            throw QAXInteractionError.elementExpandedStateReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value, let isExpanded = value as? Bool else {
+            throw QAXInteractionError.elementExpandedStateMalformed
+        }
+        return isExpanded
     }
 
     // MARK: - Semantic Label Served-Elements Read (Phase 2BX)

@@ -146,9 +146,10 @@ struct QSemanticElementRoleDescriptionReadTests {
         #expect(regCap?.defaultRisk.isConsideredReversible == true)
         // Capability #76 was registered as the 76th capability; the registry has since grown to
         // 78 (Phase 2CC's ui.read_element_help_text, then Phase 2CD's
-        // ui.read_element_placeholder_value), so this checks the current total rather
+        // ui.read_element_placeholder_value, then Phase 2CE's
+        // ui.read_element_expanded_state), so this checks the current total rather
         // than a phase-specific snapshot.
-        #expect(QModelPlanParser.registeredCapabilities.count == 78)
+        #expect(QModelPlanParser.registeredCapabilities.count == 79)
 
         let json = """
         {

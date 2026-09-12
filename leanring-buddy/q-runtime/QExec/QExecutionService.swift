@@ -156,6 +156,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_element_placeholder_value":
             result = await executeReadElementPlaceholderValue(request: request)
 
+        case "ui.read_element_expanded_state":
+            result = await executeReadElementExpandedState(request: request)
+
         case "ui.list_label_served_elements":
             result = await executeListLabelServedElements(request: request)
 
@@ -2260,6 +2263,91 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading element placeholder value: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2CE: semantic element expanded state read — Level 0 (read-only, no approval, no
+    /// mutation authority). Reads `kAXExpandedAttribute` — whether a disclosure triangle, popup
+    /// button, combo box, or menu button is currently expanded/open, letting an agent check state
+    /// before deciding to act rather than guessing or unconditionally toggling. Distinct from
+    /// `ui.toggle_disclosure`'s own current-state check, which reads `kAXValueAttribute`
+    /// (`AXDisclosureTriangle`'s own 0/1 convention). Reuses `QAXElementReadRolePolicy` and its
+    /// `AXSecureTextField` exclusion exactly as `ui.read_element_value`/`ui.list_element_actions`/
+    /// `ui.read_element_value_description`/`ui.read_element_role_description`/
+    /// `ui.read_element_help_text`/`ui.read_element_placeholder_value` already do. Like
+    /// `ui.read_element_required_state` (and unlike `ui.read_element_role_description`), this
+    /// attribute has a valid-absence case: genuine absence (`hasExpandedState == false`) is its own
+    /// valid, distinct outcome, never conflated with `false`. Every `QAXInteractionError` failure
+    /// mode — disallowed/secure role, missing criteria, permission absence, application/target
+    /// absence or ambiguity, a stale target, a genuine AX read failure, or a malformed
+    /// (non-Boolean) CFType — is caught here and converted into a deterministic, non-throwing
+    /// `QActionResult`; this method never fabricates success. Only the expanded-state Boolean and
+    /// non-secret targeting metadata cross this method's boundary — never `kAXValueAttribute`,
+    /// never a raw AXUIElement, never table/document/cell content.
+    private func executeReadElementExpandedState(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.readElementExpandedState(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            let outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "hasExpandedState": metadata.isExpanded != nil ? "true" : "false",
+                "isExpanded": metadata.isExpanded.map { $0 ? "true" : "false" } ?? ""
+            ]
+            let expandedDescription = metadata.isExpanded.map { "\($0)" } ?? "unavailable"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed expanded state for \(role) element in \(applicationName): isExpanded=\(expandedDescription). This is observation only — no element was modified, and this observation does not constitute authorization to modify it later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading element expanded state: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

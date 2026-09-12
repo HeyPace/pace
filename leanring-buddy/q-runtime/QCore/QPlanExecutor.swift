@@ -1156,6 +1156,21 @@ public final class QPlanExecutor: Sendable {
                 hasPlaceholderValue: hasPlaceholderValue,
                 placeholderValue: placeholderValue
             )
+        } else if action.actionName == "ui.read_element_expanded_state",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let hasExpandedStateString = result.outputData["hasExpandedState"] {
+            // Level 0, read-only, purely observational — reconstructed from the applicationName/
+            // role arguments used to dispatch, plus whether an expanded-state value was present and
+            // its value, captured at read time. Deliberately NOT threaded through here: any other
+            // element attribute — this strategy only ever carries application identity, source
+            // role, and the expanded-state fact itself, by design (the boolean carries no privacy
+            // risk, unlike button/label text), mirroring
+            // elementRequiredStateReadSucceeded's identical discipline.
+            let isExpanded: Bool? = hasExpandedStateString == "true"
+                ? (result.outputData["isExpanded"] == "true")
+                : nil
+            return .elementExpandedStateReadSucceeded(applicationName: applicationName, role: role, isExpanded: isExpanded)
         } else if action.actionName == "ui.list_label_served_elements",
                   let applicationName = action.arguments["applicationName"],
                   let role = action.arguments["role"],

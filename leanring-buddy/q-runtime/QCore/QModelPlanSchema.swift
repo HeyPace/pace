@@ -1405,7 +1405,32 @@ public struct QModelPlanParser: Sendable {
         // kAXPlaceholderValueAttribute read, 0 traversal, 0 actions, 0 polling, 0 retries. See
         // QBridgeAccessibility.readElementPlaceholderValue and
         // docs/PHASE_2CD_SEMANTIC_PLACEHOLDER_VALUE.md for the full contract.
-        "ui.read_element_placeholder_value": ("ui", .level0ReadOnly)
+        "ui.read_element_placeholder_value": ("ui", .level0ReadOnly),
+        // Phase 2CE: `ui.read_element_expanded_state` reads a semantically-identified element's
+        // kAXExpandedAttribute — whether a disclosure triangle, popup button, combo box, or menu
+        // button is currently expanded/open, letting an agent check state before deciding to act
+        // (e.g. before calling ui.toggle_disclosure) rather than guessing or unconditionally
+        // toggling. Distinct from ui.toggle_disclosure's own current-state check, which reads
+        // kAXValueAttribute (AXDisclosureTriangle's own 0/1 convention) — this capability reads a
+        // different attribute and, unlike ui.toggle_disclosure, is not restricted to
+        // AXDisclosureTriangle. Reuses QAXElementReadRolePolicy and its AXSecureTextField
+        // exclusion completely unmodified from every prior read capability in this family — no
+        // broader, arbitrary-role allowlist is introduced, and AXSecureTextField is rejected
+        // before the general allowlist is ever consulted. No mutation, no press, no approval, no
+        // recovery: neither AXUIElementPerformAction nor AXUIElementSetAttributeValue is invoked
+        // anywhere in this capability, and kAXValueAttribute is never read. kAXExpandedAttribute
+        // carries no "required for all elements"-style documentation — most controls have no
+        // expanded/collapsed concept at all — so genuine absence
+        // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is the OPTIONAL-REFERENCE pattern, a
+        // valid, expected nil result, identical to ui.read_element_required_state's own absence
+        // semantics (unlike ui.read_element_role_description's required-attribute, no-valid-
+        // absence contract). Every other failure mode (permission denial, unresolvable target,
+        // stale target, a genuine AXError, a non-Boolean returned value) fails closed with its own
+        // dedicated diagnostic; nothing is ever silently defaulted. Bounded to exactly 1 resolved
+        // target, 0 relationship hops, 1 kAXExpandedAttribute read, 0 traversal, 0 actions, 0
+        // polling, 0 retries. See QBridgeAccessibility.readElementExpandedState and
+        // docs/PHASE_2CE_SEMANTIC_EXPANDED_STATE.md for the full contract.
+        "ui.read_element_expanded_state": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

@@ -812,6 +812,18 @@ public enum QVerificationStrategy: Sendable {
         hasPlaceholderValue: Bool,
         placeholderValue: String?
     )
+    /// Phase 2CE: semantic element expanded-state read verification (Level 0, read-only). Like
+    /// every other Level 0 read's verification, there is no separate physical state to re-observe
+    /// after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readElementExpandedState` (exact application/target resolution, a
+    /// successfully-handled optional Boolean), already IS the ground truth. This strategy checks
+    /// the execution result's own `success` flag as a genuine, meaningful assertion — never a bare
+    /// `{ true }` bypass — and never mutates anything as part of verifying the read. Evidence
+    /// carries the application name, role, and whether an expanded-state value was present plus its
+    /// value when present — none of this carries privacy risk (a single structural UI-state fact),
+    /// so it is safe to include directly, mirroring `elementRequiredStateReadSucceeded`'s identical
+    /// discipline for its own optional boolean.
+    case elementExpandedStateReadSucceeded(applicationName: String, role: String, isExpanded: Bool?)
     /// Phase 2BX: semantic label served-elements read verification (Level 0, read-only). Like
     /// every other Level 0 read's verification, there is no separate physical state to re-observe
     /// after the fact — the read's own success/failure, established entirely inside
@@ -2305,6 +2317,19 @@ public final class QActionVerifier: Sendable {
             return .verified(
                 evidence: "application=\(applicationName) role=\(role) element=\(elementDescription) placeholderValue=\(text) status=verified"
             )
+
+        case .elementExpandedStateReadSucceeded(let applicationName, let role, let isExpanded):
+            if result.success {
+                let expandedDescription = isExpanded.map { "\($0)" } ?? "unavailable"
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) isExpanded=\(expandedDescription) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Element expanded-state read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
 
         case .labelServedElementsReadSucceeded(let applicationName, let role, let hasServedElements, let servedElementCount):
             guard result.success else {

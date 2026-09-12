@@ -101,9 +101,10 @@ struct QSemanticElementValueDescriptionReadTests {
         // ui.read_window_auxiliary_buttons, Phase 2BZ's ui.list_table_row_headers, Phase 2CA's
         // ui.read_scroll_position, Phase 2CB's ui.read_element_role_description, then Phase 2CC's
         // ui.read_element_help_text, then Phase 2CD's
-        // ui.read_element_placeholder_value), so this checks the current total rather than a
+        // ui.read_element_placeholder_value, then Phase 2CE's
+        // ui.read_element_expanded_state), so this checks the current total rather than a
         // phase-specific snapshot.
-        #expect(QModelPlanParser.registeredCapabilities.count == 78)
+        #expect(QModelPlanParser.registeredCapabilities.count == 79)
 
         let json = """
         {
