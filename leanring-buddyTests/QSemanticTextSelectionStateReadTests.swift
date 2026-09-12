@@ -135,7 +135,7 @@ struct QSemanticTextSelectionStateReadTests {
         // 2CA's ui.read_scroll_position, Phase 2CB's ui.read_element_role_description, then Phase
         // 2CC's ui.read_element_help_text), so this checks the current total rather than a
         // phase-specific snapshot.
-        #expect(QModelPlanParser.registeredCapabilities.count == 80)
+        #expect(QModelPlanParser.registeredCapabilities.count == 81)
 
         let json = """
         {

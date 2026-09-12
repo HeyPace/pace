@@ -1187,6 +1187,21 @@ public final class QPlanExecutor: Sendable {
             let hasDisclosureLevel = hasDisclosureLevelString == "true"
             let disclosureLevelRaw = hasDisclosureLevel ? result.outputData["disclosureLevel"] : nil
             return .elementDisclosureLevelReadSucceeded(applicationName: applicationName, role: role, hasDisclosureLevel: hasDisclosureLevel, disclosureLevelRaw: disclosureLevelRaw)
+        } else if action.actionName == "ui.read_element_edited_state",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let hasEditedStateString = result.outputData["hasEditedState"] {
+            // Level 0, read-only, purely observational — reconstructed from the applicationName/
+            // role arguments used to dispatch, plus whether an edited-state value was present and
+            // its value, captured at read time. Deliberately NOT threaded through here: any other
+            // element attribute — this strategy only ever carries application identity, source
+            // role, and the edited-state fact itself, by design (the boolean carries no privacy
+            // risk, unlike button/label text), mirroring
+            // elementExpandedStateReadSucceeded's identical discipline.
+            let isEdited: Bool? = hasEditedStateString == "true"
+                ? (result.outputData["isEdited"] == "true")
+                : nil
+            return .elementEditedStateReadSucceeded(applicationName: applicationName, role: role, isEdited: isEdited)
         } else if action.actionName == "ui.list_label_served_elements",
                   let applicationName = action.arguments["applicationName"],
                   let role = action.arguments["role"],

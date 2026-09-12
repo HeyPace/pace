@@ -150,7 +150,7 @@ struct QSemanticElementRoleDescriptionReadTests {
         // ui.read_element_expanded_state, then Phase 2CF's
         // ui.read_element_disclosure_level), so this checks the current total rather
         // than a phase-specific snapshot.
-        #expect(QModelPlanParser.registeredCapabilities.count == 80)
+        #expect(QModelPlanParser.registeredCapabilities.count == 81)
 
         let json = """
         {

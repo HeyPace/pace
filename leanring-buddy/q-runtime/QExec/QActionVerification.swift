@@ -845,6 +845,18 @@ public enum QVerificationStrategy: Sendable {
     /// string, not a pre-parsed `Int`) rather than a pre-validated `Int?`, precisely so `evaluate`
     /// can perform its own independent parse-and-bounds-check re-validation below.
     case elementDisclosureLevelReadSucceeded(applicationName: String, role: String, hasDisclosureLevel: Bool, disclosureLevelRaw: String?)
+    /// Phase 2CG: semantic element edited-state read verification (Level 0, read-only). Like
+    /// every other Level 0 read's verification, there is no separate physical state to re-observe
+    /// after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readElementEditedState` (exact application/target resolution, a
+    /// successfully-handled optional Boolean), already IS the ground truth. This strategy checks
+    /// the execution result's own `success` flag as a genuine, meaningful assertion — never a bare
+    /// `{ true }` bypass — and never mutates anything as part of verifying the read. Evidence
+    /// carries the application name, role, and whether an edited-state value was present plus its
+    /// value when present — none of this carries privacy risk (a single structural UI-state fact),
+    /// so it is safe to include directly, mirroring `elementExpandedStateReadSucceeded`'s identical
+    /// discipline for its own optional boolean.
+    case elementEditedStateReadSucceeded(applicationName: String, role: String, isEdited: Bool?)
     /// Phase 2BX: semantic label served-elements read verification (Level 0, read-only). Like
     /// every other Level 0 read's verification, there is no separate physical state to re-observe
     /// after the fact — the read's own success/failure, established entirely inside
@@ -2382,6 +2394,19 @@ public final class QActionVerifier: Sendable {
             return .verified(
                 evidence: "application=\(applicationName) role=\(role) disclosureLevel=\(level) status=verified"
             )
+
+        case .elementEditedStateReadSucceeded(let applicationName, let role, let isEdited):
+            if result.success {
+                let editedDescription = isEdited.map { "\($0)" } ?? "unavailable"
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) isEdited=\(editedDescription) status=verified"
+                )
+            } else {
+                return .failed(
+                    reason: "Element edited-state read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
 
         case .labelServedElementsReadSucceeded(let applicationName, let role, let hasServedElements, let servedElementCount):
             guard result.success else {

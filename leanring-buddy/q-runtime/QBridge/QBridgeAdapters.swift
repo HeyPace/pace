@@ -1189,6 +1189,19 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// truncating. The payload carries only a description of the offending value, never any other
     /// element content.
     case elementDisclosureLevelInvalid(String)
+    /// Phase 2CG: `kAXEditedAttribute` could not be read due to an actual Accessibility API
+    /// failure — distinct from `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`, which mean the
+    /// target genuinely has no edited/unsaved-changes concept (most non-document/non-text
+    /// elements) and are never treated as an error — see
+    /// `QBridgeAccessibility.readElementEditedState`'s own documentation for the full
+    /// missing-vs-failure rationale. The payload carries the underlying `AXError`, never any
+    /// element content.
+    case elementEditedStateReadFailed(String)
+    /// Phase 2CG: `kAXEditedAttribute`'s copy call reported success but the returned value could
+    /// not be interpreted as a `Bool` — the returned value is treated as untrusted external data,
+    /// never assumed well-formed merely because the copy call itself reported success. Fails
+    /// closed rather than fabricating a Boolean.
+    case elementEditedStateMalformed
 
     public var description: String {
         switch self {
@@ -1596,6 +1609,10 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target element's disclosure level could not be read as a well-formed non-negative integer."
         case .elementDisclosureLevelInvalid(let reason):
             return "The target element's disclosure level is invalid: \(reason)."
+        case .elementEditedStateReadFailed(let reason):
+            return "The target element's edited state could not be read due to an Accessibility API failure: \(reason)."
+        case .elementEditedStateMalformed:
+            return "The target element's edited state could not be read as a well-formed Boolean."
         }
     }
 
@@ -1804,6 +1821,8 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .elementDisclosureLevelReadFailed: return "AX_ELEMENT_DISCLOSURE_LEVEL_READ_FAILED"
         case .elementDisclosureLevelMalformed: return "AX_ELEMENT_DISCLOSURE_LEVEL_MALFORMED"
         case .elementDisclosureLevelInvalid: return "AX_ELEMENT_DISCLOSURE_LEVEL_INVALID"
+        case .elementEditedStateReadFailed: return "AX_ELEMENT_EDITED_STATE_READ_FAILED"
+        case .elementEditedStateMalformed: return "AX_ELEMENT_EDITED_STATE_MALFORMED"
         }
     }
 }
@@ -2319,6 +2338,28 @@ public struct QAXElementDisclosureLevelMetadata: Sendable, Equatable, Codable {
         self.applicationName = applicationName
         self.role = role
         self.disclosureLevel = disclosureLevel
+    }
+}
+
+/// A point-in-time snapshot of a semantically-identified element's unsaved-changes ("edited")
+/// state, captured by `ui.read_element_edited_state` (Phase 2CG). `isEdited` is deliberately
+/// `Bool?`, never a plain `Bool`, following `QAXElementExpandedStateMetadata`'s (Phase 2CE) and
+/// `QAXElementRequiredStateMetadata`'s (Phase 2BQ) identical discipline: `kAXEditedAttribute` has
+/// no "required for all elements"-style documentation — it is meaningful only for document/text-
+/// editing-style elements, so genuine absence (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is
+/// a valid, expected `nil` result, never silently downgraded to `false`. A genuine read failure or
+/// a malformed (non-Boolean) value fails the whole read closed instead of ever being represented as
+/// this field's value. No document/field content, no coordinates, no raw `AXUIElement`, ever
+/// appears in this type.
+public struct QAXElementEditedStateMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let isEdited: Bool?
+
+    public init(applicationName: String, role: String, isEdited: Bool?) {
+        self.applicationName = applicationName
+        self.role = role
+        self.isEdited = isEdited
     }
 }
 
@@ -7769,6 +7810,123 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.elementDisclosureLevelInvalid("value \(int64Value) overflows Swift Int")
         }
         return intValue
+    }
+
+    // MARK: - Semantic Element Edited State Read (Phase 2CG)
+    //
+    // ui.read_element_edited_state — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL
+    // read of a semantically-identified element's kAXEditedAttribute — whether it currently has
+    // unsaved changes ("is dirty"), letting an agent decide whether to warn before closing a
+    // window/document or discarding in-progress edits, rather than guessing or unconditionally
+    // proceeding. kAXEditedAttribute had zero references anywhere in production prior to this
+    // phase.
+    //
+    // ROLE POLICY: reuses QAXElementReadRolePolicy (Phase 2J) and its AXSecureTextField exclusion
+    // completely unmodified — exactly as ui.read_element_expanded_state/ui.read_element_help_text/
+    // ui.read_element_placeholder_value/ui.read_element_role_description already do.
+    // NSAccessibilityProtocols.h declares accessibilityEdited/isAccessibilityEdited (getter) in the
+    // SAME generic property cluster as accessibilityExpanded/accessibilityEnabled/
+    // accessibilityIdentifier — a general per-element property, not restricted to any one
+    // specialized role — so the shared, generic allowlist is the correct, minimal-footprint choice;
+    // no new, parallel role mechanism is introduced.
+    //
+    // No mutation, no press, no approval, no recovery: neither AXUIElementPerformAction nor
+    // AXUIElementSetAttributeValue is invoked anywhere in this capability, and kAXValueAttribute is
+    // never read.
+    //
+    // SDK-VERIFIED ABSENCE SEMANTICS: kAXEditedAttribute carries no "required for all elements"-
+    // style documentation — most controls have no unsaved-changes concept at all. Genuine absence
+    // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is therefore the OPTIONAL-REFERENCE pattern —
+    // a valid, expected nil WHOLE RESULT, identical to ui.read_element_expanded_state's/
+    // ui.read_element_required_state's own absence semantics.
+
+    /// Resolves exactly one semantic target on `QAXElementReadRolePolicy`'s allowlist (with the
+    /// same `AXSecureTextField` exclusion `ui.read_element_expanded_state`/`ui.read_element_value`
+    /// already enforce) and reads its `kAXEditedAttribute` — a purely observational call; neither
+    /// `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is invoked anywhere in this
+    /// method, and `kAXValueAttribute` is never read. Fails closed (throws `QAXInteractionError`)
+    /// on a disallowed/secure role, missing criteria, permission absence, application/target
+    /// absence or ambiguity, a stale/drifted target, a genuine read failure, or a malformed
+    /// (non-Boolean) returned value. Genuine absence of the attribute
+    /// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an error — it produces `nil` for
+    /// the `isEdited` field. Never fabricates a value.
+    public func readElementEditedState(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXElementEditedStateMetadata {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Secure field first, for a specific diagnostic; then the general allowlist, which would
+        // also reject AXSecureTextField on its own (it is never listed) — belt and suspenders,
+        // identical discipline to every prior read capability's own checks.
+        guard role != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+        guard QAXElementReadRolePolicy.isAllowedReadRole(role) else {
+            throw QAXInteractionError.disallowedReadRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // edited-state read and refuse on any drift — identical discipline to every prior AX
+            // capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the edited-state read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the edited-state read")
+            }
+
+            let isEdited = try Self.resolveElementEditedState(of: targetElement)
+
+            return QAXElementEditedStateMetadata(
+                applicationName: applicationName,
+                role: role,
+                isEdited: isEdited
+            )
+        }.value
+    }
+
+    /// Resolves `kAXEditedAttribute` as an optional `Bool?`, distinguishing genuine absence from a
+    /// genuine read failure — see the `MARK` section above for the full missing-vs-failure
+    /// rationale. `kAXErrorNoValue`/`kAXErrorAttributeUnsupported` produce a valid `nil`; any other
+    /// `AXError` fails closed as `elementEditedStateReadFailed`; a successful copy whose value
+    /// cannot be interpreted as a `Bool` fails closed as `elementEditedStateMalformed` — the
+    /// returned value is never force-cast.
+    fileprivate nonisolated static func resolveElementEditedState(of targetElement: AXUIElement) throws -> Bool? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXEditedAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            return nil
+        default:
+            throw QAXInteractionError.elementEditedStateReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value, let isEdited = value as? Bool else {
+            throw QAXInteractionError.elementEditedStateMalformed
+        }
+        return isEdited
     }
 
     // MARK: - Semantic Label Served-Elements Read (Phase 2BX)

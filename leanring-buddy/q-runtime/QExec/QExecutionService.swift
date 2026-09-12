@@ -162,6 +162,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_element_disclosure_level":
             result = await executeReadElementDisclosureLevel(request: request)
 
+        case "ui.read_element_edited_state":
+            result = await executeReadElementEditedState(request: request)
+
         case "ui.list_label_served_elements":
             result = await executeListLabelServedElements(request: request)
 
@@ -2436,6 +2439,90 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading element disclosure level: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2CG: semantic element edited state read — Level 0 (read-only, no approval, no
+    /// mutation authority). Reads `kAXEditedAttribute` — whether the target currently has unsaved
+    /// changes, letting an agent decide whether to warn before closing a window/document or
+    /// discarding in-progress edits, rather than guessing or unconditionally proceeding. Reuses
+    /// `QAXElementReadRolePolicy` and its `AXSecureTextField` exclusion exactly as
+    /// `ui.read_element_value`/`ui.list_element_actions`/`ui.read_element_value_description`/
+    /// `ui.read_element_role_description`/`ui.read_element_help_text`/
+    /// `ui.read_element_placeholder_value`/`ui.read_element_expanded_state` already do. Like
+    /// `ui.read_element_expanded_state`/`ui.read_element_required_state` (and unlike
+    /// `ui.read_element_role_description`), this attribute has a valid-absence case: genuine
+    /// absence (`hasEditedState == false`) is its own valid, distinct outcome, never conflated with
+    /// `false`. Every `QAXInteractionError` failure mode — disallowed/secure role, missing
+    /// criteria, permission absence, application/target absence or ambiguity, a stale target, a
+    /// genuine AX read failure, or a malformed (non-Boolean) CFType — is caught here and converted
+    /// into a deterministic, non-throwing `QActionResult`; this method never fabricates success.
+    /// Only the edited-state Boolean and non-secret targeting metadata cross this method's
+    /// boundary — never `kAXValueAttribute`, never a raw AXUIElement, never document/field content.
+    private func executeReadElementEditedState(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.readElementEditedState(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            let outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "hasEditedState": metadata.isEdited != nil ? "true" : "false",
+                "isEdited": metadata.isEdited.map { $0 ? "true" : "false" } ?? ""
+            ]
+            let editedDescription = metadata.isEdited.map { "\($0)" } ?? "unavailable"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed edited state for \(role) element in \(applicationName): isEdited=\(editedDescription). This is observation only — no element was modified, and this observation does not constitute authorization to modify it later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading element edited state: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

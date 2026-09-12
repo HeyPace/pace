@@ -1457,7 +1457,28 @@ public struct QModelPlanParser: Sendable {
         // 1 resolved target, 0 relationship hops, 1 kAXDisclosureLevelAttribute read, 0 traversal,
         // 0 actions, 0 polling, 0 retries. See QBridgeAccessibility.readElementDisclosureLevel and
         // docs/PHASE_2CF_SEMANTIC_DISCLOSURE_LEVEL.md for the full contract.
-        "ui.read_element_disclosure_level": ("ui", .level0ReadOnly)
+        "ui.read_element_disclosure_level": ("ui", .level0ReadOnly),
+        // Phase 2CG: `ui.read_element_edited_state` reads a semantically-identified element's
+        // kAXEditedAttribute — whether it currently has unsaved changes ("is dirty"), letting an
+        // agent decide whether to warn before closing a window/document or discarding
+        // in-progress edits, rather than guessing or unconditionally proceeding. Reuses
+        // QAXElementReadRolePolicy and its AXSecureTextField exclusion completely unmodified from
+        // every prior read capability in this family — no broader, arbitrary-role allowlist is
+        // introduced, and AXSecureTextField is rejected before the general allowlist is ever
+        // consulted. No mutation, no press, no approval, no recovery: neither
+        // AXUIElementPerformAction nor AXUIElementSetAttributeValue is invoked anywhere in this
+        // capability, and kAXValueAttribute is never read. kAXEditedAttribute carries no
+        // "required for all elements"-style documentation — most controls have no unsaved-changes
+        // concept at all — so genuine absence (kAXErrorNoValue/kAXErrorAttributeUnsupported) is
+        // the OPTIONAL-REFERENCE pattern, a valid, expected nil result, identical to
+        // ui.read_element_expanded_state's/ui.read_element_required_state's own absence
+        // semantics. Every other failure mode (permission denial, unresolvable target, stale
+        // target, a genuine AXError, a non-Boolean returned value) fails closed with its own
+        // dedicated diagnostic; nothing is ever silently defaulted. Bounded to exactly 1 resolved
+        // target, 0 relationship hops, 1 kAXEditedAttribute read, 0 traversal, 0 actions, 0
+        // polling, 0 retries. See QBridgeAccessibility.readElementEditedState and
+        // docs/PHASE_2CG_SEMANTIC_EDITED_STATE.md for the full contract.
+        "ui.read_element_edited_state": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.
