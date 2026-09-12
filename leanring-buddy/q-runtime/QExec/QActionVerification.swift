@@ -824,6 +824,27 @@ public enum QVerificationStrategy: Sendable {
     /// so it is safe to include directly, mirroring `elementRequiredStateReadSucceeded`'s identical
     /// discipline for its own optional boolean.
     case elementExpandedStateReadSucceeded(applicationName: String, role: String, isExpanded: Bool?)
+    /// Phase 2CF: semantic element disclosure-level read verification (Level 0, read-only). Like
+    /// every other Level 0 read's verification, there is no separate physical state to re-observe
+    /// after the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.readElementDisclosureLevel` (exact application/target resolution, a
+    /// validated, non-negative integer), already IS the ground truth. This strategy checks the
+    /// execution result's own `success` flag as a genuine, meaningful assertion — never a bare
+    /// `{ true }` bypass — and, when a disclosure level is claimed present, INDEPENDENTLY
+    /// RE-VALIDATES it is non-negative, mirroring `elementHelpTextReadSucceeded`'s/
+    /// `elementPlaceholderValueReadSucceeded`'s identical independent-recheck discipline for their
+    /// own String-length bound (an integer nesting depth has the same kind of independently-
+    /// checkable invariant a plain Boolean does not). A fabricated success claiming a negative depth
+    /// is still correctly rejected. This performs NO additional AX read — only the already-
+    /// dispatched result's own claimed value is re-checked. Genuine absence
+    /// (`hasDisclosureLevel == false`) is its own valid, distinct verified outcome — never conflated
+    /// with a present depth of `0`. Never mutates anything, never reads `kAXValueAttribute`, as part
+    /// of verification. Evidence carries the application name, role, and the disclosure-level fact
+    /// itself — none of this carries privacy risk (a single bounded, non-negative integer), so it is
+    /// safe to include directly. Carries `hasDisclosureLevel`/`disclosureLevelRaw` (the RAW claimed
+    /// string, not a pre-parsed `Int`) rather than a pre-validated `Int?`, precisely so `evaluate`
+    /// can perform its own independent parse-and-bounds-check re-validation below.
+    case elementDisclosureLevelReadSucceeded(applicationName: String, role: String, hasDisclosureLevel: Bool, disclosureLevelRaw: String?)
     /// Phase 2BX: semantic label served-elements read verification (Level 0, read-only). Like
     /// every other Level 0 read's verification, there is no separate physical state to re-observe
     /// after the fact — the read's own success/failure, established entirely inside
@@ -2330,6 +2351,37 @@ public final class QActionVerifier: Sendable {
                     evidence: "application=\(applicationName) role=\(role) status=failed"
                 )
             }
+
+        case .elementDisclosureLevelReadSucceeded(let applicationName, let role, let hasDisclosureLevel, let disclosureLevelRaw):
+            guard result.success else {
+                return .failed(
+                    reason: "Element disclosure-level read for application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            guard hasDisclosureLevel else {
+                // Genuine, expected absence is its own valid, distinct verified outcome — never
+                // conflated with a present depth of 0.
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) disclosureLevel=unavailable status=verified"
+                )
+            }
+            // Independent re-validation — never blindly trusting the dispatch layer's own success
+            // flag: the claimed disclosure level must parse as a genuine integer and be
+            // non-negative, mirroring elementHelpTextReadSucceeded's/
+            // elementPlaceholderValueReadSucceeded's identical independent-recheck discipline for
+            // their own String-length bound. A fabricated success claiming a non-numeric or
+            // negative depth is still correctly rejected. This performs NO additional AX read —
+            // only the already-dispatched result's own claimed value is re-checked.
+            guard let raw = disclosureLevelRaw, let level = Int(raw), level >= 0 else {
+                return .failed(
+                    reason: "Disclosure level for \(role) element in application '\(applicationName)' is missing or invalid.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            return .verified(
+                evidence: "application=\(applicationName) role=\(role) disclosureLevel=\(level) status=verified"
+            )
 
         case .labelServedElementsReadSucceeded(let applicationName, let role, let hasServedElements, let servedElementCount):
             guard result.success else {

@@ -1170,6 +1170,25 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// never assumed well-formed merely because the copy call itself reported success. Fails closed
     /// rather than fabricating a Boolean.
     case elementExpandedStateMalformed
+    /// Phase 2CF: `kAXDisclosureLevelAttribute` could not be read due to an actual Accessibility
+    /// API failure — distinct from `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`, which mean the
+    /// target genuinely has no disclosure-level concept (most non-outline-row elements) and are
+    /// never treated as an error — see `QBridgeAccessibility.readElementDisclosureLevel`'s own
+    /// documentation for the full missing-vs-failure rationale. The payload carries the underlying
+    /// `AXError`, never any element content.
+    case elementDisclosureLevelReadFailed(String)
+    /// Phase 2CF: `kAXDisclosureLevelAttribute`'s copy call reported success but the returned value
+    /// was not a genuine `CFNumber`, or was a `CFNumber` of a non-integer native subtype — the
+    /// returned value is treated as untrusted external data, never assumed well-formed merely
+    /// because the copy call itself reported success. Never force-cast, never silently coerced from
+    /// a floating-point representation.
+    case elementDisclosureLevelMalformed
+    /// Phase 2CF: `kAXDisclosureLevelAttribute`'s returned integer was negative, or could not be
+    /// losslessly represented as a Swift `Int` (`Int64` overflow) — a disclosure/indentation level
+    /// is fundamentally a non-negative depth. Fails closed rather than ever silently clamping or
+    /// truncating. The payload carries only a description of the offending value, never any other
+    /// element content.
+    case elementDisclosureLevelInvalid(String)
 
     public var description: String {
         switch self {
@@ -1571,6 +1590,12 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target element's expanded state could not be read due to an Accessibility API failure: \(reason)."
         case .elementExpandedStateMalformed:
             return "The target element's expanded state could not be read as a well-formed Boolean."
+        case .elementDisclosureLevelReadFailed(let reason):
+            return "The target element's disclosure level could not be read due to an Accessibility API failure: \(reason)."
+        case .elementDisclosureLevelMalformed:
+            return "The target element's disclosure level could not be read as a well-formed non-negative integer."
+        case .elementDisclosureLevelInvalid(let reason):
+            return "The target element's disclosure level is invalid: \(reason)."
         }
     }
 
@@ -1776,6 +1801,9 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .placeholderValueExceedsSafeBound: return "AX_PLACEHOLDER_VALUE_EXCEEDS_SAFE_BOUND"
         case .elementExpandedStateReadFailed: return "AX_ELEMENT_EXPANDED_STATE_READ_FAILED"
         case .elementExpandedStateMalformed: return "AX_ELEMENT_EXPANDED_STATE_MALFORMED"
+        case .elementDisclosureLevelReadFailed: return "AX_ELEMENT_DISCLOSURE_LEVEL_READ_FAILED"
+        case .elementDisclosureLevelMalformed: return "AX_ELEMENT_DISCLOSURE_LEVEL_MALFORMED"
+        case .elementDisclosureLevelInvalid: return "AX_ELEMENT_DISCLOSURE_LEVEL_INVALID"
         }
     }
 }
@@ -2270,6 +2298,27 @@ public struct QAXElementExpandedStateMetadata: Sendable, Equatable, Codable {
         self.applicationName = applicationName
         self.role = role
         self.isExpanded = isExpanded
+    }
+}
+
+/// A point-in-time snapshot of a semantically-identified outline row's nesting depth, captured by
+/// `ui.read_element_disclosure_level` (Phase 2CF). `disclosureLevel` is deliberately `Int?`, never a
+/// plain `Int`, following `QAXElementRequiredStateMetadata`'s (Phase 2BQ) and
+/// `QAXElementExpandedStateMetadata`'s (Phase 2CE) identical discipline: `kAXDisclosureLevelAttribute`
+/// has no "required for all elements"-style documentation — it is meaningful only for outline-row-
+/// style elements, so genuine absence (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is a valid,
+/// expected `nil` result, never silently downgraded to `0`. A genuine read failure or a malformed
+/// (non-integer, or negative/overflowing) value fails the whole read closed instead of ever being
+/// represented as this field's value.
+public struct QAXElementDisclosureLevelMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let disclosureLevel: Int?
+
+    public init(applicationName: String, role: String, disclosureLevel: Int?) {
+        self.applicationName = applicationName
+        self.role = role
+        self.disclosureLevel = disclosureLevel
     }
 }
 
@@ -7563,6 +7612,163 @@ extension QBridgeAccessibility {
             throw QAXInteractionError.elementExpandedStateMalformed
         }
         return isExpanded
+    }
+
+    // MARK: - Semantic Element Disclosure Level Read (Phase 2CF)
+    //
+    // ui.read_element_disclosure_level — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL
+    // read of a semantically-identified outline row's kAXDisclosureLevelAttribute — its nesting
+    // depth (0 = top level, 1 = one level nested, and so on), letting an agent understand
+    // hierarchical UI structure (Finder's sidebar, Xcode's project navigator, any source list)
+    // without recursively walking parent relationships itself. Complements
+    // ui.read_element_expanded_state (Phase 2CE, "is this row currently open") and the existing
+    // ui.list_outline_items/ui.select_outline_row capabilities.
+    //
+    // ROLE POLICY: reuses QAXOutlineRowRolePolicy (Phase 2T) — the SAME dedicated, narrow role
+    // policy ui.select_outline_row already established for AXRow targets — completely unmodified.
+    // kAXDisclosureLevelAttribute is NOT on QAXElementReadRolePolicy's allowlist (AXRow was never
+    // meaningful for any of ui.read_element_value/ui.read_element_help_text/etc.'s leaf-control
+    // targets), so reusing the existing outline-row-specific policy is the correct, minimal-
+    // footprint choice — not a new, parallel role mechanism.
+    //
+    // DELIBERATELY UNLIKE ui.select_outline_row: this read does NOT additionally require the
+    // AXOutlineRow subrole or an AXOutline parent context. ui.select_outline_row enforces those
+    // gates because MUTATING the wrong kind of row (e.g. an ordinary AXTableRow) would be a real,
+    // silent misbehavior. A READ carries no such risk: an ordinary AXRow that is not genuinely an
+    // outline row simply, honestly reports kAXErrorNoValue/kAXErrorAttributeUnsupported for
+    // kAXDisclosureLevelAttribute — which this capability already treats as a valid, expected `nil`
+    // result — never a fabricated depth. Letting the real AX data honestly speak for itself, rather
+    // than pre-emptively gating on assumed semantics, is the same design philosophy every other
+    // optional-reference read capability in this codebase already follows.
+    //
+    // SDK-VERIFIED ABSENCE SEMANTICS: kAXDisclosureLevelAttribute carries no "required for all
+    // elements"-style documentation — it is meaningful only for outline-row-style elements; most
+    // controls, and even most plain table rows, legitimately lack it. Genuine absence
+    // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is therefore the OPTIONAL-REFERENCE pattern —
+    // a valid, expected nil WHOLE RESULT, identical to ui.read_element_expanded_state's/
+    // ui.read_element_required_state's own absence semantics.
+
+    /// Resolves exactly one semantic target on `QAXOutlineRowRolePolicy`'s allowlist (`AXRow`) and
+    /// reads its `kAXDisclosureLevelAttribute` — a purely observational call; neither
+    /// `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is invoked anywhere in this
+    /// method, and `kAXValueAttribute` is never read. Fails closed (throws `QAXInteractionError`)
+    /// on a disallowed role, missing criteria, permission absence, application/target absence or
+    /// ambiguity, a stale/drifted target, a genuine read failure, a malformed (non-integer)
+    /// returned value, or a negative/overflowing integer. Genuine absence of the attribute
+    /// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an error — it produces `nil` for
+    /// the `disclosureLevel` field. Never fabricates a depth.
+    public func readElementDisclosureLevel(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXElementDisclosureLevelMetadata {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        guard QAXOutlineRowRolePolicy.isAllowedOutlineRowRole(role) else {
+            throw QAXInteractionError.disallowedOutlineRowRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // disclosure-level read and refuse on any drift — identical discipline to every prior
+            // AX capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the disclosure-level read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the disclosure-level read")
+            }
+
+            let disclosureLevel = try Self.resolveElementDisclosureLevel(of: targetElement)
+
+            return QAXElementDisclosureLevelMetadata(
+                applicationName: applicationName,
+                role: role,
+                disclosureLevel: disclosureLevel
+            )
+        }.value
+    }
+
+    /// Reads `kAXDisclosureLevelAttribute` and normalizes it to a validated, non-negative `Int`, or
+    /// `nil` for genuine attribute absence. Every check has its own distinct, dedicated diagnostic —
+    /// nothing is ever silently truncated, clamped, or defaulted, and the returned value is never
+    /// force-cast: the copy call's own success alone is never treated as proof the returned
+    /// CFTypeRef is genuinely a well-formed integer.
+    ///
+    /// Validation, in order (mirrors `resolveTableCount`'s exact CFNumber-decoding rigor, combined
+    /// with the optional-absence discipline every other Phase 2CC/2CD/2CE capability establishes):
+    /// 1. `.noValue`/`.attributeUnsupported` → `nil` (genuine, expected absence); any other
+    ///    non-`.success` `AXError` → `elementDisclosureLevelReadFailed`.
+    /// 2. The returned value must be a genuine `CFNumber` (`CFGetTypeID(value) ==
+    ///    CFNumberGetTypeID()`) → `elementDisclosureLevelMalformed` otherwise.
+    /// 3. The `CFNumber`'s own native subtype must be an integer subtype, never a floating-point one
+    ///    — a nesting depth is fundamentally a whole quantity → `elementDisclosureLevelMalformed`
+    ///    otherwise.
+    /// 4. `CFNumberGetValue(_:.sInt64Type:_:)` must itself report success →
+    ///    `elementDisclosureLevelMalformed` otherwise.
+    /// 5. The extracted `Int64` must be non-negative → `elementDisclosureLevelInvalid` otherwise.
+    /// 6. The extracted `Int64` must be losslessly representable as a Swift `Int`
+    ///    (`Int(exactly:)`, never a truncating cast) → `elementDisclosureLevelInvalid` otherwise
+    ///    (overflow).
+    fileprivate nonisolated static func resolveElementDisclosureLevel(of targetElement: AXUIElement) throws -> Int? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXDisclosureLevelAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            return nil
+        default:
+            throw QAXInteractionError.elementDisclosureLevelReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value else {
+            throw QAXInteractionError.elementDisclosureLevelMalformed
+        }
+        guard CFGetTypeID(value) == CFNumberGetTypeID() else {
+            throw QAXInteractionError.elementDisclosureLevelMalformed
+        }
+        let cfNumber = value as! CFNumber // swiftlint:disable:this force_cast — CFGetTypeID checked above
+
+        switch CFNumberGetType(cfNumber) {
+        case .sInt8Type, .sInt16Type, .sInt32Type, .sInt64Type,
+             .charType, .shortType, .intType, .longType, .longLongType,
+             .cfIndexType, .nsIntegerType:
+            break
+        default:
+            // float32Type/float64Type/floatType/doubleType/cgFloatType, or any future numeric
+            // subtype not explicitly recognized as integral above — never silently truncated.
+            throw QAXInteractionError.elementDisclosureLevelMalformed
+        }
+
+        var int64Value: Int64 = 0
+        guard CFNumberGetValue(cfNumber, .sInt64Type, &int64Value) else {
+            throw QAXInteractionError.elementDisclosureLevelMalformed
+        }
+        guard int64Value >= 0 else {
+            throw QAXInteractionError.elementDisclosureLevelInvalid("negative value: \(int64Value)")
+        }
+        guard let intValue = Int(exactly: int64Value) else {
+            throw QAXInteractionError.elementDisclosureLevelInvalid("value \(int64Value) overflows Swift Int")
+        }
+        return intValue
     }
 
     // MARK: - Semantic Label Served-Elements Read (Phase 2BX)

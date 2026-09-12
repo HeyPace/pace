@@ -1171,6 +1171,22 @@ public final class QPlanExecutor: Sendable {
                 ? (result.outputData["isExpanded"] == "true")
                 : nil
             return .elementExpandedStateReadSucceeded(applicationName: applicationName, role: role, isExpanded: isExpanded)
+        } else if action.actionName == "ui.read_element_disclosure_level",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let hasDisclosureLevelString = result.outputData["hasDisclosureLevel"] {
+            // Level 0, read-only, purely observational — reconstructed from the applicationName/
+            // role arguments used to dispatch, plus whether a disclosure-level value was claimed
+            // present, captured at read time. The RAW claimed string (not a pre-parsed Int) is
+            // threaded through to the verification strategy so it can independently re-parse and
+            // bounds-check it itself — mirroring elementHelpTextReadSucceeded's/
+            // elementPlaceholderValueReadSucceeded's identical independent-recheck discipline for
+            // their own String-length bound, rather than elementExpandedStateReadSucceeded's/
+            // elementRequiredStateReadSucceeded's simpler Boolean pattern (a plain Boolean has no
+            // independently-checkable invariant the way a non-negative integer does).
+            let hasDisclosureLevel = hasDisclosureLevelString == "true"
+            let disclosureLevelRaw = hasDisclosureLevel ? result.outputData["disclosureLevel"] : nil
+            return .elementDisclosureLevelReadSucceeded(applicationName: applicationName, role: role, hasDisclosureLevel: hasDisclosureLevel, disclosureLevelRaw: disclosureLevelRaw)
         } else if action.actionName == "ui.list_label_served_elements",
                   let applicationName = action.arguments["applicationName"],
                   let role = action.arguments["role"],

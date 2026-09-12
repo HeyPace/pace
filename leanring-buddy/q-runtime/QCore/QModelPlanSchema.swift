@@ -1430,7 +1430,34 @@ public struct QModelPlanParser: Sendable {
         // target, 0 relationship hops, 1 kAXExpandedAttribute read, 0 traversal, 0 actions, 0
         // polling, 0 retries. See QBridgeAccessibility.readElementExpandedState and
         // docs/PHASE_2CE_SEMANTIC_EXPANDED_STATE.md for the full contract.
-        "ui.read_element_expanded_state": ("ui", .level0ReadOnly)
+        "ui.read_element_expanded_state": ("ui", .level0ReadOnly),
+        // Phase 2CF: `ui.read_element_disclosure_level` reads a semantically-identified outline
+        // row's kAXDisclosureLevelAttribute — its nesting depth (0 = top level, 1 = one level
+        // nested, and so on), letting an agent understand hierarchical UI structure (Finder's
+        // sidebar, Xcode's project navigator, any source list) without recursively walking parent
+        // relationships itself. Complements ui.read_element_expanded_state ("is this row currently
+        // open") and the existing ui.list_outline_items/ui.select_outline_row capabilities. Reuses
+        // QAXOutlineRowRolePolicy (Phase 2T) — the SAME dedicated AXRow role policy
+        // ui.select_outline_row already established — completely unmodified; no new, parallel role
+        // mechanism is introduced. Deliberately unlike ui.select_outline_row, this read does NOT
+        // additionally require the AXOutlineRow subrole or an AXOutline parent context: a MUTATION
+        // on the wrong kind of row would be real, silent misbehavior, but a READ of an ordinary
+        // AXRow that is not genuinely an outline row simply, honestly reports genuine attribute
+        // absence (a valid, expected nil), never a fabricated depth. No mutation, no press, no
+        // approval, no recovery: neither AXUIElementPerformAction nor AXUIElementSetAttributeValue
+        // is invoked anywhere in this capability, and kAXValueAttribute is never read.
+        // kAXDisclosureLevelAttribute carries no "required for all elements"-style documentation —
+        // most controls, and even most plain table rows, legitimately lack it — so genuine absence
+        // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is the OPTIONAL-REFERENCE pattern, a
+        // valid, expected nil result, identical to ui.read_element_expanded_state's/
+        // ui.read_element_required_state's own absence semantics. Every other failure mode
+        // (permission denial, unresolvable target, stale target, a genuine AXError, a malformed
+        // non-integer returned value, or a negative/overflowing integer) fails closed with its own
+        // dedicated diagnostic; nothing is ever silently defaulted or truncated. Bounded to exactly
+        // 1 resolved target, 0 relationship hops, 1 kAXDisclosureLevelAttribute read, 0 traversal,
+        // 0 actions, 0 polling, 0 retries. See QBridgeAccessibility.readElementDisclosureLevel and
+        // docs/PHASE_2CF_SEMANTIC_DISCLOSURE_LEVEL.md for the full contract.
+        "ui.read_element_disclosure_level": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

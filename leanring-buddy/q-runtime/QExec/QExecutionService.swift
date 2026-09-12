@@ -159,6 +159,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_element_expanded_state":
             result = await executeReadElementExpandedState(request: request)
 
+        case "ui.read_element_disclosure_level":
+            result = await executeReadElementDisclosureLevel(request: request)
+
         case "ui.list_label_served_elements":
             result = await executeListLabelServedElements(request: request)
 
@@ -2348,6 +2351,91 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading element expanded state: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2CF: semantic element disclosure level read — Level 0 (read-only, no approval, no
+    /// mutation authority). Reads `kAXDisclosureLevelAttribute` — an outline row's nesting depth,
+    /// letting an agent understand hierarchical UI structure without recursively walking parent
+    /// relationships itself. Reuses `QAXOutlineRowRolePolicy` (`AXRow`) exactly as
+    /// `ui.select_outline_row` already does for role validation, but — unlike that mutation
+    /// capability — does not additionally require the `AXOutlineRow` subrole or an `AXOutline`
+    /// parent context: a read of an ordinary row that is not genuinely an outline row simply,
+    /// honestly reports genuine attribute absence. Like `ui.read_element_expanded_state`/
+    /// `ui.read_element_required_state` (and unlike `ui.read_element_role_description`), this
+    /// attribute has a valid-absence case: genuine absence (`hasDisclosureLevel == false`) is its
+    /// own valid, distinct outcome, never conflated with a present depth of `0`. Every
+    /// `QAXInteractionError` failure mode — disallowed role, missing criteria, permission absence,
+    /// application/target absence or ambiguity, a stale target, a genuine AX read failure, a
+    /// malformed (non-integer) CFType, or a negative/overflowing integer — is caught here and
+    /// converted into a deterministic, non-throwing `QActionResult`; this method never fabricates
+    /// success. Only the bounded, non-negative disclosure-level integer and non-secret targeting
+    /// metadata cross this method's boundary — never `kAXValueAttribute`, never a raw AXUIElement,
+    /// never table/document/cell content.
+    private func executeReadElementDisclosureLevel(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.readElementDisclosureLevel(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            let outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "hasDisclosureLevel": metadata.disclosureLevel != nil ? "true" : "false",
+                "disclosureLevel": metadata.disclosureLevel.map { "\($0)" } ?? ""
+            ]
+            let disclosureDescription = metadata.disclosureLevel.map { "\($0)" } ?? "unavailable"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed disclosure level for \(role) element in \(applicationName): disclosureLevel=\(disclosureDescription). This is observation only — no element was modified, and this observation does not constitute authorization to modify it later.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while reading element disclosure level: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

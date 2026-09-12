@@ -107,13 +107,13 @@ struct QSemanticColumnSortDirectionReadTests {
         #expect(regCap?.defaultRisk == .level0ReadOnly)
         #expect(regCap?.defaultRisk.requiresExplicitApproval == false)
         // Capability #68 was registered as the 68th capability; the registry has since grown to
-        // 78 (Phase 2BU's ui.read_table_dimensions, Phase 2BV's ui.read_element_allowed_values,
+        // 80 (Phase 2BU's ui.read_table_dimensions, Phase 2BV's ui.read_element_allowed_values,
         // Phase 2BW's ui.read_element_value_description, Phase 2BX's
         // ui.list_label_served_elements, Phase 2BY's ui.read_window_auxiliary_buttons, Phase
         // 2BZ's ui.list_table_row_headers, Phase 2CA's ui.read_scroll_position, Phase 2CB's
         // ui.read_element_role_description, then Phase 2CC's ui.read_element_help_text), so this
         // checks the current total rather than a phase-specific snapshot.
-        #expect(QModelPlanParser.registeredCapabilities.count == 79)
+        #expect(QModelPlanParser.registeredCapabilities.count == 80)
 
         let json = """
         {
