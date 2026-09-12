@@ -107,6 +107,7 @@ private func makeTestWindow(
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = "QSemanticClickTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: max(60, 44 * buttons.count + 20)))
     for (index, spec) in buttons.enumerated() {

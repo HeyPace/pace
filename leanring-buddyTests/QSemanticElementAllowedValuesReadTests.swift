@@ -51,6 +51,7 @@ private func makeSliderWindow(identifier: String, value: Double, minValue: Doubl
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = "QSemanticElementAllowedValuesReadTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
     let slider = NSSlider(value: value, minValue: minValue, maxValue: maxValue, target: nil, action: nil)
@@ -239,6 +240,7 @@ struct QSemanticElementAllowedValuesReadTests {
         let suffix = UUID().uuidString
         let sharedIdentifier = "DupSlider-\(suffix)"
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.animationBehavior = .none
         let sliderA = NSSlider(value: 10, minValue: 0, maxValue: 100, target: nil, action: nil)
         sliderA.frame = NSRect(x: 10, y: 10, width: 150, height: 24)
         sliderA.setAccessibilityIdentifier(sharedIdentifier)

@@ -42,6 +42,7 @@ private func makeMinimizableWindow(
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = title
     if let identifier {
         window.setAccessibilityIdentifier(identifier)

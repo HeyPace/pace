@@ -395,6 +395,7 @@ struct QSemanticTabItemEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
             let tabView = NSTabView(frame: NSRect(x: 10, y: 10, width: 380, height: 280))
             let item1 = NSTabViewItem(identifier: "tab-overview")
             item1.label = "Overview"

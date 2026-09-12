@@ -508,6 +508,7 @@ struct QSemanticRulerEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
             window.title = "QRulerWindow-2BC"
 
             let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))

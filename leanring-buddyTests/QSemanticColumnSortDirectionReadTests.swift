@@ -59,6 +59,7 @@ private func makeSingleColumnTableFixture(tableIdentifier: String, columnTitle: 
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     let scrollView = NSScrollView(frame: NSRect(x: 10, y: 10, width: 380, height: 280))
     let tableView = NSTableView(frame: scrollView.bounds)
     let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("SortCol"))
@@ -349,6 +350,7 @@ struct QSemanticColumnSortDirectionReadTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.animationBehavior = .none
         let scrollA = NSScrollView(frame: NSRect(x: 10, y: 10, width: 180, height: 280))
         let tableA = NSTableView(frame: scrollA.bounds)
         let colA = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("ColA"))

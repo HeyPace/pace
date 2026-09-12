@@ -373,6 +373,7 @@ struct QSemanticPopupEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
             let popUp = NSPopUpButton(frame: NSRect(x: 20, y: 50, width: 200, height: 30), pullsDown: false)
             popUp.addItems(withTitles: ["Item Alpha", "Item Beta", "Item Gamma"])
             popUp.selectItem(withTitle: "Item Beta")

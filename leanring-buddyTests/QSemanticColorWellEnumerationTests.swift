@@ -499,6 +499,7 @@ struct QSemanticColorWellEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
             window.title = "QColorWellWindow-2AX"
             let colorWell = NSColorWell(frame: NSRect(x: 50, y: 50, width: 80, height: 30))
             colorWell.color = NSColor.systemPurple

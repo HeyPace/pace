@@ -42,6 +42,7 @@ private func makeButtonWindow(identifier: String, title: String) -> (window: NSW
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = "QSemanticElementAttributesTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
     let button = NSButton(frame: NSRect(x: 20, y: 20, width: 240, height: 32))
@@ -61,6 +62,7 @@ private func makeTextFieldWindow(identifier: String, value: String) -> (window: 
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = "QSemanticElementAttributesTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
     let field = NSTextField(frame: NSRect(x: 20, y: 20, width: 240, height: 24))
@@ -227,6 +229,7 @@ struct QSemanticElementAttributeEnumerationTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
         let buttonA = NSButton(frame: NSRect(x: 20, y: 20, width: 240, height: 32))
         buttonA.title = "Dup"

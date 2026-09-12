@@ -48,6 +48,7 @@ private func makeReadableScrollableWindow(
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = "QSemanticScrollPositionReadTestFixture"
     let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
     scrollView.hasVerticalScroller = true
@@ -336,6 +337,7 @@ struct QSemanticScrollPositionReadTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
 
         let scrollA = NSScrollView(frame: NSRect(x: 10, y: 10, width: 180, height: 280))

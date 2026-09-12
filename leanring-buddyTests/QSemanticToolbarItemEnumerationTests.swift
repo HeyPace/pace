@@ -406,6 +406,7 @@ struct QSemanticToolbarItemEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
             let toolbar = NSToolbar(identifier: NSToolbar.Identifier("QTestToolbar-2AK"))
             toolbar.displayMode = .iconAndLabel
             window.toolbar = toolbar

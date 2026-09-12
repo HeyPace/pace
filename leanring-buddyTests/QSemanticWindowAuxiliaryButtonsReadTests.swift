@@ -51,6 +51,7 @@ private func makeWindow(title: String, identifier: String? = nil) -> NSWindow {
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = title
     if let identifier {
         window.setAccessibilityIdentifier(identifier)
@@ -71,6 +72,7 @@ private func makeWindowWithAuxiliaryChrome(title: String, identifier: String? = 
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = title
     if let identifier {
         window.setAccessibilityIdentifier(identifier)
@@ -243,9 +245,11 @@ struct QSemanticWindowAuxiliaryButtonsReadTests {
         let suffix = UUID().uuidString
         let sharedTitle = "DupWindow-\(suffix)"
         let windowA = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        windowA.animationBehavior = .none
         windowA.title = sharedTitle
         windowA.makeKeyAndOrderFront(nil)
         let windowB = NSWindow(contentRect: NSRect(x: 400, y: 80, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        windowB.animationBehavior = .none
         windowB.title = sharedTitle
         windowB.makeKeyAndOrderFront(nil)
         defer {

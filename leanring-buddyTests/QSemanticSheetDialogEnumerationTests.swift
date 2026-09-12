@@ -364,6 +364,7 @@ struct QSemanticSheetDialogEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
             window.title = "QSheetWindow-2AN"
             window.makeKeyAndOrderFront(nil)
 
@@ -407,6 +408,7 @@ struct QSemanticSheetDialogEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            win.animationBehavior = .none
             win.title = "QZeroSheetWindow-2AN"
             win.makeKeyAndOrderFront(nil)
             return win

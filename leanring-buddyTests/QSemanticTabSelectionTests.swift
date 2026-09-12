@@ -101,6 +101,7 @@ private func makeTabWindow(
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = "QSemanticTabSelectionTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
     let tab = QTabFixtureButton(frame: NSRect(x: 20, y: 20, width: 80, height: 24))
@@ -237,6 +238,7 @@ struct QSemanticTabSelectionTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 200, height: 80), styleMask: [.titled], backing: .buffered, defer: false)
+        window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
         let ordinaryRadio = QOrdinaryRadioButtonFixture(frame: NSRect(x: 20, y: 20, width: 80, height: 24))
         ordinaryRadio.setButtonType(.pushOnPushOff)
@@ -308,6 +310,7 @@ struct QSemanticTabSelectionTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
         let tabA = QTabFixtureButton(frame: NSRect(x: 20, y: 70, width: 80, height: 24))
         tabA.setButtonType(.pushOnPushOff)

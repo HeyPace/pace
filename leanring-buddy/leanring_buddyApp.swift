@@ -169,9 +169,6 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             }
             companionManager.avatarOverlayManager = mascot
             avatarOverlayManager = mascot
-            mascot.show()
-        } else {
-            menuBarOverlayManager.show()
         }
         // Unit tests run inside this app as their test host. Skip the full
         // companion startup there: start() ignites live subsystems (Apple FM
@@ -180,9 +177,22 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         // every test — and an intermittent FoundationModels framework trap
         // in that background activity takes the whole test process, and
         // every in-flight test in it, down as 0.000s bystander failures.
+        // The mascot/menu-bar overlay presented below is a real, ordered-
+        // onscreen NSPanel that lives for the process's whole lifetime and
+        // gets torn down when the test host exits — racing AppKit's window
+        // close-animation teardown (SIGSEGV in
+        // -[_NSWindowTransformAnimation dealloc]) exactly like the
+        // companion's background activity does, misattributed by xcresult
+        // to whatever test happened to be "current" at exit. No test in
+        // this suite interacts with the overlay, so it is never shown here.
         let isRunningAsUnitTestHost =
             ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
         if !isRunningAsUnitTestHost {
+            if useRightCornerMascot {
+                avatarOverlayManager?.show()
+            } else {
+                menuBarOverlayManager.show()
+            }
             companionManager.start()
         }
         if useRightCornerMascot {

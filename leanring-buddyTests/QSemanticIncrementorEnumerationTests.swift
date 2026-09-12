@@ -503,6 +503,7 @@ struct QSemanticIncrementorEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
             window.title = "QIncrementorWindow-2BA"
 
             let stepper = NSStepper(frame: NSRect(x: 20, y: 20, width: 19, height: 27))

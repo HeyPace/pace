@@ -37,6 +37,7 @@ private func makeComboBoxWindow(
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = "QSemanticComboBoxSelectionTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
     let comboBox = NSComboBox(frame: NSRect(x: 20, y: 20, width: 200, height: 24))

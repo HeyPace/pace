@@ -508,6 +508,7 @@ struct QSemanticProgressIndicatorEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
             window.title = "QProgressIndicatorWindow-2AY"
 
             let determinatePI = NSProgressIndicator(frame: NSRect(x: 20, y: 20, width: 200, height: 20))

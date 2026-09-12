@@ -407,6 +407,7 @@ struct QSemanticRadioGroupItemEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
             let stackView = NSStackView(frame: NSRect(x: 10, y: 10, width: 380, height: 280))
             stackView.orientation = .vertical
 

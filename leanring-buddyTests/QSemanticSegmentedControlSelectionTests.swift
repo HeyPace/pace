@@ -98,6 +98,7 @@ private func makeSegmentedControlWindow(
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = windowTitle
 
     let container = QSegmentedControlContainerFixtureView(frame: NSRect(x: 20, y: 50, width: 360, height: 40))
@@ -766,6 +767,7 @@ struct QSemanticSegmentedControlSelectionTests {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
             let segControl = NSSegmentedControl(labels: ["List", "Icons", "Columns"], trackingMode: .selectOne, target: nil, action: nil)
             segControl.selectedSegment = 0
             segControl.setAccessibilityLabel("View Mode Control")

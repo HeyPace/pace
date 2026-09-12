@@ -30,6 +30,7 @@ private func makeCheckboxWindow(identifier: String, isChecked: Bool) -> (window:
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = "QSemanticElementStateTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
     let checkbox = NSButton(checkboxWithTitle: "Enabled", target: nil, action: nil)
@@ -50,6 +51,7 @@ private func makeRadioButtonWindow(identifier: String, isSelected: Bool) -> (win
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = "QSemanticElementStateTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
     let radio = NSButton(radioButtonWithTitle: "Option A", target: nil, action: nil)
@@ -252,6 +254,7 @@ struct QSemanticElementStateTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
         let boxA = NSButton(checkboxWithTitle: "A", target: nil, action: nil)
         boxA.frame = NSRect(x: 20, y: 20, width: 240, height: 24)

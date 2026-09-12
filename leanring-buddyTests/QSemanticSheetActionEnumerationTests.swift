@@ -408,6 +408,7 @@ struct QSemanticSheetActionEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
             window.title = "QSheetActionWindow-2AO"
             window.makeKeyAndOrderFront(nil)
 

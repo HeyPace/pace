@@ -418,6 +418,7 @@ struct QSemanticSegmentedControlItemEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
             let segControl = NSSegmentedControl(labels: ["List", "Icons", "Columns"], trackingMode: .selectOne, target: nil, action: nil)
             segControl.selectedSegment = 1
             segControl.setAccessibilityLabel("View Mode Control")

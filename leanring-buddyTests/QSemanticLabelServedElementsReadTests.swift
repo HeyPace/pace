@@ -62,6 +62,7 @@ private func makeLabelWithServedElements(
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = "QSemanticLabelServedElementsTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 150))
 
@@ -275,6 +276,7 @@ struct QSemanticLabelServedElementsReadTests {
         let suffix = UUID().uuidString
         let sharedIdentifier = "DupLabel-\(suffix)"
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.animationBehavior = .none
         let labelA = NSTextField(labelWithString: "A")
         labelA.frame = NSRect(x: 10, y: 10, width: 90, height: 24)
         labelA.setAccessibilityIdentifier(sharedIdentifier)

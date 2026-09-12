@@ -63,6 +63,7 @@ private func makeTextFieldWindow(identifier: String, initialValue: String) -> (w
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = "QSemanticTextEntryTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
     let field = NSTextField(frame: NSRect(x: 20, y: 20, width: 240, height: 24))
@@ -83,6 +84,7 @@ private func makeTextAreaWindow(identifier: String, initialValue: String) -> (wi
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = "QSemanticTextEntryTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 160))
     let textView = NSTextView(frame: NSRect(x: 20, y: 20, width: 260, height: 120))
@@ -250,6 +252,7 @@ struct QSemanticTextEntryTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
         let fieldA = NSTextField(frame: NSRect(x: 20, y: 20, width: 240, height: 24))
         fieldA.isEditable = true

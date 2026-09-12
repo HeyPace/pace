@@ -113,6 +113,7 @@ private func makeSplitViewWindow(
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.title = windowTitle
 
     let splitGroup = QSplitGroupContainerFixtureView(frame: NSRect(x: 20, y: 20, width: 460, height: 360))

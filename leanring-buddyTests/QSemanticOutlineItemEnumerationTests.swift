@@ -423,6 +423,7 @@ struct QSemanticOutlineItemEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
             let scrollView = NSScrollView(frame: NSRect(x: 10, y: 10, width: 380, height: 280))
             let outlineView = NSOutlineView(frame: scrollView.bounds)
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Col1"))

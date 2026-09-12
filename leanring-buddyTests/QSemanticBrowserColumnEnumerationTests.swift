@@ -501,6 +501,7 @@ struct QSemanticBrowserColumnEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
             let browser = NSBrowser(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
             browser.setAccessibilityIdentifier("test.browser")
 

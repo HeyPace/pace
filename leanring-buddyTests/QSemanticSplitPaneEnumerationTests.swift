@@ -498,6 +498,7 @@ struct QSemanticSplitPaneEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
             let splitView = NSSplitView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
             splitView.isVertical = true
             splitView.dividerStyle = .thin

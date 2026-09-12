@@ -504,6 +504,7 @@ struct QSemanticComboBoxEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            window.animationBehavior = .none
             window.title = "QComboBoxWindow-2BB"
 
             let comboBox = NSComboBox(frame: NSRect(x: 20, y: 20, width: 150, height: 26))
