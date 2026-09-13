@@ -1,12 +1,15 @@
 ## 0. Owner Gate
 
-- [ ] 0.1 Owner answers D1 (producer scope for this proposal), D2 (new store
+- [x] 0.1 Owner answers D1 (producer scope for this proposal), D2 (new store
       vs. extending the episodic fact store), and D3 (retention/staleness
       defaults) in [design.md](./design.md) before Slice 2 merges. Slice 1 may
       proceed on the recommended defaults since it is purely additive and
       easily adjusted before anything else depends on it.
-- [ ] 0.2 Record the answers in this change and adjust scope rather than
-      starting Slice 2+ past the approved boundary.
+- [x] 0.2 Record the answers in this change and adjust scope rather than
+      starting Slice 2+ past the approved boundary. Owner confirmed all three
+      recommended defaults on 2026-09-13: D1 app-transition-only producer
+      scope, D2 new dedicated store, D3 200-per-subject cap / 30-minute
+      freshness window. See the "OWNER DECISION" lines in design.md.
 
 ## 1. Slice 1 — Typed Observation + Derived State Schema
 
@@ -44,21 +47,33 @@
 
 ## 2. Slice 2 — Deterministic App/Window-Transition Producer
 
-- [ ] 2.1 Add a producer that calls into `PaceActivityGoalStore` from
+- [x] 2.1 Add a producer that calls into `PaceActivityGoalStore` from
       `PaceAppUsageTracker.handleApplicationActivated(named:)` (or an
       equivalent seam), recording an `observed` observation naming the newly
-      frontmost application.
-- [ ] 2.2 Ensure the producer performs no new capture, no new permission
+      frontmost application. Implemented via a new optional
+      `onActivityObserved` closure parameter on `PaceAppUsageTracker`, wired
+      in `CompanionManager.appUsageTracker` to
+      `CompanionManager+ActivityGoalModel.swift`'s
+      `recordActivityGoalObservation(applicationName:at:)`. Persistence is
+      also wired end-to-end (save after every apply; restore at `start()`
+      via `restorePersistedActivityGoalObservations()`) so Slice 1's store
+      isn't left unfinished scaffolding.
+- [x] 2.2 Ensure the producer performs no new capture, no new permission
       prompt, and no model call — it reads only the signal
-      `PaceAppUsageTracker` already receives.
-- [ ] 2.3 Add tests driving the existing app-activation test seam and
+      `PaceAppUsageTracker` already receives. Confirmed: the closure fires
+      from the exact `applicationName`/`Date()` already computed inside
+      `handleApplicationActivated`; it inherits the same `isRunning`
+      (`appUsageHistory` toggle) gate the journal recording already has.
+- [x] 2.3 Add tests driving the existing app-activation test seam and
       asserting the store receives exactly one bounded observation per
       transition, with no behavior change to `PaceAppUsageTracker`'s existing
-      journal/tracking responsibilities.
-- [ ] 2.4 Evaluate the stop condition: if app-transition signal proves too
-      noisy to produce a useful current-state derivation once dogfooded, treat
-      that as evidence for D1's next owner decision, not a reason to add a
-      second producer to compensate.
+      journal/tracking responsibilities. Added a new
+      `simulateApplicationActivatedForTesting(named:)` test-only seam (no
+      prior seam existed for this tracker) and 6 tests in
+      `PaceActivityGoalProducerTests.swift`, all passing.
+- [x] 2.4 Evaluate the stop condition: not yet dogfooded, so noise cannot be
+      assessed yet; no second producer was added preemptively. Revisit once
+      real usage data exists.
 
 ## 3. Slice 3 — Read-Only Retrieval
 

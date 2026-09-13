@@ -8,6 +8,12 @@
 //  still land in the index. All accounting logic lives in the journal,
 //  which is what the unit tests cover.
 //
+//  Also the Slice 2 producer seam for the activity-goal-model
+//  (openspec/changes/2026-09-13-add-activity-goal-model): the same
+//  activation event that feeds the journal optionally feeds
+//  `onActivityObserved`, with no new capture, permission, or model call —
+//  see `CompanionManager+ActivityGoalModel.swift` for the wiring.
+//
 
 import AppKit
 
@@ -17,16 +23,19 @@ final class PaceAppUsageTracker {
 
     private var journal: PaceAppUsageJournal
     private let onFlushedDocument: (PaceRetrievalDocument) -> Void
+    private let onActivityObserved: ((String, Date) -> Void)?
     private var activationObserver: NSObjectProtocol?
     private var periodicFlushTimer: Timer?
     private(set) var isRunning = false
 
     init(
         rehydratedJournal: PaceAppUsageJournal,
-        onFlushedDocument: @escaping (PaceRetrievalDocument) -> Void
+        onFlushedDocument: @escaping (PaceRetrievalDocument) -> Void,
+        onActivityObserved: ((String, Date) -> Void)? = nil
     ) {
         self.journal = rehydratedJournal
         self.onFlushedDocument = onFlushedDocument
+        self.onActivityObserved = onActivityObserved
     }
 
     func start() {
@@ -79,8 +88,22 @@ final class PaceAppUsageTracker {
 
     private func handleApplicationActivated(named applicationName: String?) {
         guard isRunning, let applicationName else { return }
-        journal.recordActivation(appName: applicationName, at: Date())
+        let activationDate = Date()
+        journal.recordActivation(appName: applicationName, at: activationDate)
+        onActivityObserved?(applicationName, activationDate)
         flushNow()
+    }
+
+    /// Test-only seam: exercises `handleApplicationActivated` deterministically
+    /// without registering the real NSWorkspace observer/timer `start()`
+    /// would (which would depend on the test host's actual frontmost app).
+    /// Temporarily flips `isRunning` so the guard above doesn't drop the
+    /// event, then restores it.
+    func simulateApplicationActivatedForTesting(named applicationName: String?) {
+        let wasRunning = isRunning
+        isRunning = true
+        handleApplicationActivated(named: applicationName)
+        isRunning = wasRunning
     }
 
     private func flushNow() {

@@ -264,6 +264,9 @@ extension CompanionManager {
         // until reset" — no staleness expiry; the file is only cleared on
         // an explicit thread reset or when the feature is disabled.
         restorePersistedThreadMemoryIfEnabled()
+        // Rehydrate Slice 1/2 activity-goal observations (Gap #1 of the
+        // consolidation plan; ships unwired to any card/UI surface).
+        restorePersistedActivityGoalObservations()
         // Rehydrate the unified memory index (Phase 2 dual-write; ships dark).
         restoreUnifiedMemory()
         // Phase 5 step 2: pull any already-indexed connector docs (preferences,

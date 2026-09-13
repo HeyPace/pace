@@ -77,7 +77,7 @@ consolidation plan need that subject to exist before they can be built.
 
 ## Decisions
 
-### D1 — Evidence-kind vocabulary and producer scope for this proposal (OWNER DECISION NEEDED)
+### D1 — Evidence-kind vocabulary and producer scope for this proposal (OWNER DECISION: CONFIRMED 2026-09-13)
 
 Recommendation: ship exactly one producer in this proposal — frontmost-app/
 window transitions as `observed` evidence — and leave `inferred` (e.g.
@@ -94,11 +94,11 @@ utterance) alongside the app-transition producer, since it requires no model
 call either. Rejected for this proposal only to keep Slice 2 reviewable in
 isolation; it is a natural Slice 4 if the owner wants it pulled forward.
 
-**Needs an explicit owner answer before Slice 2 merges**: is the
-app-transition-only producer scope acceptable, or should `userStated` capture
-be pulled into this proposal now?
+**Owner confirmed 2026-09-13**: app-transition-only producer scope for this
+proposal. `userStated`/`inferred`/`authorizedTask` producers are follow-up
+proposals once Slices 1-3 are dogfooded.
 
-### D2 — Storage: new store vs. extending the episodic fact store
+### D2 — Storage: new store vs. extending the episodic fact store (OWNER DECISION: CONFIRMED 2026-09-13)
 
 Recommendation: a new, small `PaceActivityGoalStore` following
 `PaceEpisodicFactStore`'s shape (dedup/cap/tombstone discipline) rather than
@@ -112,10 +112,10 @@ Alternative considered: extend `PaceEpisodicFactStore` with an
 `isActivityObservation` flag. Rejected — it would let an unrelated future
 change to fact dedup semantics silently affect activity-state derivation.
 
-**Needs an explicit owner answer before Slice 1 merges**: confirm a new store
-is preferred over extending the existing fact store.
+**Owner confirmed 2026-09-13**: a new store, as built in Slice 1
+(`PaceActivityGoalStore` in `PaceActivityGoalModel.swift`).
 
-### D3 — Retention and staleness defaults
+### D3 — Retention and staleness defaults (OWNER DECISION: CONFIRMED 2026-09-13)
 
 Recommendation, mirroring the existing spatial-memory freshness requirement:
 
@@ -131,8 +131,8 @@ Recommendation, mirroring the existing spatial-memory freshness requirement:
   clock; only decays via explicit correction/forgetting, since the user or an
   authorized run said something durable, not a transient signal.
 
-**Needs an explicit owner answer before Slice 1 merges**: confirm the 30-minute
-staleness window and 200-observation cap, or supply different defaults.
+**Owner confirmed 2026-09-13**: the 200-per-subject cap and 30-minute
+freshness window, as built in `PaceActivityGoalLimits`.
 
 ## Slices
 

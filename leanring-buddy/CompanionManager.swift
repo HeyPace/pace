@@ -327,6 +327,9 @@ final class CompanionManager: ObservableObject {
             guard let self else { return }
             self.localRetriever.recordAppUsageDocument(flushedDocument)
             self.refreshLocalRetrievalPublishedState()
+        },
+        onActivityObserved: { [weak self] applicationName, activationDate in
+            self?.recordActivityGoalObservation(applicationName: applicationName, at: activationDate)
         }
     )
 
@@ -398,6 +401,14 @@ final class CompanionManager: ObservableObject {
     /// here before facts reach the retrieval index, so the same
     /// gates apply regardless of which extractor produced the fact.
     let episodicFactStore = PaceEpisodicFactStore()
+    /// Slice 1 of the activity-goal-model
+    /// (openspec/changes/2026-09-13-add-activity-goal-model): typed,
+    /// provenance-bearing observations of what the user appears to be
+    /// doing, and the derived current-state hypothesis over them.
+    let activityGoalStore = PaceActivityGoalStore()
+    /// Durable persistence for `activityGoalStore` — atomic JSON file,
+    /// mirroring `threadMemoryStore`/unified-memory `PaceMemoryStore`.
+    let activityGoalPersistenceStore = PaceActivityGoalPersistenceStore()
     /// Last-seen intent for the turn currently completing. Set from
     /// the intent classifier site, read by
     /// `recordConversationTurn` so episodic extraction only fires
