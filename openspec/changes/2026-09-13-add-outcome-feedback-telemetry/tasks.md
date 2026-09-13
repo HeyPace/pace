@@ -77,12 +77,17 @@
 
 ## 3. Slice 3 — Read-Only Retrieval
 
-- [ ] 3.1 Add a read-only query returning outcome counts (and derived
+- [x] 3.1 Add a read-only query returning outcome counts (and derived
       rates) per `interventionKind`, for a future ranking layer to call.
-- [ ] 3.2 Add tests proving the query never mutates store state and
+      Already existed as `PaceInterventionOutcomeStore.outcomeCounts(forInterventionKind:)`
+      from Slice 1 (needed there to prove the store under test) — no new
+      production code required for this slice.
+- [x] 3.2 Add tests proving the query never mutates store state and
       returns zero counts (not a fabricated rate) when no records exist
-      for a queried `interventionKind`.
-- [ ] 3.3 Evaluate the stop condition: this slice adds no new behavior
-      surface by itself; if no consumer is planned to use the query within
-      a reasonable follow-up window, stop here rather than building Gap #2
-      speculatively.
+      for a queried `interventionKind`. Already added in Slice 1:
+      `outcomeCountsQueryNeverMutatesStoreContents` and
+      `outcomeCountsReturnsZeroForInterventionKindWithNoRecordsRatherThanFabricatingARate`
+      in `PaceInterventionOutcomeModelTests.swift`.
+- [x] 3.3 Evaluate the stop condition: no consumer is planned yet (Gap #2
+      opportunity ranking is explicitly out of this proposal's scope per
+      proposal.md). Stopping here — this proposal is complete as scoped.
