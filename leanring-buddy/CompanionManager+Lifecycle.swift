@@ -267,6 +267,9 @@ extension CompanionManager {
         // Rehydrate Slice 1/2 activity-goal observations (Gap #1 of the
         // consolidation plan; ships unwired to any card/UI surface).
         restorePersistedActivityGoalObservations()
+        // Rehydrate Slice 1/2 intervention-outcome records (Gap #3 of the
+        // consolidation plan; ships unwired to any ranking/learning layer).
+        restorePersistedInterventionOutcomes()
         // Rehydrate the unified memory index (Phase 2 dual-write; ships dark).
         restoreUnifiedMemory()
         // Phase 5 step 2: pull any already-indexed connector docs (preferences,

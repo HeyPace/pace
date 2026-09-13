@@ -145,6 +145,10 @@ extension CompanionManager {
         NSApp.activate(ignoringOtherApps: true)
         let approvalDecision: PaceActionApprovalDecision =
             alert.runModal() == .alertSecondButtonReturn ? .allowOnce : .cancel
+        recordApprovalInterventionOutcome(
+            decision: approvalDecision,
+            approvalSummary: approvalRequest.approvalSummary
+        )
         return PaceActionApprovalPolicy.shouldExecuteActions(
             request: approvalRequest,
             decision: approvalDecision

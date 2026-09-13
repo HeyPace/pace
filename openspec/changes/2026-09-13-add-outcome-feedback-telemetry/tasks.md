@@ -1,13 +1,16 @@
 ## 0. Owner Gate
 
-- [ ] 0.1 Owner answers D1 (producer scope: approval+undo only, or also
+- [x] 0.1 Owner answers D1 (producer scope: approval+undo only, or also
       `completed`/`failed`), D2 (cap per `interventionKind`, not per
       subject), and D3 (retention default) in [design.md](./design.md)
       before Slice 2 merges. Slice 1 may proceed on the recommended
       defaults since it is purely additive and easily adjusted before
       anything else depends on it.
-- [ ] 0.2 Record the answers in this change and adjust scope rather than
-      starting Slice 2+ past the approved boundary.
+- [x] 0.2 Record the answers in this change and adjust scope rather than
+      starting Slice 2+ past the approved boundary. Owner confirmed all
+      three recommended defaults on 2026-09-13: D1 approval+undo-only
+      producer scope, D2 per-`interventionKind` capping, D3 200-per-kind
+      retention. See the "OWNER DECISION" lines in design.md.
 
 ## 1. Slice 1 — Typed Outcome Record + Store + Retention
 
@@ -38,28 +41,39 @@
 
 ## 2. Slice 2 — Approval Accept/Dismiss + Undo Producers
 
-- [ ] 2.1 Add one new stable identifier to the reversible-action-executed
+- [x] 2.1 Add one new stable identifier to the reversible-action-executed
       record (`noteReversibleActionExecuted` in
       `CompanionManager+TrustSurfacesRuntime.swift`) so a later "undone"
       outcome can correlate back to the specific action it undoes.
-- [ ] 2.2 Record an `accepted`/`dismissed` outcome at
+      Implemented as `mostRecentReversibleActionIdentifier` (a new
+      `@Published` field on `CompanionManager`, mirroring the existing
+      summary/timestamp pair), minted in `noteReversibleActionExecuted`
+      and cleared in `clearReversibleActionUndoState`.
+- [x] 2.2 Record an `accepted`/`dismissed` outcome at
       `requestUserApprovalForActionPlan`'s existing approval-decision
       computation (`CompanionManager+PostureWatch.swift`) — no new
       capture, the decision is already computed from the `NSAlert` result.
-- [ ] 2.3 Record an `undone` outcome at `triggerUndoLastMutation()`
+- [x] 2.3 Record an `undone` outcome at `triggerUndoLastMutation()`
       (`CompanionManager+TrustSurfacesRuntime.swift`), correlated via the
       identifier from 2.1 — no new capture, the trigger is the user's
-      existing undo-banner tap.
-- [ ] 2.4 Wire durable persistence end-to-end (save after every apply,
+      existing undo-banner tap. The identifier/summary are captured before
+      `clearReversibleActionUndoState()` runs.
+- [x] 2.4 Wire durable persistence end-to-end (save after every apply,
       restore at `start()`) so Slice 1's store isn't left as unfinished
       scaffolding, mirroring the prior proposal's Slice 2 discipline.
-- [ ] 2.5 Add tests proving each producer records exactly one bounded
+      `CompanionManager+OutcomeFeedbackTelemetry.swift` owns both producers
+      plus `restorePersistedInterventionOutcomes()`.
+- [x] 2.5 Add tests proving each producer records exactly one bounded
       outcome per decision, with no behavior change to the existing
-      approval or undo execution paths.
-- [ ] 2.6 Evaluate the stop condition: if approval/undo volume proves too
-      sparse to be useful signal once dogfooded, treat that as evidence for
-      D1's next owner decision, not a reason to add more producers to
-      compensate.
+      approval or undo execution paths. 7 tests in
+      `PaceOutcomeFeedbackTelemetryProducerTests.swift`. Note: the real
+      `NSAlert`/executor call sites aren't invoked directly in tests (an
+      unawaited `Task` from `triggerUndoLastMutation` proved unsafe to
+      exercise synchronously in a unit test — see that file's header
+      comment); the synchronous outcome-recording logic each site calls is
+      tested directly instead, which covers everything this slice added.
+- [x] 2.6 Evaluate the stop condition: not yet dogfooded, so sparsity
+      cannot be assessed yet. Not adding more producers preemptively.
 
 ## 3. Slice 3 — Read-Only Retrieval
 

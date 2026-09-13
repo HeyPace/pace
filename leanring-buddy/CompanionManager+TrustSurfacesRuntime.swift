@@ -53,6 +53,7 @@ extension CompanionManager {
             ?? "Last action"
         mostRecentReversibleActionSummary = summary
         mostRecentReversibleActionAt = Date()
+        mostRecentReversibleActionIdentifier = UUID().uuidString
     }
 
     /// Clears the undo-banner state. Called by the cursor overlay
@@ -61,13 +62,23 @@ extension CompanionManager {
     func clearReversibleActionUndoState() {
         mostRecentReversibleActionAt = nil
         mostRecentReversibleActionSummary = nil
+        mostRecentReversibleActionIdentifier = nil
     }
 
     /// Submits an `Undo.last` action through the executor. Called
     /// from the cursor overlay's undo button. Runs out-of-band of the
     /// planner loop because the user explicitly asked for undo.
     func triggerUndoLastMutation() {
+        // Captured before clearing so the outcome-feedback-telemetry
+        // record (openspec/changes/2026-09-13-add-outcome-feedback-telemetry)
+        // can correlate back to the specific reversible action being undone.
+        let undoneActionIdentifier = mostRecentReversibleActionIdentifier
+        let undoneActionSummary = mostRecentReversibleActionSummary ?? "Last action"
         clearReversibleActionUndoState()
+        recordUndoInterventionOutcome(
+            actionIdentifier: undoneActionIdentifier,
+            actionSummary: undoneActionSummary
+        )
         Task { @MainActor in
             let undoPlan = PaceActionExecutionPlan.serial(actions: [.undoLastMutation])
             // approvalAlreadyObtained: true — the user just physically tapped the undo button

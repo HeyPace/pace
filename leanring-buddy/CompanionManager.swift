@@ -104,6 +104,13 @@ final class CompanionManager: ObservableObject {
     /// undo-banner label (e.g. "Created note", "Started mail draft").
     @Published var mostRecentReversibleActionSummary: String?
 
+    /// Stable identifier minted for the most recent reversible action, so
+    /// an "undone" outcome record (see
+    /// `openspec/changes/2026-09-13-add-outcome-feedback-telemetry`) can
+    /// correlate back to the specific action it undoes. Not shown in any
+    /// UI — purely a telemetry correlation key.
+    @Published var mostRecentReversibleActionIdentifier: String?
+
     /// Post-processed spoken text from the most recent assistant turn.
     /// Identical to what flowed through TTS — `<think>` blocks, tool
     /// calls, action tags, and `[POINT:…]` already stripped. The reply
@@ -409,6 +416,14 @@ final class CompanionManager: ObservableObject {
     /// Durable persistence for `activityGoalStore` — atomic JSON file,
     /// mirroring `threadMemoryStore`/unified-memory `PaceMemoryStore`.
     let activityGoalPersistenceStore = PaceActivityGoalPersistenceStore()
+    /// Slice 1 of the outcome-feedback-telemetry proposal
+    /// (openspec/changes/2026-09-13-add-outcome-feedback-telemetry): a
+    /// typed, bounded record of what happened after Pace suggested or
+    /// acted (accepted/dismissed/undone, this proposal's scope).
+    let interventionOutcomeStore = PaceInterventionOutcomeStore()
+    /// Durable persistence for `interventionOutcomeStore` — atomic JSON
+    /// file, mirroring `activityGoalPersistenceStore`.
+    let interventionOutcomePersistenceStore = PaceInterventionOutcomePersistenceStore()
     /// Last-seen intent for the turn currently completing. Set from
     /// the intent classifier site, read by
     /// `recordConversationTurn` so episodic extraction only fires

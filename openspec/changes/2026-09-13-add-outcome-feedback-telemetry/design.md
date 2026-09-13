@@ -82,7 +82,7 @@ adds no new capture surface and no new authority.
 
 ## Decisions
 
-### D1 — Outcome-kind and producer scope for this proposal (OWNER DECISION NEEDED)
+### D1 — Outcome-kind and producer scope for this proposal (OWNER DECISION: CONFIRMED 2026-09-13)
 
 Recommendation: ship exactly two producers — the action-approval
 accept/dismiss decision, and the undo-banner "undone" signal — and leave
@@ -98,11 +98,11 @@ specific "this was a suggestion, and here is whether it worked" pairing,
 per-action completion logging just duplicates `PaceTelemetryLog` at higher
 volume with no new signal.
 
-**Needs an explicit owner answer before Slice 2 merges**: is the
-approval+undo-only producer scope acceptable, or should a `completed`/
-`failed` producer be pulled into this proposal now?
+**Owner confirmed 2026-09-13**: approval+undo-only producer scope for
+this proposal. `ignored`/`edited`/`completed`/`failed` producers are
+follow-up proposals once Slices 1-3 are dogfooded.
 
-### D2 — Storage shape: cap per `interventionKind`, not per free-form subject
+### D2 — Storage shape: cap per `interventionKind`, not per free-form subject (OWNER DECISION: CONFIRMED 2026-09-13)
 
 Recommendation: a new `PaceInterventionOutcomeStore` (not extending
 `PaceActivityGoalStore` — different subject shape and no "current state"
@@ -119,10 +119,10 @@ Alternative considered: cap per subject like `PaceActivityGoalStore`.
 Rejected — would not bound total storage since subjects are rarely
 repeated verbatim.
 
-**Needs an explicit owner answer before Slice 1 merges**: confirm
-per-`interventionKind` capping (not per-subject) is correct here.
+**Owner confirmed 2026-09-13**: per-`interventionKind` capping, as built
+in `PaceInterventionOutcomeStore`.
 
-### D3 — Retention default
+### D3 — Retention default (OWNER DECISION: CONFIRMED 2026-09-13)
 
 Recommendation: 200 records per `interventionKind`, matching
 `PaceActivityGoalLimits`/`PaceEpisodicMemoryLimits`'s existing 200-cap
@@ -131,8 +131,8 @@ window is needed (unlike the activity-goal model): an outcome record is a
 settled historical fact the moment it's written, not evidence toward a
 "current state" that can go stale.
 
-**Needs an explicit owner answer before Slice 1 merges**: confirm the
-200-per-`interventionKind` cap, or supply a different default.
+**Owner confirmed 2026-09-13**: the 200-per-`interventionKind` cap, as
+built in `PaceInterventionOutcomeLimits`.
 
 ## Slices
 
