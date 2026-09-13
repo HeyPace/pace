@@ -8,6 +8,23 @@ approach is abandoned or a deferred idea is revisited.
 The durable status record is [PROJECT_STATUS.md](https://github.com/HeyPace/pace/blob/main/PROJECT_STATUS.md); this
 page is the curated "do not retry without new information" list.
 
+## Rejected: test fixture storage under `.documentDirectory`
+
+**Why rejected:** `QPlanExecutionTests.makeSandboxFilePath` rooted its
+`q_plan_test_<UUID>` fixture directories under `FileManager.default.urls(for:
+.documentDirectory, ...)` — the user's real, iCloud-syncable `~/Documents` —
+with no cleanup. Found 2026-09-13 after 2,110 stale directories had
+accumulated in a real `~/Documents` folder (each holding one small evidence
+text file from `testStep2RequiresStep1Verification`/
+`testRealMultiStepE2EExecution`). Fixed by rooting test fixtures under
+`FileManager.default.temporaryDirectory` instead (mirrors the existing
+`/tmp/q-sandbox` precedent in `QAgentE2ETests.swift`) and adding explicit
+`defer`-based cleanup at every call site. Never point test-only fixture
+storage at `.documentDirectory`, `.desktopDirectory`, or any other real
+user-visible/iCloud-syncable location — always the system temporary
+directory (or an explicitly test-scoped subdirectory of it), always cleaned
+up by the test that created it.
+
 ## Rejected: cloud anything as a default
 
 **Why rejected:** Pace's headline differentiator is fully-on-device operation

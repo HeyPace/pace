@@ -15,11 +15,34 @@ import AppKit
 @Suite("QPlanExecutionTests")
 struct QPlanExecutionTests {
 
+    /// Root for every `q_plan_test_*` fixture directory this suite creates.
+    /// MUST stay under the system temporary directory — never
+    /// `.documentDirectory` (the user's real, iCloud-syncable `~/Documents`).
+    /// A prior version of this helper used `.documentDirectory` and, with no
+    /// cleanup, accumulated thousands of `q_plan_test_*` directories in the
+    /// user's real Documents folder over time (found and fixed 2026-09-13;
+    /// see `sandboxDirectoriesStayOutsideDocumentsAndAreCleanable` below and
+    /// the fix note in `docs/knowledge/failed-approaches.md`).
+    private static let sandboxRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("q-plan-execution-tests", isDirectory: true)
+
+    /// Creates a fresh, uniquely-named (UUID) sandbox directory under the
+    /// isolated temp root and returns the full path to `filename` inside it.
+    /// Parallel-safe (unique dir per call); the caller is responsible for
+    /// removing the returned directory via `removeSandboxDirectory(for:)`
+    /// once the test is done with it.
     private func makeSandboxFilePath(filename: String) -> String {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let sandboxDir = docs.appendingPathComponent("q_plan_test_\(UUID().uuidString)")
+        let sandboxDir = Self.sandboxRoot.appendingPathComponent("q_plan_test_\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: sandboxDir, withIntermediateDirectories: true)
         return sandboxDir.appendingPathComponent(filename).path
+    }
+
+    /// Removes the sandbox directory that owns `filePath` (as returned by
+    /// `makeSandboxFilePath`). Best-effort — a cleanup failure must never
+    /// fail the test that already got its result.
+    private func removeSandboxDirectory(for filePath: String) {
+        let sandboxDir = (filePath as NSString).deletingLastPathComponent
+        try? FileManager.default.removeItem(atPath: sandboxDir)
     }
 
     // MARK: - Test 2: Steps Execute Strictly in Order
@@ -67,6 +90,7 @@ struct QPlanExecutionTests {
     func testStep2RequiresStep1Verification() async throws {
         let executor = QPlanExecutor.shared
         let filePath = makeSandboxFilePath(filename: "verify_step.txt")
+        defer { removeSandboxDirectory(for: filePath) }
         let content = "Verified-Evidence-\(UUID().uuidString)"
         let context = QTaskContext(taskId: "task_verify_order")
 
@@ -322,6 +346,7 @@ struct QPlanExecutionTests {
     func testRealMultiStepE2EExecution() async throws {
         let executor = QPlanExecutor.shared
         let filePath = makeSandboxFilePath(filename: "e2e_plan_test.txt")
+        defer { removeSandboxDirectory(for: filePath) }
         let fileContent = "Q-Plan-E2E-Token-\(UUID().uuidString)"
         let context = QTaskContext(taskId: "e2e_real_plan")
 
@@ -382,5 +407,91 @@ struct QPlanExecutionTests {
             (app.bundleIdentifier?.caseInsensitiveCompare("com.apple.calculator") == .orderedSame)
         }
         #expect(isRunning == true)
+    }
+
+    // MARK: - Test-storage hygiene: sandbox fixtures never touch the real
+    // ~/Documents directory, are parallel-safe, and clean up completely.
+    //
+    // Regression coverage for the 2026-09-13 fix: `makeSandboxFilePath`
+    // previously rooted every `q_plan_test_*` fixture directory under
+    // `.documentDirectory` (the user's real, iCloud-syncable ~/Documents)
+    // with no cleanup, accumulating thousands of directories over time.
+
+    @Test("Sandbox fixture paths never resolve under the real Documents directory")
+    func sandboxFilePathNeverUsesDocumentsDirectory() {
+        let realDocumentsPath = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first!
+            .standardizedFileURL.path
+
+        let filePath = makeSandboxFilePath(filename: "hygiene_check.txt")
+        defer { removeSandboxDirectory(for: filePath) }
+
+        #expect(!filePath.hasPrefix(realDocumentsPath))
+    }
+
+    @Test("Sandbox fixture paths resolve under the isolated system temporary directory")
+    func sandboxFilePathUsesIsolatedTemporaryDirectory() {
+        let temporaryRoot = FileManager.default.temporaryDirectory.standardizedFileURL.path
+
+        let filePath = makeSandboxFilePath(filename: "hygiene_check.txt")
+        defer { removeSandboxDirectory(for: filePath) }
+
+        #expect(filePath.hasPrefix(temporaryRoot))
+        #expect(filePath.contains("/q_plan_test_"))
+    }
+
+    @Test("Repeated sandbox fixture creation never collides and does not accumulate once cleaned up")
+    func repeatedSandboxCallsProduceUniqueDirectoriesAndDoNotCollide() {
+        let firstPath = makeSandboxFilePath(filename: "hygiene_check.txt")
+        let secondPath = makeSandboxFilePath(filename: "hygiene_check.txt")
+        defer {
+            removeSandboxDirectory(for: firstPath)
+            removeSandboxDirectory(for: secondPath)
+        }
+
+        // Distinct UUID-suffixed directories — parallel test runs cannot
+        // collide on the same fixture directory.
+        #expect(firstPath != secondPath)
+        #expect(FileManager.default.fileExists(atPath: firstPath) == false, "path is a file location, not yet written")
+        #expect(FileManager.default.fileExists(atPath: (firstPath as NSString).deletingLastPathComponent))
+        #expect(FileManager.default.fileExists(atPath: (secondPath as NSString).deletingLastPathComponent))
+    }
+
+    @Test("removeSandboxDirectory fully removes the fixture directory it owns")
+    func removeSandboxDirectoryCleansUpCompletely() throws {
+        let filePath = makeSandboxFilePath(filename: "hygiene_check.txt")
+        let sandboxDir = (filePath as NSString).deletingLastPathComponent
+        try "cleanup test".write(toFile: filePath, atomically: true, encoding: .utf8)
+        #expect(FileManager.default.fileExists(atPath: sandboxDir) == true)
+
+        removeSandboxDirectory(for: filePath)
+
+        #expect(FileManager.default.fileExists(atPath: sandboxDir) == false)
+    }
+
+    @Test("Sandbox fixture lifecycle leaves zero residue in the real Documents directory")
+    func sandboxFixturesNeverLeaveResidueInRealDocumentsDirectory() throws {
+        let realDocumentsURL = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first!
+
+        func countPlanTestEntries() -> Int {
+            let entries = (try? FileManager.default.contentsOfDirectory(atPath: realDocumentsURL.path)) ?? []
+            return entries.filter { $0.hasPrefix("q_plan_test_") }.count
+        }
+
+        let countBefore = countPlanTestEntries()
+
+        // Exercise several full create-write-cleanup cycles, mirroring what
+        // the real test steps above do.
+        for _ in 0..<5 {
+            let filePath = makeSandboxFilePath(filename: "hygiene_check.txt")
+            try "residue check".write(toFile: filePath, atomically: true, encoding: .utf8)
+            removeSandboxDirectory(for: filePath)
+        }
+
+        let countAfter = countPlanTestEntries()
+        #expect(countAfter == countBefore, "sandbox fixture creation/cleanup must never touch the real Documents directory")
     }
 }
