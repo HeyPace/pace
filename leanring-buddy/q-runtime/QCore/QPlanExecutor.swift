@@ -1281,6 +1281,26 @@ public final class QPlanExecutor: Sendable {
             // elementTitleReferenceReadSucceeded's (Phase 2BN) identical conservative-evidence
             // discipline.
             return .tableHeaderReadSucceeded(applicationName: applicationName, role: role, hasTableHeader: hasTableHeaderString == "true")
+        } else if action.actionName == "ui.list_linked_elements",
+                  let applicationName = action.arguments["applicationName"],
+                  let role = action.arguments["role"],
+                  let hasLinkedElementsString = result.outputData["hasLinkedElements"],
+                  let linkedElementsCountString = result.outputData["linkedElementsCount"],
+                  let linkedElementsCount = Int(linkedElementsCountString) {
+            // Level 0, read-only, purely observational — reconstructed from the
+            // applicationName/role arguments used to dispatch, plus whether a linked-elements
+            // array was present and its count, captured at read time. Deliberately NOT threaded
+            // through here: any individual linked element's own title/identifier, and NEVER
+            // kAXValueAttribute — this strategy only ever carries application identity, source
+            // role, presence, and a bounded count, mirroring visibleChildrenListSucceeded's
+            // identical conservative-evidence discipline.
+            let hasLinkedElements = hasLinkedElementsString == "true"
+            return .linkedElementsListSucceeded(
+                applicationName: applicationName,
+                role: role,
+                hasLinkedElements: hasLinkedElements,
+                linkedElementsCount: linkedElementsCount
+            )
         } else if action.actionName == "ui.list_outline_items",
                   let applicationName = action.arguments["applicationName"],
                   let itemCountString = result.outputData["itemCount"],

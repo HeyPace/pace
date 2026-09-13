@@ -1573,7 +1573,38 @@ public struct QModelPlanParser: Sendable {
         // kAXHeaderAttribute read, 0 traversal, 0 actions, 0 polling, 0 retries, 1 returned
         // record. See QBridgeAccessibility.readTableHeader and
         // docs/PHASE_2CK_SEMANTIC_TABLE_HEADER.md for the full contract.
-        "ui.read_table_header": ("ui", .level0ReadOnly)
+        "ui.read_table_header": ("ui", .level0ReadOnly),
+        // Phase 2CL: `ui.list_linked_elements` reads a semantically-identified element's
+        // kAXLinkedUIElementsAttribute — the bounded set of other elements it declares a general
+        // "linked" relationship with (e.g. a control and the display it updates, a validation
+        // message and the field it describes). Distinct from every existing relationship
+        // capability: not a title relationship (ui.read_element_title_reference/
+        // ui.list_label_served_elements), not a viewport relationship (ui.list_visible_children),
+        // not a table-header relationship (ui.read_table_header). Reuses QAXElementReadRolePolicy
+        // and its AXSecureTextField exclusion completely unmodified for the SOURCE element — the
+        // same allowlist ui.read_element_title_reference/ui.list_label_served_elements already
+        // use. A bounded relationship query, never generic extraction: exactly one AX attribute
+        // read on the resolved source element, then only bounded identity reads
+        // (role/title/identifier) on each already-enumerated linked element — never a recursive
+        // descent, never a second relationship hop, never kAXValueAttribute. Each linked
+        // element's role is checked against only the single privacy-sensitive exclusion
+        // (AXSecureTextField) — deliberately not the narrower QAXElementReadRolePolicy allowlist,
+        // mirroring ui.list_visible_children's/ui.read_table_header's identical design
+        // difference, since a "linked" relationship is a generic, freeform annotation not
+        // restricted to leaf/label semantics. ATOMIC ARRAY DISCIPLINE (mirrors
+        // ui.list_visible_children, Phase 2CH): a single malformed, unreadable, or secure-field
+        // linked element fails the WHOLE array closed — invalid entries are never silently
+        // dropped — and the array is bounded by maxLinkedElementsCount (32), checked BEFORE any
+        // per-element extraction, never truncated. Genuine absence of the attribute
+        // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is a valid, expected nil whole-result; a
+        // genuinely present but empty array is its own valid, non-nil result. No mutation, no
+        // press, no approval, no recovery: neither AXUIElementPerformAction nor
+        // AXUIElementSetAttributeValue is invoked anywhere in this capability. Bounded to exactly
+        // 1 resolved target, 0 relationship hops beyond the bounded linked-element identity
+        // reads, 1 kAXLinkedUIElementsAttribute read, 0 traversal, 0 actions, 0 polling, 0
+        // retries, 1 returned record. See QBridgeAccessibility.listLinkedElements and
+        // docs/PHASE_2CL_SEMANTIC_LINKED_ELEMENTS.md for the full contract.
+        "ui.list_linked_elements": ("ui", .level0ReadOnly)
     ]
 
     /// Parses raw model text into a validated QPlan data model.

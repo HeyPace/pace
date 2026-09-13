@@ -177,6 +177,9 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         case "ui.read_table_header":
             result = await executeReadTableHeader(request: request)
 
+        case "ui.list_linked_elements":
+            result = await executeListLinkedElements(request: request)
+
         case "ui.list_label_served_elements":
             result = await executeListLabelServedElements(request: request)
 
@@ -2875,6 +2878,101 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 actionId: request.actionId,
                 success: false,
                 summary: "Unexpected error while reading table header: \(error.localizedDescription)",
+                error: "AX_UNEXPECTED_ERROR"
+            )
+        }
+    }
+
+    /// Phase 2CL: semantic linked-elements list — Level 0 (read-only, no approval, no mutation
+    /// authority). Reads `kAXLinkedUIElementsAttribute` — the bounded set of elements a
+    /// semantically-identified element declares a general "linked" relationship with. Reuses
+    /// `QAXElementReadRolePolicy` and its `AXSecureTextField` exclusion exactly as
+    /// `ui.read_element_value`/`ui.list_label_served_elements` already do for the source element.
+    /// Like `ui.list_visible_children`, a single malformed/secure-field/oversized linked element
+    /// fails the WHOLE array closed — invalid entries are never silently dropped — and genuine
+    /// absence (`hasLinkedElements == false`) is its own valid, distinct outcome, never conflated
+    /// with a present-but-empty array. Every `QAXInteractionError` failure mode — disallowed/
+    /// secure role, missing criteria, permission absence, application/target absence or
+    /// ambiguity, a stale target, a genuine AX read failure, a malformed CFType, an oversized
+    /// array, or any malformed/secure-field/oversized-metadata linked element — is caught here
+    /// and converted into a deterministic, non-throwing `QActionResult`; this method never
+    /// fabricates success. Only the bounded linked-element identity references and non-secret
+    /// targeting metadata cross this method's boundary — never `kAXValueAttribute`, never a raw
+    /// AXUIElement, never coordinates.
+    private func executeListLinkedElements(request: QActionRequest) async -> QActionResult {
+        guard let applicationName = request.parameters["applicationName"], !applicationName.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'applicationName' parameter.",
+                error: "applicationName missing"
+            )
+        }
+        guard let role = request.parameters["role"], !role.isEmpty else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Missing required 'role' parameter.",
+                error: "role missing"
+            )
+        }
+        let identifier = request.parameters["identifier"].flatMap { $0.isEmpty ? nil : $0 }
+        let title = request.parameters["title"].flatMap { $0.isEmpty ? nil : $0 }
+        guard identifier != nil || title != nil else {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Target must specify an 'identifier' or 'title' to match semantically — coordinates are never accepted.",
+                error: "AX_MISSING_MATCH_CRITERIA"
+            )
+        }
+
+        do {
+            let metadata = try await QBridgeAccessibility.shared.listLinkedElements(
+                applicationName: applicationName,
+                role: role,
+                identifier: identifier,
+                title: title
+            )
+            let hasLinkedElements = metadata != nil
+            let linkedElements = metadata?.linkedElements ?? []
+            var outputData: [String: String] = [
+                "applicationName": applicationName,
+                "role": role,
+                "matchIdentifier": identifier ?? "",
+                "matchTitle": title ?? "",
+                "elementIdentifier": metadata?.elementIdentifier ?? "",
+                "elementTitle": metadata?.elementTitle ?? "",
+                "hasLinkedElements": hasLinkedElements ? "true" : "false",
+                "linkedElementsCount": "\(linkedElements.count)"
+            ]
+            // Indexed-key encoding for the bounded identity array — the same convention
+            // ui.list_visible_children/ui.list_label_served_elements already established for
+            // their own per-element identity structs.
+            for (index, linkedElement) in linkedElements.enumerated() {
+                outputData["linkedElement\(index).role"] = linkedElement.role
+                outputData["linkedElement\(index).title"] = linkedElement.title ?? ""
+                outputData["linkedElement\(index).identifier"] = linkedElement.identifier ?? ""
+            }
+            let summaryDescription = hasLinkedElements ? "\(linkedElements.count) linked element(s)" : "unavailable"
+            return QActionResult(
+                actionId: request.actionId,
+                success: true,
+                summary: "Observed linked elements for \(role) element in \(applicationName): \(summaryDescription). This is observation only — no element was mutated, and this observation does not constitute authorization for any action against the source or linked elements.",
+                outputData: outputData
+            )
+        } catch let axError as QAXInteractionError {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: axError.description,
+                error: axError.errorCode
+            )
+        } catch {
+            return QActionResult(
+                actionId: request.actionId,
+                success: false,
+                summary: "Unexpected error while listing linked elements: \(error.localizedDescription)",
                 error: "AX_UNEXPECTED_ERROR"
             )
         }

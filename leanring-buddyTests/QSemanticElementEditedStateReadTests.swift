@@ -97,7 +97,7 @@ struct QSemanticElementEditedStateReadTests {
         #expect(regCap?.defaultRisk == .level0ReadOnly)
         #expect(regCap?.defaultRisk.requiresExplicitApproval == false)
         #expect(regCap?.defaultRisk.isConsideredReversible == true)
-        #expect(QModelPlanParser.registeredCapabilities.count == 85)
+        #expect(QModelPlanParser.registeredCapabilities.count == 86)
 
         let json = """
         {
@@ -701,9 +701,9 @@ struct QSemanticElementEditedStateReadTests {
 
     // MARK: - 25. Capability-count integrity
 
-    @Test("25b. Capability count integrity: 80 → 81 was this phase's own registry-size delta; the registry has since grown further (Phase 2CH's ui.list_visible_children, Phase 2CI's ui.read_element_index, Phase 2CJ's ui.read_element_insertion_point_line_number, then Phase 2CK's ui.read_table_header), so this checks the current total rather than a phase-specific snapshot — structural, confirmed by the registration test's own count assertion above")
+    @Test("25b. Capability count integrity: 80 → 81 was this phase's own registry-size delta; the registry has since grown further (Phase 2CH's ui.list_visible_children, Phase 2CI's ui.read_element_index, Phase 2CJ's ui.read_element_insertion_point_line_number, Phase 2CK's ui.read_table_header, then Phase 2CL's ui.list_linked_elements), so this checks the current total rather than a phase-specific snapshot — structural, confirmed by the registration test's own count assertion above")
     func capabilityCountIntegrityIsStructural() {
-        #expect(QModelPlanParser.registeredCapabilities.count == 85)
+        #expect(QModelPlanParser.registeredCapabilities.count == 86)
     }
 
     // MARK: - Real macOS AppKit E2E Fixture (TCC Guarded)

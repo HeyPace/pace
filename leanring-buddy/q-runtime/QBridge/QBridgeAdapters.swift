@@ -1278,6 +1278,30 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
     /// returning an arbitrarily large model-visible string. Carries only the offending length,
     /// never the string content itself.
     case tableHeaderMetadataExceedsSafeLength(Int)
+    /// Phase 2CL: `kAXLinkedUIElementsAttribute` could not be read due to an actual Accessibility
+    /// API failure — distinct from `kAXErrorNoValue`/`kAXErrorAttributeUnsupported`, which mean
+    /// the target genuinely has no linked-elements relationship and are never treated as an error
+    /// — see `QBridgeAccessibility.listLinkedElements`'s own documentation for the full
+    /// missing-vs-failure rationale. The payload carries the underlying `AXError`, never any
+    /// element content.
+    case linkedElementsReadFailed(String)
+    /// Phase 2CL: `kAXLinkedUIElementsAttribute`'s copy call reported success but the returned
+    /// value was not a genuine `CFArray` — the returned value is treated as untrusted external
+    /// data, never assumed well-formed merely because the copy call itself reported success.
+    case linkedElementsMalformed
+    /// Phase 2CL: `kAXLinkedUIElementsAttribute`'s returned array exceeded
+    /// `maxLinkedElementsCount` — fails closed rather than ever silently truncating. The payload
+    /// carries only the offending count, never any element content.
+    case linkedElementsExceedsSafeBound(Int)
+    /// Phase 2CL: at least one entry of `kAXLinkedUIElementsAttribute`'s returned array did not
+    /// bridge to a genuine `AXUIElement` — the whole array fails closed atomically rather than
+    /// silently dropping the offending entry, mirroring `ui.list_visible_children`'s identical
+    /// discipline.
+    case linkedElementsElementMalformed
+    /// Phase 2CL: a linked element's own title/identifier exceeded
+    /// `maxLinkedElementMetadataLength` — fails the WHOLE array closed rather than truncating. The
+    /// payload carries only the offending length, never the string content itself.
+    case linkedElementsElementMetadataExceedsSafeLength(Int)
 
     public var description: String {
         switch self {
@@ -1717,6 +1741,16 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
             return "The target table's header reference could not be read as a well-formed Accessibility element."
         case .tableHeaderMetadataExceedsSafeLength(let length):
             return "The table-header element's title/identifier (\(length) characters) exceeds this capability's defensive safe length bound."
+        case .linkedElementsReadFailed(let reason):
+            return "The target element's linked elements could not be read due to an Accessibility API failure: \(reason)."
+        case .linkedElementsMalformed:
+            return "The target element's linked elements could not be read as a well-formed array."
+        case .linkedElementsExceedsSafeBound(let count):
+            return "The target element's linked elements (\(count)) exceeds the maximum safe bound."
+        case .linkedElementsElementMalformed:
+            return "A linked element could not be read as a well-formed Accessibility element reference."
+        case .linkedElementsElementMetadataExceedsSafeLength(let length):
+            return "A linked element's title/identifier (\(length) characters) exceeds the maximum safe bound."
         }
     }
 
@@ -1941,6 +1975,11 @@ public enum QAXInteractionError: Error, Equatable, Sendable, CustomStringConvert
         case .tableHeaderReadFailed: return "AX_TABLE_HEADER_READ_FAILED"
         case .tableHeaderMalformed: return "AX_TABLE_HEADER_MALFORMED"
         case .tableHeaderMetadataExceedsSafeLength: return "AX_TABLE_HEADER_METADATA_EXCEEDS_SAFE_LENGTH"
+        case .linkedElementsReadFailed: return "AX_LINKED_ELEMENTS_READ_FAILED"
+        case .linkedElementsMalformed: return "AX_LINKED_ELEMENTS_MALFORMED"
+        case .linkedElementsExceedsSafeBound: return "AX_LINKED_ELEMENTS_EXCEEDS_SAFE_BOUND"
+        case .linkedElementsElementMalformed: return "AX_LINKED_ELEMENTS_ELEMENT_MALFORMED"
+        case .linkedElementsElementMetadataExceedsSafeLength: return "AX_LINKED_ELEMENTS_ELEMENT_METADATA_EXCEEDS_SAFE_LENGTH"
         }
     }
 }
@@ -2541,6 +2580,53 @@ public struct QAXTableHeaderReference: Sendable, Equatable, Codable {
         self.role = role
         self.title = title
         self.identifier = identifier
+    }
+}
+
+/// A single linked element's safe, non-sensitive structural identity, as returned within
+/// `ui.list_linked_elements`'s (Phase 2CL) `linkedElements` array — role/title/identifier only,
+/// identical minimal shape to `QAXServedElementReference` (Phase 2BX)/`QAXVisibleChildReference`
+/// (Phase 2CH)/`QAXTableHeaderReference` (Phase 2CK), never an `AXValue`, never arbitrary content,
+/// never a raw `AXUIElement`. A distinct nominal type from those per this codebase's existing
+/// convention of one dedicated result type per capability, even when the field shape is identical.
+public struct QAXLinkedElementReference: Sendable, Equatable, Codable {
+    public let role: String
+    public let title: String?
+    public let identifier: String?
+
+    public init(role: String, title: String?, identifier: String?) {
+        self.role = role
+        self.title = title
+        self.identifier = identifier
+    }
+}
+
+/// A semantically-identified element's bounded, validated `kAXLinkedUIElementsAttribute`, as
+/// returned by `ui.list_linked_elements` (Phase 2CL). `linkedElements` is a bounded array of
+/// identity-only references, never raw `AXUIElement`s, never any content beyond
+/// role/title/identifier. `linkedElements` may legitimately be EMPTY (the attribute was present
+/// but the source element is currently linked to nothing) — a distinct, valid state from genuine
+/// attribute ABSENCE, which is represented by the overall bridge function returning `nil` rather
+/// than ever constructing this type with a fabricated empty array.
+public struct QAXLinkedElementsMetadata: Sendable, Equatable, Codable {
+    public let applicationName: String
+    public let role: String
+    public let elementIdentifier: String?
+    public let elementTitle: String?
+    public let linkedElements: [QAXLinkedElementReference]
+
+    public init(
+        applicationName: String,
+        role: String,
+        elementIdentifier: String?,
+        elementTitle: String?,
+        linkedElements: [QAXLinkedElementReference]
+    ) {
+        self.applicationName = applicationName
+        self.role = role
+        self.elementIdentifier = elementIdentifier
+        self.elementTitle = elementTitle
+        self.linkedElements = linkedElements
     }
 }
 
@@ -5556,6 +5642,19 @@ extension QBridgeAccessibility {
     /// existing convention of not sharing bound constants across unrelated capabilities, even when
     /// the numeric value is identical.
     private static let maxTableHeaderMetadataLength = 256
+    /// Phase 2CL: defensive bound on `ui.list_linked_elements`'s returned
+    /// `kAXLinkedUIElementsAttribute` array — exceeding this fails closed rather than silently
+    /// truncating (never misrepresenting the authoritative result), checked BEFORE any
+    /// per-element extraction. Matches `maxVisibleChildrenCount`'s/`maxServedElementsCount`'s own
+    /// conservative value, but is deliberately a distinct constant per this codebase's existing
+    /// convention of not sharing bound constants across unrelated capabilities.
+    private static let maxLinkedElementsCount = 32
+    /// Phase 2CL: defensive per-string length bound on a linked element's own title/identifier —
+    /// prevents an arbitrarily large model-visible string; exceeding it fails the whole array
+    /// closed rather than truncating. A distinct constant from `maxVisibleChildMetadataLength`/
+    /// `maxServedElementMetadataLength`/`maxTableHeaderMetadataLength` per this codebase's
+    /// existing convention of not sharing bound constants across unrelated capabilities.
+    private static let maxLinkedElementMetadataLength = 256
     private static let axColumnsAttributeName = "AXColumns"
     /// Phase 2AT: the AX role of the divider element between two panes in an `AXSplitGroup` —
     /// excluded from pane enumeration since it is the boundary between panes, not a pane itself.
@@ -8817,6 +8916,213 @@ extension QBridgeAccessibility {
             title: headerTitle,
             identifier: headerIdentifier
         )
+    }
+
+    // MARK: - Semantic Linked Elements List (Phase 2CL)
+    //
+    // ui.list_linked_elements — a Level 0, read-only, zero-mutation, purely OBSERVATIONAL read of
+    // a semantically-identified element's kAXLinkedUIElementsAttribute — the bounded set of other
+    // elements it declares a general "linked" relationship with (e.g. a control and the display it
+    // updates, a validation message and the field it describes, a pagination control and its
+    // content pane). Distinct from every existing relationship capability in this codebase: not a
+    // title relationship (ui.read_element_title_reference/ui.list_label_served_elements), not a
+    // viewport relationship (ui.list_visible_children), not a table-header relationship
+    // (ui.read_table_header). kAXLinkedUIElementsAttribute had zero references anywhere in
+    // production prior to this phase.
+    //
+    // ROLE POLICY: reuses QAXElementReadRolePolicy (Phase 2J) and its AXSecureTextField exclusion
+    // completely unmodified for the SOURCE element — exactly as
+    // ui.read_element_title_reference/ui.list_label_served_elements already do. This is the
+    // correct, minimal-footprint choice: `accessibilityLinkedUIElements` sits in the general
+    // per-element property category of `NSAccessibilityProtocols.h`, not gated behind any
+    // specialized role or protocol, applicable to any element on the existing shared allowlist.
+    //
+    // BOUNDED RELATIONSHIP QUERY, NEVER GENERIC EXTRACTION (mirrors ui.list_visible_children,
+    // Phase 2CH): exactly one AX attribute read on the resolved source element, then ONLY bounded
+    // identity reads (role/title/identifier) on each already-enumerated linked element — never a
+    // recursive descent, never a second relationship hop, never kAXValueAttribute. Each linked
+    // element's own role is checked against ONLY the single privacy-sensitive exclusion
+    // (AXSecureTextField) — deliberately NOT QAXElementReadRolePolicy's narrower allowlist,
+    // mirroring ui.list_visible_children's/ui.read_table_header's identical design difference: a
+    // "linked" relationship is a generic, freeform annotation an app author can declare between
+    // any two elements (not restricted to leaf/label semantics), so it is not held to that
+    // narrower allowlist.
+    //
+    // ATOMIC ARRAY DISCIPLINE (mirrors ui.list_visible_children): a single malformed,
+    // unreadable, or secure-field linked element fails the WHOLE array closed — invalid
+    // entries are never silently dropped — and the array is bounded (maxLinkedElementsCount,
+    // checked BEFORE any per-element extraction) rather than ever truncated.
+    //
+    // SDK-VERIFIED ABSENCE SEMANTICS: kAXLinkedUIElementsAttribute carries no "required for all
+    // elements"-style documentation — most elements are linked to nothing at all. Genuine absence
+    // (kAXErrorNoValue/kAXErrorAttributeUnsupported) is therefore the OPTIONAL-REFERENCE pattern —
+    // a valid, expected nil WHOLE RESULT — distinct from a genuinely PRESENT but EMPTY array,
+    // which is its own valid, non-nil result.
+
+    /// Resolves exactly one semantic target on `QAXElementReadRolePolicy`'s allowlist (with the
+    /// same `AXSecureTextField` exclusion `ui.read_element_value`/`ui.list_label_served_elements`
+    /// already enforce) and reads its `kAXLinkedUIElementsAttribute` — a purely observational
+    /// call; neither `AXUIElementPerformAction` nor `AXUIElementSetAttributeValue` is invoked
+    /// anywhere in this method, and `kAXValueAttribute` is never read. Fails closed (throws
+    /// `QAXInteractionError`) on a disallowed/secure role, missing criteria, permission absence,
+    /// application/target absence or ambiguity, a stale/drifted target, a genuine read failure, a
+    /// malformed returned CFType, an oversized array, or any malformed/secure-field/oversized-
+    /// metadata linked element. Genuine absence of the attribute
+    /// (`kAXErrorNoValue`/`kAXErrorAttributeUnsupported`) is NEVER an error — it produces `nil`
+    /// for the WHOLE result. A genuinely present but empty array is its own valid, non-nil result.
+    /// Never fabricates a value, never silently drops an invalid linked element, never silently
+    /// truncates an oversized array.
+    public func listLinkedElements(
+        applicationName: String,
+        role: String,
+        identifier: String?,
+        title: String?
+    ) async throws -> QAXLinkedElementsMetadata? {
+        guard identifier != nil || title != nil else {
+            throw QAXInteractionError.missingMatchCriteria
+        }
+        // Secure field first, for a specific diagnostic; then the general allowlist, which would
+        // also reject AXSecureTextField on its own (it is never listed) — belt and suspenders,
+        // identical discipline to every prior read capability's own checks.
+        guard role != "AXSecureTextField" else {
+            throw QAXInteractionError.secureFieldReadDenied(role)
+        }
+        guard QAXElementReadRolePolicy.isAllowedReadRole(role) else {
+            throw QAXInteractionError.disallowedReadRole(role)
+        }
+        guard AXIsProcessTrusted() else {
+            throw QAXInteractionError.accessibilityPermissionDenied
+        }
+
+        let runningApp = try Self.resolveExactRunningApplication(named: applicationName)
+        let processIdentifier = runningApp.processIdentifier
+
+        return try await Task.detached(priority: .userInitiated) {
+            let appElement = AXUIElementCreateApplication(processIdentifier)
+
+            let matches = Self.collectMatches(root: appElement, role: role, identifier: identifier, title: title)
+            guard !matches.isEmpty else { throw QAXInteractionError.noMatchingElement }
+            guard matches.count == 1 else { throw QAXInteractionError.ambiguousTarget(count: matches.count) }
+
+            let (targetElement, observedAtSearch) = matches[0]
+
+            // Observation binding: re-read the SAME element reference immediately before the
+            // linked-elements read and refuse on any drift — identical discipline to every prior
+            // AX capability in this codebase.
+            guard let observedAtVerify = Self.snapshotIfMatches(targetElement, role: role, identifier: identifier, title: title) else {
+                throw QAXInteractionError.staleTarget("target element is no longer resolvable immediately before the linked-elements read")
+            }
+            guard observedAtVerify == observedAtSearch else {
+                throw QAXInteractionError.staleTarget("target element identity changed between observation and the linked-elements read")
+            }
+
+            guard let linkedElements = try Self.resolveLinkedElements(of: targetElement) else {
+                // Genuine, expected absence — the whole result is nil, never a fabricated empty
+                // array.
+                return nil
+            }
+
+            return QAXLinkedElementsMetadata(
+                applicationName: applicationName,
+                role: role,
+                elementIdentifier: observedAtVerify.identifier,
+                elementTitle: observedAtVerify.titleOrDescription,
+                linkedElements: linkedElements
+            )
+        }.value
+    }
+
+    /// Reads `kAXLinkedUIElementsAttribute` and normalizes it to a validated
+    /// `[QAXLinkedElementReference]` (empty is a valid result), or `nil` for genuine attribute
+    /// absence. Every check has its own distinct, dedicated diagnostic — nothing is ever silently
+    /// truncated or defaulted, and a single malformed/secure-field/oversized linked element fails
+    /// the WHOLE array closed rather than being dropped.
+    ///
+    /// Validation, in order (mirrors `resolveVisibleChildren`'s exact atomic-array discipline):
+    /// 1. `.noValue`/`.attributeUnsupported` → `nil` (genuine, expected absence — see the `MARK`
+    ///    section above); any other non-`.success` `AXError` → `linkedElementsReadFailed`.
+    /// 2. The returned value must be a genuine `CFArray` (`CFGetTypeID(value) ==
+    ///    CFArrayGetTypeID()`) — any other CFType → `linkedElementsMalformed`.
+    /// 3. `CFArrayGetCount(cfArray) <= maxLinkedElementsCount` — exceeding it →
+    ///    `linkedElementsExceedsSafeBound`, checked BEFORE any per-element extraction, never a
+    ///    silent truncation.
+    /// 4. Every element must bridge to `AXUIElement` (`value as? [AXUIElement]`, which fails as a
+    ///    WHOLE if even one element is not `AXUIElement`-compatible) → `linkedElementsElementMalformed`
+    ///    otherwise.
+    /// 5. Each linked element's own `kAXRoleAttribute` is checked against the single
+    ///    privacy-sensitive exclusion — `AXSecureTextField` — never surfaced as a "safe" linked
+    ///    element even as identity-only metadata, reusing the exact same
+    ///    `QAXInteractionError.secureFieldReadDenied` diagnostic every other capability's
+    ///    secure-field check already uses.
+    /// 6. Each linked element's title/identifier is read and bounded by
+    ///    `maxLinkedElementMetadataLength` — exceeding it fails the WHOLE array closed →
+    ///    `linkedElementsElementMetadataExceedsSafeLength`.
+    fileprivate nonisolated static func resolveLinkedElements(of targetElement: AXUIElement) throws -> [QAXLinkedElementReference]? {
+        var value: CFTypeRef?
+        let copyResult = AXUIElementCopyAttributeValue(targetElement, kAXLinkedUIElementsAttribute as CFString, &value)
+
+        switch copyResult {
+        case .success:
+            break
+        case .noValue, .attributeUnsupported:
+            return nil
+        default:
+            throw QAXInteractionError.linkedElementsReadFailed("AXError(\(copyResult.rawValue))")
+        }
+
+        guard let value else {
+            throw QAXInteractionError.linkedElementsMalformed
+        }
+        guard CFGetTypeID(value) == CFArrayGetTypeID() else {
+            throw QAXInteractionError.linkedElementsMalformed
+        }
+        let cfArray = value as! CFArray // swiftlint:disable:this force_cast — CFGetTypeID checked above
+
+        let count = CFArrayGetCount(cfArray)
+        guard count <= maxLinkedElementsCount else {
+            throw QAXInteractionError.linkedElementsExceedsSafeBound(count)
+        }
+
+        // Bridging the WHOLE array to [AXUIElement] fails (returns nil) as a whole if even one
+        // element is not AXUIElement-compatible — exactly the desired atomic, fail-closed
+        // behavior for a malformed array (never silently dropping the offending entries).
+        guard let linkedElementRefs = value as? [AXUIElement] else {
+            throw QAXInteractionError.linkedElementsElementMalformed
+        }
+
+        var results: [QAXLinkedElementReference] = []
+        results.reserveCapacity(linkedElementRefs.count)
+
+        for linkedElement in linkedElementRefs {
+            let linkedElementRole = Self.axStringAttribute(kAXRoleAttribute, of: linkedElement) ?? "none"
+            // The single privacy-sensitive exclusion — never a broader role allowlist, since a
+            // "linked" relationship is legitimately varied (any two elements an app author
+            // chooses to associate).
+            guard linkedElementRole != "AXSecureTextField" else {
+                throw QAXInteractionError.secureFieldReadDenied(linkedElementRole)
+            }
+
+            let rawTitle = Self.axStringAttribute(kAXTitleAttribute, of: linkedElement)
+            let linkedElementTitle = (rawTitle?.isEmpty == false) ? rawTitle : nil
+            let linkedElementIdentifier = Self.axStringAttribute(Self.axIdentifierAttributeName, of: linkedElement)
+
+            if let linkedElementTitle, linkedElementTitle.count > maxLinkedElementMetadataLength {
+                throw QAXInteractionError.linkedElementsElementMetadataExceedsSafeLength(linkedElementTitle.count)
+            }
+            if let linkedElementIdentifier, linkedElementIdentifier.count > maxLinkedElementMetadataLength {
+                throw QAXInteractionError.linkedElementsElementMetadataExceedsSafeLength(linkedElementIdentifier.count)
+            }
+
+            results.append(
+                QAXLinkedElementReference(
+                    role: linkedElementRole,
+                    title: linkedElementTitle,
+                    identifier: linkedElementIdentifier
+                )
+            )
+        }
+
+        return results
     }
 
     // MARK: - Semantic Label Served-Elements Read (Phase 2BX)

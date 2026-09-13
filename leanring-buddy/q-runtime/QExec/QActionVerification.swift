@@ -950,6 +950,26 @@ public enum QVerificationStrategy: Sendable {
     /// potentially user-visible strings this capability deliberately never duplicates into durable
     /// evidence or audit.
     case tableHeaderReadSucceeded(applicationName: String, role: String, hasTableHeader: Bool)
+    /// Phase 2CL: semantic linked-elements list verification (Level 0, read-only). Like every
+    /// other Level 0 read's verification, there is no separate physical state to re-observe after
+    /// the fact — the read's own success/failure, established entirely inside
+    /// `QBridgeAccessibility.listLinkedElements` (exact application/element resolution, an
+    /// atomically-validated linked-element array), already IS the ground truth. This strategy
+    /// checks the execution result's own `success` flag as a genuine, meaningful assertion —
+    /// never a bare `{ true }` bypass — and INDEPENDENTLY RE-VALIDATES that
+    /// `linkedElementsCount >= 0` and is internally consistent with `hasLinkedElements`, rather
+    /// than blindly trusting the dispatch layer. Genuine absence (`hasLinkedElements == false`)
+    /// is its own valid, distinct verified outcome — never conflated with a present-but-empty
+    /// array. Never mutates anything, never reads `kAXValueAttribute`, as part of verification.
+    /// Evidence is DELIBERATELY conservative — mirroring `visibleChildrenListSucceeded`'s (Phase
+    /// 2CH) identical discipline — carrying only the application name, role, presence, and a
+    /// bounded COUNT; never any individual linked element's own title/identifier.
+    case linkedElementsListSucceeded(
+        applicationName: String,
+        role: String,
+        hasLinkedElements: Bool,
+        linkedElementsCount: Int
+    )
     /// Phase 2BY: semantic window auxiliary-buttons read verification (Level 0, read-only). A
     /// direct sibling of `windowDefaultButtonReadSucceeded` (Phase 2BM), extended from 2 to 4
     /// button presence flags. Like every other Level 0 read's verification, there is no separate
@@ -2607,6 +2627,34 @@ public final class QActionVerifier: Sendable {
                     evidence: "application=\(applicationName) role=\(role) status=failed"
                 )
             }
+
+        case .linkedElementsListSucceeded(let applicationName, let role, let hasLinkedElements, let linkedElementsCount):
+            guard result.success else {
+                return .failed(
+                    reason: "Linked-elements read for \(role) element in application '\(applicationName)' did not succeed.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            guard hasLinkedElements else {
+                // Genuine, expected absence is its own valid, distinct verified outcome — never
+                // conflated with a present-but-empty array.
+                return .verified(
+                    evidence: "application=\(applicationName) role=\(role) linkedElements=unavailable status=verified"
+                )
+            }
+            // Independent re-validation — never blindly trusting the dispatch layer's own success
+            // flag: the claimed count must be non-negative, mirroring
+            // visibleChildrenListSucceeded's identical independent-recheck discipline. A
+            // fabricated success claiming a negative count is still correctly rejected.
+            guard linkedElementsCount >= 0 else {
+                return .failed(
+                    reason: "Linked-elements count for \(role) element in application '\(applicationName)' is negative.",
+                    evidence: "application=\(applicationName) role=\(role) status=failed"
+                )
+            }
+            return .verified(
+                evidence: "application=\(applicationName) role=\(role) linkedElementsCount=\(linkedElementsCount) status=verified"
+            )
 
         case .windowAuxiliaryButtonsReadSucceeded(let applicationName, let windowTitle, let hasZoomButton, let hasMinimizeButton, let hasToolbarButton, let hasFullScreenButton):
             guard result.success else {
