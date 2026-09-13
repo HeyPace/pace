@@ -203,6 +203,35 @@ struct PaceActivityGoalModelTests {
         #expect(derivedState == .unknown)
     }
 
+    // MARK: - Slice 3: read-only retrieval never mutates
+
+    @Test func currentGoalStateQueryNeverMutatesStoreContents() {
+        let store = PaceActivityGoalStore(now: { Date(timeIntervalSince1970: 10_000) })
+        let observation = PaceActivityObservation(
+            identifier: "obs-1",
+            recordedAt: Date(timeIntervalSince1970: 9_990),
+            evidenceKind: .observed,
+            subject: "Xcode",
+            confidence: 0.5,
+            provenanceSourceSystem: "PaceAppUsageTracker"
+        )
+        store.apply(observation)
+        let observationsBeforeQuery = store.allObservations
+
+        _ = store.currentGoalState()
+        _ = store.currentGoalState()
+        _ = store.currentGoalState()
+
+        #expect(store.allObservations == observationsBeforeQuery)
+    }
+
+    @Test func currentGoalStateQueryReportsUnknownOnAnEmptyStore() {
+        let store = PaceActivityGoalStore()
+        #expect(store.currentGoalState() == .unknown)
+        // Querying an empty store must not create any observation either.
+        #expect(store.allObservations.isEmpty)
+    }
+
     @Test func higherConfidenceObservationSupersedesLowerConfidenceContradictingSubject() {
         let now = Date(timeIntervalSince1970: 50_000)
         let lowerConfidenceObservation = PaceActivityObservation(

@@ -77,13 +77,19 @@
 
 ## 3. Slice 3 — Read-Only Retrieval
 
-- [ ] 3.1 Add a read-only query API returning the current `PaceActiveGoalState`
+- [x] 3.1 Add a read-only query API returning the current `PaceActiveGoalState`
       with confidence and supporting observation ids, for any future consumer
       (a later ranking layer, a debug/settings view, or the "Resume work"
-      story) to call.
-- [ ] 3.2 Add tests proving the query never mutates store state and correctly
+      story) to call. Already existed as `PaceActivityGoalStore.currentGoalState()`
+      from Slice 1 (needed there to prove the derivation in tests) — no new
+      production code required for this slice.
+- [x] 3.2 Add tests proving the query never mutates store state and correctly
       reports `unknown` when evidence is insufficient.
-- [ ] 3.3 Evaluate the stop condition: this slice adds no new behavior surface
-      by itself; if no consumer is planned to use the query within a
-      reasonable follow-up window, stop here rather than building Gap #2/#5
-      speculatively.
+      `currentGoalStateQueryNeverMutatesStoreContents` and
+      `currentGoalStateQueryReportsUnknownOnAnEmptyStore` added to
+      `PaceActivityGoalModelTests.swift`, both passing (19 tests total in
+      that file now).
+- [x] 3.3 Evaluate the stop condition: no consumer is planned yet (Gap #2
+      opportunity ranking, Gap #5/#6 surface consolidation are explicitly out
+      of this proposal's scope per proposal.md). Stopping here rather than
+      building a speculative consumer — this proposal is complete as scoped.
