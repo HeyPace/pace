@@ -63,6 +63,10 @@ What Pace does and where it's going.
   Always-On Companion Mode data boundaries and indicators.
 - [`product/companion-mode-dogfood.md`](product/companion-mode-dogfood.md) —
   the live/hardware dogfood gate for Companion Mode.
+- [`product/consolidation-dogfood.md`](product/consolidation-dogfood.md) —
+  the human dogfood matrix, script, observation log, and seven-day plan for
+  the activity/goal model, opportunity ranking, and outcome/feedback
+  telemetry, ahead of Gap #5 surface consolidation.
 - [`product/pace-wake-word-classifier.md`](product/pace-wake-word-classifier.md) —
   the bundled Core ML wake model's runtime contract.
 - [Brand assets](product/brand/README.md) — mascot SVGs and brand assets.
