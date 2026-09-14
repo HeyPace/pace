@@ -15,6 +15,50 @@ tests and static/code-review evidence so far; none has been exercised by a
 real user during real work. See the full findings report in the session that
 produced this page for the reasoning behind every row below.
 
+## Gap #5 readiness (surface projection foundation)
+
+**Status as of 2026-09-14: plumbing — AUTOMATED PASS. UI/UX design — NOT
+STARTED (deliberately deferred, see below).**
+
+`PaceSurfaceProjection.swift` + `CompanionManager+SurfaceProjection.swift`
+(committed alongside this update) implement the deterministic, read-only data
+layer Gap #5's Now/Working/Memory surfaces need, without building the surfaces
+themselves:
+
+- **Now** `<-` `PaceActivityGoalStore` (Gap #1) + the opportunity-ranking
+  Slice 3 evidence query (Gap #2's `mostRecentRankingResult`) — current
+  activity subject (or none, never fabricated) and at most one active
+  opportunity, reusing the exact `spokenText` already judged safe to speak
+  aloud.
+- **Working** `<-` `PaceBackgroundAgentRunner` (pre-existing, never
+  UI-consumed before this) — task list capped at 20, literal
+  `resultSummary`/failure-detail text deliberately excluded (`hasResult: Bool`
+  only).
+- **Memory** `<-` `PaceEpisodicFactStore` — durable facts capped at 50,
+  sensitive-topic facts re-filtered independently of the caller as defense in
+  depth.
+
+This is composition over existing, already-accepted models — no new
+persistence, no new durable state, no new capture surface. It was justified
+without further human/product input because every field it exposes was
+already produced and privacy-reviewed by a prior, owner-confirmed proposal;
+nothing here introduces new subjective UX surface area.
+
+**Genuinely deferred, not done here:** the actual Now/Working/Memory panel
+UI — what it looks like, where it lives in the menu-bar surface, how a user
+dismisses/forgets an item — is a real product/UX decision this session did
+not have standing to make unilaterally, and depends on the seven-day human
+dogfood evidence this page tracks. `PaceSurfaceProjection.swift`'s own header
+comment states this explicitly so a future agent does not mistake the
+plumbing for the finished feature.
+
+Evidence level: automated only (17 new tests in
+`PaceSurfaceProjectionTests.swift` + 3 in
+`PaceProactiveNudgeFrameworkTests.swift`, all Swift-Testing/XCTest unit
+tests — pure value types and functions, no AX/AppKit surface, so no native
+E2E applies). No human dogfood performed on this projection specifically
+(nothing renders it yet).
+
 ## Dogfood matrix
 
 Classification legend: **AUTOMATABLE** (a unit/integration test can prove

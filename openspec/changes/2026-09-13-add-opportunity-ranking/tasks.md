@@ -124,3 +124,17 @@
       condition rather than building unused plumbing). A retrieval surface
       is a natural, cheap follow-up once Gap #5's surface consolidation (or
       any other consumer) actually needs it.
+
+      **Update (2026-09-14):** that follow-up consumer now exists.
+      `PaceProactiveNudgeOrchestrator.mostRecentRankingResult` (in
+      `PaceProactiveNudgeFramework.swift`) retains the latest `rank(...)`
+      result — overwritten every tick, never accumulates — forwarded
+      read-only via `PaceProactivityPipeline.mostRecentOpportunityRankingResult`
+      and consumed by `PaceSurfaceProjection.swift`'s
+      `PaceNowSurfaceProjection` for the Gap #5 "Now" surface foundation
+      (`docs/current/plans/autonomous-companion-consolidation.md`, "5.
+      Product-surface consolidation"). Still no UI displays it — the Now
+      surface itself remains a genuinely pending UX decision — but the
+      retrieval surface this task originally deferred is built, tested (3
+      new tests in `PaceProactiveNudgeFrameworkTests.swift`'s
+      `PaceProactiveNudgeOrchestratorRankingTests`), and wired.

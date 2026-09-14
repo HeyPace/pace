@@ -209,6 +209,13 @@ final class PaceProactivityPipeline {
 
     // MARK: - Public surface used by CompanionManager forwarders
 
+    /// Read-only forward to the orchestrator's most recent
+    /// `PaceOpportunityRanker.rank(...)` result, for the Gap #5 "Now"
+    /// surface projection. Never mutates orchestrator state.
+    var mostRecentOpportunityRankingResult: PaceOpportunityRankingResult? {
+        proactiveNudgeOrchestrator.mostRecentRankingResult
+    }
+
     /// Adds an utterance to the proactive queue, dropping the oldest
     /// entry once the cap is exceeded. Exposed for nudge generators
     /// and the morning-triage scheduler — both should call this when

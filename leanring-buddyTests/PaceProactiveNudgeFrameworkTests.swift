@@ -536,6 +536,55 @@ final class PaceProactiveNudgeOrchestratorRankingTests: XCTestCase {
         XCTAssertEqual(emittedUtterances.map(\.spokenText), ["toggled-on nudge"])
     }
 
+    // MARK: - mostRecentRankingResult retention (Gap #5 "Now" surface consumer)
+
+    func testMostRecentRankingResultIsNilBeforeAnyEvaluation() {
+        let orchestrator = PaceProactiveNudgeOrchestrator(
+            restraintContextProvider: stableRestraintContextProvider(),
+            generators: []
+        )
+        XCTAssertNil(orchestrator.mostRecentRankingResult)
+    }
+
+    func testMostRecentRankingResultReflectsTheLatestEmittedWinner() {
+        let generator = CapturingNudgeGenerator(identifier: "focus-fatigue")
+        let orchestrator = PaceProactiveNudgeOrchestrator(
+            restraintContextProvider: stableRestraintContextProvider(),
+            generators: [generator]
+        )
+        orchestrator.start(emit: { _ in }, queueForLater: { _ in })
+
+        generator.capturedEmit?(PaceProactiveUtterance(
+            spokenText: "nudge", source: .watchNudge, confidence: 0.8, relevanceWindowExpiresAt: nil
+        ))
+
+        XCTAssertEqual(orchestrator.mostRecentRankingResult?.winner?.utterance.spokenText, "nudge")
+    }
+
+    func testMostRecentRankingResultReflectsASuppressedTickWithNoWinner() {
+        var currentNow = Date(timeIntervalSince1970: 1_000_000)
+        let generator = CapturingNudgeGenerator(identifier: "focus-fatigue")
+        let orchestrator = PaceProactiveNudgeOrchestrator(
+            restraintContextProvider: stableRestraintContextProvider(),
+            generators: [generator],
+            nowProvider: { currentNow }
+        )
+        orchestrator.start(emit: { _ in }, queueForLater: { _ in })
+
+        generator.capturedEmit?(PaceProactiveUtterance(
+            spokenText: "first", source: .watchNudge, confidence: 0.8, relevanceWindowExpiresAt: nil
+        ))
+        currentNow = currentNow.addingTimeInterval(60) // inside the 10-minute category cooldown
+        generator.capturedEmit?(PaceProactiveUtterance(
+            spokenText: "second", source: .watchNudge, confidence: 0.8, relevanceWindowExpiresAt: nil
+        ))
+
+        // The most recent tick was suppressed by cooldown — its result
+        // must honestly show no winner, not the prior tick's winner.
+        XCTAssertNil(orchestrator.mostRecentRankingResult?.winner)
+        XCTAssertFalse(orchestrator.mostRecentRankingResult?.records.isEmpty ?? true)
+    }
+
     private func stableRestraintContextProvider() -> () -> PaceRestraintContext {
         return {
             PaceRestraintContext(

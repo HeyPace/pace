@@ -58,6 +58,13 @@ final class PaceProactiveNudgeOrchestrator {
     private let nowProvider: () -> Date
     private let generators: [PaceProactiveNudgeGenerator]
     private var categoryCooldownTracker = PaceOpportunityCategoryCooldownTracker()
+    /// The most recent `rank(...)` call's full result, retained so a
+    /// read-only consumer (the Gap #5 "Now" surface projection,
+    /// `PaceSurfaceProjection.swift`) can show at most one active
+    /// opportunity with its evidence — the consumer Slice 3 of the
+    /// opportunity-ranking proposal deferred until one existed. Overwritten
+    /// on every `rank(...)` call; never accumulates history.
+    private(set) var mostRecentRankingResult: PaceOpportunityRankingResult?
     private(set) var isRunning = false
 
     /// Designated initializer. `restraintContextProvider` is captured
@@ -206,6 +213,7 @@ final class PaceProactiveNudgeOrchestrator {
             categoryCooldownTracker: &categoryCooldownTracker,
             now: now
         )
+        mostRecentRankingResult = result
         guard let winner = result.winner else { return }
 
         switch winner.decision {
