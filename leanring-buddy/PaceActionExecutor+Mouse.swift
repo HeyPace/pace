@@ -436,9 +436,15 @@ extension PaceActionExecutor {
         return positionResult == .success && sizeResult == .success
     }
 
-    func scroll(direction: PaceScrollDirection, amountInLines: Int) async {
+    /// Returns whether the scroll event was constructed and posted —
+    /// `false` only if `CGEvent(scrollWheelEvent2Source:...)` itself
+    /// returned nil, the one genuine failure signal this function already
+    /// had. Dry-run (`actionsAreEnabled == false`) returns `true`: nothing
+    /// failed, we simply didn't attempt it live.
+    @discardableResult
+    func scroll(direction: PaceScrollDirection, amountInLines: Int) async -> Bool {
         print("🖱️  Scroll \(direction) by \(amountInLines) lines (enabled: \(actionsAreEnabled))")
-        guard actionsAreEnabled else { return }
+        guard actionsAreEnabled else { return true }
 
         let verticalDelta: Int32 = {
             switch direction {
@@ -447,15 +453,17 @@ extension PaceActionExecutor {
             }
         }()
 
-        if let scrollEvent = CGEvent(
+        guard let scrollEvent = CGEvent(
             scrollWheelEvent2Source: nil,
             units: .line,
             wheelCount: 1,
             wheel1: verticalDelta,
             wheel2: 0,
             wheel3: 0
-        ) {
-            scrollEvent.post(tap: .cghidEventTap)
+        ) else {
+            return false
         }
+        scrollEvent.post(tap: .cghidEventTap)
+        return true
     }
 }

@@ -73,13 +73,17 @@ struct PaceActionApprovalEnforcementTests {
             approvalAlreadyObtained: true
         )
 
-        // .type's dispatch handler (typeText) is void-returning — it produces NO observation on
-        // a normal dispatch (dry-run or real). The approval gate itself only ever appends an
-        // observation when it BLOCKS. So an empty result here is exactly what proves the gate let
-        // dispatch through rather than intercepting it — a non-empty result would mean it was
-        // blocked instead (see test 1's identically-shaped plan, which IS blocked and DOES produce
-        // exactly one "requires explicit approval" observation).
-        #expect(observations.isEmpty)
+        // dispatchSingleAction now always returns an observation for `.type` (previously it
+        // silently discarded typeText's outcome — the observation-propagation defect this
+        // comment used to work around by treating "empty" as a proxy for "reached dispatch").
+        // The approval gate itself only ever appends its OWN observation when it BLOCKS, so a
+        // single dry-run "Would type..." observation — never the gate's "requires explicit
+        // approval" text — is what now proves dispatch was reached exactly once rather than
+        // intercepted (see test 1's identically-shaped, but unapproved, plan for the blocked
+        // case).
+        #expect(observations.count == 1)
+        #expect(observations.first?.summary.localizedCaseInsensitiveContains("requires explicit approval") == false)
+        #expect(observations.first?.summary == "Would type 5 characters.")
     }
 
     // MARK: - 3. Explicit Deny (Level 4 / ResourceGuard) -> execution never occurs, regardless of approval flag
@@ -140,10 +144,14 @@ struct PaceActionApprovalEnforcementTests {
 
         // Both succeed only because BOTH calls explicitly declared approval — proving there is no
         // single-use-then-exhausted grant (unlike Q's QApprovalCoordinator) and no shared state
-        // that could let a stale/exhausted approval silently persist either. .type produces no
-        // observation on a successful (non-blocked) dispatch — see test 2's comment.
-        #expect(firstObservations.isEmpty)
-        #expect(secondObservations.isEmpty)
+        // that could let a stale/exhausted approval silently persist either. Each dispatch now
+        // returns its own "Would type..." observation (see test 2's comment) rather than the
+        // gate's "requires explicit approval" text, proving each call independently reached
+        // dispatch rather than one riding on the other's approval.
+        #expect(firstObservations.count == 1)
+        #expect(firstObservations.first?.summary.localizedCaseInsensitiveContains("requires explicit approval") == false)
+        #expect(secondObservations.count == 1)
+        #expect(secondObservations.first?.summary.localizedCaseInsensitiveContains("requires explicit approval") == false)
 
         // And the SAME plan without a fresh approval declaration is blocked — proving the prior
         // approved calls did not leave any state behind that a later, unapproved call could ride

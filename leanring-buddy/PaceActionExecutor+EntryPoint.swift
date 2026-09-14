@@ -239,19 +239,78 @@ extension PaceActionExecutor {
         return observation
     }
 
+    /// Builds the observation for a raw-coordinate `.click`/`.doubleClick`
+    /// dispatch from `clickAtScreenshotLocation`'s existing `Bool` — no
+    /// re-execution, no new AX/CGEvent logic. `coordinatesResolved == false`
+    /// is that function's one genuine failure signal (it always returns
+    /// `true` once the screenshot pixel maps to a real display point,
+    /// dry-run included — see its own doc comment). The literal substring
+    /// "Click failed" matches `speakFailureForClickMissedIfApplicable`'s
+    /// existing detection convention (already used by `clickBestCandidate`),
+    /// so a genuine coordinate-resolution failure here reaches the same
+    /// existing failure-narration path.
+    /// Internal (not `private`) so the observation-construction contract —
+    /// the exact defect this function exists to fix — can be unit-tested
+    /// directly and deterministically, without touching live AX/CGEvent
+    /// state. See `PaceActionObservationPropagationTests.swift`.
+    func observationForCoordinateClick(
+        at location: ScreenshotPixelLocation,
+        isDoubleClick: Bool,
+        coordinatesResolved: Bool
+    ) -> PaceActionExecutionObservation {
+        let toolName = isDoubleClick ? "double_click" : "click"
+        guard coordinatesResolved else {
+            return PaceActionExecutionObservation(
+                toolName: toolName,
+                summary: "Click failed: could not resolve screen coordinates for \(location.approvalDescription)."
+            )
+        }
+        guard actionsAreEnabled else {
+            let verb = isDoubleClick ? "double-click" : "click"
+            return PaceActionExecutionObservation(
+                toolName: toolName,
+                summary: "Would \(verb) at \(location.approvalDescription)."
+            )
+        }
+        return PaceActionExecutionObservation(
+            toolName: toolName,
+            summary: isDoubleClick
+                ? "Double-clicked at \(location.approvalDescription)."
+                : "Clicked at \(location.approvalDescription)."
+        )
+    }
+
     func dispatchSingleAction(
         _ action: PaceParsedAction,
         screenCaptures: [CompanionScreenCapture]
     ) async -> PaceActionExecutionObservation? {
         switch action {
         case .click(let location):
-            await clickAtScreenshotLocation(location, screenCaptures: screenCaptures, clickCount: 1)
+            let coordinatesResolved = await clickAtScreenshotLocation(
+                location, screenCaptures: screenCaptures, clickCount: 1
+            )
+            return observationForCoordinateClick(
+                at: location, isDoubleClick: false, coordinatesResolved: coordinatesResolved
+            )
         case .doubleClick(let location):
-            await clickAtScreenshotLocation(location, screenCaptures: screenCaptures, clickCount: 2)
+            let coordinatesResolved = await clickAtScreenshotLocation(
+                location, screenCaptures: screenCaptures, clickCount: 2
+            )
+            return observationForCoordinateClick(
+                at: location, isDoubleClick: true, coordinatesResolved: coordinatesResolved
+            )
         case .clickCandidates(let clickCandidateSet):
             return await clickBestCandidate(clickCandidateSet, screenCaptures: screenCaptures)
         case .type(let textToType):
             await typeText(textToType)
+            let characterCountDescription =
+                "\(textToType.count) character\(textToType.count == 1 ? "" : "s")"
+            return PaceActionExecutionObservation(
+                toolName: "type",
+                summary: actionsAreEnabled
+                    ? "Typed \(characterCountDescription)."
+                    : "Would type \(characterCountDescription)."
+            )
         case .setTextValue(let setTextValueRequest):
             return setTextValue(setTextValueRequest)
         case .editSelectedText(let voiceEditRequest):
@@ -259,13 +318,34 @@ extension PaceActionExecutor {
         case .undoLastMutation:
             return undoLastMutation()
         case .pressKey(let keyName, let modifiers):
-            await pressKey(named: keyName, withModifiers: modifiers)
+            let keyWasRecognized = await pressKey(named: keyName, withModifiers: modifiers)
+            let keyDescription = modifiers.isEmpty
+                ? keyName
+                : "\(modifiers.map(\.rawValue).joined(separator: "+"))+\(keyName)"
+            let summary: String
+            if !actionsAreEnabled {
+                summary = "Would press \(keyDescription)."
+            } else if !keyWasRecognized {
+                summary = "Key press failed: unrecognized key \(keyName)."
+            } else {
+                summary = "Pressed \(keyDescription)."
+            }
+            return PaceActionExecutionObservation(toolName: "key_press", summary: summary)
         case .readClipboard:
             return readClipboardText()
         case .snapWindow(let snapWindowRequest):
             return snapFocusedWindow(snapWindowRequest)
         case .scroll(let direction, let amount):
-            await scroll(direction: direction, amountInLines: amount)
+            let scrollEventPosted = await scroll(direction: direction, amountInLines: amount)
+            let summary: String
+            if !actionsAreEnabled {
+                summary = "Would scroll \(direction) by \(amount) line\(amount == 1 ? "" : "s")."
+            } else if !scrollEventPosted {
+                summary = "Scroll failed: could not construct scroll event."
+            } else {
+                summary = "Scrolled \(direction) by \(amount) line\(amount == 1 ? "" : "s")."
+            }
+            return PaceActionExecutionObservation(toolName: "scroll", summary: summary)
         case .openApplication(let applicationName):
             return await openApplication(named: applicationName)
         case .openURL(let urlString):
@@ -274,8 +354,22 @@ extension PaceActionExecutor {
             return await controlMusic(musicCommand)
         case .adjustVolume(let adjustment):
             await adjustVolume(adjustment)
+            let stepsDescription = "\(adjustment.stepCount) step\(adjustment.stepCount == 1 ? "" : "s")"
+            return PaceActionExecutionObservation(
+                toolName: "volume",
+                summary: actionsAreEnabled
+                    ? "Adjusted volume \(adjustment.direction.rawValue) by \(stepsDescription)."
+                    : "Would adjust volume \(adjustment.direction.rawValue) by \(stepsDescription)."
+            )
         case .adjustBrightness(let adjustment):
             await adjustBrightness(adjustment)
+            let stepsDescription = "\(adjustment.stepCount) step\(adjustment.stepCount == 1 ? "" : "s")"
+            return PaceActionExecutionObservation(
+                toolName: "brightness",
+                summary: actionsAreEnabled
+                    ? "Adjusted brightness \(adjustment.direction.rawValue) by \(stepsDescription)."
+                    : "Would adjust brightness \(adjustment.direction.rawValue) by \(stepsDescription)."
+            )
         case .listCalendarEvents(let calendarQuery):
             return await listCalendarEvents(calendarQuery)
         case .createCalendarEvent(let calendarEventRequest):
@@ -316,7 +410,5 @@ extension PaceActionExecutor {
             // running an irrelevant local action.
             return nil
         }
-
-        return nil
     }
 }

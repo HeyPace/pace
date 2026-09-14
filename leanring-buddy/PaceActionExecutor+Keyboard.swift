@@ -325,13 +325,20 @@ extension PaceActionExecutor {
         return String(currentText[swiftRange])
     }
 
-    func pressKey(named keyName: String, withModifiers modifiers: [PaceKeyboardModifier]) async {
+    /// Returns whether the key name was recognized and its down/up events
+    /// were posted — `false` only for an unrecognized `keyName`, the one
+    /// genuine failure signal this function already had. Dry-run
+    /// (`actionsAreEnabled == false`) returns `true`: nothing failed, we
+    /// simply didn't attempt it live, matching this function's pre-existing
+    /// early-return-before-key-lookup order.
+    @discardableResult
+    func pressKey(named keyName: String, withModifiers modifiers: [PaceKeyboardModifier]) async -> Bool {
         print("⌨️  Press \(keyName) with modifiers \(modifiers) (enabled: \(actionsAreEnabled))")
-        guard actionsAreEnabled else { return }
+        guard actionsAreEnabled else { return true }
 
         guard let virtualKeyCode = Self.virtualKeyCode(forKeyName: keyName) else {
             print("⚠️ PaceActionExecutor: unknown key name \(keyName)")
-            return
+            return false
         }
 
         let modifierFlags = Self.cgEventFlags(forModifiers: modifiers)
@@ -345,6 +352,7 @@ extension PaceActionExecutor {
             keyUpEvent.flags = modifierFlags
             keyUpEvent.post(tap: .cghidEventTap)
         }
+        return true
     }
 
     func callMCPTool(_ mcpToolCall: PaceMCPToolCall) async -> PaceActionExecutionObservation {
