@@ -25,6 +25,34 @@ user-visible/iCloud-syncable location — always the system temporary
 directory (or an explicitly test-scoped subdirectory of it), always cleaned
 up by the test that created it.
 
+## Rejected: constructing a bare `CompanionManager()` in tests that persist
+
+**Why rejected:** `CompanionManager` has no designated init and no
+dependency-injection seam for the persistence stores it owns
+(`activityGoalPersistenceStore`, `interventionOutcomePersistenceStore`,
+and — pre-existing, unmodified this session — `threadMemoryStore`/unified
+`PaceMemoryStore`) — every one of them defaults to the REAL
+`~/Library/Application Support/Pace/*.json` path with no override. Found
+2026-09-14 during the dogfood phase: an earlier version of
+`PaceOutcomeFeedbackTelemetryProducerTests.swift` constructed a bare
+`CompanionManager()` and called `recordUndoInterventionOutcome`, which
+leaked one record into the real
+`~/Library/Application Support/Pace/intervention-outcomes.json` (confirmed
+via exact content match with the test's own literal output — no real user
+data was at risk, and the polluted file was deleted after the fix landed).
+Fixed by making `activityGoalPersistenceStore`/
+`interventionOutcomePersistenceStore` `var` (not `let`) on `CompanionManager`
+so a test can reassign them to a temp-file-backed instance immediately
+after construction, and adding a `makeIsolatedCompanionManager()` helper
+that does so before any persisting call runs. Any NEW test that constructs
+`CompanionManager()` and exercises a code path touching one of these two
+stores must use that same redirect-before-use pattern. This does not (yet)
+cover `threadMemoryStore`/unified `PaceMemoryStore`, which have no override
+seam at all — no test in the repo is currently known to trigger their save
+path via a bare `CompanionManager()`, but the same risk exists latently if
+one ever does; adding an injection seam for those was out of scope for this
+fix (a pre-existing, wider architecture gap, not introduced this session).
+
 ## Rejected: cloud anything as a default
 
 **Why rejected:** Pace's headline differentiator is fully-on-device operation

@@ -20,6 +20,16 @@
 //  Task — `recordUndoInterventionOutcome` — is exercised directly, which
 //  covers everything this proposal's Slice 2 actually added.
 //
+//  Every test constructs its `CompanionManager` via
+//  `makeIsolatedCompanionManager()`, which redirects
+//  `interventionOutcomePersistenceStore` to a temp file before any
+//  persisting call runs. A bare `CompanionManager()` defaults this store to
+//  the REAL `~/Library/Application Support/Pace/intervention-outcomes.json`
+//  — an earlier version of these tests used a bare `CompanionManager()`
+//  directly and leaked one record into that real file (found and fixed
+//  2026-09-14 during the dogfood phase; see
+//  `docs/knowledge/failed-approaches.md`).
+//
 
 import Foundation
 import Testing
@@ -28,10 +38,27 @@ import Testing
 
 @MainActor
 struct PaceOutcomeFeedbackTelemetryProducerTests {
+    /// Constructs a `CompanionManager` with its outcome-telemetry
+    /// persistence redirected to an isolated temp file, so no test in this
+    /// file can write to the user's real Application Support directory.
+    /// The temp directory is intentionally leaked (not removed) — these
+    /// are tiny JSON files under the system temp dir, already covered by
+    /// `PaceInterventionOutcomeModelTests.swift`'s persistence tests, and
+    /// this suite's own concern is the producer wiring, not persistence
+    /// cleanup.
+    private func makeIsolatedCompanionManager() -> CompanionManager {
+        let companionManager = CompanionManager()
+        let temporaryDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PaceOutcomeFeedbackTelemetryProducerTests-\(UUID().uuidString)", isDirectory: true)
+        let temporaryFileURL = temporaryDirectoryURL.appendingPathComponent("intervention-outcomes.json")
+        companionManager.interventionOutcomePersistenceStore = PaceInterventionOutcomePersistenceStore(fileURL: temporaryFileURL)
+        return companionManager
+    }
+
     // MARK: - Approval producer
 
     @Test func allowOnceDecisionRecordsAcceptedOutcome() {
-        let companionManager = CompanionManager()
+        let companionManager = makeIsolatedCompanionManager()
         companionManager.recordApprovalInterventionOutcome(
             decision: .allowOnce,
             approvalSummary: "Step 1: [Medium risk] Send email to jane@example.com"
@@ -44,7 +71,7 @@ struct PaceOutcomeFeedbackTelemetryProducerTests {
     }
 
     @Test func cancelDecisionRecordsDismissedOutcome() {
-        let companionManager = CompanionManager()
+        let companionManager = makeIsolatedCompanionManager()
         companionManager.recordApprovalInterventionOutcome(
             decision: .cancel,
             approvalSummary: "Step 1: [Medium risk] Send email to jane@example.com"
@@ -55,7 +82,7 @@ struct PaceOutcomeFeedbackTelemetryProducerTests {
     }
 
     @Test func approvalOutcomesAccumulateAcrossMultipleDecisions() {
-        let companionManager = CompanionManager()
+        let companionManager = makeIsolatedCompanionManager()
         companionManager.recordApprovalInterventionOutcome(decision: .allowOnce, approvalSummary: "Approval A")
         companionManager.recordApprovalInterventionOutcome(decision: .cancel, approvalSummary: "Approval B")
         companionManager.recordApprovalInterventionOutcome(decision: .allowOnce, approvalSummary: "Approval C")
@@ -68,7 +95,7 @@ struct PaceOutcomeFeedbackTelemetryProducerTests {
     // MARK: - Undo producer + stable-identifier correlation
 
     @Test func noteReversibleActionExecutedMintsAStableIdentifier() {
-        let companionManager = CompanionManager()
+        let companionManager = makeIsolatedCompanionManager()
         #expect(companionManager.mostRecentReversibleActionIdentifier == nil)
 
         let plan = PaceActionExecutionPlan.serial(actions: [
@@ -81,7 +108,7 @@ struct PaceOutcomeFeedbackTelemetryProducerTests {
     }
 
     @Test func clearReversibleActionUndoStateClearsTheMintedIdentifierToo() {
-        let companionManager = CompanionManager()
+        let companionManager = makeIsolatedCompanionManager()
         let plan = PaceActionExecutionPlan.serial(actions: [
             .createNote(PaceNoteRequest(title: "Test note", body: "Body")),
         ])
@@ -96,7 +123,7 @@ struct PaceOutcomeFeedbackTelemetryProducerTests {
     }
 
     @Test func recordUndoInterventionOutcomeCorrelatesToTheMintedIdentifier() {
-        let companionManager = CompanionManager()
+        let companionManager = makeIsolatedCompanionManager()
         let plan = PaceActionExecutionPlan.serial(actions: [
             .createNote(PaceNoteRequest(title: "Test note", body: "Body")),
         ])
@@ -125,7 +152,7 @@ struct PaceOutcomeFeedbackTelemetryProducerTests {
         // No noteReversibleActionExecuted call first — nil identifier. The
         // producer must not crash and must still record something bounded
         // rather than silently dropping the signal.
-        let companionManager = CompanionManager()
+        let companionManager = makeIsolatedCompanionManager()
         companionManager.recordUndoInterventionOutcome(
             actionIdentifier: nil,
             actionSummary: "Last action"

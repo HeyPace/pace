@@ -415,15 +415,27 @@ final class CompanionManager: ObservableObject {
     let activityGoalStore = PaceActivityGoalStore()
     /// Durable persistence for `activityGoalStore` — atomic JSON file,
     /// mirroring `threadMemoryStore`/unified-memory `PaceMemoryStore`.
-    let activityGoalPersistenceStore = PaceActivityGoalPersistenceStore()
+    /// `var`, not `let`: unlike `PaceThreadMemoryStore`/`PaceMemoryStore`
+    /// (which hardcode their real path with no override), this store's
+    /// `init(fileURL:)` accepts an injectable path specifically so a test
+    /// that constructs a bare `CompanionManager()` can redirect it to a
+    /// temp file before exercising any persisting code path — found
+    /// necessary 2026-09-14 after a unit test leaked one record into the
+    /// real `~/Library/Application Support/Pace/intervention-outcomes.json`
+    /// (see `activityGoalPersistenceStore`'s sibling comment and
+    /// `PaceOutcomeFeedbackTelemetryProducerTests.swift`).
+    var activityGoalPersistenceStore = PaceActivityGoalPersistenceStore()
     /// Slice 1 of the outcome-feedback-telemetry proposal
     /// (openspec/changes/2026-09-13-add-outcome-feedback-telemetry): a
     /// typed, bounded record of what happened after Pace suggested or
     /// acted (accepted/dismissed/undone, this proposal's scope).
     let interventionOutcomeStore = PaceInterventionOutcomeStore()
     /// Durable persistence for `interventionOutcomeStore` — atomic JSON
-    /// file, mirroring `activityGoalPersistenceStore`.
-    let interventionOutcomePersistenceStore = PaceInterventionOutcomePersistenceStore()
+    /// file, mirroring `activityGoalPersistenceStore`. `var` for the same
+    /// test-injection reason as `activityGoalPersistenceStore` — this is
+    /// the store a test genuinely leaked into; see
+    /// `PaceOutcomeFeedbackTelemetryProducerTests.swift`.
+    var interventionOutcomePersistenceStore = PaceInterventionOutcomePersistenceStore()
     /// Last-seen intent for the turn currently completing. Set from
     /// the intent classifier site, read by
     /// `recordConversationTurn` so episodic extraction only fires
