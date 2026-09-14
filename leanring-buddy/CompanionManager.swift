@@ -1160,7 +1160,10 @@ final class CompanionManager: ObservableObject {
             },
             watchModeEventPublisher: screenWatchModeController.eventPublisher.eraseToAnyPublisher(),
             calendarRetrievalConnector: calendarRetrievalConnector,
-            initiallyEnabledGeneratorIdentifiers: initiallyEnabledGeneratorIdentifiers
+            initiallyEnabledGeneratorIdentifiers: initiallyEnabledGeneratorIdentifiers,
+            activityGoalStateProvider: { [weak self] in
+                self?.activityGoalStore.currentGoalState() ?? .unknown
+            }
         )
     }()
 

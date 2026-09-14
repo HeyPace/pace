@@ -70,6 +70,12 @@ final class PaceProactivityPipeline {
     /// Live calendar connector for the pre-meeting generator.
     private let calendarRetrievalConnector: PaceCalendarRetrievalConnector
 
+    /// Feeds the opportunity-ranking layer's relevance factor
+    /// (openspec/changes/2026-09-13-add-opportunity-ranking Slice 2).
+    /// CompanionManager owns `activityGoalStore`; this pipeline only
+    /// reads its current state, never mutates it.
+    private let activityGoalStateProvider: () -> PaceActiveGoalState
+
     // MARK: - Owned state
 
     /// Capped FIFO of nudges waiting for the user to pause. Cap is 3
@@ -149,7 +155,8 @@ final class PaceProactivityPipeline {
                 focusFatigueNudgeGenerator,
                 calendarPreMeetingNudgeGenerator,
                 watchModeObservationNudgeGenerator,
-            ]
+            ],
+            activityGoalStateProvider: activityGoalStateProvider
         )
     }()
 
@@ -166,7 +173,8 @@ final class PaceProactivityPipeline {
         cachedScreenDescriptionProvider: @escaping (String) -> String?,
         watchModeEventPublisher: AnyPublisher<PaceScreenWatchEvent, Never>,
         calendarRetrievalConnector: PaceCalendarRetrievalConnector,
-        initiallyEnabledGeneratorIdentifiers: Set<String>
+        initiallyEnabledGeneratorIdentifiers: Set<String>,
+        activityGoalStateProvider: @escaping () -> PaceActiveGoalState = { .unknown }
     ) {
         self.userInputActivityMonitor = userInputActivityMonitor
         self.activeCallDetector = activeCallDetector
@@ -179,6 +187,7 @@ final class PaceProactivityPipeline {
         self.watchModeEventPublisher = watchModeEventPublisher
         self.calendarRetrievalConnector = calendarRetrievalConnector
         self.initiallyEnabledGeneratorIdentifiers = initiallyEnabledGeneratorIdentifiers
+        self.activityGoalStateProvider = activityGoalStateProvider
     }
 
     // MARK: - Lifecycle

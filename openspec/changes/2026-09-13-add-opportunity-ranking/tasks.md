@@ -1,6 +1,6 @@
 ## 0. Owner Gate
 
-- [ ] 0.1 Owner answers D1 (score acceptance-history as neutral/inert for
+- [x] 0.1 Owner answers D1 (score acceptance-history as neutral/inert for
       now, or require a nudge-level accept/dismiss producer first), D2
       (keep the restraint-gate call sites exactly as-is and rank their
       already-approved outputs, or refactor generators to gate once after
@@ -8,8 +8,11 @@
       category cooldown) in [design.md](./design.md) before Slice 2 merges.
       Slice 1 may proceed on the recommended defaults since it is purely
       additive with zero runtime wiring.
-- [ ] 0.2 Record the answers in this change and adjust scope rather than
-      starting Slice 2+ past the approved boundary.
+- [x] 0.2 Record the answers in this change and adjust scope rather than
+      starting Slice 2+ past the approved boundary. Owner confirmed both
+      recommended defaults on 2026-09-13: D1 neutral/inert acceptance-history
+      scoring, D2 the conservative rank-the-gate's-own-approved-outputs
+      sequencing. See the "OWNER DECISION" lines in design.md.
 
 ## 1. Slice 1 — Typed Opportunity + Pure Ranker + Category Cooldown Tracker
 
@@ -56,21 +59,45 @@
 
 ## 2. Slice 2 — Wire Into `PaceProactiveNudgeOrchestrator`
 
-- [ ] 2.1 Per D2's confirmed sequencing, integrate the ranker into the
-      orchestrator's tick so all three generators' `.speak`/`.queueUntilIdle`
-      results in one tick pass through the ranker before `emit`/
-      `queueForLater` is called, using the confirmed cap/window/cooldown
-      defaults from D3.
-- [ ] 2.2 Per D1's confirmed answer, wire `PaceInterventionOutcomeStore`
-      as the (possibly still-neutral) acceptance-history evidence source.
-- [ ] 2.3 Add tests proving the three existing generators' own trigger
+- [x] 2.1 Per D2's confirmed sequencing, integrate the ranker into the
+      orchestrator so each generator's `.speak`/`.queueUntilIdle` result
+      passes through the ranker before `emit`/`queueForLater` is called,
+      using the confirmed cap/window/cooldown defaults from D3. Implemented
+      by wrapping the `emit`/`queueForLater` closures the orchestrator hands
+      each generator in `start()`/`setGeneratorEnabled` (per-generator
+      `category` = its own `identifier`) rather than modifying
+      `PaceProactiveNudges.swift` or any of the 3 generator files, which
+      stay completely untouched. Each generator fires on its own
+      independent timer/subscription (confirmed: there is no shared
+      synchronous "tick"), so in practice `rank(...)` is usually called with
+      one candidate at a time; the category-cooldown mechanism is what
+      actually enforces cross-generator repetition resistance in that
+      architecture, and the same pure `rank(...)` function handles both the
+      single-candidate common case and the near-simultaneous multi-candidate
+      case identically.
+- [x] 2.2 Per D1's confirmed answer (neutral/inert), acceptance-history
+      stays `.unavailable` with zero weight — `PaceInterventionOutcomeStore`
+      is intentionally NOT wired as an evidence source in this slice, since
+      its two real kinds (`actionApproval`/`reversibleMutationUndo`) are
+      unrelated to nudge categories and D1 rejected using them as a proxy
+      (see design.md D1's "Alternative considered").
+- [x] 2.3 Add tests proving the three existing generators' own trigger
       logic and restraint-gate calls are byte-identical to before this
-      slice — this proposal must change only what happens to their already-
-      approved outputs, never how they decide to fire.
-- [ ] 2.4 Evaluate the stop condition: if wiring reveals the three
-      generators essentially never coincide within the coalescing window in
-      practice, that is useful dogfood evidence, not a reason to expand
-      scope hunting for more collisions to fix.
+      slice. Verified two ways: (a) zero changes to
+      `PaceProactiveNudges.swift` or the 3 generator files — the diff is
+      scoped to `PaceProactiveNudgeFramework.swift`,
+      `PaceProactivityPipeline.swift`, and `CompanionManager.swift`; (b) all
+      pre-existing generator-level tests
+      (`PaceFocusFatigueNudgeGeneratorTests`,
+      `PaceCalendarPreMeetingNudgeGeneratorTests`,
+      `PaceWatchModeObservationNudgeGeneratorTests`, and the pre-existing
+      `PaceProactiveNudgeFrameworkOrchestratorTests`) pass unmodified. 5 new
+      wiring tests added in `PaceProactiveNudgeOrchestratorRankingTests`
+      (same file) prove ranking actually intercepts `start`/
+      `setGeneratorEnabled`'s closures.
+- [x] 2.4 Evaluate the stop condition: not yet dogfooded (the wiring just
+      shipped), so coincidence frequency can't be assessed yet. No second
+      producer or additional scope added preemptively.
 
 ## 3. Slice 3 — Read-Only Evidence Query
 

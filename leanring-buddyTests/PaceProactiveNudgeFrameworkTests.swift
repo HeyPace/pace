@@ -427,7 +427,162 @@ final class PaceWatchModeObservationNudgeGeneratorTests: XCTestCase {
     }
 }
 
+// MARK: - Opportunity-ranking Slice 2: orchestrator wiring
+// (openspec/changes/2026-09-13-add-opportunity-ranking)
+//
+// The pure ranking policy itself (coalescing, per-category cooldown,
+// scoring, cap) is covered directly by PaceOpportunityRankingTests.swift.
+// These tests prove only the wiring: that PaceProactiveNudgeOrchestrator
+// actually routes each generator's emit/queueForLater through the ranker
+// before forwarding to the real closures, without changing generator
+// start/stop counts or requiring any change to the generators themselves.
+
+@MainActor
+final class PaceProactiveNudgeOrchestratorRankingTests: XCTestCase {
+    func testSingleGeneratorWinnerReachesEmit() {
+        let generator = CapturingNudgeGenerator(identifier: "focus-fatigue")
+        let orchestrator = PaceProactiveNudgeOrchestrator(
+            restraintContextProvider: stableRestraintContextProvider(),
+            generators: [generator]
+        )
+        var emittedUtterances: [PaceProactiveUtterance] = []
+        orchestrator.start(emit: { emittedUtterances.append($0) }, queueForLater: { _ in })
+
+        generator.capturedEmit?(PaceProactiveUtterance(
+            spokenText: "nudge", source: .watchNudge, confidence: 0.8, relevanceWindowExpiresAt: nil
+        ))
+
+        XCTAssertEqual(emittedUtterances.map(\.spokenText), ["nudge"])
+    }
+
+    func testQueueUntilIdleWinnerReachesQueueForLater() {
+        let generator = CapturingNudgeGenerator(identifier: "calendar-pre-meeting")
+        let orchestrator = PaceProactiveNudgeOrchestrator(
+            restraintContextProvider: stableRestraintContextProvider(),
+            generators: [generator]
+        )
+        var emittedUtterances: [PaceProactiveUtterance] = []
+        var queuedUtterances: [PaceProactiveUtterance] = []
+        orchestrator.start(emit: { emittedUtterances.append($0) }, queueForLater: { queuedUtterances.append($0) })
+
+        generator.capturedQueueForLater?(PaceProactiveUtterance(
+            spokenText: "queued nudge", source: .backgroundReminder, confidence: 0.8, relevanceWindowExpiresAt: nil
+        ))
+
+        XCTAssertTrue(emittedUtterances.isEmpty)
+        XCTAssertEqual(queuedUtterances.map(\.spokenText), ["queued nudge"])
+    }
+
+    func testRepeatOfSameCategoryWithinCooldownIsSuppressed() {
+        var currentNow = Date(timeIntervalSince1970: 1_000_000)
+        let generator = CapturingNudgeGenerator(identifier: "focus-fatigue")
+        let orchestrator = PaceProactiveNudgeOrchestrator(
+            restraintContextProvider: stableRestraintContextProvider(),
+            generators: [generator],
+            nowProvider: { currentNow }
+        )
+        var emittedUtterances: [PaceProactiveUtterance] = []
+        orchestrator.start(emit: { emittedUtterances.append($0) }, queueForLater: { _ in })
+
+        generator.capturedEmit?(PaceProactiveUtterance(
+            spokenText: "first", source: .watchNudge, confidence: 0.8, relevanceWindowExpiresAt: nil
+        ))
+        currentNow = currentNow.addingTimeInterval(60) // well within the 10-minute category cooldown
+        generator.capturedEmit?(PaceProactiveUtterance(
+            spokenText: "second", source: .watchNudge, confidence: 0.8, relevanceWindowExpiresAt: nil
+        ))
+
+        XCTAssertEqual(emittedUtterances.map(\.spokenText), ["first"], "repeat within the category cooldown must be suppressed")
+    }
+
+    func testCategoryCooldownDoesNotAffectADifferentCategory() {
+        let firstGenerator = CapturingNudgeGenerator(identifier: "focus-fatigue")
+        let secondGenerator = CapturingNudgeGenerator(identifier: "calendar-pre-meeting")
+        let orchestrator = PaceProactiveNudgeOrchestrator(
+            restraintContextProvider: stableRestraintContextProvider(),
+            generators: [firstGenerator, secondGenerator]
+        )
+        var emittedUtterances: [PaceProactiveUtterance] = []
+        orchestrator.start(emit: { emittedUtterances.append($0) }, queueForLater: { _ in })
+
+        firstGenerator.capturedEmit?(PaceProactiveUtterance(
+            spokenText: "focus", source: .watchNudge, confidence: 0.8, relevanceWindowExpiresAt: nil
+        ))
+        secondGenerator.capturedEmit?(PaceProactiveUtterance(
+            spokenText: "calendar", source: .backgroundReminder, confidence: 0.8, relevanceWindowExpiresAt: nil
+        ))
+
+        XCTAssertEqual(emittedUtterances.map(\.spokenText), ["focus", "calendar"])
+    }
+
+    func testSetGeneratorEnabledAlsoWrapsWithRanking() {
+        let generator = CapturingNudgeGenerator(identifier: "focus-fatigue")
+        let orchestrator = PaceProactiveNudgeOrchestrator(
+            restraintContextProvider: stableRestraintContextProvider(),
+            generators: [generator]
+        )
+        var emittedUtterances: [PaceProactiveUtterance] = []
+        orchestrator.setGeneratorEnabled(
+            identifier: "focus-fatigue",
+            enabled: true,
+            emit: { emittedUtterances.append($0) },
+            queueForLater: { _ in }
+        )
+
+        generator.capturedEmit?(PaceProactiveUtterance(
+            spokenText: "toggled-on nudge", source: .watchNudge, confidence: 0.8, relevanceWindowExpiresAt: nil
+        ))
+
+        XCTAssertEqual(emittedUtterances.map(\.spokenText), ["toggled-on nudge"])
+    }
+
+    private func stableRestraintContextProvider() -> () -> PaceRestraintContext {
+        return {
+            PaceRestraintContext(
+                now: Date(),
+                lastProactiveUtteranceAt: nil,
+                lastEpisodicRecallAt: nil,
+                lastUserInputAt: nil,
+                frontmostAppBundleIdentifier: nil,
+                isOnActiveCall: false,
+                wakeWordConfidence: nil,
+                intent: .pureKnowledge,
+                proactiveSource: .watchNudge,
+                profile: .balanced
+            )
+        }
+    }
+}
+
 // MARK: - Test doubles
+
+/// Captures the wrapped emit/queueForLater closures the orchestrator
+/// hands to `start`/`setGeneratorEnabled` so a test can invoke them
+/// directly to simulate "the generator fired," without needing a real
+/// NSWorkspace/Timer/Combine subscription.
+@MainActor
+private final class CapturingNudgeGenerator: PaceProactiveNudgeGenerator {
+    let identifier: String
+    private(set) var capturedEmit: ((PaceProactiveUtterance) -> Void)?
+    private(set) var capturedQueueForLater: ((PaceProactiveUtterance) -> Void)?
+
+    init(identifier: String) {
+        self.identifier = identifier
+    }
+
+    func start(
+        emit: @escaping (PaceProactiveUtterance) -> Void,
+        queueForLater: @escaping (PaceProactiveUtterance) -> Void
+    ) {
+        capturedEmit = emit
+        capturedQueueForLater = queueForLater
+    }
+
+    func stop() {
+        capturedEmit = nil
+        capturedQueueForLater = nil
+    }
+}
 
 @MainActor
 private final class RecordingNudgeGenerator: PaceProactiveNudgeGenerator {

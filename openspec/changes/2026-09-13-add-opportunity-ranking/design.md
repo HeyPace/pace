@@ -96,7 +96,7 @@ proposal introduces one, not a duplicate.
 
 ## Decisions
 
-### D1 — What "recent acceptance/rejection history" means today (OWNER DECISION NEEDED)
+### D1 — What "recent acceptance/rejection history" means today (OWNER DECISION: CONFIRMED 2026-09-13)
 
 Recommendation: score this factor as **neutral/inert** for every candidate
 in this proposal, and say so explicitly in the evidence trail (e.g. an
@@ -116,12 +116,9 @@ Rejected — those outcomes are about executed actions the user explicitly
 approved or undid, not about proactive speech; conflating the two would
 misrepresent what the evidence actually shows.
 
-**Needs an explicit owner answer before Slice 2 merges**: is scoring this
-factor as neutral/inert (and saying so honestly) acceptable for now, or
-should a nudge-level accept/dismiss producer be scoped as a prerequisite
-slice before ranking ships?
+**Owner confirmed 2026-09-13**: neutral/inert scoring for now, as built.
 
-### D2 — Sequencing: rank-after-gate vs. rank-before-gate (OWNER DECISION NEEDED)
+### D2 — Sequencing: rank-after-gate vs. rank-before-gate (OWNER DECISION: CONFIRMED 2026-09-13)
 
 Recommendation: keep `PaceRestraintGate.decide(_:)`'s call sites exactly
 where they are today (inside each generator's `resolveDecision`, called
@@ -147,10 +144,9 @@ re-plumbing every generator's `evaluate` function and is a real behavior
 change to code that ships and works today — a bigger, riskier edit for a
 first slice.
 
-**Needs an explicit owner answer before Slice 2 merges**: is the
-conservative "rank the gate's own already-approved outputs" sequencing
-acceptable, or should the restraint-gate call be moved to run once after
-ranking (a larger refactor of the three existing generators)?
+**Owner confirmed 2026-09-13**: the conservative "rank the gate's own
+already-approved outputs" sequencing, as built — zero changes to the three
+existing generators' own trigger/gate logic.
 
 ### D3 — Cap count, coalescing window, and cooldown defaults
 
