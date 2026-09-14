@@ -46,7 +46,7 @@ extension CompanionManager {
 
         let consentAlert = NSAlert()
         consentAlert.alertStyle = .warning
-        consentAlert.messageText = "Send data outside Pace?"
+        consentAlert.messageText = "Send data outside Que?"
         consentAlert.informativeText = """
 The cloud bridge sends your transcript and the planner system \
 prompt to the upstream CLI you choose (Claude Code, Codex, or \
@@ -94,7 +94,7 @@ You can turn this off at any time in Settings → Cloud bridge.
 
         let consentAlert = NSAlert()
         consentAlert.alertStyle = .warning
-        consentAlert.messageText = "Send data outside Pace?"
+        consentAlert.messageText = "Send data outside Que?"
         consentAlert.informativeText = """
 This tier spawns your local \(upstream.displayLabel) CLI directly \
 (no bridge server), which sends this turn's transcript and screen \

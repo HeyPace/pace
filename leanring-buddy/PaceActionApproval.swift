@@ -33,12 +33,12 @@ nonisolated struct PaceActionApprovalRequest: Equatable {
     }
 
     var messageText: String {
-        "Approve Pace actions?"
+        "Approve Que actions?"
     }
 
     var informativeText: String {
         """
-        Pace wants to control your Mac:
+        Que wants to control your Mac:
 
         \(approvalSummary)
         \(preflightSummary.map { "\n\n\($0)" } ?? "")

@@ -21,7 +21,7 @@ struct PaceDoctorSettingsTab: View {
                 Text("Local stack diagnostics")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
-                Text("Probes LM Studio, the planner model, the embedding model, the VLM, and the TTS sidecar. Use this when Pace is misbehaving and you're not sure what's offline — it tells you exactly what's broken and how to fix it.")
+                Text("Probes LM Studio, the planner model, the embedding model, the VLM, and the TTS sidecar. Use this when Que is misbehaving and you're not sure what's offline — it tells you exactly what's broken and how to fix it.")
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

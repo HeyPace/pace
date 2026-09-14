@@ -261,15 +261,15 @@ struct PacePrivacyDashboardView: View {
     private var headlineCardPrimaryText: String {
         let formattedBytes = PacePrivacyByteFormatter.format(bytes: snapshot.totalOffDeviceBytesSent)
         if snapshot.totalOffDeviceBytesSent <= 0 {
-            return "In the last \(lookbackInHours)h, Pace sent 0 bytes off this Mac."
+            return "In the last \(lookbackInHours)h, Que sent 0 bytes off this Mac."
         }
         let topTarget = snapshot.perTargetStats.first?.target ?? "an external API"
-        return "In the last \(lookbackInHours)h, Pace sent \(formattedBytes) off this Mac to \(topTarget)."
+        return "In the last \(lookbackInHours)h, Que sent \(formattedBytes) off this Mac to \(topTarget)."
     }
 
     private var headlineCardSecondaryText: String {
         if snapshot.totalOffDeviceCallCount == 0 {
-            return "Every planner, VLM, OCR, TTS, and MCP call stayed on this device. Numbers update live as Pace works."
+            return "Every planner, VLM, OCR, TTS, and MCP call stayed on this device. Numbers update live as Que works."
         }
         let perTierFragments = snapshot.perTierStats
             .filter { $0.callCount > 0 }
@@ -283,7 +283,7 @@ struct PacePrivacyDashboardView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Off-device audit log")
                 .font(.system(size: 14, weight: .semibold))
-            Text("Every byte Pace sent off this Mac in the last \(lookbackInHours)h. Searchable. No message content — only sizes and outcomes.")
+            Text("Every byte Que sent off this Mac in the last \(lookbackInHours)h. Searchable. No message content — only sizes and outcomes.")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -470,9 +470,9 @@ struct PacePrivacyDashboardView: View {
 
     private var permissionsAuditSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Permissions Pace has and uses")
+            Text("Permissions Que has and uses")
                 .font(.system(size: 14, weight: .semibold))
-            Text("Cross-references the macOS grants with the audit log so you can see which permissions Pace actually exercises.")
+            Text("Cross-references the macOS grants with the audit log so you can see which permissions Que actually exercises.")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -555,13 +555,13 @@ struct PacePrivacyDashboardView: View {
             Text("Data residency")
                 .font(.system(size: 14, weight: .semibold))
             VStack(alignment: .leading, spacing: 6) {
-                Text("Pace runs every planner, VLM, OCR, TTS, and MCP call on this Mac by default. No transcripts, screenshots, or audio leave the device.")
+                Text("Que runs every planner, VLM, OCR, TTS, and MCP call on this Mac by default. No transcripts, screenshots, or audio leave the device.")
                 Text("Deliberate exceptions, all opt-in:")
                     .padding(.top, 4)
                 bulletText("download_file fetches a URL you name into ~/Downloads — no other bytes are sent.")
                 bulletText("Cloud bridge (off by default) routes a turn through your already-authenticated Claude Code / Codex / Gemini CLI on this Mac. The CLI itself contacts the upstream provider.")
                 bulletText("Direct API mode (off by default) sends the prompt directly to the configured provider with your API key.")
-                Text("Off-device calls always show up in the audit log above. Pace never silently uploads anything.")
+                Text("Off-device calls always show up in the audit log above. Que never silently uploads anything.")
                     .padding(.top, 4)
             }
             .font(.system(size: 12))

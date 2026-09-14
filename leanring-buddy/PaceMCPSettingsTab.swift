@@ -115,7 +115,7 @@ struct PaceMCPSettingsTab: View {
             Text("Install a popular server")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
-            Text("One-tap installs for the curated MCP servers Pace ships with. Adds the entry to your local config — never fetches a remote catalog. Composio handles the bulk of external SaaS (Gmail, Slack, GitHub, Linear, Notion, web search) via one OAuth.")
+            Text("One-tap installs for the curated MCP servers Que ships with. Adds the entry to your local config — never fetches a remote catalog. Composio handles the bulk of external SaaS (Gmail, Slack, GitHub, Linear, Notion, web search) via one OAuth.")
                 .font(.system(size: 11))
                 .foregroundColor(DS.Colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)

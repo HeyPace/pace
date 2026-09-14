@@ -26,7 +26,7 @@ extension PaceActionExecutor {
         guard await requestCalendarAccessIfNeeded() else {
             return PaceActionExecutionObservation(
                 toolName: "calendar",
-                summary: "Calendar access not granted. Open System Settings → Privacy & Security → Calendars and toggle Pace on."
+                summary: "Calendar access not granted. Open System Settings → Privacy & Security → Calendars and toggle Que on."
             )
         }
 
@@ -86,7 +86,7 @@ extension PaceActionExecutor {
         guard await requestCalendarAccessIfNeeded() else {
             return PaceActionExecutionObservation(
                 toolName: "calendar_create",
-                summary: "Calendar access not granted. Open System Settings → Privacy & Security → Calendars and toggle Pace on."
+                summary: "Calendar access not granted. Open System Settings → Privacy & Security → Calendars and toggle Que on."
             )
         }
 
@@ -152,7 +152,7 @@ extension PaceActionExecutor {
         guard await requestReminderAccessIfNeeded() else {
             return PaceActionExecutionObservation(
                 toolName: "reminder",
-                summary: "Reminders access not granted. Open System Settings → Privacy & Security → Reminders and toggle Pace on."
+                summary: "Reminders access not granted. Open System Settings → Privacy & Security → Reminders and toggle Que on."
             )
         }
 

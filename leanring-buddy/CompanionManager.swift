@@ -75,7 +75,7 @@ final class CompanionManager: ObservableObject {
     /// capture can report whether the planner actually saw the screen.
     var lastPlannerElementLineCountForDebug: Int?
     @Published var localMemorySummary: String = PaceLocalMemoryStore.summaryText
-    @Published var localRetrievalSummary: String = "Retrieval: local preferences and Pace history"
+    @Published var localRetrievalSummary: String = "Retrieval: local preferences and Que history"
     @Published var localRetrievalSourceStatuses: [PaceRetrievalSourceStatus] = []
     @Published var localRetrievalFileRootPaths: [String] = PaceLocalRetrievalFileRootPreferences
         .rootPaths(for: PaceLocalRetrievalFileRootPreferences.userSelectedRootURLs())

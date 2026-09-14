@@ -27,7 +27,7 @@ struct PaceCloudBridgeSettingsTab: View {
                 Text("Opt-in only. Default is Off.")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
-                Text("The cloud bridge routes turns through the local-ai Node server at localhost:3456, which spawns your already-authenticated CLI tool and contacts its cloud provider. This is the only intentional break of Pace's on-device-only principle. First enablement shows a consent dialog.")
+                Text("The cloud bridge routes turns through the local-ai Node server at localhost:3456, which spawns your already-authenticated CLI tool and contacts its cloud provider. This is the only intentional break of Que's on-device-only principle. First enablement shows a consent dialog.")
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

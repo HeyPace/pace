@@ -27,7 +27,7 @@ struct PaceMemorySettingsTab: View {
                 Text("Episodic memory")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
-                Text("Durable facts Pace has remembered from your conversations. Pace re-extracts after every turn; the dedup + 200-fact cap + tombstone gates keep this list bounded.")
+                Text("Durable facts Que has remembered from your conversations. Que re-extracts after every turn; the dedup + 200-fact cap + tombstone gates keep this list bounded.")
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -38,7 +38,7 @@ struct PaceMemorySettingsTab: View {
                     Text("Smart recall (semantic)")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(DS.Colors.textPrimary)
-                    Text("Ranks everything Pace remembers by meaning, not just keywords, so a question can recall related memories even without matching words. Needs the embedding model loaded in LM Studio; otherwise Pace falls back to keyword search automatically.")
+                    Text("Ranks everything Que remembers by meaning, not just keywords, so a question can recall related memories even without matching words. Needs the embedding model loaded in LM Studio; otherwise Que falls back to keyword search automatically.")
                         .font(.system(size: 11))
                         .foregroundColor(DS.Colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -59,7 +59,7 @@ struct PaceMemorySettingsTab: View {
                     Text("Inject sensitive topics in context")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(DS.Colors.textPrimary)
-                    Text("Off by default. Even when off, Pace still STORES sensitive facts — it just keeps them out of the planner prompt. Sensitive topics: #health, #finance, #relationship.")
+                    Text("Off by default. Even when off, Que still STORES sensitive facts — it just keeps them out of the planner prompt. Sensitive topics: #health, #finance, #relationship.")
                         .font(.system(size: 11))
                         .foregroundColor(DS.Colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -116,7 +116,7 @@ struct PaceMemorySettingsTab: View {
             }
 
             if allEpisodicFacts.isEmpty {
-                Text("Pace hasn't remembered anything durable yet. Mention a preference (\"I prefer dark mode\") or a recurring fact and it'll show up here after the next turn.")
+                Text("Que hasn't remembered anything durable yet. Mention a preference (\"I prefer dark mode\") or a recurring fact and it'll show up here after the next turn.")
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -189,13 +189,13 @@ struct PaceMemorySettingsTab: View {
                 }
             }
 
-            Text("Research turns Pace has run for you, newest first. Kept for 30 days (up to 100 entries) so \"what did I research about X?\" can recall them.")
+            Text("Research turns Que has run for you, newest first. Kept for 30 days (up to 100 entries) so \"what did I research about X?\" can recall them.")
                 .font(.system(size: 12))
                 .foregroundColor(DS.Colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
 
             if researchEntries.isEmpty {
-                Text("No research yet. Ask Pace to research something and it'll show up here after the turn finishes.")
+                Text("No research yet. Ask Que to research something and it'll show up here after the turn finishes.")
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

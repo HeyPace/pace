@@ -87,7 +87,7 @@ struct PacePanelChatView: View {
                 .fill(signalColorRole.color)
                 .frame(width: 7, height: 7)
                 .shadow(color: signalColorRole.color.opacity(0.5), radius: 5, x: 0, y: 2)
-            Text("Pace")
+            Text("Que")
                 .font(DS.Typography.bodyStrong)
                 .foregroundColor(DS.Colors.textPrimary)
 
@@ -98,7 +98,7 @@ struct PacePanelChatView: View {
 
             Spacer()
 
-            iconButton(systemName: "gearshape", help: "Open Pace settings") {
+            iconButton(systemName: "gearshape", help: "Open Que settings") {
                 PaceSettingsWindowManager.shared.show(companionManager: companionManager)
             }
             .keyboardShortcut(",", modifiers: [.command])
@@ -301,7 +301,7 @@ struct PacePanelChatView: View {
     private var permissionRecoveryState: some View {
         VStack(spacing: 14) {
             VStack(spacing: 5) {
-                Text("Finish Pace setup")
+                Text("Finish Que setup")
                     .font(DS.Typography.bodyStrong)
                     .foregroundColor(DS.Colors.textPrimary)
                 Text("Voice and screen-aware actions need the remaining macOS permissions. You can still type below.")
@@ -513,7 +513,7 @@ struct PacePanelChatView: View {
     private var inputRow: some View {
         VStack(spacing: 6) {
             HStack(spacing: 8) {
-                TextField("Message Pace…", text: $chatSession.draftMessageText, axis: .vertical)
+                TextField("Message Que…", text: $chatSession.draftMessageText, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(DS.Typography.body)
                     .foregroundColor(DS.Colors.textPrimary)

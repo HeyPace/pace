@@ -59,7 +59,7 @@ enum PaceMCPServerCatalog {
             slug: "filesystem",
             displayName: "Filesystem",
             description: "Read and write files inside a folder you pick.",
-            setupNote: "Edit the path arg to point at the folder you want Pace to read.",
+            setupNote: "Edit the path arg to point at the folder you want Que to read.",
             setupDocsURL: URL(string: "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem"),
             command: "npx",
             arguments: [
@@ -82,7 +82,7 @@ enum PaceMCPServerCatalog {
         PaceMCPServerCatalogEntry(
             slug: "applescript",
             displayName: "AppleScript",
-            description: "Bridge to apps Pace doesn't integrate natively.",
+            description: "Bridge to apps Que doesn't integrate natively.",
             setupNote: nil,
             setupDocsURL: URL(string: "https://github.com/peakmojo/applescript-mcp"),
             command: "npx",

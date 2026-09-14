@@ -541,13 +541,13 @@ enum BuddyPlannerClientFactory {
             switch unavailableReason {
             case .deviceNotEligible:
                 humanReadableReason = "this Mac isn't eligible for Apple Intelligence"
-                actionableHint = "Pace's Foundation Models fast path needs an M1 or newer with ≥8GB RAM. Falling back to LM Studio (`LocalPlannerClient`)."
+                actionableHint = "Que's Foundation Models fast path needs an M1 or newer with ≥8GB RAM. Falling back to LM Studio (`LocalPlannerClient`)."
             case .appleIntelligenceNotEnabled:
                 humanReadableReason = "Apple Intelligence is not enabled"
-                actionableHint = "Open System Settings → Apple Intelligence & Siri → turn Apple Intelligence on, wait for the ~3GB model download to finish, then relaunch Pace. Falling back to LM Studio for now."
+                actionableHint = "Open System Settings → Apple Intelligence & Siri → turn Apple Intelligence on, wait for the ~3GB model download to finish, then relaunch Que. Falling back to LM Studio for now."
             case .modelNotReady:
                 humanReadableReason = "the on-device model is still downloading"
-                actionableHint = "Apple Intelligence is enabled but the model assets aren't ready yet. Wait a few minutes for the download to finish, then relaunch Pace. Falling back to LM Studio for now."
+                actionableHint = "Apple Intelligence is enabled but the model assets aren't ready yet. Wait a few minutes for the download to finish, then relaunch Que. Falling back to LM Studio for now."
             @unknown default:
                 humanReadableReason = "Apple Foundation Models is unavailable"
                 actionableHint = "Falling back to LM Studio for now."

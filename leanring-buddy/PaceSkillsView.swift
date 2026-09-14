@@ -76,7 +76,7 @@ struct PaceSkillsView: View {
                 .font(DS.Typography.windowTitle)
                 .tracking(-0.45)
                 .foregroundStyle(DS.Colors.textPrimary)
-            Text("Teach Pace a repeatable action in plain language, or browse what it can already run on this Mac.")
+            Text("Teach Que a repeatable action in plain language, or browse what it can already run on this Mac.")
                 .font(DS.Typography.body)
                 .foregroundStyle(DS.Colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -96,7 +96,7 @@ struct PaceSkillsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Your automations")
                         .font(.system(size: 14, weight: .semibold))
-                    Text("Repeatable actions you taught Pace. Say a saved trigger phrase to run one.")
+                    Text("Repeatable actions you taught Que. Say a saved trigger phrase to run one.")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 }
@@ -126,7 +126,7 @@ struct PaceSkillsView: View {
                     && filteredUserSkills().isEmpty
                     && !isTeachFormExpanded {
                     Text(searchQuery.isEmpty
-                         ? "No taught automations yet. Describe one here or ask Pace to create one."
+                         ? "No taught automations yet. Describe one here or ask Que to create one."
                          : "No taught automations match \u{201C}\(searchQuery)\u{201D}.")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
@@ -512,7 +512,7 @@ struct PaceSkillsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(serverName)
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
-                Text("MCP server registered in ~/.config/pace/mcp-servers.json. Pace calls it via stdio JSON-RPC when the planner emits an mcp tool call targeting this server.")
+                Text("MCP server registered in ~/.config/pace/mcp-servers.json. Que calls it via stdio JSON-RPC when the planner emits an mcp tool call targeting this server.")
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

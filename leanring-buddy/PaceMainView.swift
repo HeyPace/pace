@@ -61,7 +61,7 @@ struct PaceMainView: View {
                         .fill(DS.Colors.localSignal)
                         .frame(width: 7, height: 7)
                         .shadow(color: DS.Colors.localSignal.opacity(0.45), radius: 5, x: 0, y: 2)
-                    Text("Pace")
+                    Text("Que")
                         .font(DS.Typography.sectionTitle)
                         .foregroundStyle(DS.Colors.textPrimary)
                 }
@@ -100,7 +100,7 @@ struct PaceMainView: View {
                         Text("Extra integrations and troubleshooting controls.")
                     }
                 } else if searchResults.isEmpty {
-                    Text("No Pace setting matches “\(destinationSearchText)”.")
+                    Text("No Que setting matches “\(destinationSearchText)”.")
                         .font(DS.Typography.callout)
                         .foregroundStyle(DS.Colors.textSecondary)
                 } else {
@@ -116,7 +116,7 @@ struct PaceMainView: View {
             .searchable(
                 text: $destinationSearchText,
                 placement: .sidebar,
-                prompt: "Search Pace"
+                prompt: "Search Que"
             )
 
             Button {
@@ -287,7 +287,7 @@ struct PaceMainView: View {
                 Text("Advanced control")
                     .font(DS.Typography.captionStrong)
                     .foregroundStyle(DS.Colors.textTertiary)
-                Text("Pace’s defaults are suitable for most people. Change this only when you know which runtime behavior you need.")
+                Text("Que’s defaults are suitable for most people. Change this only when you know which runtime behavior you need.")
                     .font(DS.Typography.callout)
                     .foregroundStyle(DS.Colors.textSecondary)
             } else {
@@ -310,7 +310,7 @@ struct PacePermissionsView: View {
             Text("Permissions")
                 .font(DS.Typography.windowTitle)
                 .tracking(-0.45)
-            Text("Live macOS capability state. Pace asks only when a requested feature needs access.")
+            Text("Live macOS capability state. Que asks only when a requested feature needs access.")
                 .font(DS.Typography.body)
                 .foregroundColor(DS.Colors.textSecondary)
 
@@ -425,7 +425,7 @@ struct PaceAboutView: View {
             PaceSignalNotchView(state: .ready, isOffDeviceTurn: false)
                 .frame(width: 220, height: 64)
 
-            Text("Pace")
+            Text("Que")
                 .font(DS.Typography.display)
             Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
                 .font(DS.Typography.metadata)

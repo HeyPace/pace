@@ -51,7 +51,7 @@ nonisolated final class PaceScreenTimeRetrievalConnector {
     ) throws -> [PaceRetrievalDocument] {
         guard FileManager.default.fileExists(atPath: knowledgeDatabaseURL.path) else {
             throw PaceScreenTimeReadError(
-                message: "Screen Time database not found — grant Pace Full Disk Access in System Settings → Privacy & Security."
+                message: "Screen Time database not found — grant Que Full Disk Access in System Settings → Privacy & Security."
             )
         }
 
@@ -106,7 +106,7 @@ nonisolated final class PaceScreenTimeRetrievalConnector {
         ) == SQLITE_OK, let database else {
             sqlite3_close(database)
             throw PaceScreenTimeReadError(
-                message: "Could not open the Screen Time database — grant Pace Full Disk Access in System Settings → Privacy & Security."
+                message: "Could not open the Screen Time database — grant Que Full Disk Access in System Settings → Privacy & Security."
             )
         }
         defer { sqlite3_close(database) }

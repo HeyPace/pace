@@ -216,7 +216,7 @@ extension CompanionManager {
             // masquerade as something the user asked in conversation history.
             localRetriever.recordPaceHistory(
                 userTranscript: "(system) failure event",
-                assistantResponse: "Pace surfaced a failure: \(narration.spokenText)"
+                assistantResponse: "Que surfaced a failure: \(narration.spokenText)"
             )
             refreshLocalRetrievalPublishedState()
         }

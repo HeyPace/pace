@@ -32,9 +32,9 @@ nonisolated enum PaceAppIntentError: Swift.Error, CustomLocalizedStringResourceC
     var localizedStringResource: LocalizedStringResource {
         switch self {
         case .appDelegateUnavailable:
-            return "Pace isn't ready yet. Try again in a moment."
+            return "Que isn't ready yet. Try again in a moment."
         case .messageEmpty:
-            return "Pace needs a message to send."
+            return "Que needs a message to send."
         case .messageTooLong:
             return "Message too long — keep it under 500 characters."
         }
@@ -45,15 +45,15 @@ nonisolated enum PaceAppIntentError: Swift.Error, CustomLocalizedStringResourceC
 
 @available(macOS 13.0, *)
 struct PaceConversationIntent: AppIntent {
-    static var title: LocalizedStringResource = "Ask Pace"
+    static var title: LocalizedStringResource = "Ask Que"
     static var description = IntentDescription(
-        "Send a message to Pace. Pace runs entirely on your Mac — your message goes to the local planner, not the cloud."
+        "Send a message to Que. Que runs entirely on your Mac — your message goes to the local planner, not the cloud."
     )
     static var openAppWhenRun: Bool = true
 
     @Parameter(
         title: "Message",
-        description: "What you want to ask or tell Pace.",
+        description: "What you want to ask or tell Que.",
         inputOptions: String.IntentInputOptions(
             keyboardType: .default,
             capitalizationType: .sentences,
@@ -83,9 +83,9 @@ struct PaceConversationIntent: AppIntent {
 
 @available(macOS 13.0, *)
 struct PaceStartListeningIntent: AppIntent {
-    static var title: LocalizedStringResource = "Pace: Start Listening"
+    static var title: LocalizedStringResource = "Que: Start Listening"
     static var description = IntentDescription(
-        "Begin a push-to-talk voice session with Pace."
+        "Begin a push-to-talk voice session with Que."
     )
     static var openAppWhenRun: Bool = true
 
@@ -101,9 +101,9 @@ struct PaceStartListeningIntent: AppIntent {
 
 @available(macOS 13.0, *)
 struct PaceShowPanelIntent: AppIntent {
-    static var title: LocalizedStringResource = "Pace: Show Panel"
+    static var title: LocalizedStringResource = "Que: Show Panel"
     static var description = IntentDescription(
-        "Open Pace's companion panel."
+        "Open Que's companion panel."
     )
     static var openAppWhenRun: Bool = true
 
@@ -119,7 +119,7 @@ struct PaceShowPanelIntent: AppIntent {
 
 @available(macOS 13.0, *)
 struct PaceTranscribeAudioFileIntent: AppIntent {
-    static var title: LocalizedStringResource = "Pace: Transcribe Audio File"
+    static var title: LocalizedStringResource = "Que: Transcribe Audio File"
     static var description = IntentDescription(
         "Transcribe an audio file (m4a, mp3, wav, aiff, caf, flac) on your Mac. Fully on-device — the file is decoded locally and the audio never leaves the machine."
     )
@@ -156,9 +156,9 @@ struct PaceTranscribeAudioFileIntent: AppIntent {
 
 @available(macOS 13.0, *)
 struct PaceSetWatchModeIntent: AppIntent {
-    static var title: LocalizedStringResource = "Pace: Set Watch Mode"
+    static var title: LocalizedStringResource = "Que: Set Watch Mode"
     static var description = IntentDescription(
-        "Turn Pace's screen-watch mode on or off."
+        "Turn Que's screen-watch mode on or off."
     )
     static var openAppWhenRun: Bool = true
 
@@ -200,7 +200,7 @@ struct PaceAppShortcuts: AppShortcutsProvider {
                 "Send a message to \(.applicationName)",
                 "Tell \(.applicationName) something",
             ],
-            shortTitle: "Ask Pace",
+            shortTitle: "Ask Que",
             systemImageName: "bubble.left.and.bubble.right"
         )
         AppShortcut(

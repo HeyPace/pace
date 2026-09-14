@@ -636,7 +636,7 @@ struct PaceChatPanelView: View {
 
     private var dockedInputRow: some View {
         HStack(spacing: 8) {
-            TextField("Message Pace…", text: $draftMessageText, axis: .vertical)
+            TextField("Message Que…", text: $draftMessageText, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .foregroundColor(DS.Colors.textPrimary)
@@ -665,7 +665,7 @@ struct PaceChatPanelView: View {
             .pointerCursor()
             .keyboardShortcut(.return, modifiers: [.command])
             .disabled(isDraftMessageTextEmpty)
-            .help("Send to Pace")
+            .help("Send to Que")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

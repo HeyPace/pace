@@ -39,7 +39,7 @@ struct PaceQuickTogglesView: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(DS.Colors.textSecondary)
 
-                    Text("Pace draws and explains instead of clicking")
+                    Text("Que draws and explains instead of clicking")
                         .font(.system(size: 10))
                         .foregroundColor(DS.Colors.textTertiary)
                 }

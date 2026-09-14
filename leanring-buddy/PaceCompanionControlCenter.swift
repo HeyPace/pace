@@ -133,7 +133,7 @@ final class PaceCompanionControlCenter: ObservableObject {
         switch result {
         case .success(let labels):
             taughtObjectLabels = labels
-            objectTeachingStatusText = "Object saved locally. Pace will report conservative last-seen matches."
+            objectTeachingStatusText = "Object saved locally. Que will report conservative last-seen matches."
         case .failure(let error):
             objectTeachingStatusText = error.localizedDescription
         }

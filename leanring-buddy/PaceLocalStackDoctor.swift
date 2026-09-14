@@ -440,7 +440,7 @@ final class PaceLocalStackDoctor {
                 return PaceDoctorCheck(
                     title: "TTS sidecar",
                     status: .warn,
-                    detail: "No HTTP response from TTS sidecar at \(ttsServerBaseURL) — Pace falls back to the Apple voice.",
+                    detail: "No HTTP response from TTS sidecar at \(ttsServerBaseURL) — Que falls back to the Apple voice.",
                     fixHint: "TTS sidecar offline. Run `scripts/start-tts-server.sh` for Kokoro."
                 )
             }
@@ -448,8 +448,8 @@ final class PaceLocalStackDoctor {
             return PaceDoctorCheck(
                 title: "TTS sidecar",
                 status: .warn,
-                detail: "TTS sidecar is offline at \(ttsServerBaseURL) — Pace falls back to the Apple voice automatically.",
-                fixHint: "TTS sidecar offline — Pace falls back to the Apple voice. Run `scripts/start-tts-server.sh` for Kokoro."
+                detail: "TTS sidecar is offline at \(ttsServerBaseURL) — Que falls back to the Apple voice automatically.",
+                fixHint: "TTS sidecar offline — Que falls back to the Apple voice. Run `scripts/start-tts-server.sh` for Kokoro."
             )
         }
     }

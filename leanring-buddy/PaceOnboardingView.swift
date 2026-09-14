@@ -114,7 +114,7 @@ struct PaceOnboardingView: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Pace introduction. \(progressAccessibilityLabel)")
+        .accessibilityLabel("Que introduction. \(progressAccessibilityLabel)")
     }
 
     private var subtleBackgroundSignal: some View {
@@ -195,7 +195,7 @@ struct PaceOnboardingView: View {
                     .foregroundStyle(DS.Colors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("Hold Control + Option and speak naturally. Pace understands your request and carries it out while your voice, screen, and context stay on this Mac by default.")
+                Text("Hold Control + Option and speak naturally. Que understands your request and carries it out while your voice, screen, and context stay on this Mac by default.")
                     .font(DS.Typography.body)
                     .foregroundStyle(DS.Colors.textSecondary)
                     .lineSpacing(5)
@@ -241,12 +241,12 @@ struct PaceOnboardingView: View {
 
     private var permissionsScene: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Allow what Pace needs.")
+            Text("Allow what Que needs.")
                 .font(DS.Typography.sceneTitle)
                 .tracking(-0.9)
                 .foregroundStyle(DS.Colors.textPrimary)
 
-            Text("Each permission unlocks one visible capability. Continue now or change any choice later in Pace settings.")
+            Text("Each permission unlocks one visible capability. Continue now or change any choice later in Que settings.")
                 .font(DS.Typography.body)
                 .foregroundStyle(DS.Colors.textSecondary)
                 .padding(.top, 12)
@@ -274,7 +274,7 @@ struct PaceOnboardingView: View {
                     kind: .microphone,
                     systemImage: "waveform",
                     title: "Hear your request",
-                    detail: "Captures push-to-talk audio for local transcription. Pace does not keep the recording."
+                    detail: "Captures push-to-talk audio for local transcription. Que does not keep the recording."
                 )
             }
             .background(DS.Colors.surfaceRaised)
@@ -400,12 +400,12 @@ struct PaceOnboardingView: View {
     private var firstCommandScene: some View {
         HStack(spacing: 54) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Give Pace one real job.")
+                Text("Give Que one real job.")
                     .font(DS.Typography.sceneTitle)
                     .tracking(-0.9)
                     .foregroundStyle(DS.Colors.textPrimary)
 
-                Text("Edit the suggestion or write your own request. Pace will use the same real path it uses after setup and ask before any sensitive action.")
+                Text("Edit the suggestion or write your own request. Que will use the same real path it uses after setup and ask before any sensitive action.")
                     .font(DS.Typography.body)
                     .foregroundStyle(DS.Colors.textSecondary)
                     .lineSpacing(4)
@@ -419,7 +419,7 @@ struct PaceOnboardingView: View {
                         .font(DS.Typography.captionStrong)
                         .foregroundStyle(DS.Colors.textTertiary)
 
-                    TextField("Ask Pace to do something", text: $commandText, axis: .vertical)
+                    TextField("Ask Que to do something", text: $commandText, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(DS.Typography.headline)
                         .foregroundStyle(DS.Colors.textPrimary)
@@ -536,7 +536,7 @@ struct PaceOnboardingView: View {
 
             if firstCommandOutcome.allowsHandoff {
                 VStack(spacing: 10) {
-                    primaryButton("Continue to Pace", systemImage: "arrow.right") {
+                    primaryButton("Continue to Que", systemImage: "arrow.right") {
                         continueFromFirstValue()
                     }
                     .keyboardShortcut(.return, modifiers: [])
@@ -592,7 +592,7 @@ struct PaceOnboardingView: View {
         }
         .onAppear(perform: beginHandoff)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(handoffTitle) Pace is ready in the menu bar.")
+        .accessibilityLabel("\(handoffTitle) Que is ready in the menu bar.")
     }
 
     private var progressLabel: String {
@@ -705,7 +705,7 @@ struct PaceOnboardingView: View {
         if allCorePermissionsGranted {
             return "All three permissions are ready. Continuing…"
         }
-        return "\(corePermissionGrantCount) of 3 ready · Screen Recording may refresh after Pace reopens"
+        return "\(corePermissionGrantCount) of 3 ready · Screen Recording may refresh after Que reopens"
     }
 
     private var latestResponseText: String? {
@@ -718,11 +718,11 @@ struct PaceOnboardingView: View {
         case .waiting:
             return submittedCommandText == nil
                 ? "Ready for an editable request."
-                : "Pace is working on your request."
+                : "Que is working on your request."
         case .responseReceived:
-            return "Pace answered without changing anything on your Mac."
+            return "Que answered without changing anything on your Mac."
         case .awaitingApproval:
-            return "Review the action before Pace continues."
+            return "Review the action before Que continues."
         case .actionCompleted:
             return companionManager.recentActionResults.first?.detail ?? "The requested action completed."
         case .blocked:
@@ -730,7 +730,7 @@ struct PaceOnboardingView: View {
         case .failed:
             return currentFirstCommandFailureNarration?.spokenText
                 ?? companionManager.recentActionResults.first?.detail
-                ?? "Pace could not complete that request. You can edit it and try again."
+                ?? "Que could not complete that request. You can edit it and try again."
         }
     }
 
@@ -738,11 +738,11 @@ struct PaceOnboardingView: View {
         if firstCommandUsedOffDevicePlanner {
             return firstCommandOutcome == .actionCompleted
                 ? "Your first action used the off-device model you enabled."
-                : "Pace answered using the off-device model you enabled."
+                : "Que answered using the off-device model you enabled."
         }
         return firstCommandOutcome == .actionCompleted
             ? "Your first action is complete."
-            : "Pace answered on your Mac."
+            : "Que answered on your Mac."
     }
 
     private var currentFirstCommandFailureNarration: PaceFailureNarration? {
@@ -775,7 +775,7 @@ struct PaceOnboardingView: View {
         case .mcp: return "Open Connected Tools"
         case .cloudBridge: return "Open Off-Device Model Settings"
         case .doctor: return "Open Help & Diagnostics"
-        default: return "Open Pace Settings"
+        default: return "Open Que Settings"
         }
     }
 

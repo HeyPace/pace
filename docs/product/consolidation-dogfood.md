@@ -104,7 +104,8 @@ baseline):**
 
 - Launch only via Xcode `Cmd+R`. Never `xcodebuild` from a terminal for this
   — it can invalidate the interactive app's TCC grants (CLAUDE.md).
-- **Corrected navigation path (2026-09-14):** open Pace's Command Center
+- **Corrected navigation path (2026-09-14; window now titled "Que Command
+  Center" after the Pace → Que product rename):** open Que's Command Center
   (gear icon in the companion panel, or `Cmd+,`), then in the sidebar expand
   **"Advanced controls"** (it's collapsed by default — a `DisclosureGroup`,
   not a top-level entry) and select **"Background suggestions"**

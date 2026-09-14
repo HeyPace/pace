@@ -221,21 +221,21 @@ nonisolated struct PaceSignalPresentation: Equatable {
         case .ready:
             return nil
         case .listening:
-            return "Pace is listening."
+            return "Que is listening."
         case .understanding:
-            return "Pace is understanding your request \(processingLocation)."
+            return "Que is understanding your request \(processingLocation)."
         case .awaitingApproval:
-            return "Pace is waiting for your approval."
+            return "Que is waiting for your approval."
         case .acting:
-            return "Pace is carrying out the approved action \(processingLocation)."
+            return "Que is carrying out the approved action \(processingLocation)."
         case .speaking:
-            return "Pace is responding."
+            return "Que is responding."
         case .completed:
-            return "Pace completed the request."
+            return "Que completed the request."
         case .blocked:
-            return "Pace needs your attention before it can continue."
+            return "Que needs your attention before it can continue."
         case .failed:
-            return "Pace could not complete the request. Open the panel for recovery options."
+            return "Que could not complete the request. Open the panel for recovery options."
         }
     }
 
@@ -593,7 +593,7 @@ final class PaceOnboardingProgressStore {
 }
 
 nonisolated enum PaceCommandCenterGroup: String, CaseIterable, Identifiable {
-    case work = "Use Pace"
+    case work = "Use Que"
     case observe = "Activity & Privacy"
     case configure = "Customize"
     case diagnostics = "Help"
@@ -652,7 +652,7 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
         case .privacy: return "Privacy"
         case .permissions: return "Permissions"
         case .general: return "General"
-        case .planner: return "How Pace thinks"
+        case .planner: return "How Que thinks"
         case .models: return "Models on this Mac"
         case .research: return "Research mode"
         case .proactive: return "Background suggestions"
@@ -668,25 +668,25 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
 
     var subtitle: String {
         switch self {
-        case .conversations: return "Review what you and Pace have discussed."
+        case .conversations: return "Review what you and Que have discussed."
         case .skills: return "Browse and teach reusable actions in plain language."
         case .flows: return "Build repeatable sequences from several actions."
-        case .tasks: return "Review work Pace runs on a schedule."
+        case .tasks: return "Review work Que runs on a schedule."
         case .usage: return "See local model and feature usage on this Mac."
         case .activity: return "Inspect actions, outcomes, and approvals in order."
-        case .memory: return "Choose what Pace may remember between conversations."
+        case .memory: return "Choose what Que may remember between conversations."
         case .privacy: return "See where processing happened and what data was used."
         case .permissions: return "Control the macOS access behind each capability."
         case .general: return "Set startup, interface, and everyday behavior."
-        case .planner: return "Choose how Pace turns requests into safe steps."
-        case .models: return "Manage the on-device models Pace uses."
+        case .planner: return "Choose how Que turns requests into safe steps."
+        case .models: return "Manage the on-device models Que uses."
         case .research: return "Control deeper, multi-source research behavior."
-        case .proactive: return "Decide when Pace may offer help without being asked."
+        case .proactive: return "Decide when Que may offer help without being asked."
         case .companion: return "Configure optional background awareness."
         case .mcp: return "Connect additional tools while keeping boundaries visible."
         case .voice: return "Choose listening, transcription, and spoken-response behavior."
         case .cloudBridge: return "Configure an explicitly off-device reasoning option."
-        case .about: return "Version information and Pace’s local-first promise."
+        case .about: return "Version information and Que’s local-first promise."
         case .debug: return "Inspect low-level runtime information for troubleshooting."
         case .doctor: return "Check readiness and recover from setup problems."
         }

@@ -107,7 +107,7 @@ nonisolated enum PaceToolPreflight {
             issues.append(PaceToolPreflightIssue(
                 severity: .blocking,
                 title: "Accessibility permission missing",
-                repairHint: "Open Pace's panel and grant Accessibility.",
+                repairHint: "Open Que's panel and grant Accessibility.",
                 blockingKind: .accessibilityPermissionMissing
             ))
         }

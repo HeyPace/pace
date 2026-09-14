@@ -68,33 +68,33 @@
 	<key>LocalVLMModelIdentifier</key>
 	<string>qwen/qwen3.5-4b</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Pace uses Apple Events only when you ask it to control local Mac apps like Notes, Music, Mail, Things, Shortcuts, or Messages.</string>
+	<string>Que uses Apple Events only when you ask it to control local Mac apps like Notes, Music, Mail, Things, Shortcuts, or Messages.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Pace uses calendar access only when you ask it to check your schedule.</string>
+	<string>Que uses calendar access only when you ask it to check your schedule.</string>
 	<key>NSCalendarsUsageDescription</key>
-	<string>Pace uses calendar access only when you ask it to check your schedule.</string>
+	<string>Que uses calendar access only when you ask it to check your schedule.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Pace uses the camera only for the optional posture watch. Frames are analyzed on-device and never stored or sent anywhere.</string>
+	<string>Que uses the camera only for the optional posture watch. Frames are analyzed on-device and never stored or sent anywhere.</string>
 	<key>NSContactsUsageDescription</key>
-	<string>Pace uses contacts access only to address local mail drafts by name and retrieve contact context locally when access is already granted.</string>
+	<string>Que uses contacts access only to address local mail drafts by name and retrieve contact context locally when access is already granted.</string>
 	<key>NSFocusStatusUsageDescription</key>
-	<string>Pace checks your macOS Focus state so proactive nudges (morning brief, posture, fatigue) stay silent during Do Not Disturb, Work, Sleep, and other Focus modes.</string>
+	<string>Que checks your macOS Focus state so proactive nudges (morning brief, posture, fatigue) stay silent during Do Not Disturb, Work, Sleep, and other Focus modes.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Pace uses your microphone so you can talk to it</string>
+	<string>Que uses your microphone so you can talk to it</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Pace connects to your paired iPad companion on your local network.</string>
+	<string>Que connects to your paired iPad companion on your local network.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_pace-companion._tcp</string>
 	</array>
 	<key>NSRemindersFullAccessUsageDescription</key>
-	<string>Pace uses reminders access only when you ask it to create reminders.</string>
+	<string>Que uses reminders access only when you ask it to create reminders.</string>
 	<key>NSRemindersUsageDescription</key>
-	<string>Pace uses reminders access only when you ask it to create reminders.</string>
+	<string>Que uses reminders access only when you ask it to create reminders.</string>
 	<key>NSScreenCaptureUsageDescription</key>
-	<string>Pace needs screen recording access to see your screen and help you.</string>
+	<string>Que needs screen recording access to see your screen and help you.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Pace uses speech recognition to transcribe your voice when you talk to it</string>
+	<string>Que uses speech recognition to transcribe your voice when you talk to it</string>
 	<key>NotchChatShortcut</key>
 	<string>commandShiftP</string>
 	<key>PlannerProvider</key>

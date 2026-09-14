@@ -43,7 +43,7 @@ struct PaceGeneralSettingsTab: View {
             )
             paceSettingsToggleRow(
                 title: "Tuition mode",
-                subtitle: "Pace teaches instead of acts: it draws shapes on screen and explains the step, rather than clicking through for you. Turn off when you want it to just do the thing.",
+                subtitle: "Que teaches instead of acts: it draws shapes on screen and explains the step, rather than clicking through for you. Turn off when you want it to just do the thing.",
                 isOn: Binding(
                     get: { companionManager.isTuitionModeEnabled },
                     set: { companionManager.setIsTuitionModeEnabled($0) }
@@ -91,7 +91,7 @@ struct PaceGeneralSettingsTab: View {
 
             paceSettingsToggleRow(
                 title: "Meeting mode",
-                subtitle: "Capture system audio (excluding Pace) so Pace can listen during calls. Say \"start meeting mode\" or toggle here.",
+                subtitle: "Capture system audio (excluding Que) so Que can listen during calls. Say \"start meeting mode\" or toggle here.",
                 isOn: Binding(
                     get: { PaceUserPreferencesStore.bool(for: .isMeetingModeEnabled) },
                     set: { newValue in

@@ -89,7 +89,7 @@ final class PaceSpotlightMemoryIndexer {
         attributeSet.contentCreationDate = entry.createdAt
         attributeSet.contentModificationDate = entry.updatedAt
         attributeSet.keywords = ["pace", entry.kind.rawValue] + entry.topicTags
-        attributeSet.subject = "Pace memory — \(humanReadableKindLabel(forKind: entry.kind))"
+        attributeSet.subject = "Que memory — \(humanReadableKindLabel(forKind: entry.kind))"
 
         return CSSearchableItem(
             uniqueIdentifier: entry.id,

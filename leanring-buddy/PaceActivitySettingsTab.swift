@@ -123,7 +123,7 @@ struct PaceActivitySettingsTab: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
 
-            Text("Pace keeps the last few turns verbatim and rolls everything older into a one-paragraph summary so it stays coherent across a long conversation. This conversation only — never saved to disk.")
+            Text("Que keeps the last few turns verbatim and rolls everything older into a one-paragraph summary so it stays coherent across a long conversation. This conversation only — never saved to disk.")
                 .font(.system(size: 12))
                 .foregroundColor(DS.Colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)

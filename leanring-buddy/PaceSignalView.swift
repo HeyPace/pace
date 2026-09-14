@@ -239,7 +239,7 @@ struct PaceSignalNotchView: View {
             value: state
         )
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Pace")
+        .accessibilityLabel("Que")
         .accessibilityValue(presentation.accessibilityValue)
     }
 }

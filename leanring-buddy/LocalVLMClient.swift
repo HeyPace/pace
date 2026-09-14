@@ -268,7 +268,7 @@ final class InProcessVLMClient: PaceScreenAnalysisClient, @unchecked Sendable {
         userIntent: String
     ) async throws -> LocalVLMScreenAnalysis {
         throw LocalVLMClientError(
-            message: "In-process VLM is configured but the CoreML/MLX runtime bridge is not installed in Pace yet."
+            message: "In-process VLM is configured but the CoreML/MLX runtime bridge is not installed in Que yet."
         )
     }
 }

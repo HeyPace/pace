@@ -89,8 +89,8 @@ struct PaceConversationsView: View {
         return headerIconButton(
             systemName: isMuted ? "speaker.slash" : "speaker.wave.2",
             help: isMuted
-                ? "Replies are silent this session. Unmute Pace."
-                : "Pace speaks replies. Mute this session."
+                ? "Replies are silent this session. Unmute Que."
+                : "Que speaks replies. Mute this session."
         ) {
             chatSession.isChatTTSMuted.toggle()
         }
@@ -255,7 +255,7 @@ struct PaceConversationsView: View {
 
             VStack(alignment: isFromUser ? .trailing : .leading, spacing: 5) {
                 HStack(spacing: 6) {
-                    Text(isFromUser ? "You" : "Pace")
+                    Text(isFromUser ? "You" : "Que")
                         .font(DS.Typography.captionStrong)
                     Text(messageRowModel.createdAt.formatted(date: .omitted, time: .shortened))
                         .font(DS.Typography.caption)
@@ -360,7 +360,7 @@ struct PaceConversationsView: View {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 6) {
-                        Text("Pace")
+                        Text("Que")
                             .font(DS.Typography.captionStrong)
                         Text("responding")
                             .font(DS.Typography.caption)
@@ -391,7 +391,7 @@ struct PaceConversationsView: View {
     private var chatInputRow: some View {
         HStack(alignment: .bottom, spacing: 10) {
             TextField(
-                "Message Pace…",
+                "Message Que…",
                 text: $chatSession.draftMessageText,
                 axis: .vertical
             )

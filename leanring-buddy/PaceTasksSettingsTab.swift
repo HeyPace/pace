@@ -22,7 +22,7 @@ struct PaceTasksSettingsTab: View {
                 Text("Scheduled tasks")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
-                Text("Recurring things Pace runs for you on a timer. Create one by voice — for example, \"every morning at 9, summarize my calendar\" or \"every 2 hours remind me to stand up\".")
+                Text("Recurring things Que runs for you on a timer. Create one by voice — for example, \"every morning at 9, summarize my calendar\" or \"every 2 hours remind me to stand up\".")
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

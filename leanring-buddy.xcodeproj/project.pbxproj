@@ -521,10 +521,10 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "leanring-buddy/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = Pace;
-				INFOPLIST_KEY_CFBundleName = Pace;
+				INFOPLIST_KEY_CFBundleDisplayName = Que;
+				INFOPLIST_KEY_CFBundleName = Que;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "Pace needs screen recording access to see your screen and help you.";
+				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "Que needs screen recording access to see your screen and help you.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -559,10 +559,10 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "leanring-buddy/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = Pace;
-				INFOPLIST_KEY_CFBundleName = Pace;
+				INFOPLIST_KEY_CFBundleDisplayName = Que;
+				INFOPLIST_KEY_CFBundleName = Que;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "Pace needs screen recording access to see your screen and help you.";
+				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "Que needs screen recording access to see your screen and help you.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

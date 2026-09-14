@@ -43,7 +43,7 @@ nonisolated enum PaceRetrievalSource: String, CaseIterable, Codable, Equatable {
         case .competitiveResearch:
             return "Competitive research"
         case .paceHistory:
-            return "Pace history"
+            return "Que history"
         case .screenWatchHistory:
             return "Screen watch journal"
         case .appUsageHistory:

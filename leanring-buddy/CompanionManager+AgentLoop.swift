@@ -70,7 +70,7 @@ extension CompanionManager {
                 plannerForWarmup.resetForNewTurn()
                 _ = try await plannerForWarmup.generateResponseStreaming(
                     images: [],
-                    systemPrompt: "You are Pace. Reply with one word.",
+                    systemPrompt: "You are Que. Reply with one word.",
                     conversationHistory: [],
                     userPrompt: "Reply with ready.",
                     onTextChunk: { _ in }
@@ -3163,7 +3163,7 @@ extension CompanionManager {
                     handleImmediateLocalModeResponse(
                         transcript: transcript,
                         spokenText:
-                            "saved \(structuredProgram.name) as a deterministic Pace Program. it will run locally without a model.",
+                            "saved \(structuredProgram.name) as a deterministic Que Program. it will run locally without a model.",
                         shouldRecordConversationTurn: false
                     )
                     return

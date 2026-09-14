@@ -284,7 +284,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
                 for: .understanding,
                 isOffDeviceTurn: true
             ),
-            "Pace is understanding your request using the off-device model you enabled."
+            "Que is understanding your request using the off-device model you enabled."
         )
     }
 
@@ -593,7 +593,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             XCTAssertFalse(destination.subtitle.isEmpty)
         }
 
-        XCTAssertEqual(PaceCommandCenterDestination.planner.title, "How Pace thinks")
+        XCTAssertEqual(PaceCommandCenterDestination.planner.title, "How Que thinks")
         XCTAssertEqual(PaceCommandCenterDestination.mcp.title, "Connected apps & tools")
         XCTAssertEqual(PaceCommandCenterDestination.doctor.title, "Help & diagnostics")
     }

@@ -35,8 +35,8 @@ struct PaceActionApprovalTests {
             requiresActionApproval: true
         ))
 
-        #expect(request.messageText == "Approve Pace actions?")
-        #expect(request.informativeText.contains("Pace wants to control your Mac:"))
+        #expect(request.messageText == "Approve Que actions?")
+        #expect(request.informativeText.contains("Que wants to control your Mac:"))
         #expect(request.informativeText.contains("[input injection] Type text"))
         #expect(request.informativeText.contains("Only approve this if it matches what you asked for."))
     }

@@ -139,7 +139,7 @@ struct CompanionPanelView: View {
                     .frame(width: 8, height: 8)
                     .shadow(color: statusDotColor.opacity(0.6), radius: 4)
 
-                Text("Pace")
+                Text("Que")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(DS.Colors.textPrimary)
             }
@@ -164,7 +164,7 @@ struct CompanionPanelView: View {
                     )
             }
             .buttonStyle(.plain)
-            .help("Open Pace window — conversations, usage, permissions")
+            .help("Open Que window — conversations, usage, permissions")
             .pointerCursor()
 
             Button(action: {
@@ -290,7 +290,7 @@ struct CompanionPanelView: View {
             }
             .buttonStyle(.plain)
             .pointerCursor()
-            .help("Ask Pace this — same path as voice or chat.")
+            .help("Ask Que this — same path as voice or chat.")
         }
         .padding(.vertical, 2)
     }
@@ -624,7 +624,7 @@ struct CompanionPanelView: View {
         if companionManager.isNotchChatInputFocused {
             HStack(spacing: 6) {
                 TextField(
-                    "Ask Pace — Enter to send, Esc to cancel",
+                    "Ask Que — Enter to send, Esc to cancel",
                     text: $notchChatDraftText
                 )
                 .textFieldStyle(.plain)
@@ -651,7 +651,7 @@ struct CompanionPanelView: View {
                 .pointerCursor()
                 .keyboardShortcut(.return, modifiers: [])
                 .disabled(notchChatDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .help("Send to Pace")
+                .help("Send to Que")
             }
             .onAppear {
                 isNotchChatInputFocused = true
@@ -695,7 +695,7 @@ struct CompanionPanelView: View {
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(DS.Colors.textSecondary)
 
-                Text("Some permissions were revoked. Grant the core items below to keep using Pace.")
+                Text("Some permissions were revoked. Grant the core items below to keep using Que.")
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -703,7 +703,7 @@ struct CompanionPanelView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                Text("This is Pace.")
+                Text("This is Que.")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(DS.Colors.textSecondary)
 
@@ -712,7 +712,7 @@ struct CompanionPanelView: View {
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("Pace only captures the screen when you press the hotkey or turn on Watch Mode. Local app control asks for macOS permission the first time you use each tool.")
+                Text("Que only captures the screen when you press the hotkey or turn on Watch Mode. Local app control asks for macOS permission the first time you use each tool.")
                     .font(.system(size: 11))
                     .foregroundColor(Color(red: 0.9, green: 0.4, blue: 0.4))
                     .fixedSize(horizontal: false, vertical: true)
@@ -745,7 +745,7 @@ struct CompanionPanelView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "power")
                         .font(.system(size: 11, weight: .medium))
-                    Text("Quit Pace")
+                    Text("Quit Que")
                         .font(.system(size: 12, weight: .medium))
                 }
                 .foregroundColor(DS.Colors.textTertiary)

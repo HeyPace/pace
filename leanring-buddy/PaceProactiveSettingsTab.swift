@@ -21,7 +21,7 @@ struct PaceProactiveSettingsTab: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Text(
-                    "How often Pace can speak up on its own. Affects every proactive surface (focus nudges, calendar lead-time prompts, watch-mode observations, the morning brief)."
+                    "How often Que can speak up on its own. Affects every proactive surface (focus nudges, calendar lead-time prompts, watch-mode observations, the morning brief)."
                 )
                 .font(.system(size: 12))
                 .foregroundColor(DS.Colors.textTertiary)
@@ -87,7 +87,7 @@ struct PaceProactiveSettingsTab: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Text(
-                    "Each surface defaults off. Even when on, Pace routes every nudge through the restraint gate — nothing speaks during a Zoom call or while you're typing."
+                    "Each surface defaults off. Even when on, Que routes every nudge through the restraint gate — nothing speaks during a Zoom call or while you're typing."
                 )
                 .font(.system(size: 12))
                 .foregroundColor(DS.Colors.textTertiary)
@@ -100,7 +100,7 @@ struct PaceProactiveSettingsTab: View {
                         set: { companionManager.setFocusFatigueNudgesEnabled($0) }
                     )
                 )
-                Text("After 45 minutes on the same app, Pace can suggest a short break.")
+                Text("After 45 minutes on the same app, Que can suggest a short break.")
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -124,7 +124,7 @@ struct PaceProactiveSettingsTab: View {
                         set: { companionManager.setWatchObservationNudgesEnabled($0) }
                     )
                 )
-                Text("When watch mode spots an error or failed build on screen, Pace can offer to help.")
+                Text("When watch mode spots an error or failed build on screen, Que can offer to help.")
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -243,7 +243,7 @@ struct PaceProactiveSettingsTab: View {
                 "Balanced: default cooldowns (about 10 minutes between proactive utterances). Recommended for most users."
         case .reserved:
             return
-                "Reserved: longer cooldowns (about 30 minutes between proactive utterances). Pace stays mostly quiet."
+                "Reserved: longer cooldowns (about 30 minutes between proactive utterances). Que stays mostly quiet."
         }
     }
 }

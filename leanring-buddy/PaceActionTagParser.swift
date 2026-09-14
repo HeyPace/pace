@@ -657,19 +657,19 @@ nonisolated enum PaceActionTagParser {
                 notes: stringValue(for: "notes", in: arguments)
             ))
         case "notes.create", "note.create":
-            let title = firstStringValue(for: ["title", "name"], in: arguments) ?? "Pace note"
+            let title = firstStringValue(for: ["title", "name"], in: arguments) ?? "Que note"
             let body = firstStringValue(for: ["body", "text", "notes"], in: arguments) ?? ""
             guard !title.isEmpty || !body.isEmpty else { return nil }
             return .createNote(PaceNoteRequest(
-                title: title.isEmpty ? "Pace note" : title,
+                title: title.isEmpty ? "Que note" : title,
                 body: body
             ))
         case "notes.append", "note.append":
-            let title = firstStringValue(for: ["title", "name"], in: arguments) ?? "Pace note"
+            let title = firstStringValue(for: ["title", "name"], in: arguments) ?? "Que note"
             let body = firstStringValue(for: ["body", "text", "notes"], in: arguments) ?? ""
             guard !title.isEmpty || !body.isEmpty else { return nil }
             return .appendNote(PaceNoteRequest(
-                title: title.isEmpty ? "Pace note" : title,
+                title: title.isEmpty ? "Que note" : title,
                 body: body
             ))
         case "notes.search", "note.search":
@@ -2130,7 +2130,7 @@ nonisolated enum PaceActionTagParser {
         let normalizedAction = (toolCall.action ?? "create")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        let title = (toolCall.title ?? toolCall.name ?? "Pace note")
+        let title = (toolCall.title ?? toolCall.name ?? "Que note")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let body = (toolCall.body ?? toolCall.text ?? toolCall.notes ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2144,7 +2144,7 @@ nonisolated enum PaceActionTagParser {
 
         guard !title.isEmpty || !body.isEmpty else { return nil }
         let noteRequest = PaceNoteRequest(
-            title: title.isEmpty ? "Pace note" : title,
+            title: title.isEmpty ? "Que note" : title,
             body: body
         )
 

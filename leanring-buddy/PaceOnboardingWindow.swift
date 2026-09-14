@@ -49,7 +49,7 @@ final class PaceOnboardingWindowManager {
             backing: .buffered,
             defer: false
         )
-        newWindow.title = "Welcome to Pace"
+        newWindow.title = "Welcome to Que"
         newWindow.titleVisibility = .hidden
         newWindow.titlebarAppearsTransparent = true
         newWindow.isMovableByWindowBackground = true

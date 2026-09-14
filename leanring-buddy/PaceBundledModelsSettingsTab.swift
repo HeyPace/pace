@@ -880,7 +880,7 @@ struct PaceBundledModelsSettingsTab: View {
             Text("Quality notes")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
-            Text("Bundled MLX is the right choice when you don't have LM Studio installed and don't want to install it. The 4B planner scores ~3-4 points below qwen3-30b-a3b on Pace's FM-fixture eval set, mostly affecting multi-step agent reasoning. For day-to-day voice turns the gap is small. The embedder is a cleaner swap — Apple NaturalLanguage fallback keeps recall working when the MLX model isn't loaded yet.")
+            Text("Bundled MLX is the right choice when you don't have LM Studio installed and don't want to install it. The 4B planner scores ~3-4 points below qwen3-30b-a3b on Que's FM-fixture eval set, mostly affecting multi-step agent reasoning. For day-to-day voice turns the gap is small. The embedder is a cleaner swap — Apple NaturalLanguage fallback keeps recall working when the MLX model isn't loaded yet.")
                 .font(.system(size: 12))
                 .foregroundColor(DS.Colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

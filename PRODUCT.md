@@ -13,12 +13,12 @@ and documentation surface.
 
 Mac users who want to control applications, retrieve information, and automate
 recurring work through voice without giving a cloud service access to their
-screen, audio, or local context. A dedicated iPad can extend Pace into the room
+screen, audio, or local context. A dedicated iPad can extend Que into the room
 without moving its intelligence or durable memory off the Mac.
 
 ## Product Purpose
 
-Pace is a menu-bar voice agent for macOS with an optional iPad companion. It listens, can read the current
+Que is a menu-bar voice agent for macOS with an optional iPad companion. It listens, can read the current
 screen through a local vision model, plans locally, speaks responses, and—with
 explicit action enablement—executes approved macOS actions. Success means the
 user can complete useful computer work conversationally while retaining local
@@ -26,7 +26,7 @@ control of their data and model runtime.
 
 ## Positioning
 
-Pace combines screen-aware voice control with an on-device inference and
+Que combines screen-aware voice control with an on-device inference and
 execution stack. Local processing is the product's primary trust boundary, not
 an optional privacy mode.
 
@@ -53,7 +53,7 @@ capabilities, comparisons, pricing, and release path.
 
 ## Brand Commitments
 
-The product name is Pace. The public promise centers on direct voice control,
+The product name is Que. The public promise centers on direct voice control,
 useful screen awareness, and on-device privacy. Product claims must not imply
 unmeasured grounding accuracy, fictional customer proof, or cloud-free behavior
 for explicitly enabled off-device planner paths.

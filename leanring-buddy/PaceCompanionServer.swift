@@ -171,7 +171,7 @@ final class PaceCompanionServer: ObservableObject, PacePadOutputDelegate {
         do {
             let listener = try NWListener(using: PaceCompanionTLSParameters.make(materials: tlsMaterials))
             listener.service = NWListener.Service(
-                name: Host.current().localizedName ?? "Pace on Mac",
+                name: Host.current().localizedName ?? "Que on Mac",
                 type: PaceCompanionProtocol.bonjourServiceType
             )
             listener.newConnectionHandler = { [weak self] newConnection in
@@ -299,7 +299,7 @@ final class PaceCompanionServer: ObservableObject, PacePadOutputDelegate {
         else {
             sendError(
                 code: "credential_storage_failed",
-                message: "Pace could not save the pairing credential in Keychain.",
+                message: "Que could not save the pairing credential in Keychain.",
                 replyToMessageIdentifier: message.messageIdentifier
             )
             return
@@ -316,7 +316,7 @@ final class PaceCompanionServer: ObservableObject, PacePadOutputDelegate {
             payload: .pairResponse(
                 PaceCompanionPairResponse(
                     serverIdentifier: serverIdentifier,
-                    serverName: Host.current().localizedName ?? "Pace on Mac",
+                    serverName: Host.current().localizedName ?? "Que on Mac",
                     deviceCredential: credential
                 )),
             replyToMessageIdentifier: message.messageIdentifier
@@ -423,7 +423,7 @@ final class PaceCompanionServer: ObservableObject, PacePadOutputDelegate {
             .assistantResponse, .proactiveMessage, .cameraFrameRequest, .error:
             sendError(
                 code: "unexpected_message",
-                message: "That message type is not accepted by Pace on Mac.",
+                message: "That message type is not accepted by Que on Mac.",
                 replyToMessageIdentifier: frame.message.messageIdentifier
             )
         }
@@ -476,7 +476,7 @@ final class PaceCompanionServer: ObservableObject, PacePadOutputDelegate {
                     !remotePrivacyState.isAllCapturePaused,
                     let imageData = await requestCameraFrame(
                         originatingTurnIdentifier: utterance.turnIdentifier,
-                        reason: "You asked Pace about the physical scene."
+                        reason: "You asked Que about the physical scene."
                     )
                 {
                     physicalSceneContext = await analyzePhysicalScene(
@@ -494,7 +494,7 @@ final class PaceCompanionServer: ObservableObject, PacePadOutputDelegate {
                 else {
                     sendError(
                         code: "pace_busy",
-                        message: "Pace is finishing another turn. Try again in a moment.",
+                        message: "Que is finishing another turn. Try again in a moment.",
                         replyToMessageIdentifier: nil
                     )
                     sendInteractionState(.idle)
@@ -578,7 +578,7 @@ final class PaceCompanionServer: ObservableObject, PacePadOutputDelegate {
         {
             sendError(
                 code: "turn_ended_without_response",
-                message: "Pace could not finish that response. Please try again.",
+                message: "Que could not finish that response. Please try again.",
                 replyToMessageIdentifier: nil
             )
             companionManager?.abandonActivePacePadTurn()

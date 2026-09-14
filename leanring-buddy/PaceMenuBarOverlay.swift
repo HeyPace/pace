@@ -135,11 +135,11 @@ private struct PaceLivingNotchAccessibilityModifier: ViewModifier {
         if isPanelOpen {
             content
                 .accessibilityElement(children: .contain)
-                .accessibilityLabel("Pace conversation panel")
+                .accessibilityLabel("Que conversation panel")
         } else {
             content
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Pace")
+                .accessibilityLabel("Que")
                 .accessibilityValue(accessibilityValue)
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction {
@@ -411,11 +411,11 @@ final class PaceMenuBarOverlayManager {
         }
         let statusImage = NSImage(
             systemSymbolName: "waveform.path",
-            accessibilityDescription: "Pace"
+            accessibilityDescription: "Que"
         )
         statusImage?.isTemplate = true
         button.image = statusImage
-        button.toolTip = "Open Pace conversations"
+        button.toolTip = "Open Que conversations"
         button.target = self
         button.action = #selector(fallbackMenuBarStatusItemTapped)
         fallbackMenuBarStatusItem = statusItem
@@ -571,7 +571,7 @@ private struct PaceMenuBarOverlayView: View {
                 accessibilityValue:
                     "\(signalPresentation.accessibilityValue)"
                     + "\(captureAccessibilityDescription) Press "
-                    + "\(PaceNotchChatShortcut.currentShortcutAccessibilityLabel) to open Pace.",
+                    + "\(PaceNotchChatShortcut.currentShortcutAccessibilityLabel) to open Que.",
                 openPanel: {
                     NotificationCenter.default.post(name: .paceShowPanel, object: nil)
                 }
@@ -623,7 +623,7 @@ private struct PaceMenuBarOverlayView: View {
                 if surfaceModel.displayMode == .panelOpen {
                     notchControlButton(
                         systemName: "gearshape",
-                        help: "Open Pace settings"
+                        help: "Open Que settings"
                     ) {
                         PaceSettingsWindowManager.shared.show(companionManager: companionManager)
                         onClose()
@@ -632,7 +632,7 @@ private struct PaceMenuBarOverlayView: View {
 
                     notchControlButton(
                         systemName: "xmark",
-                        help: "Close Pace"
+                        help: "Close Que"
                     ) {
                         onClose()
                     }
@@ -650,11 +650,11 @@ private struct PaceMenuBarOverlayView: View {
 
     private var livingNotchPrimaryLabel: String {
         guard surfaceModel.displayMode != .panelOpen else {
-            return "Pace"
+            return "Que"
         }
 
         guard companionManager.currentTurnHUDState.status != .idle else {
-            return "Pace"
+            return "Que"
         }
         return signalPresentation.compactLabel
     }
@@ -706,9 +706,9 @@ private struct PaceMenuBarOverlayView: View {
         switch companionManager.voiceState {
         case .idle:
             if companionControlCenter.preferences.isCompanionModeEnabled {
-                return "Pace — \(companionControlCenter.runtimeStatusText)"
+                return "Que — \(companionControlCenter.runtimeStatusText)"
             }
-            return companionManager.isLMStudioReachable ? "Pace" : "Local offline"
+            return companionManager.isLMStudioReachable ? "Que" : "Local offline"
         case .listening:
             return "Listening"
         case .processing:

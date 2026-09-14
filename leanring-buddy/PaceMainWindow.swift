@@ -5,11 +5,11 @@
 //  Proper resizable main window for everything that doesn't fit (and
 //  shouldn't fit) in the menu-bar notch panel: past conversations,
 //  usage analytics, extended settings, onboarding. The notch panel
-//  stays minimal — voice state, latest reply, "Open Pace…" — and the
+//  stays minimal — voice state, latest reply, "Open Que…" — and the
 //  product gets a real Mac UI for the longer-form surfaces.
 //
 //  Lifecycle owned by CompanionAppDelegate; the window is created lazily
-//  the first time the user opens it. Multiple "Open Pace…" taps reuse
+//  the first time the user opens it. Multiple "Open Que…" taps reuse
 //  the same window.
 //
 
@@ -86,7 +86,7 @@ final class PaceMainWindowManager {
             backing: .buffered,
             defer: false
         )
-        newWindow.title = "Pace Command Center"
+        newWindow.title = "Que Command Center"
         newWindow.titlebarAppearsTransparent = true
         newWindow.isMovableByWindowBackground = true
         newWindow.contentMinSize = minimumContentSize

@@ -104,7 +104,7 @@ struct PacePlannerSettingsTab: View {
         case .directAPI:
             return (
                 "Direct API (BYO key)",
-                "Pace calls Anthropic / OpenAI / OpenRouter directly using a key you paste below. Stored in macOS Keychain only — never in Pace preferences."
+                "Que calls Anthropic / OpenAI / OpenRouter directly using a key you paste below. Stored in macOS Keychain only — never in Que preferences."
             )
         case .appleFoundationModels:
             return (
@@ -356,7 +356,7 @@ struct PacePlannerSettingsTab: View {
             // Fall-back-on-failure toggle (default OFF per PRD)
             paceSettingsToggleRow(
                 title: "Fall back to local on cloud failure",
-                subtitle: "Off by default. When on, Pace silently retries failed Direct-API turns against LM Studio. When off, errors surface verbatim so you know what happened.",
+                subtitle: "Off by default. When on, Que silently retries failed Direct-API turns against LM Studio. When off, errors surface verbatim so you know what happened.",
                 isOn: Binding(
                     get: { companionManager.directAPIFallsBackToLocalOnCloudFailure },
                     set: { companionManager.setDirectAPIFallsBackToLocalOnCloudFailure($0) }

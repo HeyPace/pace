@@ -148,9 +148,9 @@ nonisolated enum PaceToolRegistry {
             canonicalName: "undo_last",
             aliases: ["undo"],
             schemaExample: #"{"tool":"undo_last"}"#,
-            description: "undo the last editable text change made by Pace.",
+            description: "undo the last editable text change made by Que.",
             riskLevel: .appOrSystemMutation,
-            executionSummary: "Restores the previous AX value from Pace's session mutation log.",
+            executionSummary: "Restores the previous AX value from Que's session mutation log.",
             observationSummary: "Reports whether an undoable mutation was restored.",
             exampleUtterance: "undo that"
         ),

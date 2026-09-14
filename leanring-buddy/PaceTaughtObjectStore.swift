@@ -21,7 +21,7 @@ nonisolated enum PaceTaughtObjectError: Error, Equatable, LocalizedError {
         case .cameraNotActive:
             return "Enable companion mode and its Camera source before teaching an object."
         case .featurePrintUnavailable:
-            return "Pace could not capture a usable view. Center the object and try again."
+            return "Que could not capture a usable view. Center the object and try again."
         }
     }
 }

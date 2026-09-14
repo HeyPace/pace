@@ -369,7 +369,7 @@ private func runSynchronousToolCall(
                 "protocolVersion": "2025-03-26",
                 "capabilities": [:],
                 "clientInfo": [
-                    "name": "Pace",
+                    "name": "Que",
                     "version": "0.1"
                 ]
             ]
