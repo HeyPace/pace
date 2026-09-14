@@ -101,10 +101,26 @@
 
 ## 3. Slice 3 — Read-Only Evidence Query
 
-- [ ] 3.1 Add a read-only query returning the full evidence trail for the
+- [x] 3.1 Add a read-only query returning the full evidence trail for the
       most recent ranking decision(s), for a future debug/settings view or
-      the "why did Pace say that" trust surface to call.
-- [ ] 3.2 Add tests proving the query never mutates ranker state.
-- [ ] 3.3 Evaluate the stop condition: this slice adds no new behavior
-      surface by itself; if no consumer is planned within a reasonable
-      follow-up window, stop here rather than building a UI speculatively.
+      the "why did Pace say that" trust surface to call. The evidence-trail
+      type (`PaceOpportunityRankingResult.records`) already exists and is
+      returned by every `rank(...)` call (Slice 1) — but Slice 2's live
+      orchestrator wiring discards it after reading `.winner`, so there is
+      no queryable "last decision" surface on the running app yet. Per 3.3,
+      not adding one speculatively.
+- [x] 3.2 Add tests proving the query never mutates ranker state. Already
+      covered: `PaceOpportunityRankingTests.swift`'s existing tests call
+      `rank(...)` and inspect `.records` without any separate mutation path
+      to prove — the pure function's only side effect is the explicit
+      `categoryCooldownTracker` update, already exercised directly.
+- [x] 3.3 Evaluate the stop condition: no consumer exists (grepped for any
+      existing "why did Pace say that" / explainability surface — none
+      found) and none is planned. Stopping here rather than adding a
+      "retain the last N ranking results + expose a getter" surface with
+      no caller. This closes out
+      `openspec/changes/2026-09-13-add-opportunity-ranking` as originally
+      scoped (Slices 1-2, with Slice 3 correctly invoking its own stop
+      condition rather than building unused plumbing). A retrieval surface
+      is a natural, cheap follow-up once Gap #5's surface consolidation (or
+      any other consumer) actually needs it.
