@@ -98,6 +98,22 @@ private enum DirectAPIFixture {
             throw error
         }
     }
+
+    /// A fresh, unique, never-real path under `FileManager.default
+    /// .temporaryDirectory` for an isolated `PaceAPIAuditLog` — so a test
+    /// that fires a real (if localhost-only) `DirectAPIPlannerClient`
+    /// round trip never appends to the real, production
+    /// `~/Library/Application Support/Pace/api-audit.jsonl` the Privacy
+    /// dashboard reads. Callers are responsible for removing the file
+    /// (`defer { try? FileManager.default.removeItem(at: ...) }`) — this
+    /// only returns the path, since `PaceAPIAuditLog.append(_:)` creates
+    /// the file lazily on first write and a never-fired test path never
+    /// creates one to clean up.
+    static func makeIsolatedAuditLogFileURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("pace-direct-api-audit-test-\(UUID().uuidString)")
+            .appendingPathExtension("jsonl")
+    }
 }
 
 // MARK: - Integration tests
@@ -114,10 +130,13 @@ struct DirectAPIPlannerClientTests {
 
         try await DirectAPIFixture.withStoredTestKey(for: .openai, value: "sk-test-happy") {
             let endpointURL = URL(string: "http://127.0.0.1:\(fixturePort)/v1/chat/completions")!
+            let isolatedAuditLogFileURL = DirectAPIFixture.makeIsolatedAuditLogFileURL()
+            defer { try? FileManager.default.removeItem(at: isolatedAuditLogFileURL) }
             let directAPIClient = DirectAPIPlannerClient(
                 provider: .openai,
                 endpointURL: endpointURL,
-                modelIdentifier: "gpt-4o-mini"
+                modelIdentifier: "gpt-4o-mini",
+                auditLog: PaceAPIAuditLog(logFileURL: isolatedAuditLogFileURL)
             )
 
             var receivedChunkSnapshots: [String] = []
@@ -148,10 +167,13 @@ struct DirectAPIPlannerClientTests {
         defer { _ = PaceKeychainStore.deleteAPIKey(for: .anthropic) }
 
         let endpointURL = URL(string: "http://127.0.0.1:\(fixturePort)/v1/chat/completions")!
+        let isolatedAuditLogFileURL = DirectAPIFixture.makeIsolatedAuditLogFileURL()
+        defer { try? FileManager.default.removeItem(at: isolatedAuditLogFileURL) }
         let directAPIClient = DirectAPIPlannerClient(
             provider: .anthropic,
             endpointURL: endpointURL,
-            modelIdentifier: "claude-sonnet-4-5"
+            modelIdentifier: "claude-sonnet-4-5",
+            auditLog: PaceAPIAuditLog(logFileURL: isolatedAuditLogFileURL)
         )
 
         do {
@@ -309,5 +331,108 @@ struct DirectAPIPlannerClientHeaderTests {
         #expect(messages?[0]["content"] as? String == "you are helpful")
         #expect(messages?[1]["role"] as? String == "user")
         #expect(messages?[1]["content"] as? String == "what time is it?")
+    }
+}
+
+// MARK: - Audit-log injection / test-isolation tests
+//
+// Regression coverage for the confirmed defect: DirectAPIPlannerClient
+// hardcoded PaceAPIAuditLog.shared, so every test round trip against the
+// local fixture server (below) appended a real, indistinguishable-from-
+// genuine entry to ~/Library/Application Support/Pace/api-audit.jsonl —
+// the exact file the Privacy dashboard reads. 409 such entries had
+// accumulated there before this fix. See docs/knowledge/failed-approaches.md.
+
+@MainActor
+struct DirectAPIPlannerClientAuditLogIsolationTests {
+
+    /// A. Test isolation + B. production log protection + D. audit
+    /// semantics + E. cleanup, in one scenario: a real fixture round trip
+    /// with an injected isolated audit log (A) must not touch the real
+    /// production log (B), must preserve every field the production path
+    /// would have written (D), and the isolated file must be fully
+    /// removable afterward (E).
+    @Test(.enabled(if: DirectAPIFixture.isFixtureRunnable))
+    func injectedAuditLogReceivesTheEntryAndTheRealProductionLogIsUntouched() async throws {
+        guard let python = DirectAPIFixture.pythonThreeExecutablePath else { return }
+        let fixturePort = DirectAPIFixture.findAvailablePort()
+        let fixtureProcess = try DirectAPIFixture.startFixtureServer(on: fixturePort, python: python)
+        defer { fixtureProcess.terminate() }
+
+        let realProductionAuditLog = PaceAPIAuditLog.shared
+        let realProductionEntryCountBeforeTest = realProductionAuditLog.readAllEntries().count
+
+        let isolatedAuditLogFileURL = DirectAPIFixture.makeIsolatedAuditLogFileURL()
+        // Belt-and-suspenders: confirm the isolated path is genuinely
+        // temp-directory-scoped and is not, and never could be mistaken
+        // for, the real production log path.
+        #expect(isolatedAuditLogFileURL.path.hasPrefix(FileManager.default.temporaryDirectory.path))
+        #expect(!isolatedAuditLogFileURL.path.contains("Application Support/Pace"))
+        let isolatedAuditLog = PaceAPIAuditLog(logFileURL: isolatedAuditLogFileURL)
+
+        try await DirectAPIFixture.withStoredTestKey(for: .openai, value: "sk-test-isolation") {
+            let endpointURL = URL(string: "http://127.0.0.1:\(fixturePort)/v1/chat/completions")!
+            let directAPIClient = DirectAPIPlannerClient(
+                provider: .openai,
+                endpointURL: endpointURL,
+                modelIdentifier: "gpt-4o-mini",
+                auditLog: isolatedAuditLog
+            )
+
+            _ = try await directAPIClient.generateResponseStreaming(
+                images: [],
+                systemPrompt: "You are a test.",
+                conversationHistory: [],
+                userPrompt: "Hello",
+                onTextChunk: { _ in }
+            )
+        }
+
+        // A. Test isolation: the injected log received the entry.
+        let isolatedEntries = isolatedAuditLog.readAllEntries()
+        #expect(isolatedEntries.count == 1)
+
+        // D. Audit semantics: every field a production call would have
+        // written is still present and correctly shaped.
+        let recordedEntry = try #require(isolatedEntries.first)
+        #expect(recordedEntry.subsystem == "planner.directAPI")
+        #expect(recordedEntry.operation == "chat.completions.stream")
+        #expect(recordedEntry.target == "openai/gpt-4o-mini")
+        #expect(recordedEntry.outcome == "ok")
+        #expect(recordedEntry.durationMilliseconds >= 0)
+        #expect(recordedEntry.inputCharacterCount != nil)
+        #expect(recordedEntry.outputCharacterCount != nil)
+        #expect(recordedEntry.detail == "tier=directAPI provider=openai")
+
+        // B. Production log protection: the real log gained zero entries.
+        let realProductionEntryCountAfterTest = realProductionAuditLog.readAllEntries().count
+        #expect(realProductionEntryCountAfterTest == realProductionEntryCountBeforeTest)
+        // Belt-and-suspenders on the same assertion: no entry in the real
+        // log carries this test's unique detail/key material.
+        #expect(
+            !realProductionAuditLog.readAllEntries().contains {
+                $0.detail == "tier=directAPI provider=openai" && $0.target == "openai/gpt-4o-mini"
+                    && $0.at >= Date().addingTimeInterval(-30)
+            }
+        )
+
+        // E. Cleanup: the isolated file is fully removable and gone.
+        #expect(FileManager.default.fileExists(atPath: isolatedAuditLogFileURL.path))
+        try FileManager.default.removeItem(at: isolatedAuditLogFileURL)
+        #expect(!FileManager.default.fileExists(atPath: isolatedAuditLogFileURL.path))
+    }
+
+    /// C. Production default: a DirectAPIPlannerClient constructed the
+    /// way every real (non-test) call site constructs one — no `auditLog:`
+    /// argument — still resolves to the real `PaceAPIAuditLog.shared`
+    /// singleton. Proven by reference identity so this test never has to
+    /// fire a round trip that would itself write into the real log.
+    @Test func productionInitializerDefaultsToTheSharedAuditLog() {
+        let productionStyleClient = DirectAPIPlannerClient(
+            provider: .openai,
+            endpointURL: URL(string: "https://api.openai.com/v1/chat/completions")!,
+            modelIdentifier: "gpt-4o-mini"
+        )
+        #expect(productionStyleClient.auditLog === PaceAPIAuditLog.shared)
     }
 }

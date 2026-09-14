@@ -74,17 +74,31 @@ final class DirectAPIPlannerClient: BuddyPlannerClient {
     private let endpointURL: URL
     private let modelIdentifier: String
     private let urlSession: URLSession
+    /// Defaults to the real production singleton — same optional-param-
+    /// defaulting-to-production pattern as `urlSession` just below. Tests
+    /// that point `endpointURL` at a local fixture server must also inject
+    /// an isolated `PaceAPIAuditLog` here, or their audit records land in
+    /// the real `~/Library/Application Support/Pace/api-audit.jsonl` the
+    /// Privacy dashboard reads — exactly the contamination this seam
+    /// exists to prevent (see docs/knowledge/failed-approaches.md).
+    /// Not `private` so a test can assert `.auditLog === PaceAPIAuditLog
+    /// .shared` on a production-style (no-injection) instance without
+    /// ever having to fire a real round trip against the real log to
+    /// prove it — see DirectAPIPlannerClientAuditLogIsolationTests.
+    let auditLog: PaceAPIAuditLog
 
     init(
         provider: PaceDirectAPIProvider,
         endpointURL: URL,
         modelIdentifier: String,
-        urlSession: URLSession? = nil
+        urlSession: URLSession? = nil,
+        auditLog: PaceAPIAuditLog? = nil
     ) {
         self.provider = provider
         self.endpointURL = endpointURL
         self.modelIdentifier = modelIdentifier
         self.displayName = "Direct API \(provider.displayLabel) (\(modelIdentifier))"
+        self.auditLog = auditLog ?? .shared
 
         if let providedSession = urlSession {
             self.urlSession = providedSession
@@ -172,7 +186,7 @@ final class DirectAPIPlannerClient: BuddyPlannerClient {
             }
             let errorBodyText = errorBodyLines.joined(separator: "\n")
             let truncatedErrorBodyExcerpt = String(errorBodyText.prefix(300))
-            PaceAPIAuditLog.shared.record(
+            auditLog.record(
                 subsystem: "planner.directAPI",
                 operation: "chat.completions.stream",
                 target: "\(provider.rawValue)/\(modelIdentifier)",
@@ -251,7 +265,7 @@ final class DirectAPIPlannerClient: BuddyPlannerClient {
 
         let duration = Date().timeIntervalSince(startTime)
         let strippedFinalText = LocalPlannerClient.stripThinkingBlocks(from: accumulatedResponseText)
-        PaceAPIAuditLog.shared.record(
+        auditLog.record(
             subsystem: "planner.directAPI",
             operation: "chat.completions.stream",
             target: "\(provider.rawValue)/\(modelIdentifier)",
