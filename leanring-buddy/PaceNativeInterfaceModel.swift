@@ -602,6 +602,7 @@ nonisolated enum PaceCommandCenterGroup: String, CaseIterable, Identifiable {
 }
 
 nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiable {
+    case now
     case conversations
     case skills
     case flows
@@ -630,7 +631,7 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
         switch self {
         case .conversations, .skills, .flows, .tasks:
             return .work
-        case .usage, .activity, .privacy, .permissions:
+        case .now, .usage, .activity, .privacy, .permissions:
             return .observe
         case .general, .planner, .models, .research, .proactive, .companion, .memory,
              .mcp, .voice, .cloudBridge:
@@ -642,6 +643,7 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
 
     var title: String {
         switch self {
+        case .now: return "Now"
         case .conversations: return "Conversations"
         case .skills: return "Automations"
         case .flows: return "Multi-step automations"
@@ -668,6 +670,7 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
 
     var subtitle: String {
         switch self {
+        case .now: return "What Que is aware of right now — activity, background work, and remembered facts."
         case .conversations: return "Review what you and Que have discussed."
         case .skills: return "Browse and teach reusable actions in plain language."
         case .flows: return "Build repeatable sequences from several actions."
@@ -697,7 +700,7 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
         case .usage, .planner, .research, .proactive, .companion, .mcp,
              .cloudBridge, .debug:
             return true
-        case .conversations, .skills, .flows, .tasks, .activity, .memory,
+        case .now, .conversations, .skills, .flows, .tasks, .activity, .memory,
              .privacy, .permissions, .general, .models, .voice, .about, .doctor:
             return false
         }
@@ -705,6 +708,7 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
 
     var symbolName: String {
         switch self {
+        case .now: return "sparkles"
         case .conversations: return "bubble.left.and.bubble.right"
         case .skills: return "square.grid.2x2"
         case .flows: return "play.square.stack"

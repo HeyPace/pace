@@ -598,6 +598,22 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         XCTAssertEqual(PaceCommandCenterDestination.doctor.title, "Help & diagnostics")
     }
 
+    /// Gap #5 "Now" surface: a primary (non-advanced), distinctly-titled
+    /// destination in the "Activity & Privacy" group — not `.work` (already
+    /// at its 4-item cap: conversations/skills/flows/tasks), and not a
+    /// duplicate of the existing "Activity history" or "Memory" Settings
+    /// tabs it deliberately links out to rather than replaces.
+    func testNowDestinationIsPrimaryInObserveGroupAndDistinctFromExistingTabs() {
+        XCTAssertEqual(PaceCommandCenterDestination.now.group, .observe)
+        XCTAssertFalse(PaceCommandCenterDestination.now.isAdvanced)
+        XCTAssertEqual(PaceCommandCenterDestination.now.title, "Now")
+        XCTAssertNotEqual(PaceCommandCenterDestination.now.title, PaceCommandCenterDestination.activity.title)
+        XCTAssertNotEqual(PaceCommandCenterDestination.now.title, PaceCommandCenterDestination.memory.title)
+        XCTAssertTrue(
+            PaceCommandCenterDestination.primaryDestinations(in: .observe).contains(.now)
+        )
+    }
+
     func testCommandCenterRoutingPrefersRequestThenStoredThenDefault() {
         XCTAssertEqual(
             PaceCommandCenterDestination.resolve(
