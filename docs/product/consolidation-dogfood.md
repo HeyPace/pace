@@ -104,18 +104,32 @@ baseline):**
 
 - Launch only via Xcode `Cmd+R`. Never `xcodebuild` from a terminal for this
   — it can invalidate the interactive app's TCC grants (CLAUDE.md).
-- Settings → Proactive → "Nudge surfaces" has three toggles, **all default
-  OFF**: focus-fatigue ("After 45 minutes on the same app…"), calendar
-  pre-meeting ("Five-minute heads-up before meetings…"), watch-mode
+- **Corrected navigation path (2026-09-14):** open Pace's Command Center
+  (gear icon in the companion panel, or `Cmd+,`), then in the sidebar expand
+  **"Advanced controls"** (it's collapsed by default — a `DisclosureGroup`,
+  not a top-level entry) and select **"Background suggestions"**
+  (`PaceCommandCenterDestination.proactive`, symbol `bell.badge`, subtitle
+  "Decide when Pace may offer help without being asked."). There is no
+  sidebar item literally labeled "Proactive" — that was this doc's error,
+  not a UI defect (verified: `.proactive` has been titled "Background
+  suggestions" and `isAdvanced == true` since it was introduced in `b8b37f7`;
+  nothing regressed it). Typing "Proactive" into the Command Center's search
+  box also finds nothing, since search matches only title/subtitle/group
+  text, none of which contain that word — search "Background" or "nudge"
+  instead. Once there, the "Nudge surfaces" section has three toggles, **all
+  default OFF**: focus-fatigue ("After 45 minutes on the same app…"),
+  calendar pre-meeting ("Five-minute heads-up before meetings…"), watch-mode
   observation ("When watch mode spots an error or failed build…"). Enable
   whichever you intend to exercise in section C — note which ones you turned
   on and when.
 - The notch panel's "Approve Risky Actions" toggle gates whether an approval
   alert (and therefore any outcome-feedback record) ever appears. Note its
   current state.
-- Settings → retrieval sources → "App usage journal" (`appUsageHistory`)
-  defaults **ON**; it silently powers the Activity/Goal producer. Note its
-  state — if it's off, section B's producer will never fire.
+- Command Center → **"Activity history"** (a directly-visible, non-advanced
+  sidebar item) lists retrieval sources including "App usage journal"
+  (`appUsageHistory`), which defaults **ON** and silently powers the
+  Activity/Goal producer. Note its state — if it's off, section B's producer
+  will never fire.
 - Calendar pre-meeting nudges additionally need real Calendar (EventKit)
   permission and a genuine event starting within 5 minutes at some point —
   don't create a fake one just to pass; mark that row ENVIRONMENT if you
