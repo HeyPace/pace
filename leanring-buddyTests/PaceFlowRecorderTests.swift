@@ -41,6 +41,58 @@ final class PaceFlowRecorderTests: XCTestCase {
         }
     }
 
+    /// Regression test for a real EXC_BAD_ACCESS crash (objc_release,
+    /// inside AutoreleasePoolPage::releaseUntil / objc_autoreleasePoolPop
+    /// on the main run loop, matching several prior `Pace-*.ips` crash
+    /// reports): `start(flowName:)` installs a real, system-wide
+    /// CGEventTap whose C `userInfo` used to be
+    /// `Unmanaged.passUnretained(self)`. `PaceFlowRecorder` is
+    /// `@MainActor`, but Swift does not isolate `deinit` to the actor —
+    /// if the last strong reference to a recorder is dropped off-main
+    /// (e.g. a `Task` finishing on a background executor, which is
+    /// exactly what happens to every `recorder` local in this file:
+    /// there is no `tearDown()`, so every recorder is torn down by
+    /// `deinit` alone), a CGEventTap callback already in flight on the
+    /// main run loop could dereference `self` while it was
+    /// mid-deallocation — a use-after-free.
+    ///
+    /// The fix routes the callback through `EventTapCallbackContext`,
+    /// a small box the tap retains independently of `self` and which
+    /// only holds a `weak` reference back to the recorder. This test
+    /// proves the exact safety property deterministically — no real
+    /// CGEventTap, no scheduling race, no flakiness — by capturing the
+    /// same context object the C callback would (via
+    /// `eventTapCallbackContextForTesting()`), deallocating the
+    /// recorder without ever calling `stop(reason:)` (the precise path
+    /// that used to leave a dangling pointer live), and asserting the
+    /// context still exists and safely observes `nil` rather than a
+    /// dangling recorder.
+    func testEventTapCallbackContextSafelyObservesNilAfterRecorderDeallocatesWithoutStop() {
+        var recorder: PaceFlowRecorder? = PaceFlowRecorder()
+        recorder?.start(flowName: "context capture")
+
+        guard let capturedCallbackContext = recorder?.eventTapCallbackContextForTesting() else {
+            XCTFail("Expected start(flowName:) to install a callback context")
+            return
+        }
+        XCTAssertNotNil(
+            capturedCallbackContext.recorder,
+            "Sanity: the context should observe the live recorder before deallocation"
+        )
+
+        // Deallocate WITHOUT calling stop(reason:) first — the exact
+        // path a Task dropping the last strong reference off the main
+        // actor takes, and the exact path that used to leave a
+        // dangling `Unmanaged.passUnretained(self)` pointer for an
+        // in-flight CGEventTap callback to dereference.
+        recorder = nil
+
+        XCTAssertNil(
+            capturedCallbackContext.recorder,
+            "Callback context must observe nil, not a dangling recorder, once the recorder has deallocated without stop(reason:)"
+        )
+    }
+
     func testStopReturnsAssembledFlow() {
         let recorder = PaceFlowRecorder(
             idleTimeoutSeconds: 0, // disables idle timer for the test
