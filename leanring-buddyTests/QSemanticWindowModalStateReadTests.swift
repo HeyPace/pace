@@ -47,6 +47,7 @@ private func makeModalStateTestWindow(title: String, identifier: String? = nil) 
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = title
     if let identifier {
@@ -209,10 +210,12 @@ struct QSemanticWindowModalStateReadTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let windowA = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        windowA.isReleasedWhenClosed = false
         windowA.animationBehavior = .none
         windowA.title = "DupModalWindow-\(suffix)"
         windowA.makeKeyAndOrderFront(nil)
         let windowB = NSWindow(contentRect: NSRect(x: 400, y: 80, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        windowB.isReleasedWhenClosed = false
         windowB.animationBehavior = .none
         windowB.title = "DupModalWindow-\(suffix)"
         windowB.makeKeyAndOrderFront(nil)

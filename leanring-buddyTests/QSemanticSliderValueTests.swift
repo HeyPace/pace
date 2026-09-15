@@ -32,6 +32,7 @@ private func makeSliderWindow(identifier: String, value: Double, minValue: Doubl
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticSliderValueTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
@@ -52,6 +53,7 @@ private func makeStepperWindow(identifier: String, value: Double, minValue: Doub
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticSliderValueTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
@@ -253,6 +255,7 @@ struct QSemanticSliderValueTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
         let sliderA = NSSlider(value: 10, minValue: 0, maxValue: 100, target: nil, action: nil)

@@ -67,6 +67,7 @@ private func makeScrollableWindowWithVisibleButtons(
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticVisibleChildrenListTestFixture"
     let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 220, height: 220))
@@ -263,6 +264,7 @@ struct QSemanticVisibleChildrenListTests {
         let suffix = UUID().uuidString
         let sharedIdentifier = "DupScrollArea-\(suffix)"
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 300, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let scrollViewA = NSScrollView(frame: NSRect(x: 0, y: 0, width: 140, height: 140))
         scrollViewA.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 140, height: 400))

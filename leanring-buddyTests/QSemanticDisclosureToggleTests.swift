@@ -57,6 +57,7 @@ private func makeDisclosureTriangleWindow(
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticDisclosureToggleTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
@@ -223,6 +224,7 @@ struct QSemanticDisclosureToggleTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
         let triangleA = QDisclosureTriangleFixtureButton(frame: NSRect(x: 20, y: 70, width: 24, height: 24))

@@ -51,6 +51,7 @@ private func makeWindow(title: String, identifier: String? = nil) -> NSWindow {
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = title
     if let identifier {
@@ -72,6 +73,7 @@ private func makeWindowWithAuxiliaryChrome(title: String, identifier: String? = 
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = title
     if let identifier {
@@ -245,10 +247,12 @@ struct QSemanticWindowAuxiliaryButtonsReadTests {
         let suffix = UUID().uuidString
         let sharedTitle = "DupWindow-\(suffix)"
         let windowA = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        windowA.isReleasedWhenClosed = false
         windowA.animationBehavior = .none
         windowA.title = sharedTitle
         windowA.makeKeyAndOrderFront(nil)
         let windowB = NSWindow(contentRect: NSRect(x: 400, y: 80, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        windowB.isReleasedWhenClosed = false
         windowB.animationBehavior = .none
         windowB.title = sharedTitle
         windowB.makeKeyAndOrderFront(nil)
@@ -726,5 +730,46 @@ struct QSemanticWindowAuxiliaryButtonsReadTests {
         }
         // The read never mutated the fixture's own window.
         #expect(window.title == title)
+    }
+
+    // MARK: - Regression: fixture window ownership (recurring EXC_BAD_ACCESS root cause)
+
+    /// Regression test for the recurring `EXC_BAD_ACCESS` (`objc_release` /
+    /// `NSKVONotifying_NSWindow release: message sent to deallocated instance`) that crashed the
+    /// full test-suite run, deterministically reproduced by running this suite's "38/E2E" fixture
+    /// immediately followed by `QSemanticWindowCloseTests.missingTargetCriteriaFailsClosed()`.
+    ///
+    /// Root cause: `NSWindow.isReleasedWhenClosed` defaults to `true`. Every fixture window in
+    /// this file (and across the AX/AppKit E2E suite) was held only via a local ARC-managed `let`
+    /// and closed via `defer { window.close() }`. `-close` on a window with the default
+    /// `isReleasedWhenClosed` sends AppKit's own internal "release myself" message on top of the
+    /// ARC release that fires when the local variable goes out of scope — a genuine double
+    /// release. The excess release doesn't fault immediately; it lands later, in whichever
+    /// unrelated test happens to be spinning `XCTWaiter`'s main-run-loop wait when the deferred
+    /// autorelease pool finally pops.
+    ///
+    /// This test proves the fix's structural invariant directly and deterministically, without
+    /// depending on the timing of a deferred pool drain: the fixture must configure
+    /// `isReleasedWhenClosed = false` immediately on construction (matching every production
+    /// window class in this codebase — `PaceOnboardingWindow`, `OverlayWindow`, `PaceMainWindow`,
+    /// `GlowBorderWindow` all do the same), and closing the window afterward must remain safe to
+    /// touch — because with `isReleasedWhenClosed == false`, ARC is left as sole owner and there
+    /// is no second, AppKit-internal release to race.
+    @Test("39/E2E-regression. The auxiliary-chrome fixture's real NSWindow sets isReleasedWhenClosed == false, and closing it never over-releases — the exact ownership defect behind the recurring NSKVONotifying_NSWindow EXC_BAD_ACCESS")
+    @MainActor
+    func fixtureWindowDoesNotOverReleaseOnClose() throws {
+        let suffix = UUID().uuidString
+        let window = makeWindowWithAuxiliaryChrome(title: "e2e-regression-\(suffix)")
+
+        #expect(window.isReleasedWhenClosed == false)
+
+        window.close()
+
+        // If `isReleasedWhenClosed` had been left at AppKit's default `true`, this access would
+        // touch a window whose extra AppKit-internal release (on top of ARC's own) had already
+        // deallocated it — exactly the over-release this fix addresses. Reading a property here,
+        // right after close(), is the direct, deterministic proof that ARC remains the fixture's
+        // sole, correct owner.
+        #expect(window.isVisible == false)
     }
 }

@@ -56,6 +56,7 @@ private func makeTableWithHeader(
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticTableHeaderReadTestFixture"
     let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 220, height: 220))
@@ -221,6 +222,7 @@ struct QSemanticTableHeaderReadTests {
         let suffix = UUID().uuidString
         let sharedIdentifier = "DupTable-\(suffix)"
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 300, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let scrollA = NSScrollView(frame: NSRect(x: 0, y: 0, width: 140, height: 140))
         let tableA = NSTableView(frame: NSRect(x: 0, y: 0, width: 140, height: 140))

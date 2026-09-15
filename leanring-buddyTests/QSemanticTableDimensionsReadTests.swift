@@ -57,6 +57,7 @@ private func makeTwoColumnTableFixture(identifier: String) -> (window: NSWindow,
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     let scrollView = NSScrollView(frame: NSRect(x: 10, y: 10, width: 380, height: 280))
     let tableView = NSTableView(frame: scrollView.bounds)
@@ -353,6 +354,7 @@ struct QSemanticTableDimensionsReadTests {
         let suffix = UUID().uuidString
         let sharedIdentifier = "DupTable-\(suffix)"
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let scrollA = NSScrollView(frame: NSRect(x: 10, y: 10, width: 180, height: 280))
         let tableA = NSTableView(frame: scrollA.bounds)

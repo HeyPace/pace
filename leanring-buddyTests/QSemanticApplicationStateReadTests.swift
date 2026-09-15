@@ -32,6 +32,7 @@ private func makeMainWindow(title: String) -> NSWindow {
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = title
     window.makeKeyAndOrderFront(nil)

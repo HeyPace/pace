@@ -29,6 +29,7 @@ private func makeTextFieldWindow(identifier: String) -> (window: NSWindow, field
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticElementFocusTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
@@ -51,6 +52,7 @@ private func makeButtonWindow(identifier: String) -> (window: NSWindow, button: 
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticElementFocusTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
@@ -238,6 +240,7 @@ struct QSemanticElementFocusTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
         let fieldA = NSTextField(frame: NSRect(x: 20, y: 70, width: 240, height: 24))

@@ -33,6 +33,7 @@ private func makeTextFieldWindow(identifier: String, value: String) -> (window: 
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticFocusedElementReadTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
@@ -54,6 +55,7 @@ private func makeSecureFieldWindow(identifier: String) -> (window: NSWindow, fie
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticFocusedElementReadTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
@@ -74,6 +76,7 @@ private func makeButtonWindow(identifier: String, title: String) -> (window: NSW
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticFocusedElementReadTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
@@ -822,6 +825,7 @@ struct QSemanticFocusedElementReadTests {
             contentRect: NSRect(x: 80, y: 80, width: 300, height: 80),
             styleMask: [.titled], backing: .buffered, defer: false
         )
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         window.title = "QSemanticFocusedElementReadE2EFixture"
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))

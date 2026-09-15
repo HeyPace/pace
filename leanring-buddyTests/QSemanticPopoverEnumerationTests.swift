@@ -495,6 +495,7 @@ struct QSemanticPopoverEnumerationTests {
                 backing: .buffered,
                 defer: false
             )
+            window.isReleasedWhenClosed = false
             window.animationBehavior = .none
             let anchorView = NSView(frame: NSRect(x: 50, y: 50, width: 100, height: 30))
             window.contentView?.addSubview(anchorView)

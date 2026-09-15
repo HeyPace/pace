@@ -69,6 +69,7 @@ private func makeElementWithLinkedElements(
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticLinkedElementsListTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 150))
@@ -279,6 +280,7 @@ struct QSemanticLinkedElementsListTests {
         let suffix = UUID().uuidString
         let sharedIdentifier = "DupSource-\(suffix)"
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let buttonA = NSButton(title: "A", target: nil, action: nil)
         buttonA.frame = NSRect(x: 10, y: 10, width: 90, height: 24)
@@ -388,6 +390,7 @@ struct QSemanticLinkedElementsListTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 150), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 150))
         let sourceButton = NSButton(title: "Source", target: nil, action: nil)

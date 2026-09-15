@@ -45,6 +45,7 @@ private func makeStepperWindow(
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticIncrementorStepTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))

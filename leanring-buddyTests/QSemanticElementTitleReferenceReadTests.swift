@@ -54,6 +54,7 @@ private func makeLabeledTextField(
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticTitleReferenceTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 150))
@@ -232,6 +233,7 @@ struct QSemanticElementTitleReferenceReadTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         window.title = "DupFieldWindow-\(suffix)"
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))

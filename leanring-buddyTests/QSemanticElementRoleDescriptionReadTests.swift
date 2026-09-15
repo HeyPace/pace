@@ -55,6 +55,7 @@ private func makeButtonWindow(identifier: String, title: String = "Click Me") ->
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticElementRoleDescriptionReadTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 80))
@@ -77,6 +78,7 @@ private func makeTextFieldWindow(identifier: String) -> (window: NSWindow, textF
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticElementRoleDescriptionReadTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 80))
@@ -99,6 +101,7 @@ private func makeCheckboxWindow(identifier: String) -> (window: NSWindow, checkb
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticElementRoleDescriptionReadTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 80))
@@ -372,6 +375,7 @@ struct QSemanticElementRoleDescriptionReadTests {
         let suffix = UUID().uuidString
         let sharedIdentifier = "DupButton-\(suffix)"
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let buttonA = NSButton(title: "A", target: nil, action: nil)
         buttonA.frame = NSRect(x: 10, y: 10, width: 150, height: 30)

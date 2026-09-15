@@ -52,6 +52,7 @@ private func makeWindowWithButtons(
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = windowTitle
     if let windowIdentifier {
@@ -256,10 +257,12 @@ struct QSemanticWindowDefaultButtonReadTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let windowA = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        windowA.isReleasedWhenClosed = false
         windowA.animationBehavior = .none
         windowA.title = "DupWindow-\(suffix)"
         windowA.makeKeyAndOrderFront(nil)
         let windowB = NSWindow(contentRect: NSRect(x: 400, y: 80, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        windowB.isReleasedWhenClosed = false
         windowB.animationBehavior = .none
         windowB.title = "DupWindow-\(suffix)"
         windowB.makeKeyAndOrderFront(nil)

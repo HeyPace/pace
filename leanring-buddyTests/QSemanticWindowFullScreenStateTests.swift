@@ -25,6 +25,7 @@ private func makeFullScreenableWindow(
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = title
     window.collectionBehavior = collectionBehavior

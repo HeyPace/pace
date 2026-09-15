@@ -63,6 +63,7 @@ private func makeInsertionPointLineTextFieldWindow(
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticElementInsertionPointLineReadTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 80))
@@ -265,6 +266,7 @@ struct QSemanticElementInsertionPointLineReadTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
         let fieldA = NSTextField(frame: NSRect(x: 20, y: 20, width: 240, height: 24))

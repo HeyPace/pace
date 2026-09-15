@@ -30,6 +30,7 @@ private func makeTextFieldWindow(identifier: String, value: String) -> (window: 
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticElementReadTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
@@ -51,6 +52,7 @@ private func makeButtonWindow(identifier: String, title: String) -> (window: NSW
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticElementReadTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
@@ -71,6 +73,7 @@ private func makeCheckboxWindow(identifier: String, isChecked: Bool) -> (window:
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticElementReadTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
@@ -92,6 +95,7 @@ private func makeTextAreaWindow(identifier: String, value: String) -> (window: N
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticElementReadTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 160))
@@ -297,6 +301,7 @@ struct QSemanticElementReadTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
         let fieldA = NSTextField(frame: NSRect(x: 20, y: 20, width: 240, height: 24))

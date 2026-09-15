@@ -121,6 +121,7 @@ private func makeOutlineRowWindow(
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticOutlineRowSelectionTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
@@ -262,6 +263,7 @@ struct QSemanticOutlineRowSelectionTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 200, height: 80), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
         let container = QOutlineContainerFixtureView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
@@ -292,6 +294,7 @@ struct QSemanticOutlineRowSelectionTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 200, height: 80), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
         let container = QOutlineContainerFixtureView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
@@ -322,6 +325,7 @@ struct QSemanticOutlineRowSelectionTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 200, height: 80), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
         // Deliberately NOT nested inside a QOutlineContainerFixtureView — added directly to
@@ -399,6 +403,7 @@ struct QSemanticOutlineRowSelectionTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
         let container = QOutlineContainerFixtureView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))

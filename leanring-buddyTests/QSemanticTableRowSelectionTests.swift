@@ -119,6 +119,7 @@ private func makeTableRowWindow(
         backing: .buffered,
         defer: false
     )
+    window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.title = "QSemanticTableRowSelectionTestFixture"
     let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
@@ -260,6 +261,7 @@ struct QSemanticTableRowSelectionTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 200, height: 80), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
         let container = QTableContainerFixtureView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
@@ -290,6 +292,7 @@ struct QSemanticTableRowSelectionTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 200, height: 80), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
         let container = QTableContainerFixtureView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
@@ -320,6 +323,7 @@ struct QSemanticTableRowSelectionTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 200, height: 80), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
         // Deliberately NOT nested inside a QTableContainerFixtureView — added directly to
@@ -397,6 +401,7 @@ struct QSemanticTableRowSelectionTests {
         guard AXIsProcessTrusted() else { return }
         let suffix = UUID().uuidString
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
         let container = QTableContainerFixtureView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
