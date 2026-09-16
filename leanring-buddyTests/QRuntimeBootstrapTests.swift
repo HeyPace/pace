@@ -38,7 +38,7 @@ struct QRuntimeBootstrapTests {
         let coordinator = QRuntimeBootstrap.shared
         _ = await coordinator.bootstrap(databasePath: ":memory:", localOnlyModels: true)
 
-        let records = QAuditLogger.shared.getRecentRecords(limit: 50)
+        let records = QAuditLogger.shared.getRecentRecords(limit: 1000)
         #expect(records.contains { $0.tool == "runtime.bootstrap" })
     }
 }

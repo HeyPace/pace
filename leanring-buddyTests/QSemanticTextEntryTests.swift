@@ -43,6 +43,7 @@ private func rawAXFocusedIdentifier() -> String? {
 @MainActor
 @discardableResult
 private func establishRealAXFocus(window: NSWindow, responder: NSResponder, identifier: String, timeout: TimeInterval = 3.0) async -> Bool {
+    guard AXIsProcessTrusted() else { return false }
     NSApp.activate(ignoringOtherApps: true)
     window.makeKeyAndOrderFront(nil)
     _ = window.makeFirstResponder(responder)

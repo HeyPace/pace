@@ -205,7 +205,7 @@ struct QTextEntrySecurityRemediationTests {
             return
         }
 
-        let recentRecords = QAuditLogger.shared.getRecentRecords(limit: 200)
+        let recentRecords = QAuditLogger.shared.getRecentRecords(limit: 1000)
         let relevantRecords = recentRecords.filter { $0.taskId == plan.taskId }
         #expect(!relevantRecords.isEmpty)
         let anyRecordLeaksSecret = relevantRecords.contains {

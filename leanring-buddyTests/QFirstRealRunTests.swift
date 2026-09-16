@@ -51,8 +51,8 @@ struct QFirstRealRunTests {
         #expect(isRunning == true)
 
         // Verify audit event
-        let audits = QAuditLogger.shared.getRecentRecords(limit: 20)
-        #expect(audits.contains { $0.tool == "ui.open_app" || $0.tool == "core.intent_submit" })
+        let audits = QAuditLogger.shared.getRecentRecords(limit: 1000)
+        #expect(audits.contains { ($0.taskId == result.taskId || $0.sessionId == result.sessionId) && ($0.tool == "ui.open_app" || $0.tool == "core.intent_submit") })
     }
 
     // MARK: - STEP 8: Second Real Task — Screen Capture & OCR
@@ -107,8 +107,8 @@ struct QFirstRealRunTests {
         #expect(result.summary.contains("Denied") || result.summary.contains(".ssh") || result.summary.contains("Security Guard"))
 
         // Verify denial audit record
-        let audits = QAuditLogger.shared.getRecentRecords(limit: 20)
-        #expect(audits.contains { $0.authorizationResult == "deny" })
+        let audits = QAuditLogger.shared.getRecentRecords(limit: 1000)
+        #expect(audits.contains { ($0.taskId == result.taskId || $0.sessionId == result.sessionId) && $0.authorizationResult == "deny" })
     }
 
     // MARK: - STEP 11: Voice & Speech Pipeline Integration

@@ -26,8 +26,8 @@ struct QAgentE2ETests {
         #expect(!result.taskId.isEmpty)
 
         // Verify audit trail
-        let audits = QAuditLogger.shared.getRecentRecords(limit: 20)
-        #expect(audits.contains { $0.tool == "system.running_apps" || $0.tool == "core.intent_submit" })
+        let audits = QAuditLogger.shared.getRecentRecords(limit: 1000)
+        #expect(audits.contains { ($0.taskId == result.taskId || $0.sessionId == result.sessionId) && ($0.tool == "system.running_apps" || $0.tool == "core.intent_submit") })
     }
 
     // MARK: - TEST 2: Screen Capture & OCR
@@ -77,8 +77,8 @@ struct QAgentE2ETests {
         #expect(result.summary.contains("Denied") || result.summary.contains(".ssh") || result.summary.contains("Security Guard"))
 
         // Verify denial is audited
-        let audits = QAuditLogger.shared.getRecentRecords(limit: 20)
-        #expect(audits.contains { $0.authorizationResult == "deny" })
+        let audits = QAuditLogger.shared.getRecentRecords(limit: 1000)
+        #expect(audits.contains { ($0.taskId == result.taskId || $0.sessionId == result.sessionId) && $0.authorizationResult == "deny" })
     }
 
     // MARK: - TEST 5: System Clipboard Read

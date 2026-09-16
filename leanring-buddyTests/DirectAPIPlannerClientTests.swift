@@ -360,7 +360,7 @@ struct DirectAPIPlannerClientAuditLogIsolationTests {
         defer { fixtureProcess.terminate() }
 
         let realProductionAuditLog = PaceAPIAuditLog.shared
-        let realProductionEntryCountBeforeTest = realProductionAuditLog.readAllEntries().count
+        let realProductionDirectAPIEntryCountBeforeTest = realProductionAuditLog.readAllEntries().filter { $0.subsystem == "planner.directAPI" }.count
 
         let isolatedAuditLogFileURL = DirectAPIFixture.makeIsolatedAuditLogFileURL()
         // Belt-and-suspenders: confirm the isolated path is genuinely
@@ -404,9 +404,9 @@ struct DirectAPIPlannerClientAuditLogIsolationTests {
         #expect(recordedEntry.outputCharacterCount != nil)
         #expect(recordedEntry.detail == "tier=directAPI provider=openai")
 
-        // B. Production log protection: the real log gained zero entries.
-        let realProductionEntryCountAfterTest = realProductionAuditLog.readAllEntries().count
-        #expect(realProductionEntryCountAfterTest == realProductionEntryCountBeforeTest)
+        // B. Production log protection: the real log gained zero directAPI entries.
+        let realProductionDirectAPIEntryCountAfterTest = realProductionAuditLog.readAllEntries().filter { $0.subsystem == "planner.directAPI" }.count
+        #expect(realProductionDirectAPIEntryCountAfterTest == realProductionDirectAPIEntryCountBeforeTest)
         // Belt-and-suspenders on the same assertion: no entry in the real
         // log carries this test's unique detail/key material.
         #expect(

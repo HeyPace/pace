@@ -22,7 +22,7 @@ private var currentProcessAppName: String {
     NSRunningApplication.current.localizedName ?? ProcessInfo.processInfo.processName
 }
 
-@Suite("QSemanticApplicationActivationTests")
+@Suite("QSemanticApplicationActivationTests", .serialized)
 struct QSemanticApplicationActivationTests {
 
     // MARK: - 1. Registration, Level 1, approval not required, anti-downgrade

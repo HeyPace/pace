@@ -318,7 +318,8 @@ struct QPlanExecutionTests {
     @Test("Test 10: Audit logger captures plan start, step completion, and SHA-256 hashes")
     func testAuditTrailIntegrity() async throws {
         let executor = QPlanExecutor.shared
-        let context = QTaskContext(taskId: "task_audit_test")
+        let testTaskId = "task_audit_test_\(UUID().uuidString)"
+        let context = QTaskContext(taskId: testTaskId)
 
         let step = QPlanStep(
             index: 0,
@@ -331,10 +332,10 @@ struct QPlanExecutionTests {
             description: "Audited step"
         )
 
-        let plan = QPlan(taskPrompt: "Audit plan test", steps: [step])
+        let plan = QPlan(taskId: testTaskId, taskPrompt: "Audit plan test", steps: [step])
         _ = try await executor.execute(plan: plan, context: context)
 
-        let audits = QAuditLogger.shared.getRecentRecords(limit: 20)
+        let audits = QAuditLogger.shared.getRecentRecords(limit: 1000).filter { $0.taskId == testTaskId }
         #expect(audits.contains { $0.tool == "plan.start" })
         #expect(audits.contains { $0.tool == "plan.complete" })
         #expect(audits.contains { $0.tool == "system.running_apps" })

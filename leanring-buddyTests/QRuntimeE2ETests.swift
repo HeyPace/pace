@@ -103,12 +103,14 @@ struct QRuntimeE2ETests {
 
     @Test("Invariant 6: Audit log captures all execution attempts and security denials")
     func invariant6_auditLogCapturesEvents() async throws {
-        let initialCount = QAuditLogger.shared.getRecentRecords(limit: 500).count
+        let testSessionId = "s6-\(UUID().uuidString)"
+        let testTaskId = "t6-\(UUID().uuidString)"
+        let initialCount = QAuditLogger.shared.getRecentRecords(limit: 1000).count
 
         QAuditLogger.shared.record(
             QAuditRecord(
-                sessionId: "s6",
-                taskId: "t6",
+                sessionId: testSessionId,
+                taskId: testTaskId,
                 tool: "security.invariant_test",
                 riskLevel: .level1SafeLocalAction,
                 rawArguments: "test arg",
@@ -118,10 +120,11 @@ struct QRuntimeE2ETests {
             )
         )
 
-        let records = QAuditLogger.shared.getRecentRecords(limit: 500)
-        #expect(records.count > initialCount || records.contains { $0.tool == "security.invariant_test" })
-        #expect(records.last?.tool == "security.invariant_test")
-        #expect(records.last?.authorizationResult == "deny")
+        let records = QAuditLogger.shared.getRecentRecords(limit: 1000)
+        #expect(records.count > initialCount || records.contains { $0.sessionId == testSessionId })
+        let testRecord = records.last { $0.sessionId == testSessionId }
+        #expect(testRecord?.tool == "security.invariant_test")
+        #expect(testRecord?.authorizationResult == "deny")
     }
 
     // MARK: - Invariant 7: Closed-loop verification ensures empirical confirmation
@@ -215,8 +218,8 @@ struct QRuntimeE2ETests {
         #expect(records.count >= 2) // task_start and task_completion
 
         // 7. Verify Audit Log recorded records
-        let audits = QAuditLogger.shared.getRecentRecords(limit: 50)
+        let audits = QAuditLogger.shared.getRecentRecords(limit: 1000)
         #expect(!audits.isEmpty)
-        #expect(audits.contains { $0.tool == "core.intent_submit" })
+        #expect(audits.contains { $0.taskId == task.taskId && $0.tool == "core.intent_submit" })
     }
 }
