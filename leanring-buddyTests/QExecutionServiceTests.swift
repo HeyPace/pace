@@ -32,7 +32,10 @@ struct QExecutionServiceTests {
     func sandboxFileOperations() async throws {
         let exec = QExecutionService.shared
         let context = QTaskContext(taskId: "test_fs_task")
-        let testSandboxPath = "/tmp/q-sandbox-test-\(UUID().uuidString)/data.txt"
+        // Must be inside the REAL, enforced sandbox root (C-1) — fs.write_sandbox
+        // / fs.read now fail closed outside QResourceGuard.filesystemCapabilitySandboxRoot.
+        let testSandboxPath = (QResourceGuard.filesystemCapabilitySandboxRoot as NSString)
+            .appendingPathComponent("q-sandbox-test-\(UUID().uuidString)/data.txt")
 
         // Write
         let writeReq = QActionRequest(
@@ -84,7 +87,11 @@ struct QExecutionServiceTests {
 
         let res = try await exec.executeAction(req, context: context)
         #expect(res.success == false)
-        #expect(res.error?.contains(".ssh") == true || res.summary.contains("Denied"))
+        #expect(
+            res.error?.contains(".ssh") == true
+            || res.error?.contains("outside the authorized filesystem sandbox") == true
+            || res.summary.contains("denied")
+        )
     }
 
     @Test("Execution service rejects arbitrary unrecognized tools")

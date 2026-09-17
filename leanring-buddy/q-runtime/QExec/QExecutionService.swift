@@ -365,6 +365,18 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
         }
 
         // 3. Mandatory Audit Record
+        //
+        // HIGH-1 remediation: this dispatcher-level audit call runs for
+        // EVERY tool and is independent of QPlanExecutor's own per-step audit
+        // call (which already had the same fix applied) — `result.summary`
+        // for screen.ocr is the raw recognized text, completely unredacted at
+        // this layer (unlike QPlanExecutor's path, which applies
+        // QSecretRedactor for perception steps before this point). Same
+        // pure-metadata treatment, same reasoning as QPlanExecutor.
+        let isPerceptionDerivedTool = request.toolName == "screen.ocr" || request.toolFamily == "perception"
+        let auditSafeSummary = isPerceptionDerivedTool
+            ? QAuditRecord.safeDescriptor(omittedContent: result.summary, label: "screen/perception content")
+            : result.summary
         QAuditLogger.shared.record(
             QAuditRecord(
                 sessionId: "exec-session",
@@ -374,7 +386,7 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
                 rawArguments: request.literalAction,
                 authorizationResult: result.success ? "allow" : "error",
                 provenance: context.isTainted ? "untrusted" : "trusted:system",
-                executionSummary: result.summary,
+                executionSummary: auditSafeSummary,
                 error: result.error
             )
         )
@@ -481,15 +493,21 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
             return QActionResult(actionId: request.actionId, success: false, summary: "Missing 'path' parameter.", error: "path missing")
         }
 
-        // Must validate with ResourceGuard
-        let guardOutcome = QResourceGuard.validate(path: path)
-        if case .denied(let reason, _) = guardOutcome {
-            return QActionResult(actionId: request.actionId, success: false, summary: "Resource guard denied path.", error: reason)
+        // Fail-closed allowlist: fs.read may only ever reach
+        // QResourceGuard.filesystemCapabilitySandboxRoot or a descendant of it.
+        let guardOutcome = QResourceGuard.validateSandboxedFilesystemAccess(path: path)
+        guard case .allowed(let canonicalPath) = guardOutcome else {
+            if case .denied(let reason, _) = guardOutcome {
+                return QActionResult(actionId: request.actionId, success: false, summary: "Resource guard denied path.", error: reason)
+            }
+            return QActionResult(actionId: request.actionId, success: false, summary: "Resource guard denied path.", error: "denied")
         }
 
-        let standardPath = (path as NSString).expandingTildeInPath
-        if FileManager.default.fileExists(atPath: standardPath) {
-            let content = (try? String(contentsOfFile: standardPath, encoding: .utf8)) ?? ""
+        // Act on the SAME canonical path the guard just validated — never the
+        // raw, only-tilde-expanded input — so what gets read is exactly what
+        // was authorized, closing the gap between the check and the effect.
+        if FileManager.default.fileExists(atPath: canonicalPath) {
+            let content = (try? String(contentsOfFile: canonicalPath, encoding: .utf8)) ?? ""
             return QActionResult(
                 actionId: request.actionId,
                 success: true,
@@ -511,13 +529,19 @@ public final class QExecutionService: QExecutionProvider, @unchecked Sendable {
             return QActionResult(actionId: request.actionId, success: false, summary: "Missing path or content parameter.", error: "invalid parameters")
         }
 
-        let guardOutcome = QResourceGuard.validate(path: path)
-        if case .denied(let reason, _) = guardOutcome {
-            return QActionResult(actionId: request.actionId, success: false, summary: "Resource guard denied path.", error: reason)
+        // Fail-closed allowlist: fs.write_sandbox may only ever reach
+        // QResourceGuard.filesystemCapabilitySandboxRoot or a descendant of it —
+        // the name "sandbox" is now actually enforced, not just descriptive.
+        let guardOutcome = QResourceGuard.validateSandboxedFilesystemAccess(path: path)
+        guard case .allowed(let canonicalPath) = guardOutcome else {
+            if case .denied(let reason, _) = guardOutcome {
+                return QActionResult(actionId: request.actionId, success: false, summary: "Resource guard denied path.", error: reason)
+            }
+            return QActionResult(actionId: request.actionId, success: false, summary: "Resource guard denied path.", error: "denied")
         }
 
-        let standardPath = (path as NSString).expandingTildeInPath
-        let url = URL(fileURLWithPath: standardPath)
+        // Act on the SAME canonical path the guard just validated.
+        let url = URL(fileURLWithPath: canonicalPath)
 
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try content.write(to: url, atomically: true, encoding: .utf8)

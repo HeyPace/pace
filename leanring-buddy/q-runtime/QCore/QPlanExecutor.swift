@@ -78,8 +78,20 @@ public final class QPlanExecutor: Sendable {
             }
 
             // A. Resource Guard Validation
+            //
+            // fs.read / fs.write_sandbox get the fail-closed sandbox ALLOWLIST
+            // (only path-shaped, content-bearing capabilities need it — see
+            // QResourceGuard.validateSandboxedFilesystemAccess). Every other
+            // tool family keeps the existing denylist-based `validate(path:)`
+            // check: their `targetResources` entries are frequently not real
+            // filesystem paths at all (an app name for ui.open_app, an
+            // AXIdentifier/title for ui.click_element, etc.), so routing them
+            // through a filesystem allowlist would incorrectly block them.
+            let isFilesystemCapability = step.action.toolFamily == "fs"
             for resource in step.action.targetResources {
-                let guardDecision = QResourceGuard.validate(path: resource)
+                let guardDecision = isFilesystemCapability
+                    ? QResourceGuard.validateSandboxedFilesystemAccess(path: resource)
+                    : QResourceGuard.validate(path: resource)
                 if case .denied(let reason, _) = guardDecision {
                     step.state = .blocked(reason: "Resource Guard Denied Resource '\(resource)': \(reason)")
                     plan.steps[i] = step
@@ -332,7 +344,21 @@ public final class QPlanExecutor: Sendable {
             plan.steps[i] = step
             observer?.stepDidTransition(step: step, planId: plan.id)
 
-            // Audit record for step completion
+            // Audit record for step completion.
+            //
+            // HIGH-1 remediation: for a perception-derived step, `stepEvidence`
+            // can itself BE (or embed) the OCR'd screen text — confirmed in
+            // production at 2,000-5,000+ characters per entry. Requirement is
+            // "do not log raw OCR/screen content" outright, not merely "don't
+            // log too much of it" — so this constructs a pure-metadata
+            // descriptor (QAuditRecord.safeDescriptor) at the source for that
+            // one known case, rather than leaning on QAuditRecord's generic
+            // truncate-and-hash backstop (still in place for every other tool,
+            // as defense in depth) to carry the whole burden for a case we
+            // already know about.
+            let auditSafeStepEvidence = isScreenDerivedStep
+                ? QAuditRecord.safeDescriptor(omittedContent: stepEvidence, label: "screen/perception content")
+                : stepEvidence
             QAuditLogger.shared.record(
                 QAuditRecord(
                     sessionId: plan.sessionId,
@@ -342,7 +368,7 @@ public final class QPlanExecutor: Sendable {
                     rawArguments: step.action.literalAction,
                     authorizationResult: "allow",
                     provenance: context.isTainted ? "untrusted" : "trusted:system",
-                    executionSummary: "Step \(i) [\(step.action.actionName)] completed and verified: \(stepEvidence)"
+                    executionSummary: "Step \(i) [\(step.action.actionName)] completed and verified: \(auditSafeStepEvidence)"
                 )
             )
 

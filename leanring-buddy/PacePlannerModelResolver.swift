@@ -116,7 +116,8 @@ enum PacePlannerModelResolver {
             return []
         }
 
-        var request = URLRequest(url: plannerBaseURL.appendingPathComponent("models"))
+        let modelsURL = plannerBaseURL.appendingPathComponent("models")
+        var request = URLRequest(url: modelsURL)
         request.httpMethod = "GET"
         request.timeoutInterval = 2
 
@@ -127,7 +128,8 @@ enum PacePlannerModelResolver {
         defer { probeSession.invalidateAndCancel() }
 
         do {
-            let (responseData, response) = try await probeSession.data(for: request)
+            try QEgressBroker.shared.authorize(url: modelsURL)
+            let (responseData, response) = try await probeSession.data(for: request, delegate: QEgressRedirectGuard())
             guard let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {
                 return []

@@ -51,4 +51,42 @@ struct QActionAuthorizerTests {
         let decision = QActionAuthorizationBridge.preflightAuthorize(action: appAction)
         #expect(decision.isAllowed)
     }
+
+    // MARK: - HIGH-2: isContextTainted plumbing
+
+    @Test("isContextTainted: true forces a normally-auto-permitted Level 2 action into requiring approval")
+    func taintedContextForcesApprovalOnLevel2Action() {
+        let clickAction = PaceParsedAction.click(ScreenshotPixelLocation(xInScreenshotPixels: 1, yInScreenshotPixels: 1, screenNumber: 1))
+
+        let untaintedDecision = QActionAuthorizationBridge.preflightAuthorize(action: clickAction, isContextTainted: false)
+        #expect(untaintedDecision.requiresApproval, "sanity: click is already Level 2 by itself")
+
+        let taintedDecision = QActionAuthorizationBridge.preflightAuthorize(action: clickAction, isContextTainted: true)
+        #expect(taintedDecision.requiresApproval)
+    }
+
+    @Test("isContextTainted: true does NOT force approval on Level 0/1 actions — matches Q's own documented Level 0/1 exemption")
+    func taintedContextDoesNotAffectLevel0Or1Actions() {
+        let clipboardRead = QActionAuthorizationBridge.preflightAuthorize(action: .readClipboard, isContextTainted: true)
+        #expect(clipboardRead.isAllowed)
+
+        let launchApp = QActionAuthorizationBridge.preflightAuthorize(action: .openApplication("Notes"), isContextTainted: true)
+        #expect(launchApp.isAllowed)
+    }
+
+    @Test("isContextTainted: true still forces approval on an already-Level-3 action — taint never downgrades an existing requirement")
+    func taintedContextPreservesLevel3ApprovalRequirement() {
+        let downloadAction = PaceParsedAction.downloadFile(
+            PaceFileDownloadRequest(url: URL(string: "https://example.com/file.pdf")!, suggestedFilename: nil)
+        )
+        let decision = QActionAuthorizationBridge.preflightAuthorize(action: downloadAction, isContextTainted: true)
+        #expect(decision.requiresApproval)
+    }
+
+    @Test("Denylisted paths remain denied regardless of taint — deny always outranks requireApproval")
+    func denylistedPathsRemainDeniedWhenTainted() {
+        let maliciousFinder = PaceParsedAction.finder(PaceFinderRequest(path: "~/.ssh/id_rsa", action: .reveal))
+        let decision = QActionAuthorizationBridge.preflightAuthorize(action: maliciousFinder, isContextTainted: true)
+        #expect(decision.isDenied)
+    }
 }

@@ -1096,6 +1096,10 @@ extension CompanionManager {
     ) async {
         guard isActiveTurn(turnLease) else { return }
         ttsClient.stopPlayback()
+        // HIGH-2 remediation: clear any retrieval/prompt-injection taint
+        // carried over from a prior turn before this new one starts — see
+        // `PaceActionExecutor.isCurrentTurnContextTainted`'s doc comment.
+        actionExecutor.resetTurnTaintState()
         pendingIntentClarification = nil
         // A new turn supersedes any unanswered click-target question —
         // drop it silently rather than auto-clicking, because the user

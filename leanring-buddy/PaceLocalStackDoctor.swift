@@ -135,7 +135,8 @@ final class PaceLocalStackDoctor {
             )
         }
         do {
-            let (_, response) = try await urlSession.data(from: url)
+            try QEgressBroker.shared.authorize(url: url)
+            let (_, response) = try await urlSession.data(from: url, delegate: QEgressRedirectGuard())
             let httpResponse = response as? HTTPURLResponse
             let statusCode = httpResponse?.statusCode ?? 0
             if (200..<300).contains(statusCode) {
@@ -173,7 +174,8 @@ final class PaceLocalStackDoctor {
 
         if let apiV0URL = URL(string: apiV0ModelsURLString) {
             do {
-                let (data, response) = try await urlSession.data(from: apiV0URL)
+                try QEgressBroker.shared.authorize(url: apiV0URL)
+                let (data, response) = try await urlSession.data(from: apiV0URL, delegate: QEgressRedirectGuard())
                 let httpResponse = response as? HTTPURLResponse
                 let statusCode = httpResponse?.statusCode ?? 0
 
@@ -225,7 +227,8 @@ final class PaceLocalStackDoctor {
         }
 
         do {
-            let (data, response) = try await urlSession.data(from: v1URL)
+            try QEgressBroker.shared.authorize(url: v1URL)
+            let (data, response) = try await urlSession.data(from: v1URL, delegate: QEgressRedirectGuard())
             let httpResponse = response as? HTTPURLResponse
             guard (200..<300).contains(httpResponse?.statusCode ?? 0),
                   let bodyString = String(data: data, encoding: .utf8)
@@ -301,7 +304,8 @@ final class PaceLocalStackDoctor {
         request.httpBody = requestData
 
         do {
-            let (data, _) = try await urlSession.data(for: request)
+            try QEgressBroker.shared.authorize(url: embeddingsURL)
+            let (data, _) = try await urlSession.data(for: request, delegate: QEgressRedirectGuard())
             let responseBodyString = String(data: data, encoding: .utf8) ?? ""
             let embeddingStatus = embeddingsResponseStatus(fromResponseBody: responseBodyString)
 
@@ -356,7 +360,8 @@ final class PaceLocalStackDoctor {
         }
 
         do {
-            let (data, response) = try await urlSession.data(from: apiV0URL)
+            try QEgressBroker.shared.authorize(url: apiV0URL)
+            let (data, response) = try await urlSession.data(from: apiV0URL, delegate: QEgressRedirectGuard())
             let httpResponse = response as? HTTPURLResponse
             guard (200..<300).contains(httpResponse?.statusCode ?? 0),
                   let responseBody = String(data: data, encoding: .utf8)
@@ -426,7 +431,8 @@ final class PaceLocalStackDoctor {
         }
 
         do {
-            let (_, response) = try await urlSession.data(from: probeURL)
+            try QEgressBroker.shared.authorize(url: probeURL)
+            let (_, response) = try await urlSession.data(from: probeURL, delegate: QEgressRedirectGuard())
             let httpResponse = response as? HTTPURLResponse
             // Any HTTP response (even 404) means the sidecar process is alive.
             if httpResponse != nil {

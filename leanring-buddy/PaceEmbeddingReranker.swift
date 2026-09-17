@@ -78,7 +78,8 @@ final class LMStudioEmbeddingClient: PaceTextEmbedding {
 
     func embed(_ texts: [String]) async throws -> [[Float]] {
         guard !texts.isEmpty else { return [] }
-        var request = URLRequest(url: baseURL.appendingPathComponent("embeddings"))
+        let embeddingsURL = baseURL.appendingPathComponent("embeddings")
+        var request = URLRequest(url: embeddingsURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = requestTimeoutInSeconds
@@ -101,7 +102,8 @@ final class LMStudioEmbeddingClient: PaceTextEmbedding {
         }
 
         do {
-            let (data, response) = try await urlSession.data(for: request)
+            try QEgressBroker.shared.authorize(url: embeddingsURL)
+            let (data, response) = try await urlSession.data(for: request, delegate: QEgressRedirectGuard())
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 auditEmbedCall(outcome: "non_2xx")
                 throw PaceEmbeddingClientError(

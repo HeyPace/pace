@@ -243,9 +243,23 @@ public final class QModelRouter: QStructuredModelProvider, @unchecked Sendable {
         }
 
         if !targetBackend.capabilities.isLocalOnDevice {
-            let egressDecision = QEgressBroker.shared.evaluate(host: "api.cloud-model.internal")
-            guard egressDecision.isAllowed else {
-                throw QModelRouterError.egressBlocked("Cloud model routing blocked by QEgressBroker in OFFLINE mode.")
+            // registerDefaultBackends() only ever registers on-device backends
+            // (see below), so reaching here means a caller explicitly
+            // `register(backend:)`-ed a non-local one. QLocalModelBackend
+            // exposes no concrete URL/host, so QModelRouter has no real
+            // destination to check against QEgressBroker's host whitelist —
+            // a prior version of this check "solved" that by evaluating a
+            // hardcoded placeholder hostname that was never in any real
+            // whitelist, which is decorative, not enforcement. The honest
+            // fix: without a concrete destination to authorize, a non-local
+            // backend is refused unless the policy is fully OPEN. Real
+            // off-device HTTP backends (e.g. QLocalhostHTTPBackend below)
+            // authorize their OWN concrete URL at their own call site —
+            // that is where the actual enforcement lives.
+            guard QEgressBroker.shared.getMode() == .open else {
+                throw QModelRouterError.egressBlocked(
+                    "Cloud model routing blocked by QEgressBroker: no concrete destination to authorize under a non-OPEN policy."
+                )
             }
         }
 
@@ -413,7 +427,10 @@ public final class QModelRouter: QStructuredModelProvider, @unchecked Sendable {
         }
         // Multi-Step Compound: Sandbox Write + Sandbox Read
         else if intentLower.contains("write") && intentLower.contains("read") && (intentLower.contains("sandbox") || intentLower.contains("file")) {
-            let path = "/tmp/q-sandbox/test-sandbox-data.txt"
+            // Must be a real path under the actual, enforced sandbox root —
+            // fs.write_sandbox/fs.read now fail closed outside it (C-1).
+            let path = (QResourceGuard.filesystemCapabilitySandboxRoot as NSString)
+                .appendingPathComponent("test-sandbox-data.txt")
             let step0 = QPlanStep(
                 index: 0,
                 action: QPlannedAction(
@@ -521,7 +538,8 @@ public final class QModelRouter: QStructuredModelProvider, @unchecked Sendable {
         }
         // Single Step: Sandbox Read / Write
         else if intentLower.contains("sandbox") || intentLower.contains("file") {
-            var path = "/tmp/q-sandbox/test-sandbox-data.txt"
+            var path = (QResourceGuard.filesystemCapabilitySandboxRoot as NSString)
+                .appendingPathComponent("test-sandbox-data.txt")
             let words = task.intent.components(separatedBy: .whitespacesAndNewlines)
             if let matchedPath = words.first(where: { $0.hasPrefix("/") || $0.hasPrefix("~") }) {
                 path = matchedPath
@@ -669,7 +687,13 @@ public struct QLocalhostHTTPBackend: QLocalModelBackend {
     }
 
     public func isAvailable() async -> Bool {
-        var req = URLRequest(url: baseURL.appendingPathComponent("v1/models"))
+        let probeURL = baseURL.appendingPathComponent("v1/models")
+        // Fail closed: if the destination isn't authorized, this backend is
+        // not available — never fall through to actually calling it.
+        guard (try? QEgressBroker.shared.authorize(url: probeURL)) != nil else {
+            return false
+        }
+        var req = URLRequest(url: probeURL)
         req.timeoutInterval = 0.5
         guard let (_, res) = try? await URLSession.shared.data(for: req),
               let http = res as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
@@ -680,6 +704,10 @@ public struct QLocalhostHTTPBackend: QLocalModelBackend {
 
     public func complete(request: QModelInferenceRequest) async throws -> QModelInferenceResponse {
         let endpoint = baseURL.appendingPathComponent("v1/chat/completions")
+        // Mandatory checkpoint — fails closed if this destination is not
+        // currently authorized under QEgressBroker's active policy.
+        try QEgressBroker.shared.authorize(url: endpoint)
+
         var urlReq = URLRequest(url: endpoint)
         urlReq.httpMethod = "POST"
         urlReq.addValue("application/json", forHTTPHeaderField: "Content-Type")

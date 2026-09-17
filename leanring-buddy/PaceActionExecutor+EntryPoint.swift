@@ -144,7 +144,17 @@ extension PaceActionExecutor {
         approvalAlreadyObtained: Bool
     ) async -> PaceActionExecutionObservation? {
         // Q Security Preflight Authorization
-        let decision = QActionAuthorizationBridge.preflightAuthorize(action: action)
+        //
+        // HIGH-2 remediation: `isContextTainted` now reflects whether this
+        // turn has ingested any untrusted MCP/retrieval content (see
+        // `isCurrentTurnContextTainted`'s doc comment). Previously this
+        // parameter was always left at its `false` default, so
+        // `QPermissionGate`'s own tainted-context-forces-approval rule
+        // (Level 2+) was completely inert for Pace's real action executor.
+        let decision = QActionAuthorizationBridge.preflightAuthorize(
+            action: action,
+            isContextTainted: isCurrentTurnContextTainted
+        )
         if case .deny(let reason, _) = decision {
             let denialObservation = PaceActionExecutionObservation(
                 toolName: action.auditOperationName,

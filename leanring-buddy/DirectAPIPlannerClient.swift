@@ -172,7 +172,13 @@ final class DirectAPIPlannerClient: BuddyPlannerClient {
 
         let startTime = Date()
 
-        let (byteStream, response) = try await urlSession.bytes(for: request)
+        // Mandatory checkpoint — fails closed if this off-device host is not
+        // currently authorized under QEgressBroker's active policy. Normally
+        // already whitelisted by BuddyPlannerClientFactory at tier-selection
+        // time; this is the defense-in-depth check that fires regardless of
+        // how this client came to be constructed or called.
+        try QEgressBroker.shared.authorize(url: endpointURL)
+        let (byteStream, response) = try await urlSession.bytes(for: request, delegate: QEgressRedirectGuard())
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw PaceDirectAPIError.unexpectedNonHTTPResponse

@@ -23,7 +23,14 @@ struct QPlanExecutionTests {
     /// user's real Documents folder over time (found and fixed 2026-09-13;
     /// see `sandboxDirectoriesStayOutsideDocumentsAndAreCleanable` below and
     /// the fix note in `docs/knowledge/failed-approaches.md`).
-    private static let sandboxRoot = FileManager.default.temporaryDirectory
+    ///
+    /// Also MUST stay under `QResourceGuard.filesystemCapabilitySandboxRoot`
+    /// (C-1): `fs.read`/`fs.write_sandbox` now fail closed for any path
+    /// outside that fixed root, so a fixture root anywhere else — including
+    /// the plain system temp directory this used before — would make every
+    /// real fs.read/fs.write_sandbox step in this suite denied instead of
+    /// exercised.
+    private static let sandboxRoot = URL(fileURLWithPath: QResourceGuard.filesystemCapabilitySandboxRoot)
         .appendingPathComponent("q-plan-execution-tests", isDirectory: true)
 
     /// Creates a fresh, uniquely-named (UUID) sandbox directory under the
@@ -431,14 +438,18 @@ struct QPlanExecutionTests {
         #expect(!filePath.hasPrefix(realDocumentsPath))
     }
 
-    @Test("Sandbox fixture paths resolve under the isolated system temporary directory")
-    func sandboxFilePathUsesIsolatedTemporaryDirectory() {
-        let temporaryRoot = FileManager.default.temporaryDirectory.standardizedFileURL.path
+    @Test("Sandbox fixture paths resolve under the real, enforced filesystem-capability sandbox root")
+    func sandboxFilePathUsesEnforcedSandboxRoot() {
+        // Must be QResourceGuard.filesystemCapabilitySandboxRoot (C-1), not
+        // just "some temp directory" — fs.read/fs.write_sandbox fail closed
+        // for anything outside that specific root, so these fixtures need to
+        // resolve inside it or every fs step in this suite would be denied.
+        let enforcedRoot = QResourceGuard.filesystemCapabilitySandboxRoot
 
         let filePath = makeSandboxFilePath(filename: "hygiene_check.txt")
         defer { removeSandboxDirectory(for: filePath) }
 
-        #expect(filePath.hasPrefix(temporaryRoot))
+        #expect(filePath.hasPrefix(enforcedRoot))
         #expect(filePath.contains("/q_plan_test_"))
     }
 

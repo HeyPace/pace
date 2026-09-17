@@ -53,7 +53,10 @@ struct QAgentE2ETests {
 
     @Test("TEST 3: Safe filesystem read inside sandbox with closed-loop verification")
     func test3_safeFilesystemRead() async throws {
-        let testDir = "/tmp/q-sandbox"
+        // Must be the REAL, enforced sandbox root (C-1) — the deterministic
+        // plan generator now points fs.read/fs.write_sandbox demo plans at
+        // QResourceGuard.filesystemCapabilitySandboxRoot, not /tmp/q-sandbox.
+        let testDir = QResourceGuard.filesystemCapabilitySandboxRoot
         let testFile = "\(testDir)/test-sandbox-data.txt"
         try? FileManager.default.createDirectory(atPath: testDir, withIntermediateDirectories: true)
         try "Q Sandbox Data 2026".write(toFile: testFile, atomically: true, encoding: .utf8)
@@ -126,7 +129,10 @@ struct QAgentE2ETests {
 
     @Test("TEST 8: Real physical file mutation verified with empirical closed-loop proof")
     func test8_realPhysicalMutationWithVerification() async throws {
-        let sandboxPath = "/tmp/q-sandbox/real-mutation-\(UUID().uuidString).txt"
+        // Must be inside the REAL, enforced sandbox root (C-1) — fs.write_sandbox
+        // now fails closed for any path outside QResourceGuard.filesystemCapabilitySandboxRoot.
+        let sandboxPath = (QResourceGuard.filesystemCapabilitySandboxRoot as NSString)
+            .appendingPathComponent("real-mutation-\(UUID().uuidString).txt")
         let exec = QExecutionService.shared
         let context = QTaskContext(taskId: "real_mutation_task")
 

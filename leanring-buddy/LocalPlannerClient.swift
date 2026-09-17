@@ -261,7 +261,10 @@ final class LocalPlannerClient: BuddyPlannerClient {
             request.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
             request.httpBody = requestBodyData
 
-            let (byteStream, response) = try await urlSession.bytes(for: request)
+            // Mandatory checkpoint, re-checked on every retry attempt — fails
+            // closed if this destination is not currently authorized.
+            try QEgressBroker.shared.authorize(url: chatCompletionsURL)
+            let (byteStream, response) = try await urlSession.bytes(for: request, delegate: QEgressRedirectGuard())
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw NSError(
@@ -424,7 +427,8 @@ final class LocalPlannerClient: BuddyPlannerClient {
             request.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
-            let (byteStream, response) = try await urlSession.bytes(for: request)
+            try QEgressBroker.shared.authorize(url: nativeChatURL)
+            let (byteStream, response) = try await urlSession.bytes(for: request, delegate: QEgressRedirectGuard())
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw NSError(
                     domain: "LocalPlannerClient",
@@ -590,7 +594,8 @@ final class LocalPlannerClient: BuddyPlannerClient {
         request.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONSerialization.data(withJSONObject: fallbackRequestBody)
 
-        let (data, response) = try await urlSession.data(for: request)
+        try QEgressBroker.shared.authorize(url: chatCompletionsURL)
+        let (data, response) = try await urlSession.data(for: request, delegate: QEgressRedirectGuard())
         guard let httpResponse = response as? HTTPURLResponse else {
             throw NSError(
                 domain: "LocalPlannerClient",

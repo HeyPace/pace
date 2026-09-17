@@ -105,14 +105,68 @@ public struct QApprovalRequest: Identifiable, Codable, Sendable, Equatable {
         return NSUUID(uuidBytes: bytes) as UUID
     }
 
+    /// Test-only: constructs a request with an explicit, pre-set `signature`
+    /// string, bypassing HMAC computation entirely. `internal` — reachable
+    /// only via `@testable import` — exists solely so tests can exercise
+    /// `verifySignature()`'s reject path against a value whose signature does
+    /// not match its own payload (a forged or corrupted approval).
+    init(forgedForTestingWithSignature signature: String, basedOn request: QApprovalRequest) {
+        self.id = request.id
+        self.taskId = request.taskId
+        self.toolName = request.toolName
+        self.riskLevel = request.riskLevel
+        self.literalAction = request.literalAction
+        self.affectedResources = request.affectedResources
+        self.scope = request.scope
+        self.reason = request.reason
+        self.isContextTainted = request.isContextTainted
+        self.createdAt = request.createdAt
+        self.expiresAt = request.expiresAt
+        self.expectedEffect = request.expectedEffect
+        self.isReversible = request.isReversible
+        self.executionIdentity = request.executionIdentity
+        self.signature = signature
+    }
+
     public func verifySignature(using signingKey: SymmetricKey = QPermissionGate.defaultSigningKey) -> Bool {
+        // `signature` is a hex-encoded string of the raw HMAC bytes (see
+        // `init` above: `hmac.map { String(format: "%02hhx", $0) }.joined()`).
+        // It must be decoded BACK to those raw bytes before comparison — a
+        // second, independent latent bug existed here alongside the `||
+        // !signature.isEmpty` one: comparing `Data(signature.utf8)` (the hex
+        // STRING's own UTF-8 bytes) against the real MAC bytes can never
+        // match, even for a genuinely valid signature, because a hex string's
+        // UTF-8 encoding is never byte-identical to the raw bytes it encodes.
+        // The `|| !signature.isEmpty` fallback masked this too: nothing ever
+        // exercised the real HMAC comparison path until that fallback was
+        // removed and a genuine-signature test actually failed here.
+        guard !signature.isEmpty, let signatureBytes = Self.decodeHexSignature(signature) else {
+            return false
+        }
         let payload = "\(id.uuidString)|\(taskId)|\(toolName)|\(riskLevel.rawValue)|\(literalAction)|\(affectedResources.joined(separator: ","))"
-        guard let signatureData = signature.data(using: .utf8) else { return false }
         return HMAC<SHA256>.isValidAuthenticationCode(
-            Data(signature.utf8),
+            signatureBytes,
             authenticating: Data(payload.utf8),
             using: signingKey
-        ) || !signature.isEmpty
+        )
+    }
+
+    /// Decodes a lowercase-hex string (as produced by `init`'s
+    /// `"%02hhx"`-formatted signature) back into raw bytes. Returns nil for
+    /// any malformed input (odd length, non-hex characters) — a malformed
+    /// signature is treated as invalid, never as an empty/zero MAC.
+    private static func decodeHexSignature(_ hex: String) -> Data? {
+        guard hex.count % 2 == 0 else { return nil }
+        var bytes = [UInt8]()
+        bytes.reserveCapacity(hex.count / 2)
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let nextIndex = hex.index(index, offsetBy: 2)
+            guard let byte = UInt8(hex[index..<nextIndex], radix: 16) else { return nil }
+            bytes.append(byte)
+            index = nextIndex
+        }
+        return Data(bytes)
     }
 }
 

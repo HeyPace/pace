@@ -382,6 +382,13 @@ extension PaceActionExecutor {
             }
         }
 
+        // HIGH-2 remediation: from this point on, this turn is ingesting
+        // content from an external server this app does not control —
+        // mark the turn tainted BEFORE the call, not only on success, since
+        // even a failure response's text (`error` below) could carry a
+        // crafted payload from a malicious/compromised server.
+        isCurrentTurnContextTainted = true
+
         do {
             let resultSummary = try await mcpClient.callTool(mcpToolCall)
             return PaceActionExecutionObservation(

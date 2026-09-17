@@ -149,7 +149,10 @@ final class CloudBridgePlannerClient: BuddyPlannerClient {
 
         let startTime = Date()
 
-        let (byteStream, response) = try await urlSession.bytes(for: urlRequest)
+        // Mandatory checkpoint — fails closed if this off-device host is not
+        // currently authorized under QEgressBroker's active policy.
+        try QEgressBroker.shared.authorize(url: bridgeChatURL)
+        let (byteStream, response) = try await urlSession.bytes(for: urlRequest, delegate: QEgressRedirectGuard())
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw PaceCloudBridgeError.unexpectedNonHTTPResponse

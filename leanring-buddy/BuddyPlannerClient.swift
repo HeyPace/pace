@@ -189,6 +189,30 @@ enum BuddyPlannerClientFactory {
     /// Existing users (no UserDefaults state for the picker) see `.local`
     /// — byte-identical behavior to today. See PRD:
     /// docs/prds/planner-tier-picker.md
+    /// Sets `QEgressBroker`'s active mode to exactly what the tier currently
+    /// being constructed requires: `.offline` (loopback-only — the fixed
+    /// local HTTP clients never need anything else) when there is no
+    /// off-device host, or a whitelist containing ONLY that one host
+    /// otherwise. Called every time a planner client is (re)constructed for
+    /// an active tier, so the broker's authorized destinations are never
+    /// wider than what the user's CURRENT tier selection actually needs —
+    /// this is what makes QEgressBroker's default-deny posture track tier
+    /// changes (including a user switching away from an off-device tier)
+    /// rather than a whitelist that only ever grows.
+    ///
+    /// Not `private` — same pattern as `DirectAPIPlannerClient.auditLog` —
+    /// so `BuddyPlannerClientEgressPolicyTests` can assert this pure mapping
+    /// directly without needing to fight real UserDefaults/Keychain state
+    /// through `makeDefault()`.
+    @MainActor
+    static func applyEgressPolicy(forOffDeviceHost host: String?) {
+        if let host, !host.isEmpty {
+            QEgressBroker.shared.setMode(.approved(whitelist: [host.lowercased()]))
+        } else {
+            QEgressBroker.shared.setMode(.offline)
+        }
+    }
+
     @MainActor
     static func makeDefault() -> any BuddyPlannerClient {
         let plannerTierConfiguration = PacePlannerTierStore.loadConfiguration()
@@ -254,6 +278,7 @@ enum BuddyPlannerClientFactory {
             return nil
         }
 
+        applyEgressPolicy(forOffDeviceHost: validatedEndpointURL.host)
         return DirectAPIPlannerClient(
             provider: configuration.directAPIProvider,
             endpointURL: validatedEndpointURL,
@@ -276,6 +301,9 @@ enum BuddyPlannerClientFactory {
         switch cloudBridgeConfiguration.mode {
         case .alwaysBridge:
             let cloudBridgePlanner = CloudBridgePlannerClient(configuration: cloudBridgeConfiguration)
+            // Set AFTER construction, not before: this must be the mode in
+            // effect for every subsequent call this planner makes.
+            applyEgressPolicy(forOffDeviceHost: cloudBridgeConfiguration.baseURL.host)
             print("🧠 Planner: using \(cloudBridgePlanner.displayName) [tier=cliBridge mode=alwaysBridge]")
             return cloudBridgePlanner
         case .hybrid:
@@ -285,6 +313,16 @@ enum BuddyPlannerClientFactory {
                 localPlannerClient: localBaselineForHybrid,
                 cloudBridgePlannerClient: cloudBridgePlanner
             )
+            // Set LAST — after the local-baseline construction above (which
+            // resets to .offline internally) — so the bridge host stays
+            // whitelisted for this hybrid instance's lifetime. Note: because
+            // HybridPlannerClient reuses these two already-constructed
+            // clients across many turns and can route either way per turn,
+            // the bridge host remains whitelisted even during turns this
+            // instance routes locally — never a wider grant than the host
+            // the user already explicitly consented to for this tier, just
+            // not re-scoped down per individual turn.
+            applyEgressPolicy(forOffDeviceHost: cloudBridgeConfiguration.baseURL.host)
             print("🧠 Planner: using \(hybridPlanner.displayName) [tier=cliBridge mode=hybrid]")
             return hybridPlanner
         case .off:
@@ -391,6 +429,15 @@ enum BuddyPlannerClientFactory {
             print("⚠️ Planner: tier=cliDirect selected but \(reason) — falling back to local")
             return makeLocalOrFoundationModelsPlanner()
         case .spawnCLI:
+            // PaceLocalCLIPlannerClient direct-spawns an external CLI process
+            // (codex/claude) — that subprocess does its OWN networking
+            // outside this process's URLSession stack entirely, so
+            // QEgressBroker (which governs only this process's URLSession
+            // requests) has no reach into it; that subprocess's own network
+            // egress is a different control surface (see PaceLocalCLIPlannerClient's
+            // own consent/audit contract). This process itself makes no
+            // direct HTTP calls in this branch, so reset to loopback-only.
+            applyEgressPolicy(forOffDeviceHost: nil)
             let upstream = configuration.cliDirectUpstream
             let directSpawnPlanner = PaceLocalCLIPlannerClient(
                 upstream: upstream,
@@ -411,6 +458,7 @@ enum BuddyPlannerClientFactory {
             switch cloudBridgeConfiguration.mode {
             case .alwaysBridge:
                 let cloudBridgePlanner = CloudBridgePlannerClient(configuration: cloudBridgeConfiguration)
+                applyEgressPolicy(forOffDeviceHost: cloudBridgeConfiguration.baseURL.host)
                 print("🧠 Planner: using \(cloudBridgePlanner.displayName) [legacy alwaysBridge]")
                 return cloudBridgePlanner
             case .hybrid:
@@ -420,6 +468,7 @@ enum BuddyPlannerClientFactory {
                     localPlannerClient: localBaselineForHybrid,
                     cloudBridgePlannerClient: cloudBridgePlanner
                 )
+                applyEgressPolicy(forOffDeviceHost: cloudBridgeConfiguration.baseURL.host)
                 print("🧠 Planner: using \(hybridPlanner.displayName) [legacy hybrid]")
                 return hybridPlanner
             case .off:
@@ -459,6 +508,12 @@ enum BuddyPlannerClientFactory {
     private static func makeLocalOrFoundationModelsPlanner(
         requestsStructuredActionOutput: Bool = true
     ) -> any BuddyPlannerClient {
+        // Every branch below is on-device only — reset the egress policy to
+        // loopback-only. Callers that need an off-device host (the cliBridge
+        // branches above) set their own wider policy AFTER calling this, so
+        // ordering there matters and is commented at each call site.
+        applyEgressPolicy(forOffDeviceHost: nil)
+
         // Bundled MLX trumps the configured LM Studio path when the
         // user has opted in AND the runtime is linked. Power users
         // keep LM Studio's larger model by leaving the toggle off.
@@ -505,6 +560,8 @@ enum BuddyPlannerClientFactory {
     /// and classification rather than factual recall.
     @MainActor
     static func makeFastTextOnlyPlannerOrFallback() -> any BuddyPlannerClient {
+        // Always on-device (bundled MLX or loopback LocalPlannerClient).
+        applyEgressPolicy(forOffDeviceHost: nil)
         if PaceBundledModelsSettings.isUsingMLXInProcessPlanner() {
             let mlxPlanner = PaceMLXPlannerClient(
                 modelIdentifier: PaceBundledModelsSettings.plannerModelIdentifier()
@@ -529,6 +586,9 @@ enum BuddyPlannerClientFactory {
     private static func makeFoundationModelsPlannerOrFallback(
         requestsStructuredActionOutput: Bool = true
     ) -> any BuddyPlannerClient {
+        // Both branches below are on-device only (in-process Apple FM, or a
+        // loopback LocalPlannerClient fallback) — never wider than loopback.
+        applyEgressPolicy(forOffDeviceHost: nil)
         let systemLanguageModel = SystemLanguageModel.default
         switch systemLanguageModel.availability {
         case .available:

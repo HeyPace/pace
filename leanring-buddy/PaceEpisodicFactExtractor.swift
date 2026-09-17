@@ -292,7 +292,8 @@ final class PaceEpisodicLMStudioFactExtractor: PaceEpisodicFactExtractor, @unche
         urlRequest.httpBody = requestBody
 
         do {
-            let (responseData, urlResponse) = try await URLSession.shared.data(for: urlRequest)
+            try QEgressBroker.shared.authorize(url: chatCompletionsURL)
+            let (responseData, urlResponse) = try await URLSession.shared.data(for: urlRequest, delegate: QEgressRedirectGuard())
             guard let httpResponse = urlResponse as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {
                 return []

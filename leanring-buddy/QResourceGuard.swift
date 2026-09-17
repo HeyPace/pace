@@ -159,15 +159,99 @@ public enum QResourceGuard {
         // 3. Check Jail Confinement (if a jail root was specified)
         if let jail = allowedJailPrefix {
             let canonicalJail = canonicalize(path: jail)
-            let normalizedJail = canonicalJail.hasSuffix("/") ? canonicalJail : canonicalJail + "/"
-            let normalizedTarget = canonical.hasSuffix("/") ? canonical : canonical + "/"
-
-            guard normalizedTarget.hasPrefix(normalizedJail) || canonical == canonicalJail else {
+            guard isContained(canonical, within: canonicalJail) else {
                 return .denied(
                     reason: "Path '\(canonical)' escapes the permitted jail scope '\(canonicalJail)'.",
                     violation: .scopeViolation
                 )
             }
+        }
+
+        return .allowed(canonicalPath: canonical)
+    }
+
+    /// True when `canonicalTarget` is `canonicalRoot` itself or a descendant of it.
+    /// Both paths MUST already be canonicalized (via `canonicalize(path:)`) before
+    /// calling this — it performs a plain prefix comparison and does no path
+    /// resolution of its own.
+    private static func isContained(_ canonicalTarget: String, within canonicalRoot: String) -> Bool {
+        let normalizedRoot = canonicalRoot.hasSuffix("/") ? canonicalRoot : canonicalRoot + "/"
+        let normalizedTarget = canonicalTarget.hasSuffix("/") ? canonicalTarget : canonicalTarget + "/"
+        return normalizedTarget.hasPrefix(normalizedRoot) || canonicalTarget == canonicalRoot
+    }
+
+    // MARK: - Filesystem Capability Sandbox (fs.read / fs.write_sandbox)
+    //
+    // The two autonomous filesystem capabilities (`fs.read`, `fs.write_sandbox`)
+    // are registered at Level 0/1 — auto-allowed by QPermissionGate with no user
+    // approval. Unlike `validate(path:allowedJailPrefix:)` above (a denylist that
+    // callers may OPTIONALLY jail), this is a fail-closed ALLOWLIST: the single
+    // fixed root below is the only location these two capabilities may ever
+    // reach, full stop. It is a source-level constant — never derived from model
+    // output, task parameters, Info.plist, or any other input an attacker or a
+    // compromised/malicious model could influence.
+
+    /// The sole authorized root for `fs.read` / `fs.write_sandbox`. Created on
+    /// first access if missing. Resolved once and cached — resolving on every
+    /// call would let a change to the real directory's identity after launch
+    /// silently redefine the boundary out from under an already-running process.
+    public static let filesystemCapabilitySandboxRoot: String = {
+        let appSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
+        let base = appSupport ?? URL(fileURLWithPath: homeDirectory)
+        let root = base.appendingPathComponent("Pace", isDirectory: true)
+            .appendingPathComponent("q-sandbox", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return canonicalize(path: root.path)
+    }()
+
+    /// Validates a path for the `fs.read` / `fs.write_sandbox` capabilities only.
+    /// Default is DENY: a path is allowed if and only if, after resolving `~`,
+    /// `..`, `.`, and every symlink in the chain, it resolves to
+    /// `filesystemCapabilitySandboxRoot` itself or a descendant of it. Resolving
+    /// BEFORE the containment check (rather than string-matching the raw input)
+    /// is what defeats `../` traversal, a symlink planted inside the sandbox
+    /// that points outside it, and absolute-path substitution — the decision is
+    /// made against where the path actually leads on disk, not its literal text.
+    /// The fixed sensitive-filename/extension checks from `validate(path:)` are
+    /// re-applied even for in-sandbox paths as defense in depth.
+    public static func validateSandboxedFilesystemAccess(path: String) -> QPathValidationOutcome {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return .denied(
+                reason: "Empty path is not a valid filesystem-sandbox target.",
+                violation: .scopeViolation
+            )
+        }
+
+        let canonical = canonicalize(path: trimmed)
+        let sandboxRoot = filesystemCapabilitySandboxRoot
+
+        guard isContained(canonical, within: sandboxRoot) else {
+            return .denied(
+                reason: "Path '\(canonical)' is outside the authorized filesystem sandbox " +
+                    "'\(sandboxRoot)'. Autonomous filesystem access is confined to this sandbox only.",
+                violation: .scopeViolation
+            )
+        }
+
+        let filename = (canonical as NSString).lastPathComponent
+        for sensitivePattern in sensitiveFilenamePatterns {
+            if filename == sensitivePattern || filename.hasPrefix(sensitivePattern) {
+                return .denied(
+                    reason: "Access to credential file pattern '\(sensitivePattern)' is denied, even inside the sandbox.",
+                    violation: .absoluteDenylist
+                )
+            }
+        }
+
+        let ext = (canonical as NSString).pathExtension.lowercased()
+        if sensitiveExtensions.contains(ext) {
+            return .denied(
+                reason: "Access to sensitive key/certificate extension '.\(ext)' is denied, even inside the sandbox.",
+                violation: .absoluteDenylist
+            )
         }
 
         return .allowed(canonicalPath: canonical)

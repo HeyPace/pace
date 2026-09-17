@@ -158,7 +158,11 @@ struct QLocalIntelligenceTests {
                 toolFamily: "fs",
                 riskLevel: .level2UserApproval,
                 literalAction: "Write file with tainted context",
-                targetResources: ["/tmp/q-sandbox/taint.txt"]
+                // Must be inside the REAL sandbox root (C-1) so this step
+                // reaches the taint/approval check being tested here, rather
+                // than being blocked earlier by the resource guard for
+                // simply targeting a path outside the authorized sandbox.
+                targetResources: [(QResourceGuard.filesystemCapabilitySandboxRoot as NSString).appendingPathComponent("taint.txt")]
             ),
             description: "Write tainted data"
         )
@@ -200,7 +204,9 @@ struct QLocalIntelligenceTests {
 
     @Test("Test 8: Multi-step model generated plan executes sequentially with closed-loop verification")
     func testSuccessfulMultiStepPlanExecution() async throws {
-        let sandboxFile = "/tmp/q-sandbox/multi-step-\(UUID().uuidString).txt"
+        // Must be inside the REAL, enforced sandbox root (C-1).
+        let sandboxFile = (QResourceGuard.filesystemCapabilitySandboxRoot as NSString)
+            .appendingPathComponent("multi-step-\(UUID().uuidString).txt")
         let executor = QPlanExecutor()
 
         let step1 = QPlanStep(

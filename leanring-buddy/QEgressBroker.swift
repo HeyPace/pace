@@ -188,4 +188,83 @@ public final class QEgressBroker: @unchecked Sendable {
             )
         }
     }
+
+    // MARK: - Enforcement (C-2)
+    //
+    // `evaluate` above is the policy decision in isolation. `authorize`
+    // is the actual enforcement primitive: every production network
+    // client in this app calls it immediately before handing a request
+    // to URLSession, and again on every HTTP redirect via
+    // `RedirectGuardDelegate` below. A client that skips this call is a
+    // defect to fix at that call site, not a reason to weaken this
+    // function — there is deliberately no "soft" allow path here.
+
+    /// Throws (fails closed) when `url`'s host is not currently permitted.
+    /// Callers MUST call this immediately before every real network send —
+    /// not once at startup, not once at client construction — so a mode
+    /// change (e.g. the user switching planner tiers mid-session) takes
+    /// effect on the very next request, and so retry/replan/recovery paths
+    /// that re-enter the same send call are re-checked every single time
+    /// rather than relying on a decision cached from an earlier attempt.
+    public func authorize(url: URL) throws {
+        let decision = evaluate(url: url)
+        switch decision {
+        case .allowed:
+            return
+        case .blocked(let host, let reason, let violation):
+            throw QEgressAuthorizationError.blocked(host: host, reason: reason, violation: violation)
+        }
+    }
+}
+
+// MARK: - Egress Authorization Error
+
+public enum QEgressAuthorizationError: Error, Equatable, Sendable, LocalizedError {
+    case blocked(host: String, reason: String, violation: QViolationKind)
+
+    public var errorDescription: String? {
+        switch self {
+        case .blocked(let host, let reason, _):
+            return "Egress blocked for host '\(host)': \(reason)"
+        }
+    }
+}
+
+// MARK: - Redirect Guard
+
+/// A `URLSessionTaskDelegate` that re-validates every HTTP redirect target
+/// through `QEgressBroker` before the session is allowed to follow it. Wire
+/// this into any `URLSession` call (`data(for:delegate:)`, `bytes(for:
+/// delegate:)`) whose destination could conceivably redirect — without it,
+/// an initially-approved host could redirect a request to an arbitrary,
+/// non-approved one and the session would follow it with no further check.
+/// Implements ONLY the redirect callback — it does not touch data/response
+/// delegate methods, so it is safe to pass alongside code that consumes the
+/// call's returned byte stream or data exactly as before.
+public final class QEgressRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    public override init() {
+        super.init()
+    }
+
+    public func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard let url = request.url else {
+            completionHandler(nil)
+            return
+        }
+        do {
+            try QEgressBroker.shared.authorize(url: url)
+            completionHandler(request)
+        } catch {
+            // Fail closed: refuse the redirect. `completionHandler(nil)`
+            // cancels following it — the original task then fails with a
+            // cancellation-flavored error, it does NOT silently proceed.
+            completionHandler(nil)
+        }
+    }
 }

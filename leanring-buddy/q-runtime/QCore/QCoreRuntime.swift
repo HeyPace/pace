@@ -96,6 +96,14 @@ public final class QCoreRuntime: @unchecked Sendable {
         lock.unlock()
 
         // 2. Audit Intent submission and persist durable lifecycle event
+        //
+        // HIGH-1 remediation: `rawArguments: prompt` is already SHA-256-hashed
+        // by QAuditRecord.init — but the OLD `executionSummary` duplicated the
+        // exact same raw prompt in plaintext right next to that hash,
+        // defeating the point of hashing it. A typical short voice command
+        // fits well within the 200-char generic backstop, so it would have
+        // sailed through unredacted — "do not log raw model prompts" has no
+        // length exception. Fixed at the source, not left to the backstop.
         QAuditLogger.shared.record(
             QAuditRecord(
                 sessionId: sessionId,
@@ -105,7 +113,7 @@ public final class QCoreRuntime: @unchecked Sendable {
                 rawArguments: prompt,
                 authorizationResult: "allow",
                 provenance: "trusted:user",
-                executionSummary: "Accepted user intent: \(prompt)"
+                executionSummary: "Accepted user intent (\(QAuditRecord.safeDescriptor(omittedContent: prompt, label: "user prompt")))"
             )
         )
 
@@ -435,6 +443,13 @@ public final class QCoreRuntime: @unchecked Sendable {
 
                 try? await memoryProvider?.recordTaskCompletion(task, result: finalSummary)
 
+                // HIGH-1 remediation: `finalSummary` is the model-grounded
+                // natural-language response text — "do not log raw model
+                // prompts/responses" applies directly. The real text still
+                // flows to `task.state`, the durable store, and
+                // `memoryProvider` above (all legitimate, unchanged feature
+                // needs); only what reaches the audit log is replaced with a
+                // pure-metadata descriptor.
                 QAuditLogger.shared.record(
                     QAuditRecord(
                         sessionId: sessionId,
@@ -444,7 +459,7 @@ public final class QCoreRuntime: @unchecked Sendable {
                         rawArguments: "taskId=\(task.taskId)",
                         authorizationResult: "complete",
                         provenance: goalEvaluation.provenance,
-                        executionSummary: finalSummary
+                        executionSummary: QAuditRecord.safeDescriptor(omittedContent: finalSummary, label: "model response text")
                     )
                 )
 

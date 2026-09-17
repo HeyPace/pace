@@ -122,7 +122,8 @@ enum PaceLMStudioModelLoader {
     /// timeout. Avoids burning 120 seconds on a `chat/completions`
     /// call to a server that isn't running.
     private static func isLMStudioReachable() async -> Bool {
-        var request = URLRequest(url: lmStudioBaseURL.appendingPathComponent("v1/models"))
+        let probeURL = lmStudioBaseURL.appendingPathComponent("v1/models")
+        var request = URLRequest(url: probeURL)
         request.httpMethod = "GET"
         request.timeoutInterval = 2
 
@@ -130,7 +131,8 @@ enum PaceLMStudioModelLoader {
         defer { probeSession.invalidateAndCancel() }
 
         do {
-            let (_, response) = try await probeSession.data(for: request)
+            try QEgressBroker.shared.authorize(url: probeURL)
+            let (_, response) = try await probeSession.data(for: request, delegate: QEgressRedirectGuard())
             guard let httpResponse = response as? HTTPURLResponse else { return false }
             return (200...299).contains(httpResponse.statusCode)
         } catch {
@@ -171,7 +173,8 @@ enum PaceLMStudioModelLoader {
         defer { warmupSession.invalidateAndCancel() }
 
         do {
-            let (responseData, urlResponse) = try await warmupSession.data(for: request)
+            try QEgressBroker.shared.authorize(url: warmupURL)
+            let (responseData, urlResponse) = try await warmupSession.data(for: request, delegate: QEgressRedirectGuard())
             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
             guard let httpResponse = urlResponse as? HTTPURLResponse else {
                 print("⚠️  LM Studio warmup (\(role)/\(modelIdentifier)): non-HTTP response after \(elapsedMs)ms")
@@ -254,7 +257,8 @@ enum PaceLMStudioModelLoader {
     }
 
     private static func sendSingleKeepalivePing(modelIdentifier: String) async {
-        var request = URLRequest(url: nativeChatURL())
+        let keepaliveURL = nativeChatURL()
+        var request = URLRequest(url: keepaliveURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
@@ -272,7 +276,8 @@ enum PaceLMStudioModelLoader {
 
         let keepaliveSession = URLSession(configuration: warmupURLSessionConfiguration())
         defer { keepaliveSession.invalidateAndCancel() }
-        _ = try? await keepaliveSession.data(for: request)
+        guard (try? QEgressBroker.shared.authorize(url: keepaliveURL)) != nil else { return }
+        _ = try? await keepaliveSession.data(for: request, delegate: QEgressRedirectGuard())
         // Intentionally don't log per-ping — at 1/min for two models
         // that's 2,880 lines a day of console spam for normal idle.
     }

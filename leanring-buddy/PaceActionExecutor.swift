@@ -732,6 +732,44 @@ final class PaceActionExecutor {
     var mutationLog: [PaceActionMutation] = []
     var activeStreamingMailDraftState: PaceStreamingMailDraftState?
 
+    /// HIGH-2 remediation (retrieval / prompt-injection taint boundary).
+    ///
+    /// Set once this turn has ingested content from an external,
+    /// user-controlled retrieval source this app did not author and cannot
+    /// fully trust (currently: any real MCP tool call result — a "fetch"
+    /// server's retrieved web page, a filesystem server's file contents,
+    /// or any other configured MCP server's output). Mirrors Q's own
+    /// `QPermissionGate` rule (`QPermissionGate.swift`: tainted context
+    /// forces Level 2+ actions into mandatory approval regardless of any
+    /// standing grant) — this is that SAME rule, reused via the existing
+    /// `QActionAuthorizationBridge.preflightAuthorize(isContextTainted:)`
+    /// parameter Pace's executor already calls but previously always left at
+    /// its `false` default. Not a second, competing permission system: it is
+    /// one boolean feeding the one gate that already existed.
+    ///
+    /// Scoped to "for the rest of this turn" — reset once, at the very start
+    /// of the next turn (`CompanionManager.sendTranscriptToPlannerWithScreenshotAsync`),
+    /// not per plan-execution call, because a multi-step agent loop can call
+    /// `executeActionPlan` several times within the SAME turn and a later
+    /// step acting on an earlier step's untrusted MCP observation must still
+    /// see the taint.
+    ///
+    /// `internal(set)`, not `private(set)`: this type's implementation is
+    /// split across multiple files via extensions (e.g.
+    /// `PaceActionExecutor+Keyboard.swift`, where `callMCPTool` sets this) —
+    /// Swift's `private` is file-scoped, not type-scoped, so `private(set)`
+    /// would only compile from within this exact file.
+    internal(set) var isCurrentTurnContextTainted = false
+
+    /// Called once at the start of every new user turn. Deliberately biased
+    /// toward leaving taint SET for too long over clearing it too early: if
+    /// this is ever missed on some entry path, the failure mode is "more
+    /// actions require approval than strictly necessary," never "an action
+    /// silently skips approval it should have required."
+    func resetTurnTaintState() {
+        isCurrentTurnContextTainted = false
+    }
+
     /// Callback wired by `CompanionManager` so the planner's
     /// `record_flow` tool can kick off the live recorder + persist on
     /// stop. The closure returns a short user-facing summary the

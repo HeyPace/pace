@@ -53,7 +53,13 @@ nonisolated struct PaceRemoteModelManifest: Codable, Equatable {
             var request = URLRequest(url: manifestURL)
             request.cachePolicy = .reloadIgnoringLocalCacheData
             request.timeoutInterval = 8
-            let (data, response) = try await URLSession.shared.data(for: request)
+            // Mandatory checkpoint. This is the one background, non-user-
+            // triggered fetch in the app (see file header) — it is currently
+            // inert in the shipped build because no RemoteModelManifestURL is
+            // configured in Info.plist, but if that ever changes, this call
+            // fails closed exactly like every other real network client.
+            try QEgressBroker.shared.authorize(url: manifestURL)
+            let (data, response) = try await URLSession.shared.data(for: request, delegate: QEgressRedirectGuard())
             guard let httpResponse = response as? HTTPURLResponse,
                   (200..<300).contains(httpResponse.statusCode) else {
                 return

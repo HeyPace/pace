@@ -56,7 +56,8 @@ extension CompanionManager {
 
         let reachable: Bool
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            try QEgressBroker.shared.authorize(url: modelsURL)
+            let (_, response) = try await URLSession.shared.data(for: request, delegate: QEgressRedirectGuard())
             reachable = (response as? HTTPURLResponse)
                 .map { (200...299).contains($0.statusCode) } ?? false
         } catch {

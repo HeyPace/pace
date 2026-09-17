@@ -407,7 +407,8 @@ final class LocalVLMClient: PaceScreenAnalysisClient, @unchecked Sendable {
         let responseData: Data
         let urlResponse: URLResponse
         do {
-            (responseData, urlResponse) = try await urlSession.data(for: request)
+            try QEgressBroker.shared.authorize(url: chatCompletionsURL)
+            (responseData, urlResponse) = try await urlSession.data(for: request, delegate: QEgressRedirectGuard())
         } catch {
             auditVLMCall(outcome: "transport_error", detail: String(error.localizedDescription.prefix(160)))
             throw error
@@ -475,7 +476,8 @@ final class LocalVLMClient: PaceScreenAnalysisClient, @unchecked Sendable {
         PaceLocalOpenAIRequestTuning.apply(to: &requestBody)
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
-        let (responseData, urlResponse) = try await urlSession.data(for: request)
+        try QEgressBroker.shared.authorize(url: chatCompletionsURL)
+        let (responseData, urlResponse) = try await urlSession.data(for: request, delegate: QEgressRedirectGuard())
         guard let httpResponse = urlResponse as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
             return nil
