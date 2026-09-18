@@ -113,6 +113,21 @@ enum PaceFlowRecorderState: Equatable {
     case stopped(reason: PaceFlowRecorderStopReason, recordedFlow: PaceRecordedFlow?)
 }
 
+// MARK: - CGEventTap callback context
+
+/// Non-owning bridge between the C-level CGEventTap callback and
+/// `PaceFlowRecorder`. See `PaceFlowRecorder.eventTapCallbackContext`
+/// for why this indirection exists. `internal` (not `private`) so
+/// `PaceFlowRecorderTests` can capture the exact same box the live
+/// callback would, via `@testable import Pace`, without a real
+/// CGEventTap or scheduling race.
+final class EventTapCallbackContext {
+    weak var recorder: PaceFlowRecorder?
+    init(recorder: PaceFlowRecorder) {
+        self.recorder = recorder
+    }
+}
+
 // MARK: - Recorder
 
 @MainActor
@@ -163,6 +178,36 @@ final class PaceFlowRecorder: ObservableObject {
     private var globalEventTap: CFMachPort?
     private var globalEventTapRunLoopSource: CFRunLoopSource?
 
+    /// The CGEventTap's `userInfo` retains THIS box, never `self`
+    /// directly, and the box only holds a `weak` reference back to
+    /// the recorder. nil while not recording.
+    ///
+    /// Why the indirection: `deinit` on a `@MainActor` class is not
+    /// itself MainActor-isolated — if the last strong reference to a
+    /// `PaceFlowRecorder` is dropped from a background executor (a
+    /// Swift `Task` finishing off-main), `deinit` can run
+    /// concurrently with the main run loop delivering an
+    /// already-in-flight CGEventTap callback. Handing that callback a
+    /// raw `Unmanaged.passUnretained(self)` pointer made that window
+    /// a use-after-free: the callback could dereference `self` while
+    /// it was mid-deallocation, which matches the
+    /// `objc_release`-inside-`AutoreleasePoolPage::releaseUntil`
+    /// EXC_BAD_ACCESS observed crashing the test host
+    /// (`PaceFlowRecorderTests` installs a real tap via `start(
+    /// flowName:)` and, having no `tearDown()`, always tears the
+    /// recorder down via `deinit` rather than `stop(reason:)`).
+    ///
+    /// Routing through this box means the callback safely observes
+    /// `recorder == nil` instead of touching freed memory once
+    /// teardown starts: the box's own lifetime is governed by a
+    /// balanced manual retain/release pair (`Unmanaged.passRetained`
+    /// on install, `Unmanaged...release()` on teardown) that is
+    /// entirely decoupled from `self`'s lifetime, so it survives long
+    /// enough for any already-in-flight callback to safely read the
+    /// weak reference through Swift's synchronized weak-reference
+    /// side table rather than a dangling raw pointer.
+    private var eventTapCallbackContext: EventTapCallbackContext?
+
     /// Idle-timeout timer. Restarted on every observed event so the
     /// recorder stops 60s after the LAST event, not 60s after start.
     private var idleTimeoutTimer: Timer?
@@ -187,12 +232,19 @@ final class PaceFlowRecorder: ObservableObject {
 
     deinit {
         // `stop(...)` is @MainActor; deinit may not be. Do the
-        // minimum CF teardown inline so we never leak the tap.
+        // minimum CF teardown inline so we never leak the tap, and
+        // release the manually-retained callback context exactly
+        // once so it can't outlive the tap that was the only thing
+        // keeping it alive on purpose (see `eventTapCallbackContext`
+        // for why the context — not `self` — is what the tap holds).
         if let globalEventTapRunLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), globalEventTapRunLoopSource, .commonModes)
         }
         if let globalEventTap {
             CFMachPortInvalidate(globalEventTap)
+        }
+        if let eventTapCallbackContext {
+            Unmanaged.passUnretained(eventTapCallbackContext).release()
         }
     }
 
@@ -615,21 +667,32 @@ final class PaceFlowRecorder: ObservableObject {
             guard let userInfo else {
                 return Unmanaged.passUnretained(event)
             }
-            let recorder = Unmanaged<PaceFlowRecorder>
+            let callbackContext = Unmanaged<EventTapCallbackContext>
                 .fromOpaque(userInfo)
                 .takeUnretainedValue()
+            guard let recorder = callbackContext.recorder else {
+                // The recorder has already deallocated (or is
+                // mid-deallocation on another executor) — the `weak`
+                // read safely observed `nil` instead of dereferencing
+                // freed memory. No-op and pass the event through.
+                return Unmanaged.passUnretained(event)
+            }
             recorder.handleObservedEventFromTapCallback(eventType: eventType, event: event)
             return Unmanaged.passUnretained(event)
         }
 
-        guard let installedTap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: monitoredEventMask,
-            callback: eventTapCallback,
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
-        ) else {
+        let callbackContext = EventTapCallbackContext(recorder: self)
+
+        guard
+            let installedTap = CGEvent.tapCreate(
+                tap: .cgSessionEventTap,
+                place: .headInsertEventTap,
+                options: .listenOnly,
+                eventsOfInterest: monitoredEventMask,
+                callback: eventTapCallback,
+                userInfo: Unmanaged.passRetained(callbackContext).toOpaque()
+            )
+        else {
             print("⚠️ PaceFlowRecorder: couldn't create CGEvent tap — flow recording disabled until Accessibility is granted")
             return
         }
@@ -639,12 +702,14 @@ final class PaceFlowRecorder: ObservableObject {
             0
         ) else {
             CFMachPortInvalidate(installedTap)
+            Unmanaged.passUnretained(callbackContext).release()
             print("⚠️ PaceFlowRecorder: couldn't create event tap run-loop source")
             return
         }
 
         self.globalEventTap = installedTap
         self.globalEventTapRunLoopSource = runLoopSource
+        self.eventTapCallbackContext = callbackContext
 
         CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: installedTap, enable: true)
@@ -659,6 +724,21 @@ final class PaceFlowRecorder: ObservableObject {
             CFMachPortInvalidate(globalEventTap)
             self.globalEventTap = nil
         }
+        if let eventTapCallbackContext {
+            Unmanaged.passUnretained(eventTapCallbackContext).release()
+            self.eventTapCallbackContext = nil
+        }
+    }
+
+    /// Test seam: hands back the same weak-holding callback context
+    /// the live CGEventTap's `userInfo` points at, so tests can prove
+    /// the exact use-after-free window this class defends against
+    /// (the recorder deallocating without `stop(reason:)` while the
+    /// context is still retained on the tap's behalf) resolves to a
+    /// safe `nil` read instead of a crash — without needing a real
+    /// CGEventTap or an actual scheduling race to hit the window.
+    func eventTapCallbackContextForTesting() -> EventTapCallbackContext? {
+        eventTapCallbackContext
     }
 
     /// `nonisolated` because CGEventTap callbacks fire on the run-loop
