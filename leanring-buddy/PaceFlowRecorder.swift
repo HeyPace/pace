@@ -683,14 +683,16 @@ final class PaceFlowRecorder: ObservableObject {
 
         let callbackContext = EventTapCallbackContext(recorder: self)
 
-        guard let installedTap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: monitoredEventMask,
-            callback: eventTapCallback,
-            userInfo: Unmanaged.passRetained(callbackContext).toOpaque()
-        ) else {
+        guard
+            let installedTap = CGEvent.tapCreate(
+                tap: .cgSessionEventTap,
+                place: .headInsertEventTap,
+                options: .listenOnly,
+                eventsOfInterest: monitoredEventMask,
+                callback: eventTapCallback,
+                userInfo: Unmanaged.passRetained(callbackContext).toOpaque()
+            )
+        else {
             print("⚠️ PaceFlowRecorder: couldn't create CGEvent tap — flow recording disabled until Accessibility is granted")
             return
         }
