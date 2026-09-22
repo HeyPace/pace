@@ -4,12 +4,8 @@
 #
 # What it does:
 #   1. Reads the current version from leanring-buddy/Info.plist (or bumps it).
-#   2. Builds Pace.app in Release with the test scheme's signing setup
-#      (ad-hoc signed — Sparkle verifies updates via EdDSA, not Apple).
-#   3. Packages Pace.app:
-#        - If a Developer ID cert + notary profile exist → signed DMG
-#          (codesign → create DMG → sign DMG → notarize → staple).
-#        - Otherwise → zip (ad-hoc, Sparkle EdDSA only).
+#   2. Builds Pace.app unsigned in isolated DerivedData.
+#   3. Developer ID signs Pace and packages a notarized, stapled DMG.
 #   4. Signs the package with Sparkle's sign_update (uses the private key
 #      stored in your Mac's Keychain — generated once via Sparkle's
 #      generate_keys; see SUPublicEDKey in Info.plist for the matching
@@ -18,16 +14,16 @@
 #   6. Regenerates appcast.xml with the new entry on top.
 #   7. Commits + pushes appcast.xml so the SUFeedURL serves it instantly.
 #
-# Signed DMG mode (optional, requires Apple Developer Program):
+# Signed DMG release (requires Apple Developer Program):
 #   Set these env vars before running:
 #     PACE_NOTARY_PROFILE  — keychain profile name created via:
 #       xcrun notarytool store-credentials "pace-notary" \
 #         --apple-id <apple-id> --team-id <team-id> --password <app-password>
 #     PACE_DEVELOPER_ID    — Developer ID Application cert name
 #       (e.g. "Developer ID Application: Your Name (XXXXXXXXXX)")
-#   When both are set, the script produces a signed + notarized DMG
-#   instead of an ad-hoc zip. This passes Gatekeeper without the
-#   right-click → Open workaround.
+#   The identity is auto-detected when PACE_DEVELOPER_ID is omitted. A
+#   notarytool profile must be named with PACE_NOTARY_PROFILE or the shared
+#   APPLE_NOTARY_PROFILE. Public releases fail closed if either is unavailable.
 #
 # Prereqs (one-time):
 #   - Xcode with command-line tools (`xcode-select --install`)
@@ -49,6 +45,7 @@ GITHUB_REPO="HeyPace/pace"
 APP_NAME="Pace"
 SCHEME="leanring-buddy"
 INFO_PLIST="${PROJECT_DIR}/leanring-buddy/Info.plist"
+ENTITLEMENTS_PATH="${PROJECT_DIR}/leanring-buddy/leanring-buddy.entitlements"
 APPCAST_PATH="${PROJECT_DIR}/appcast.xml"
 BUILD_DIR="${PROJECT_DIR}/build/release"
 RELEASES_DIR="${PROJECT_DIR}/releases"
@@ -62,6 +59,7 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 # the release works regardless of the user's xcode-select state.
 if [ -z "${DEVELOPER_DIR:-}" ]; then
     for candidateDeveloperDir in \
+        "/Applications/Xcode-26.6.0.app/Contents/Developer" \
         "/Applications/Xcode-27.0.0-Beta.app/Contents/Developer" \
         "/Applications/Xcode-beta.app/Contents/Developer" \
         "/Users/sarthak/Downloads/Xcode-beta.app/Contents/Developer" \
@@ -108,6 +106,43 @@ if gh release view "$tag" --repo "$GITHUB_REPO" &>/dev/null; then
     exit 1
 fi
 
+# Developer ID identities and notarytool credentials are team-scoped, not
+# product-scoped. Reuse the installed team identity and any explicitly named
+# Keychain profile while keeping Pace's bundle ID and Sparkle key independent.
+PACE_DEVELOPMENT_TEAM="${PACE_DEVELOPMENT_TEAM:-$(awk -F' = ' '
+    /DEVELOPMENT_TEAM = / {
+        gsub(/;/, "", $2)
+        print $2
+        exit
+    }
+' "${PROJECT_DIR}/leanring-buddy.xcodeproj/project.pbxproj")}"
+available_signing_identities="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+PACE_DEVELOPER_ID="${PACE_DEVELOPER_ID:-$(awk -F'"' -v team="$PACE_DEVELOPMENT_TEAM" '
+    /Developer ID Application:/ && index($2, "(" team ")") > 0 {
+        print $2
+        exit
+    }
+' <<< "$available_signing_identities")}"
+PACE_NOTARY_PROFILE="${PACE_NOTARY_PROFILE:-${APPLE_NOTARY_PROFILE:-}}"
+
+if [ -z "$PACE_DEVELOPER_ID" ]; then
+    echo "❌ No Developer ID Application identity is installed." >&2
+    exit 1
+fi
+if ! grep -Fq "\"$PACE_DEVELOPER_ID\"" <<< "$available_signing_identities"; then
+    echo "❌ Developer ID identity is not available: $PACE_DEVELOPER_ID" >&2
+    exit 1
+fi
+if [ -z "$PACE_NOTARY_PROFILE" ]; then
+    echo "❌ Set PACE_NOTARY_PROFILE or APPLE_NOTARY_PROFILE to an existing notarytool Keychain profile." >&2
+    exit 1
+fi
+echo "🔐 Verifying Apple notarization credentials..."
+if ! xcrun notarytool history --keychain-profile "$PACE_NOTARY_PROFILE" --output-format json >/dev/null; then
+    echo "❌ Notarization profile is unavailable or invalid: $PACE_NOTARY_PROFILE" >&2
+    exit 1
+fi
+
 # Dirty-tree check moved here so we fail BEFORE bumping Info.plist /
 # building / publishing. If the tree is dirty, fix it (commit or stash)
 # and re-run. release-pace.sh itself is the only file allowed to be in
@@ -139,7 +174,7 @@ fi
 # unit suite injects synthetic samples and is structurally blind to
 # audio/capture defects (the v0.3.17 sample-rate bug shipped 1079-green).
 echo "▶ Pre-release: confirm the hardware smoke checklist has been walked:"
-echo "   docs/release-smoke-checklist.md"
+echo "   docs/operations/release-smoke-checklist.md"
 read -p "Checklist done? (y/N) " -n 1 -r
 echo
 [[ "$REPLY" =~ ^[Yy]$ ]] || { echo "Aborted — walk the checklist first."; exit 0; }
@@ -160,65 +195,23 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR" "$RELEASES_DIR"
 
 echo "📦 Building Pace.app (Release)..."
-# Pick a signing strategy. The project uses automatic signing, so the
-# correct override is DEVELOPMENT_TEAM (the team ID of an Apple cert in
-# the keychain) — NOT CODE_SIGN_IDENTITY, which conflicts with automatic
-# signing AND doesn't propagate to Swift Package dependencies like
-# WhisperKit.
-#
-# With a team ID set, every embedded SPM target gets the same Apple
-# identity, releases get a stable Authority, and TCC preserves grants
-# across versions.
-DEVELOPMENT_TEAM_ID="${DEVELOPMENT_TEAM:-}"
-if [ -z "$DEVELOPMENT_TEAM_ID" ]; then
-    # Pull the team ID out of the first Apple cert in the keychain.
-    # The team ID is the (XXXXXXXXXX) suffix in 'Apple Development: Name (XXXXXXXXXX)'.
-    DEVELOPMENT_TEAM_ID=$(security find-identity -p codesigning -v \
-        | grep -E 'Apple Development:|Developer ID Application:' \
-        | head -1 \
-        | sed -E 's/.*\(([A-Z0-9]+)\).*/\1/')
-fi
-# Try team-based automatic signing first when a cert is available.
-# Xcode wants a platform-specific cert ('Mac Development' or 'Developer
-# ID Application') — a generic 'Apple Development' cert in the keychain
-# isn't enough on its own. If automatic signing errors out, fall back
-# silently to ad-hoc so we always produce a release.
-build_succeeded="no"
-if [ -n "$DEVELOPMENT_TEAM_ID" ]; then
-    echo "🔏 Attempting team-signed build with team: $DEVELOPMENT_TEAM_ID"
-    if xcodebuild \
-        -project "${PROJECT_DIR}/leanring-buddy.xcodeproj" \
-        -scheme "$SCHEME" \
-        -configuration Release \
-        -destination 'platform=macOS,arch=arm64' \
-        -derivedDataPath "$BUILD_DIR" \
-        DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM_ID" \
-        MARKETING_VERSION="$next_version" \
-        CURRENT_PROJECT_VERSION="$next_build" \
-        > "$BUILD_DIR/build.log" 2>&1; then
-        build_succeeded="yes"
-    else
-        echo "⚠️  Team-signed build failed (likely missing platform-specific cert) — retrying with ad-hoc."
-        # Wipe the half-built derived data so the retry starts clean.
-        rm -rf "$BUILD_DIR"
-        mkdir -p "$BUILD_DIR"
-    fi
-fi
-if [ "$build_succeeded" != "yes" ]; then
-    DEVELOPMENT_TEAM_ID=""
-    echo "🔏 Building ad-hoc (TCC grants reset per release until a platform-matched Apple cert is added)."
-    xcodebuild \
-        -project "${PROJECT_DIR}/leanring-buddy.xcodeproj" \
-        -scheme "$SCHEME" \
-        -configuration Release \
-        -destination 'platform=macOS,arch=arm64' \
-        -derivedDataPath "$BUILD_DIR" \
-        CODE_SIGN_IDENTITY="-" \
-        CODE_SIGNING_REQUIRED=NO \
-        CODE_SIGNING_ALLOWED=YES \
-        MARKETING_VERSION="$next_version" \
-        CURRENT_PROJECT_VERSION="$next_build" \
-        > "$BUILD_DIR/build.log" 2>&1
+# Build unsigned in isolated DerivedData, then apply one stable Developer ID
+# identity to every nested framework and the outer app. This prevents Xcode
+# from selecting an unrelated Apple Development team from the Keychain.
+if ! xcodebuild \
+    -project "${PROJECT_DIR}/leanring-buddy.xcodeproj" \
+    -scheme "$SCHEME" \
+    -configuration Release \
+    -destination 'platform=macOS,arch=arm64' \
+    -derivedDataPath "$BUILD_DIR" \
+    CODE_SIGNING_REQUIRED=NO \
+    CODE_SIGNING_ALLOWED=NO \
+    MARKETING_VERSION="$next_version" \
+    CURRENT_PROJECT_VERSION="$next_build" \
+    > "$BUILD_DIR/build.log" 2>&1; then
+    echo "❌ Release build failed. Tail of $BUILD_DIR/build.log:" >&2
+    tail -40 "$BUILD_DIR/build.log" >&2
+    exit 1
 fi
 
 APP_PATH="$BUILD_DIR/Build/Products/Release/${APP_NAME}.app"
@@ -238,62 +231,31 @@ cp "${PROJECT_DIR}/scripts/start-tts-server.sh" "${APP_PATH}/Contents/Resources/
 chmod +x "${APP_PATH}/Contents/Resources/scripts/start-tts-server.sh"
 echo "✅ Bundled start-tts-server.sh into Resources/"
 
-# ── Resign every embedded framework + the app itself with ad-hoc identity
-# so Pace launches on machines that don't have our (non-existent) Apple
-# Developer Team ID. Without this, dyld refuses to load Sparkle.framework
-# because its prebuilt code signature has a different Team ID than the
-# ad-hoc-signed Pace binary — the exact crash that hit v0.3.0's first install.
-# Resign frameworks — Xcode already signed them with the team identity
-# when DEVELOPMENT_TEAM was set; this is a no-op in that case. Only
-# meaningful when we fell back to ad-hoc.
-codesign_identity_for_resign="-"
-if [ -n "$DEVELOPMENT_TEAM_ID" ]; then
-    codesign_identity_for_resign=$(security find-identity -p codesigning -v \
-        | grep -E "\($DEVELOPMENT_TEAM_ID\)" \
-        | head -1 \
-        | sed -E 's/.*"(.*)"/\1/')
-    codesign_identity_for_resign="${codesign_identity_for_resign:--}"
-fi
-echo "🔐 Resigning embedded frameworks with $codesign_identity_for_resign..."
-find "${APP_PATH}/Contents/Frameworks" -maxdepth 2 -name "*.framework" -type d 2>/dev/null | while read framework_path; do
-    codesign --force --deep --sign "$codesign_identity_for_resign" "${framework_path}" 2>&1 | tail -1
+# Sparkle arrives with its upstream Team ID. Re-sign nested frameworks before
+# the outer app so dyld sees one identity throughout the bundle. Developer ID
+# releases require both a secure timestamp and the hardened-runtime flag.
+echo "🔐 Signing embedded frameworks with $PACE_DEVELOPER_ID..."
+find "${APP_PATH}/Contents/Frameworks" -maxdepth 2 -name "*.framework" -type d 2>/dev/null | while IFS= read -r framework_path; do
+    codesign --force --deep --options runtime --timestamp --sign "$PACE_DEVELOPER_ID" "${framework_path}" 2>&1 | tail -1
 done
-codesign --force --deep --sign "$codesign_identity_for_resign" "${APP_PATH}" 2>&1 | tail -1
-codesign --verify --deep "${APP_PATH}" && echo "✅ Codesign verify passed"
+codesign --force --deep --options runtime --timestamp \
+    --entitlements "$ENTITLEMENTS_PATH" \
+    --sign "$PACE_DEVELOPER_ID" "${APP_PATH}" 2>&1 | tail -1
+codesign --verify --deep --strict --verbose=2 "${APP_PATH}" && echo "✅ Developer ID codesign verification passed"
 # Show the signing Authority so the user can confirm TCC will preserve
 # grants — same Authority on every release = same TCC identity = grants
 # kept.
-codesign -dvv "${APP_PATH}" 2>&1 | grep -E "Authority|Identifier" | head -3
+codesign -dvv "${APP_PATH}" 2>&1 | grep -E "Authority|Identifier|Runtime Version" | head -4
 
-# ── Package (DMG if Developer ID + notary profile, else zip) ──────────────
-
-# Signed DMG mode: requires PACE_DEVELOPER_ID (cert name) and
-# PACE_NOTARY_PROFILE (keychain profile for notarytool). When both
-# are present, produce a signed + notarized DMG that passes
-# Gatekeeper without the right-click → Open workaround.
-# Otherwise, fall back to the ad-hoc zip flow (Sparkle EdDSA only).
-
-use_signed_dmg="no"
-if [ -n "${PACE_DEVELOPER_ID:-}" ] && [ -n "${PACE_NOTARY_PROFILE:-}" ]; then
-    # Verify the Developer ID cert actually exists in the keychain.
-    if security find-identity -p codesigning -v | grep -q "$PACE_DEVELOPER_ID"; then
-        use_signed_dmg="yes"
-    else
-        echo "⚠️  PACE_DEVELOPER_ID set but cert not found in keychain — falling back to zip."
-    fi
-fi
+# ── Package, notarize, staple, and Sparkle-sign ────────────────────────────
+# Public releases fail closed instead of publishing an ad-hoc archive. The
+# non-publishing prepare-release helper remains available for local candidates.
 
 package_name=""
 package_path=""
 
-if [ "$use_signed_dmg" = "yes" ]; then
-    # ── Signed DMG path ───────────────────────────────────────────────────
-    # Release order: build ad-hoc first → deep-sign with Developer ID →
-    # create DMG → sign DMG → notarize → staple → Sparkle-sign.
-
-    echo "🔏 Deep-signing Pace.app with Developer ID..."
-    codesign --force --deep --sign "$PACE_DEVELOPER_ID" "$APP_PATH"
-    codesign --verify --deep "$APP_PATH" && echo "✅ Developer ID codesign verify passed"
+# Release order: build unsigned → sign with Developer ID → create DMG → sign
+# DMG → notarize → staple → Sparkle-sign.
 
     dmg_name="Pace-${next_version}.dmg"
     dmg_path="${RELEASES_DIR}/${dmg_name}"
@@ -313,17 +275,30 @@ if [ "$use_signed_dmg" = "yes" ]; then
         "$dmg_path"
 
     echo "🔏 Signing DMG with Developer ID..."
-    codesign --force --sign "$PACE_DEVELOPER_ID" "$dmg_path"
+    codesign --force --timestamp --sign "$PACE_DEVELOPER_ID" "$dmg_path"
     codesign --verify "$dmg_path" && echo "✅ DMG codesign verify passed"
 
     echo "📤 Notarizing DMG with Apple (this can take 2-10 minutes)..."
+    notarization_receipt="${BUILD_DIR}/Pace-${next_version}-notarization.json"
     xcrun notarytool submit "$dmg_path" \
         --keychain-profile "$PACE_NOTARY_PROFILE" \
-        --wait
+        --wait \
+        --output-format json > "$notarization_receipt"
+    python3 - "$notarization_receipt" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as receipt_file:
+    receipt = json.load(receipt_file)
+if receipt.get("status") != "Accepted":
+    raise SystemExit(f"Apple notarization was not accepted: {receipt.get('status', 'unknown')}")
+print(f"✅ Apple notarization accepted: {receipt.get('id', 'unknown')}")
+PY
 
     echo "📎 Stapling notarization ticket to DMG..."
     xcrun stapler staple "$dmg_path"
     xcrun stapler validate "$dmg_path" && echo "✅ Notarization staple validated"
+    spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg_path"
 
     echo "🔐 Signing DMG with Sparkle EdDSA key..."
     signature_line=$("${SPARKLE_BIN_DIR}/sign_update" "$dmg_path")
@@ -334,26 +309,6 @@ if [ "$use_signed_dmg" = "yes" ]; then
         echo "❌ Could not parse sign_update output." >&2
         exit 1
     fi
-else
-    # ── Ad-hoc zip path (existing behavior) ───────────────────────────────
-    package_name="Pace-${next_version}.zip"
-    package_path="${RELEASES_DIR}/${package_name}"
-    rm -f "$package_path"
-
-    echo "🗜  Zipping Pace.app → $package_name"
-    (cd "$(dirname "$APP_PATH")" && ditto -ck --sequesterRsrc --keepParent "$(basename "$APP_PATH")" "$package_path")
-
-    echo "🔐 Signing zip with Sparkle EdDSA key..."
-    signature_line=$("${SPARKLE_BIN_DIR}/sign_update" "$package_path")
-    echo "   ${signature_line}"
-    ed_signature=$(echo "$signature_line" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
-    package_size=$(echo "$signature_line" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
-    if [ -z "$ed_signature" ] || [ -z "$package_size" ]; then
-        echo "❌ Could not parse sign_update output." >&2
-        exit 1
-    fi
-fi
-
 # ── Publish GitHub Release ─────────────────────────────────────────────────
 
 echo "🏷  Publishing GitHub Release $tag..."
