@@ -36,7 +36,7 @@ satisfy a later layer.
 | `failure` | A crash/failure path emits version/build + aggregate failure class without user content | `PaceTelemetryLog.recordFailure` (local OSLog only) | `--failure` (covered by unit tests, not by automation runs) |
 | `release-readiness` | A receipt aggregating the above layers without signing or publishing | `scripts/release-readiness.sh` → `releases/readiness-receipt.json` | `--release-readiness` |
 
-## Current evidence state (2026-07-19)
+## Current evidence state (2026-07-19; signing refreshed 2026-09-22)
 
 | Layer | Status | Evidence | Notes |
 | --- | --- | --- | --- |
@@ -44,7 +44,7 @@ satisfy a later layer.
 | `build` | **pass** | `scripts/test-pace.sh` compiles and runs the full suite on Xcode 27.0 Beta 3 (1606/1606 passed, 2026-07-19). The earlier Xcode 27 beta compile block (`TestCompanionScreenAnalysisClient` actor isolation) is resolved. | CI still runs the suite on the pinned `macos-26` runner with a zero-tests-executed guard. |
 | `tests` | **pass** | 1606/1606 passed via `scripts/test-pace.sh` (isolated DerivedData, 2026-07-19). Includes the new `PaceTelemetryLogFailureTests` and `PaceTelemetryLogPrivacyBoundaryTests`. | Swift Testing (`import Testing`) suite; `xcresulttool` summary is the source of truth for executed-count. |
 | `simulator` | **pass** | The `xcodebuild test` result bundle is the simulator evidence (macOS destination). 1606/1606 tests executed in the test host. | The macOS destination is the only destination — there is no iOS-adjacent target. |
-| `signing` | **blocked** | `scripts/release-pace.sh` extracts the team ID from Keychain and attempts a team-signed build, falling back to ad-hoc. Automation does not read or export the key material; it records only presence/absence of a Developer ID. | Signing material lives in Keychain; automation never reads key bytes. |
+| `signing` | **pass (credential presence)** | `scripts/release-pace.sh` selects the Developer ID identity matching the Xcode project's team, accepts an explicitly named team-level `notarytool` Keychain profile, and fails closed instead of publishing an ad-hoc archive. Exact artifacts still require signature, hardened-runtime, notarization, stapling, and Gatekeeper verification. | Signing material lives in Keychain; automation uses the identity and stored profile without reading or exporting key bytes. |
 | `device` | **blocked** | `docs/operations/release-smoke-checklist.md` is a manual hardware checklist. The 2026-07-13 companion milestone explicitly risk-accepted the missing hardware measurements. | Device proof is not remotely automatable — this is a durable blocker, not a regression. |
 | `distribution` | **blocked** | `appcast.xml` and GitHub's release API list build 19 (v0.3.19), but the anonymous public asset URL currently returns 404. The live check now catches this instead of accepting local manifest agreement. | Restore or republish the release asset through the explicit release workflow, then rerun `scripts/check-landing-health.sh`; automation does not publish or sign it. |
 | `activation` | **pass locally / N/A centrally** | A privacy-safe first-local-activation signal is defined (`PaceTelemetryLog.recordFirstSuccessfulLocalActivation`) and emitted to local OSLog after the first non-empty spoken reply completes. There is no fleet-bound event path by design. | Foundry records the local contract and central N/A explicitly; it must not infer a centrally observed activation. |
