@@ -313,7 +313,7 @@ const staticSurfaces: PublicSurface[] = [
         "",
         "## Public website analytics",
         "",
-        "Pages on heypace.app use Microsoft Clarity to measure visits, session interaction, and heatmaps. The website has no Pace account or in-app voice, screen, meeting, or journal data, and the native app does not load Clarity.",
+        "Pages on heypace.app use Microsoft Clarity for visits, session interaction, and heatmaps, plus Watchtower for aggregate route and performance measurement. The website has no Pace account or in-app voice, screen, meeting, or journal data, and the native app loads neither service.",
         "",
         "## Explicit network use",
         "",
