@@ -10,6 +10,7 @@ overrides:
   js-yaml@>=3.0.0 <3.15.2: 3.15.2
   js-yaml@>=4.0.0 <4.3.2: 4.3.2
   svgo@>=4.0.0 <4.1.0: 4.1.0
+  image-size@<2.0.3: 2.0.3
 
 importers:
 
@@ -2844,9 +2845,9 @@ packages:
     resolution: {integrity: sha512-IKXpvIzjnC9XTAUbVBcMfGS0EPaIXtW6v+zr+RRp+hqULEpo0owZax6wyRwPOJbWbzjYspQwusTsfVr0ifh4uQ==}
     engines: {node: '>=0.10.0'}
 
-  image-size@2.0.2:
-    resolution: {integrity: sha512-IRqXKlaXwgSMAMtpNzZa1ZAe8m+Sa1770Dhk8VkSsP9LS+iHD62Zd8FQKs8fbPiagBE7BzoFX23cxFnwshpV6w==}
-    engines: {node: '>=16.x'}
+  image-size@2.0.3:
+    resolution: {integrity: sha512-9BJAtVCBth+76NwqnEfWr3PiRnYhbquk6K/USuQ1GQajz5NgLzO7tNsnoNjHfO7LuftgkBf+CCH6j28hjMbIYQ==}
+    engines: {node: '>=18'}
     hasBin: true
 
   immediate@3.0.6:
@@ -6490,7 +6491,7 @@ snapshots:
       github-slugger: 2.0.0
       gray-matter: 4.0.3
       html-escaper: 3.0.3
-      image-size: 2.0.2
+      image-size: 2.0.3
       jiti: 2.7.0
       js-yaml: 4.3.2
       katex: 0.18.4
@@ -7603,7 +7604,7 @@ snapshots:
     dependencies:
       safer-buffer: 2.1.2
 
-  image-size@2.0.2: {}
+  image-size@2.0.3: {}
 
   immediate@3.0.6: {}
 
