@@ -8,7 +8,7 @@ const scopes = [
   {
     name: 'docs',
     directory: '.',
-    acceptedHigh: new Set(['1138808', '1138809']),
+    acceptedHigh: new Set([]),
   },
   {
     name: 'website',
