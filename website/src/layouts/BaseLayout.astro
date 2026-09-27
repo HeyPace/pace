@@ -103,6 +103,19 @@ const clampedDescription = clampDescription(description);
     <!--email_off-->
     <slot />
     <!--/email_off-->
+    <saas-maker-newsletter-capture
+      catalog-id="pace"
+      product-name="HeyPace"
+      kind="newsletter"
+      source="footer"
+      privacy-url="https://heypace.app/privacy"
+    ></saas-maker-newsletter-capture>
+    <script
+      is:inline
+      type="module"
+      src="https://sassmaker.com/newsletter-capture.js"
+      crossorigin="anonymous"
+    ></script>
     <script
       is:inline
       src="https://sassmaker.com/project-strip.js"
@@ -117,5 +130,27 @@ const clampedDescription = clampDescription(description);
       data-name="HeyPace"
       defer
     ></script>
+    <script is:inline>
+      document.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+
+        const link = target.closest("a[href]");
+        if (!(link instanceof HTMLAnchorElement)) return;
+
+        const destination = new URL(link.href, window.location.href);
+        let eventName;
+
+        if (destination.origin === window.location.origin && destination.pathname === "/download") {
+          eventName = "pace_download_cta_clicked";
+        } else if (destination.origin === window.location.origin && destination.pathname === "/pricing") {
+          eventName = "pace_pricing_cta_clicked";
+        } else if (destination.hostname === "github.com" && destination.pathname === "/HeyPace/pace/issues") {
+          eventName = "pace_roadmap_cta_clicked";
+        }
+
+        if (eventName) window.appHealth?.track(eventName);
+      });
+    </script>
   </body>
 </html>
