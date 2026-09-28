@@ -149,7 +149,24 @@ const clampedDescription = clampDescription(description);
           eventName = "pace_roadmap_cta_clicked";
         }
 
-        if (eventName) window.appHealth?.track(eventName);
+        const tracker = window.appHealth;
+        if (!eventName || !tracker) return;
+
+        tracker.track(eventName);
+
+        const modifiedClick =
+          event instanceof MouseEvent &&
+          (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey);
+        const opensAnotherTab = link.target === "_blank";
+        const staysOnThisDocument =
+          destination.origin === window.location.origin &&
+          destination.pathname === window.location.pathname &&
+          destination.search === window.location.search;
+
+        if (modifiedClick || opensAnotherTab || staysOnThisDocument) return;
+
+        event.preventDefault();
+        tracker.flush().finally(() => window.location.assign(link.href));
       });
     </script>
   </body>
