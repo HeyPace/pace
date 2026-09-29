@@ -12,6 +12,9 @@ interface Props {
 }
 
 const { title, description, pathname = "/" } = Astro.props;
+const appHealthBrowserKey = import.meta.env.PUBLIC_APP_HEALTH_KEY?.trim();
+const appHealthProjectId = import.meta.env.PUBLIC_APP_HEALTH_PROJECT_ID?.trim();
+const hasAppHealthConfiguration = Boolean(appHealthBrowserKey && appHealthProjectId);
 const canonicalURL = new URL(
   canonicalPublicPagePath(pathname),
   Astro.site ?? "https://heypace.app",
@@ -89,15 +92,17 @@ const clampedDescription = clampDescription(description);
       })(window,document,"clarity","script","y6bqufsq6g");
       window.clarity("set","project_id","pace");
     </script>
-    <script
-      is:inline
-      defer
-      src="https://health.sassmaker.com/tracker.js"
-      data-key="ahk_pub_3d181e92c782c70173eebee323817598dd96249e007e99fcacf06ebac02c7e5e"
-      data-project="app-c912c5dc-a5c9-4c82-bf46-700b75627c2d"
-      data-identity="persistent"
-      data-endpoint="https://ingest.sassmaker.com/v1/browser"
-    ></script>
+    {hasAppHealthConfiguration && (
+      <script
+        is:inline
+        defer
+        src="https://health.sassmaker.com/tracker.js"
+        data-key={appHealthBrowserKey}
+        data-project={appHealthProjectId}
+        data-identity="persistent"
+        data-endpoint="https://ingest.sassmaker.com/v1/browser"
+      ></script>
+    )}
   </head>
   <body class="min-h-screen">
     <!--email_off-->
