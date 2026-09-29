@@ -313,7 +313,7 @@ const staticSurfaces: PublicSurface[] = [
         "",
         "## Public website analytics",
         "",
-        "Pages on heypace.app use Microsoft Clarity for visits, session interaction, and heatmaps, plus Watchtower for aggregate route and performance measurement. The website has no Pace account or in-app voice, screen, meeting, or journal data, and the native app loads neither service.",
+        "Pages on heypace.app use Microsoft Clarity for visits, session interaction, and heatmaps; Watchtower measures aggregate routes and performance; and App Health records page visits and the website's explicitly named button events. App Health uses a first-party persistent anonymous browser ID for up to 90 days, records cleaned page paths, the referring site hostname, bounded campaign tags, and coarse country, device, and browser categories. It does not receive button text, form contents, or app data. The website has no Pace account or in-app voice, screen, meeting, or journal data. The native app loads none of these website analytics services and sends no telemetry.",
         "",
         "## Explicit network use",
         "",
