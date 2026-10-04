@@ -1,0 +1,9 @@
+{
+  "status": "unavailable",
+  "evaluated_cases": 0,
+  "reason": "SystemLanguageModel.Availability.UnavailableReason.modelNotReady",
+  "build": "Standalone SwiftPM bridge Release build passed; no Pace application build",
+  "runtime_exit_code": 2,
+  "score": null,
+  "evidence_log": "/Users/sarthak/Library/Developer/XcodeBuildMCP/workspaces/pace-82658c9f3251/logs/build_run_spm_2026-10-04T18-53-49-935Z_pid38297_20143645.log"
+}

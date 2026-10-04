@@ -100,6 +100,17 @@ live gauntlet that should be fixed, not retried as-is:
 attempt these unless explicitly asked — they are noise, not signal, and chasing
 them risks churn on stable paths.
 
+## Rejected: zero-shot GLiNER2.5-base as the next-step router
+
+**Why rejected (2026-10-04):** in the router experiment
+([`evals/jev-experiment/README.md`](https://github.com/HeyPace/pace/blob/main/evals/jev-experiment/README.md)) the
+open-weights Fastino GLiNER2.5-base scored 32–40% first-step and 0–18% full pass
+(vs Jev 85%, local qwen3.5-4b 72%). It cannot reason over "completed steps":
+it picks DONE before acting and re-picks the same tool after it succeeded, and it
+never chose ASK_USER correctly. ~550 ms p50 on PyTorch MPS with 32 described
+labels. Revisit only with a decision-tuned checkpoint (e.g. GLiNER2.5-Decide) or
+a model fine-tuned on step-level state.
+
 ## Rejected: bundled recipes that overclaim recorded UI steps
 
 The original five bundled recipes encoded literal app activation and keystrokes
@@ -122,3 +133,15 @@ canonical tool registry.
 - **End-of-day shutdown:** narrowed and retained as `end-of-day-reset`; it now
   honestly opens Calendar and creates the promised reminder through native
   tools rather than pretending to review the schedule.
+
+## Jeff v1.2 zero-shot next-step router (2026-10-05)
+
+Jeff's local MLX base scored 33.3% full pass on 123 development fixtures;
+its tools adapter scored 38.2% with Pace's 32 choices and 34.1% using the
+upstream 31-choice input contract. The fresh local Qwen baseline reproduced
+71.5%. The documented adapter still repeated actions in 58/123 cases.
+
+Reject these zero-shot configurations for the current step-control task.
+A fast tool selector is not automatically a progress-aware planner router.
+This does not reject custom adapter training after policy adjudication and a
+frozen acceptance gate. [Results and protocol](https://github.com/HeyPace/pace/blob/28fdced8e24e0722736457518a72eb022c38fd13/evals/jev-experiment/README.md#jeff-local-follow-up-2026-10-05).
