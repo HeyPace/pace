@@ -144,4 +144,4 @@ upstream 31-choice input contract. The fresh local Qwen baseline reproduced
 Reject these zero-shot configurations for the current step-control task.
 A fast tool selector is not automatically a progress-aware planner router.
 This does not reject custom adapter training after policy adjudication and a
-frozen acceptance gate. [Results and protocol](../../evals/jev-experiment/README.md#jeff-local-follow-up-2026-10-05).
+frozen acceptance gate. [Results and protocol](https://github.com/HeyPace/pace/blob/28fdced8e24e0722736457518a72eb022c38fd13/evals/jev-experiment/README.md#jeff-local-follow-up-2026-10-05).
