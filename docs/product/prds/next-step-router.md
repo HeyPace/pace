@@ -78,6 +78,8 @@ step state (request + screen elements + completed steps)
 4. **Seal** a fresh held-out set before training starts; never train on it or on
    the 123 harness fixtures.
 
+Every prior routing/planning model attempt, why it failed, and the guardrails this router follows (human sealed set, label policy, per-class no-regression gates, kill criteria) are in [#200](https://github.com/HeyPace/pace/issues/200). The 123 harness fixtures are **dev**, not the final score.
+
 Lesson carried over from posttrainllm `pace-intent-router-v8`: 95.5% on its
 synthetic holdout but 57% on a sealed benchmark, because template data
 overfit. Diversity of phrasing and state is the main risk, not model size.
