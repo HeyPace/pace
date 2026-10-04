@@ -133,3 +133,15 @@ canonical tool registry.
 - **End-of-day shutdown:** narrowed and retained as `end-of-day-reset`; it now
   honestly opens Calendar and creates the promised reminder through native
   tools rather than pretending to review the schedule.
+
+## Jeff v1.2 zero-shot next-step router (2026-10-05)
+
+Jeff's local MLX base scored 33.3% full pass on 123 development fixtures;
+its tools adapter scored 38.2% with Pace's 32 choices and 34.1% using the
+upstream 31-choice input contract. The fresh local Qwen baseline reproduced
+71.5%. The documented adapter still repeated actions in 58/123 cases.
+
+Reject these zero-shot configurations for the current step-control task.
+A fast tool selector is not automatically a progress-aware planner router.
+This does not reject custom adapter training after policy adjudication and a
+frozen acceptance gate. [Results and protocol](../../evals/jev-experiment/README.md#jeff-local-follow-up-2026-10-05).

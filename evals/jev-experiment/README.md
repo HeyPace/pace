@@ -86,3 +86,52 @@ TYPESAFE_API_KEY=… python3 scripts/experiment-jev-planner.py --arms jev --outp
 # GLiNER arms need a venv with `pip install "gliner2[local]" protobuf sentencepiece`
 HF_HUB_OFFLINE=1 <venv>/bin/python scripts/experiment-jev-planner.py --arms gliner gliner-prose --output evals/jev-experiment/results-gliner2.5-base.json
 ```
+
+## Jeff local follow-up (2026-10-05)
+
+[Jeff](https://github.com/firelex/jeff) v1.2 was evaluated with its upstream MLX
+backend on an Apple M5 Pro / 48 GB. Code and model revisions, weight hashes,
+and the frozen input sample are retained in
+[the provenance record](jeff-provenance-20261005.json) and
+[the synthetic sample manifest](jeff-synthetic-manifest-20261005.json).
+The [416 synthetic inputs](jeff-synthetic-input-20261005.jsonl) are smoke
+material with disputed labels, rather than acceptance cases.
+Inference used `HF_HUB_OFFLINE=1`; arguments came from the same local Qwen
+model and every action was simulated. No Pace app integration was attempted.
+
+| Router | Choices | First-step accuracy | Full pass | ASK_USER | Routing p50 / p95 |
+| --- | --- | --- | --- | --- | --- |
+| Fresh local Qwen3.5-4B | 32 | 78.9% | 71.5% | 40.0% | 613 / 687 ms |
+| Jeff base v1.2 | 32 | 46.3% | 33.3% | 6.7% | 121 / 163 ms |
+| Jeff tools adapter, same labels | 32 | 55.3% | 38.2% | 10.0% | 143 / 189 ms |
+| Jeff tools adapter, documented format | 31 | 60.2% | 34.1% | 33.3% | 120 / 159 ms |
+
+The documented-format arm follows the adapter's published control wording,
+option order, tool signatures, and state fields. It maps `answer_directly` to
+RESPOND, which terminates the existing simulated loop. It has **no explicit
+DONE option**; its 31-choice result is a format adaptation, not an identical
+32-class head comparison. Repeat guard: base 50/123, tools 36/123, native format
+58/123. Raw reports use the `results-jeff-*-20261005.json` filenames.
+
+**Decision:** reject these zero-shot configurations for the current next-step
+router. Lower routing latency did not compensate for incorrect control flow.
+The fixtures remain development data, including disputed gold labels; this is
+not a sealed acceptance score or a verdict on a Pace-trained Jeff adapter.
+No temperature or fallback threshold was fitted on these fixtures.
+
+Apple FM was also attempted with a standalone SwiftPM bridge. The bridge built,
+but `SystemLanguageModel` reported `modelNotReady`: zero cases evaluated,
+accuracy unknown. See `results-apple-fm-20261005.json`.
+
+The next gate is the [draft label policy](../../docs/product/prds/next-step-router-policy.md),
+human adjudication, and an independently frozen acceptance set. Calibration
+must be separate from that acceptance set. The synthetic holdouts remain smoke
+material; no new training or default-model changes follow from these results.
+
+Re-run with Jeff's isolated environment and downloaded compatible v1.2 weights:
+
+```bash
+HF_HUB_OFFLINE=1 <jeff-venv>/bin/python scripts/experiment-jev-planner.py --arms jeff --jeff-checkpoint <base-v1.2> --output <report.json>
+HF_HUB_OFFLINE=1 <jeff-venv>/bin/python scripts/experiment-jev-planner.py --arms jeff --jeff-checkpoint <base-v1.2> --jeff-adapter-dir <tools-v1.2> --output <report.json>
+HF_HUB_OFFLINE=1 <jeff-venv>/bin/python scripts/experiment-jeff-tools-native.py --arms jeff --jeff-checkpoint <base-v1.2> --jeff-adapter-dir <tools-v1.2> --output <report.json>
+```

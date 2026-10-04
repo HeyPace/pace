@@ -19,6 +19,7 @@ same simulated executor. Only the ROUTER differs:
     local  — the local LM Studio model picking from an enum (JSON schema).
     student — the distilled on-device encoder from scripts/train-router-student.py
              (temperature-scaled softmax over its saved labels; needs --student-dir).
+    jeff   — upstream Jeff Qwen3.5 via local MLX, optionally with its tools adapter.
 
 PRIVACY: the jev arm sends fixture text to a cloud service. Fixtures are
 synthetic. This script is an offline experiment and is NOT wired into the app;
@@ -33,6 +34,8 @@ Usage:
 
 import argparse
 import concurrent.futures
+import hashlib
+import inspect
 import json
 import os
 import re
@@ -275,6 +278,40 @@ def post_json(url, payload, headers=None, timeout_seconds=30, max_attempts=3):
 
 # ---------------------------------------------------------------- routers
 
+JEFF_CHECKPOINT = None
+JEFF_ADAPTER_DIRECTORY = None
+jeff_loaded_model = None
+
+
+def route_with_jeff(fixture, completed_steps, tool_catalog):
+    """Run upstream Jeff with MLX in-process; loading and warmup are untimed."""
+    global jeff_loaded_model
+    if jeff_loaded_model is None:
+        from jeff.mlx_backend import MlxDecisionModel
+        adapters = {"tools": Path(JEFF_ADAPTER_DIRECTORY)} if JEFF_ADAPTER_DIRECTORY else None
+        jeff_loaded_model = MlxDecisionModel(JEFF_CHECKPOINT, adapters=adapters)
+        if adapters:
+            jeff_loaded_model.use("tools")
+    label_descriptions = router_label_descriptions(tool_catalog)
+    decision_input = {
+        "state": {
+            "task": ROUTER_INSTRUCTIONS,
+            "request": fixture["user_request"],
+            "screen": screen_text(fixture["screen_elements"]),
+            "completed_steps": completed_steps_text(completed_steps),
+        },
+        "question": {
+            "type": "choice",
+            "instructions": "Which is the single best next step? Follow `task`.",
+            "criteria": label_descriptions,
+        },
+    }
+    started = time.perf_counter()
+    probability_values, _ = jeff_loaded_model.decide([decision_input])[0]
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    probabilities = dict(zip(label_descriptions, probability_values, strict=True))
+    return max(probabilities, key=probabilities.get), probabilities, elapsed_ms, None
+
 KEYLESS_JEV_MINIMUM_SECONDS_BETWEEN_CALLS = float(os.environ.get("JEV_KEYLESS_PACING_SECONDS", "7"))
 KEYLESS_JEV_PACING_LOCK = threading.Lock()
 keyless_jev_last_call_monotonic = 0.0
@@ -481,6 +518,8 @@ def run_fixture(fixture, arm_name, tool_catalog, local_model_identifier, max_ste
         for _ in range(max_steps):
             if arm_name == "jev":
                 chosen_label, probabilities, route_ms, model_ms = route_with_jev(fixture, completed_steps, tool_catalog)
+            elif arm_name == "jeff":
+                chosen_label, probabilities, route_ms, model_ms = route_with_jeff(fixture, completed_steps, tool_catalog)
             elif arm_name in ("gliner", "gliner-prose"):
                 chosen_label, probabilities, route_ms, model_ms = route_with_gliner(
                     fixture, completed_steps, tool_catalog, use_prose_input=(arm_name == "gliner-prose"))
@@ -491,7 +530,8 @@ def run_fixture(fixture, arm_name, tool_catalog, local_model_identifier, max_ste
                     fixture, completed_steps, tool_catalog, local_model_identifier)
             top_alternatives = sorted(probabilities.items(), key=lambda item: -item[1])[:3]
             route_calls.append({"label": chosen_label, "ms": round(route_ms), "model_ms": model_ms,
-                                "top3": [[label, round(score, 3)] for label, score in top_alternatives]})
+                                "top3": [[label, round(score, 3)] for label, score in top_alternatives],
+                                **({"probabilities": probabilities} if arm_name == "jeff" else {})})
             if chosen_label in CONTROL_LABEL_DESCRIPTIONS:
                 terminal_label = chosen_label
                 break
@@ -603,7 +643,9 @@ def summarize(arm_results):
 
 def main():
     argument_parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    argument_parser.add_argument("--arms", nargs="+", default=["jev", "local"], choices=["jev", "local", "gliner", "gliner-prose", "student"])
+    argument_parser.add_argument("--arms", nargs="+", default=["jev", "local"], choices=["jev", "local", "gliner", "gliner-prose", "student", "jeff"])
+    argument_parser.add_argument("--jeff-checkpoint", help="downloaded Jeff Qwen3.5 checkpoint (local MLX only)")
+    argument_parser.add_argument("--jeff-adapter-dir", help="optional tools adapter trained on exactly this base")
     argument_parser.add_argument("--fixtures-dirs", nargs="+", default=DEFAULT_FIXTURE_DIRECTORIES)
     argument_parser.add_argument("--local-model", default="qwen/qwen3.5-4b")
     argument_parser.add_argument("--gliner-model", default="fastino/gliner2.5-base-v1")
@@ -614,7 +656,11 @@ def main():
     argument_parser.add_argument("--output", default=str(REPO_ROOT / "evals/jev-experiment/results.json"))
     parsed_arguments = argument_parser.parse_args()
 
-    global GLINER_MODEL_IDENTIFIER, STUDENT_DIRECTORY
+    global GLINER_MODEL_IDENTIFIER, STUDENT_DIRECTORY, JEFF_CHECKPOINT, JEFF_ADAPTER_DIRECTORY
+    JEFF_CHECKPOINT = parsed_arguments.jeff_checkpoint
+    JEFF_ADAPTER_DIRECTORY = parsed_arguments.jeff_adapter_dir
+    if "jeff" in parsed_arguments.arms and not JEFF_CHECKPOINT:
+        argument_parser.error("--arms jeff needs --jeff-checkpoint")
     GLINER_MODEL_IDENTIFIER = parsed_arguments.gliner_model
     STUDENT_DIRECTORY = parsed_arguments.student_dir
     if "student" in parsed_arguments.arms and not STUDENT_DIRECTORY:
@@ -625,6 +671,9 @@ def main():
         fixtures = fixtures[:parsed_arguments.limit]
     jev_route = "typesafe direct (jev-latest)" if os.environ.get("TYPESAFE_API_KEY") else "classifier.dev (tier fast)"
     print(f"{len(tool_catalog)} tools, {len(fixtures)} scorable fixtures, jev route: {jev_route}")
+    if "jeff" in parsed_arguments.arms:
+        for warmup_fixture in fixtures[:3]:
+            route_with_jeff(warmup_fixture, [], tool_catalog)
 
     # Warm the local model so the first timed call does not include load/compile cost.
     try:
@@ -635,6 +684,22 @@ def main():
 
     report = {"created_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "jev_route": jev_route,
               "local_model": parsed_arguments.local_model, "max_steps": parsed_arguments.max_steps, "arms": {}}
+    report["evaluation_split"] = "development; not sealed acceptance evidence"
+    format_contract = {"serializer": inspect.getsource(router_input_text),
+                       "instructions": ROUTER_INSTRUCTIONS,
+                       "labels": router_label_descriptions(tool_catalog),
+                       "screen": inspect.getsource(screen_text),
+                       "completed": inspect.getsource(completed_steps_text)}
+    report["format_sha256"] = hashlib.sha256(json.dumps(format_contract, sort_keys=True).encode()).hexdigest()
+    fixture_contract = json.dumps(fixtures, sort_keys=True, default=lambda value: sorted(value))
+    report["fixture_sha256"] = hashlib.sha256(fixture_contract.encode()).hexdigest()
+    if "jeff" in parsed_arguments.arms:
+        from jeff.model import decision_messages
+        jeff_prompt_contract = inspect.getsource(route_with_jeff) + inspect.getsource(decision_messages)
+        report["jeff_prompt_sha256"] = hashlib.sha256(jeff_prompt_contract.encode()).hexdigest()
+        report["jeff"] = {"backend": "mlx", "checkpoint": JEFF_CHECKPOINT,
+                          "adapter": JEFF_ADAPTER_DIRECTORY,
+                          "decision_config": json.loads((Path(JEFF_CHECKPOINT) / "decision_config.json").read_text())}
     for arm_name in parsed_arguments.arms:
         # Local-router arm is bound by the single LM Studio slot anyway; jev arm parallelizes the network calls.
         worker_count = parsed_arguments.concurrency if arm_name == "jev" else 1

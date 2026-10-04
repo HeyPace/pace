@@ -62,6 +62,9 @@ step state (request + screen elements + completed steps)
 - **Runtime:** export to MLX-Swift or CoreML int8 and call it in-process from
   the agent loop. No server, no Python in the app.
 
+Labeling contract: [draft label policy v1](next-step-router-policy.md).
+Calibration and acceptance must use separate splits; the 123 fixtures remain development only.
+
 ## Data plan
 
 1. **Generate step states, not utterances.** Each row = request + screen + 0..N

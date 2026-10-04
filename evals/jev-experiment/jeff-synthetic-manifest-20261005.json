@@ -1,0 +1,21 @@
+{
+  "purpose": "Additional synthetic routing smoke, not human-adjudicated acceptance or calibration fitting",
+  "selection": "at most 32 per scenario from existing sealed synthetic files, fixed seed 20261005",
+  "rows": 416,
+  "scenario_counts": {
+    "abstract_ambiguous": 32,
+    "abstract_click": 32,
+    "disfluent_click": 32,
+    "after_failure": 32,
+    "already_done": 32,
+    "ambiguous_targets": 32,
+    "click_unique_target": 32,
+    "compose": 32,
+    "describe_screen": 32,
+    "destructive": 32,
+    "multi_step_intermediate": 32,
+    "out_of_scope": 32,
+    "single_tool_first_step": 32
+  },
+  "input_sha256": "03bb514da59b312004d1aaea203f06929f02abab74036e76c832d400a5da8c81"
+}
