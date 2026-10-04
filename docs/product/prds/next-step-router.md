@@ -1,6 +1,6 @@
 # Next-step router (distilled, on-device)
 
-Status: **in progress** — best student v3 65.0% full pass at 14 ms (2026-10-04); see the experiment README. Experiment evidence: [`evals/jev-experiment/README.md`](../../../evals/jev-experiment/README.md).
+Status: **in progress** — best student v3 65.0% full pass at 14 ms (2026-10-04); see the experiment README. Experiment evidence: [`evals/jev-experiment/README.md`](https://github.com/HeyPace/pace/blob/main/evals/jev-experiment/README.md).
 
 ## Problem
 

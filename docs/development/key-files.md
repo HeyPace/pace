@@ -239,6 +239,7 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `scripts/check-unused-code.mjs` | ~50 | Periphery no-regression gate over the isolated test index. Enforces the repository-owned 80-finding review baseline rather than treating dynamically referenced Swift declarations as automatically safe to delete. |
 | `scripts/check-duplication.mjs` | ~60 | jscpd Swift production-clone gate with an exact 1,442-line / 1.7331% no-regression baseline. |
 | `scripts/check-dependency-risk.mjs` | ~60 | Audits the root docs and website lockfiles, rejects critical or new high advisories, and accepts only the exact IDs tracked in the repository baseline issue. |
+| `scripts/http-cache-security.test.mjs` | ~86 | Exercises the installed Astro HTTP-cache consumer in each independent lock scope; verifies protected response handling, policy serialization, permitted public caching, age bounds, and request identity. |
 | `scripts/verify.sh` | ~67 | Pre-commit gate: runs `test-pace.sh`, optionally followed by `diag-pace.py --quick --eval`. Non-zero exit on any failure for safe `&& git commit` chaining. |
 | `scripts/start-tts-server.sh` | ~38 | Launches the Kokoro TTS sidecar via uvx/mlx-audio on port 8880. Pace hot-swaps to it without restart; first call downloads the model. |
 | `scripts/tts-fixture-server.py` | ~58 | Stdlib HTTP fixture returning a silent WAV from `/v1/audio/speech`, so `LocalServerTTSClient`'s synth→decode→play→drain loop is integration-tested without a model. |

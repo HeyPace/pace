@@ -103,7 +103,7 @@ them risks churn on stable paths.
 ## Rejected: zero-shot GLiNER2.5-base as the next-step router
 
 **Why rejected (2026-10-04):** in the router experiment
-([`evals/jev-experiment/README.md`](../../evals/jev-experiment/README.md)) the
+([`evals/jev-experiment/README.md`](https://github.com/HeyPace/pace/blob/main/evals/jev-experiment/README.md)) the
 open-weights Fastino GLiNER2.5-base scored 32–40% first-step and 0–18% full pass
 (vs Jev 85%, local qwen3.5-4b 72%). It cannot reason over "completed steps":
 it picks DONE before acting and re-picks the same tool after it succeeded, and it
