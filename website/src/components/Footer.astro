@@ -1,56 +1,10 @@
 ---
-// Closing punchline + signed letter + minimal links. The "0"
-// counter is the screenshot-bait moment.
+// Native links remain source-owned; BaseLayout places this named slot after studio discovery.
 ---
 
-<footer class="px-6 pt-32 pb-16 border-t border-[var(--color-border-subtle)] mt-20">
-  <div class="max-w-5xl mx-auto">
-    <!-- The closing punchline. Editorial, big, simple. -->
-    <div class="mb-24 md:mb-32 text-center">
-      <p class="text-sm font-mono uppercase tracking-widest text-[var(--color-text-muted)] mb-8">
-        Bytes Pace sent off your Mac today
-      </p>
-      <div
-        class="pace-display text-[var(--color-positive)] tracking-tighter"
-        style="font-size: clamp(7rem, 22vw, 18rem); line-height: 0.85;"
-        aria-label="Zero"
-      >
-        0
-      </div>
-      <p class="mt-8 pace-margin-note text-base md:text-lg">
-        Same number tomorrow.
-      </p>
-    </div>
-
-    <!-- Signed letter, full-width, with hanging indent like a real
-         letter would have. -->
-    <div class="max-w-2xl mx-auto pace-prose mb-20">
-      <p class="pace-margin-note text-[var(--color-text-muted)] mb-6 not-italic font-mono text-xs uppercase tracking-wider">
-        A note from me
-      </p>
-      <p>
-        I built Pace because every assistant I tried either lived in someone
-        else's data center or couldn't actually <em>do</em> anything. I wanted
-        Siri's reach with a local model's privacy and a real agent's hands.
-        Nobody was making it, so I did.
-      </p>
-      <p>
-        If you try it and the third turn feels worse than I promised, email
-        me directly. I want to know where it failed and make the purchase
-        terms clear before you pay. That's the whole quality bar.
-      </p>
-      <p class="pace-display text-2xl text-white mt-8 not-italic">
-        — <em>Sarthak</em>
-      </p>
-      <p class="text-sm text-[var(--color-text-muted)] mt-1">
-        <a href="mailto:hi@sarthakagrawal.dev" class="underline hover:text-white">hi@sarthakagrawal.dev</a>
-      </p>
-    </div>
-
-    <!-- Bottom-of-page chrome — keep it minimal, no four-column
-         link grid. -->
+<footer slot="navigation" data-fleet-footer-navigation aria-label="Pace navigation">
     <div
-      class="border-t border-[var(--color-border-subtle)] pt-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 text-sm text-[var(--color-text-muted)]"
+      class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 text-sm text-[var(--color-text-muted)]"
     >
       <div class="flex items-center gap-2 text-white">
         <span class="inline-flex items-end gap-[3px] h-5 w-6 text-[var(--color-accent)]" aria-hidden="true">
@@ -61,24 +15,26 @@
         </span>
         <span class="font-semibold">Pace</span>
         <span class="text-[var(--color-text-muted)] ml-2 hidden md:inline">·</span>
-        <span class="text-[var(--color-text-muted)] text-xs hidden md:inline">made for macOS in California</span>
+        <span class="text-[var(--color-text-muted)] text-xs hidden md:inline">
+          made for macOS in California
+        </span>
       </div>
 
-      <div class="flex flex-wrap items-center gap-x-6 gap-y-3 text-xs">
-        <a href="/download" class="hover:text-white transition-colors">Download</a>
-        <a href="/pricing" class="hover:text-white transition-colors">Pricing</a>
-        <a href="/compared" class="hover:text-white transition-colors">Compared</a>
-        <a href="/faq" class="hover:text-white transition-colors">FAQ</a>
-        <a href="/docs/" class="hover:text-white transition-colors">Docs</a>
-        <a href="/changelog" class="hover:text-white transition-colors">Changelog</a>
-        <a href="https://github.com/HeyPace/pace/issues" class="hover:text-white transition-colors">Roadmap</a>
+      <div class="flex flex-wrap items-center gap-x-6 text-xs">
+        <a href="/download" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Download</a>
+        <a href="/pricing" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Pricing</a>
+        <a href="/compared" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Compared</a>
+        <a href="/faq" class="inline-flex min-h-11 items-center hover:text-white transition-colors">FAQ</a>
+        <a href="/docs/" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Docs</a>
+        <a href="/changelog" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Changelog</a>
+        <a href="https://github.com/HeyPace/pace/issues" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Roadmap</a>
         <a
           href="https://github.com/HeyPace/pace"
           aria-label="GitHub repository"
           title="GitHub repository"
           target="_blank"
           rel="noopener noreferrer"
-          class="hover:text-white transition-colors inline-flex items-center"
+          class="inline-flex min-h-11 items-center hover:text-white transition-colors"
         >
           <svg
             viewBox="0 0 16 16"
@@ -93,11 +49,10 @@
           </svg>
           <span class="sr-only">GitHub repository</span>
         </a>
-        <a href="/privacy" class="hover:text-white transition-colors">Privacy</a>
-        <a href="/terms" class="hover:text-white transition-colors">Terms</a>
-        <a href="mailto:hi@sarthakagrawal.dev" class="hover:text-white transition-colors">Email</a>
+        <a href="/privacy" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Privacy</a>
+        <a href="/terms" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Terms</a>
+        <a href="mailto:hi@sarthakagrawal.dev" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Email</a>
         <span>© 2026</span>
       </div>
     </div>
-  </div>
 </footer>
