@@ -100,6 +100,17 @@ live gauntlet that should be fixed, not retried as-is:
 attempt these unless explicitly asked — they are noise, not signal, and chasing
 them risks churn on stable paths.
 
+## Rejected: zero-shot GLiNER2.5-base as the next-step router
+
+**Why rejected (2026-10-04):** in the router experiment
+([`evals/jev-experiment/README.md`](../../evals/jev-experiment/README.md)) the
+open-weights Fastino GLiNER2.5-base scored 32–40% first-step and 0–18% full pass
+(vs Jev 85%, local qwen3.5-4b 72%). It cannot reason over "completed steps":
+it picks DONE before acting and re-picks the same tool after it succeeded, and it
+never chose ASK_USER correctly. ~550 ms p50 on PyTorch MPS with 32 described
+labels. Revisit only with a decision-tuned checkpoint (e.g. GLiNER2.5-Decide) or
+a model fine-tuned on step-level state.
+
 ## Rejected: bundled recipes that overclaim recorded UI steps
 
 The original five bundled recipes encoded literal app activation and keystrokes

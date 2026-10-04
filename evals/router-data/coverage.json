@@ -1,0 +1,313 @@
+{
+  "arguments": {
+    "total": 15000,
+    "seed": 13
+  },
+  "total_rows": 15019,
+  "by_split": {
+    "train": 13429,
+    "sealed": 1590
+  },
+  "by_scenario": {
+    "single_tool_first_step": 3082,
+    "already_done": 2554,
+    "multi_step_intermediate": 1696,
+    "out_of_scope": 1409,
+    "ambiguous_targets": 1254,
+    "click_unique_target": 1250,
+    "destructive": 1241,
+    "compose": 1093,
+    "describe_screen": 735,
+    "after_failure": 705
+  },
+  "by_scenario_and_split": {
+    "single_tool_first_step|train": 2788,
+    "already_done|train": 2266,
+    "multi_step_intermediate|train": 1501,
+    "out_of_scope|train": 1250,
+    "destructive|train": 1127,
+    "ambiguous_targets|train": 1117,
+    "click_unique_target|train": 1114,
+    "compose|train": 970,
+    "describe_screen|train": 659,
+    "after_failure|train": 637,
+    "single_tool_first_step|sealed": 294,
+    "already_done|sealed": 288,
+    "multi_step_intermediate|sealed": 195,
+    "out_of_scope|sealed": 159,
+    "ambiguous_targets|sealed": 137,
+    "click_unique_target|sealed": 136,
+    "compose|sealed": 123,
+    "destructive|sealed": 114,
+    "describe_screen|sealed": 76,
+    "after_failure|sealed": 68
+  },
+  "by_intended_label": {
+    "ASK_USER": 2559,
+    "DONE": 2485,
+    "RESPOND": 2144,
+    "click": 1297,
+    "None": 774,
+    "mail": 721,
+    "reminder": 703,
+    "messages": 634,
+    "calendar_create": 422,
+    "notes": 404,
+    "double_click": 277,
+    "open_url": 170,
+    "type": 170,
+    "key": 128,
+    "music": 128,
+    "brightness": 127,
+    "window_snap": 121,
+    "start_timer": 120,
+    "open_app": 117,
+    "volume": 116,
+    "download_file": 115,
+    "things": 115,
+    "calendar": 114,
+    "set_value": 109,
+    "clear_annotations": 108,
+    "clipboard_read": 108,
+    "draw_annotation": 108,
+    "record_flow": 108,
+    "run_flow": 108,
+    "undo_last": 108,
+    "scroll": 105,
+    "finder": 103,
+    "shortcuts": 93
+  },
+  "by_source": {
+    "template": 4779,
+    "intent-corpus/synthetic-large": 3540,
+    "intent-corpus/synthetic-large-train": 3051,
+    "massive-en": 1702,
+    "intent-corpus/supplement-v2": 531,
+    "intent-corpus/synthetic-large-eval": 513,
+    "ovos-intents": 508,
+    "toolace": 253,
+    "intent-corpus/supplement": 116,
+    "intent-corpus/seed": 26
+  },
+  "by_completed_step_count": {
+    "0": 9719,
+    "1": 4241,
+    "2": 911,
+    "3": 139,
+    "4": 9
+  },
+  "label_source_mix": {
+    "click": {
+      "rows": 1297,
+      "template_share": 0.18,
+      "unique_requests": 1012
+    },
+    "double_click": {
+      "rows": 277,
+      "template_share": 1.0,
+      "unique_requests": 228
+    },
+    "type": {
+      "rows": 170,
+      "template_share": 0.45,
+      "unique_requests": 127
+    },
+    "set_value": {
+      "rows": 109,
+      "template_share": 1.0,
+      "unique_requests": 13
+    },
+    "undo_last": {
+      "rows": 108,
+      "template_share": 1.0,
+      "unique_requests": 10
+    },
+    "key": {
+      "rows": 128,
+      "template_share": 0.3,
+      "unique_requests": 74
+    },
+    "clipboard_read": {
+      "rows": 108,
+      "template_share": 1.0,
+      "unique_requests": 10
+    },
+    "window_snap": {
+      "rows": 121,
+      "template_share": 0.71,
+      "unique_requests": 49
+    },
+    "scroll": {
+      "rows": 105,
+      "template_share": 0.36,
+      "unique_requests": 42
+    },
+    "open_app": {
+      "rows": 117,
+      "template_share": 0.18,
+      "unique_requests": 117
+    },
+    "open_url": {
+      "rows": 170,
+      "template_share": 0.31,
+      "unique_requests": 160
+    },
+    "music": {
+      "rows": 128,
+      "template_share": 0.22,
+      "unique_requests": 116
+    },
+    "volume": {
+      "rows": 116,
+      "template_share": 0.16,
+      "unique_requests": 109
+    },
+    "brightness": {
+      "rows": 127,
+      "template_share": 0.27,
+      "unique_requests": 55
+    },
+    "calendar": {
+      "rows": 114,
+      "template_share": 0.17,
+      "unique_requests": 106
+    },
+    "calendar_create": {
+      "rows": 422,
+      "template_share": 0.1,
+      "unique_requests": 410
+    },
+    "reminder": {
+      "rows": 703,
+      "template_share": 0.03,
+      "unique_requests": 701
+    },
+    "finder": {
+      "rows": 103,
+      "template_share": 0.57,
+      "unique_requests": 49
+    },
+    "notes": {
+      "rows": 404,
+      "template_share": 0.48,
+      "unique_requests": 245
+    },
+    "mail": {
+      "rows": 721,
+      "template_share": 0.16,
+      "unique_requests": 703
+    },
+    "things": {
+      "rows": 115,
+      "template_share": 0.21,
+      "unique_requests": 111
+    },
+    "shortcuts": {
+      "rows": 93,
+      "template_share": 1.0,
+      "unique_requests": 44
+    },
+    "messages": {
+      "rows": 634,
+      "template_share": 0.15,
+      "unique_requests": 620
+    },
+    "download_file": {
+      "rows": 115,
+      "template_share": 0.91,
+      "unique_requests": 99
+    },
+    "start_timer": {
+      "rows": 120,
+      "template_share": 0.58,
+      "unique_requests": 62
+    },
+    "record_flow": {
+      "rows": 108,
+      "template_share": 1.0,
+      "unique_requests": 43
+    },
+    "run_flow": {
+      "rows": 108,
+      "template_share": 1.0,
+      "unique_requests": 43
+    },
+    "draw_annotation": {
+      "rows": 108,
+      "template_share": 1.0,
+      "unique_requests": 70
+    },
+    "clear_annotations": {
+      "rows": 108,
+      "template_share": 1.0,
+      "unique_requests": 10
+    },
+    "ASK_USER": {
+      "rows": 2559,
+      "template_share": 0.38,
+      "unique_requests": 956
+    },
+    "RESPOND": {
+      "rows": 2144,
+      "template_share": 0.05,
+      "unique_requests": 2065
+    },
+    "DONE": {
+      "rows": 2485,
+      "template_share": 0.38,
+      "unique_requests": 2114
+    }
+  },
+  "unique_requests_by_split": {
+    "train": 8566,
+    "sealed": 1024
+  },
+  "real_phrasing_pool_sizes": {
+    "ambiguous_reference": 59,
+    "click_reference": 758,
+    "compose:mail": 1549,
+    "compose:messages": 1561,
+    "compose:notes": 129,
+    "describe_screen": 2297,
+    "destructive": 744,
+    "multi_step": 1771,
+    "out_of_scope": 46154,
+    "tool:brightness": 46,
+    "tool:calendar": 915,
+    "tool:calendar_create": 1968,
+    "tool:download_file": 2,
+    "tool:finder": 18,
+    "tool:key": 48,
+    "tool:mail": 577,
+    "tool:messages": 156,
+    "tool:music": 1002,
+    "tool:notes": 11,
+    "tool:open_app": 87,
+    "tool:open_url": 441,
+    "tool:reminder": 1945,
+    "tool:scroll": 28,
+    "tool:start_timer": 26,
+    "tool:things": 321,
+    "tool:type": 49,
+    "tool:volume": 323,
+    "tool:window_snap": 16
+  },
+  "source_notes": {
+    "intent-corpus": "6 files",
+    "massive-en": "3 files",
+    "ovos-intents": "1 files",
+    "toolace": "1 files",
+    "clinc-oos": "SKIPPED: 3 parquet files need pyarrow (not installed)",
+    "amazonscience-massive": "SKIPPED: only the loader script is cached, no data",
+    "xlam-function-calling-60k": "SKIPPED: only README is cached, no data",
+    "excluded_as_fixture_near_duplicates": 54,
+    "dropped_over_per_skeleton_cap": 1451,
+    "max_candidates_per_phrasing_skeleton": 6,
+    "fixture_user_lines_excluded_against": 127
+  },
+  "split_isolation": {
+    "train_rows_dropped_as_sealed_near_duplicates": 658,
+    "rows_dropped_as_fixture_near_duplicates": 0,
+    "near_duplicate_jaccard_threshold": 0.8
+  }
+}

@@ -1,0 +1,261 @@
+{
+  "created_at": "2026-10-04T15:43:11",
+  "run_name": "modernbert-v2-agreement",
+  "arguments": {
+    "run_name": "modernbert-v2-agreement",
+    "data_dir": "/Users/sarthak/Desktop/fleet/pace/evals/router-data",
+    "base_model": "answerdotai/ModernBERT-base",
+    "max_length": 512,
+    "epochs": 3,
+    "batch_size": 16,
+    "learning_rate": 3e-05,
+    "warmup_fraction": 0.06,
+    "weight_decay": 0.01,
+    "distillation_alpha": 0.5,
+    "min_teacher_confidence": 0.5,
+    "label_policy": "agreement",
+    "agreement_override_confidence": 0.8,
+    "validation_fraction": 0.08,
+    "limit_train_rows": 0,
+    "seed": 13,
+    "device": null,
+    "latency_calls": 100
+  },
+  "device": "mps",
+  "rows": {
+    "labelled_train": 13429,
+    "train": 8383,
+    "validation": 1052,
+    "review": 4302,
+    "sealed": 1590
+  },
+  "token_lengths": {
+    "train": {
+      "n": 8383,
+      "mean": 170.7,
+      "p50": 167,
+      "p95": 278,
+      "p99": 318,
+      "max": 397
+    },
+    "sealed": {
+      "n": 1590,
+      "mean": 177.9,
+      "p50": 173,
+      "p95": 292,
+      "p99": 339,
+      "max": 394
+    },
+    "harness_fixtures_first_step": {
+      "n": 123,
+      "mean": 62.9,
+      "p50": 48,
+      "p95": 107,
+      "p99": 123,
+      "max": 564
+    },
+    "truncated_rows": {
+      "train": 0,
+      "validation": 0,
+      "sealed": 0
+    }
+  },
+  "training_seconds": 2196.4,
+  "epochs": [
+    {
+      "epoch": 1,
+      "train_loss": 1.1485,
+      "validation_accuracy_vs_teacher": 0.6854
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.2322,
+      "validation_accuracy_vs_teacher": 0.7804
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.1249,
+      "validation_accuracy_vs_teacher": 0.7994
+    }
+  ],
+  "temperature": 1.084,
+  "validation": {
+    "n": 1052,
+    "accuracy_vs_teacher": 0.7994,
+    "accuracy_vs_teacher_confident_rows": 0.8773,
+    "nll_before": 0.6459,
+    "nll_after": 0.6418,
+    "ece_before": 0.0462,
+    "ece_after": 0.0308,
+    "coverage_at_threshold_after": {
+      "0.5": {
+        "coverage": 0.913,
+        "accuracy_when_acting": 0.835
+      },
+      "0.7": {
+        "coverage": 0.779,
+        "accuracy_when_acting": 0.893
+      },
+      "0.8": {
+        "coverage": 0.668,
+        "accuracy_when_acting": 0.93
+      },
+      "0.9": {
+        "coverage": 0.459,
+        "accuracy_when_acting": 0.965
+      }
+    }
+  },
+  "sealed": {
+    "n": 1590,
+    "accuracy_vs_teacher": 0.7528,
+    "accuracy_vs_intended": 0.7667,
+    "teacher_vs_intended": 0.7025,
+    "ask_user_recall_vs_teacher": 0.7248,
+    "per_scenario": {
+      "after_failure": {
+        "n": 68,
+        "vs_teacher": 0.4412,
+        "vs_intended": 0.0,
+        "teacher_vs_intended": 0.0
+      },
+      "already_done": {
+        "n": 288,
+        "vs_teacher": 0.7431,
+        "vs_intended": 0.7535,
+        "teacher_vs_intended": 0.6007
+      },
+      "ambiguous_targets": {
+        "n": 137,
+        "vs_teacher": 1.0,
+        "vs_intended": 0.9416,
+        "teacher_vs_intended": 0.9416
+      },
+      "click_unique_target": {
+        "n": 136,
+        "vs_teacher": 0.9559,
+        "vs_intended": 0.9779,
+        "teacher_vs_intended": 0.9485
+      },
+      "compose": {
+        "n": 123,
+        "vs_teacher": 0.7724,
+        "vs_intended": 0.8862,
+        "teacher_vs_intended": 0.748
+      },
+      "describe_screen": {
+        "n": 76,
+        "vs_teacher": 0.9079,
+        "vs_intended": 0.8947,
+        "teacher_vs_intended": 0.8553
+      },
+      "destructive": {
+        "n": 114,
+        "vs_teacher": 0.6316,
+        "vs_intended": 0.8333,
+        "teacher_vs_intended": 0.5877
+      },
+      "multi_step_intermediate": {
+        "n": 195,
+        "vs_teacher": 0.6872,
+        "vs_intended": 0.7641,
+        "teacher_vs_intended": 0.5897
+      },
+      "out_of_scope": {
+        "n": 159,
+        "vs_teacher": 0.8428,
+        "vs_intended": 0.9434,
+        "teacher_vs_intended": 0.8805
+      },
+      "single_tool_first_step": {
+        "n": 294,
+        "vs_teacher": 0.619,
+        "vs_intended": 0.5748,
+        "teacher_vs_intended": 0.7041
+      }
+    },
+    "top_confusions_vs_teacher": [
+      [
+        "teacher=clear_annotations \u2192 student=ASK_USER",
+        24
+      ],
+      [
+        "teacher=ASK_USER \u2192 student=messages",
+        23
+      ],
+      [
+        "teacher=RESPOND \u2192 student=ASK_USER",
+        22
+      ],
+      [
+        "teacher=ASK_USER \u2192 student=DONE",
+        22
+      ],
+      [
+        "teacher=open_app \u2192 student=ASK_USER",
+        16
+      ],
+      [
+        "teacher=ASK_USER \u2192 student=calendar_create",
+        15
+      ],
+      [
+        "teacher=open_app \u2192 student=RESPOND",
+        14
+      ],
+      [
+        "teacher=ASK_USER \u2192 student=RESPOND",
+        12
+      ],
+      [
+        "teacher=finder \u2192 student=ASK_USER",
+        12
+      ],
+      [
+        "teacher=ASK_USER \u2192 student=reminder",
+        11
+      ],
+      [
+        "teacher=ASK_USER \u2192 student=mail",
+        10
+      ],
+      [
+        "teacher=calendar \u2192 student=ASK_USER",
+        10
+      ]
+    ],
+    "ece_after": 0.0501,
+    "coverage_at_threshold_after": {
+      "0.5": {
+        "coverage": 0.896,
+        "accuracy_when_acting": 0.796
+      },
+      "0.7": {
+        "coverage": 0.736,
+        "accuracy_when_acting": 0.868
+      },
+      "0.8": {
+        "coverage": 0.617,
+        "accuracy_when_acting": 0.908
+      },
+      "0.9": {
+        "coverage": 0.423,
+        "accuracy_when_acting": 0.957
+      }
+    }
+  },
+  "latency": [
+    {
+      "device": "mps",
+      "calls": 100,
+      "p50_ms": 17.8,
+      "p95_ms": 23.9
+    },
+    {
+      "device": "cpu",
+      "calls": 100,
+      "p50_ms": 48.2,
+      "p95_ms": 69.4
+    }
+  ]
+}
