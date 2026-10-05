@@ -1,10 +1,10 @@
 ---
-// Native links remain source-owned; BaseLayout places this named slot after studio discovery.
+// Native links remain source-owned in the shared composition’s navigation slot.
 ---
 
-<footer slot="navigation" data-fleet-footer-navigation aria-label="Pace navigation">
+<nav slot="navigation" data-fleet-footer-navigation aria-label="Pace navigation">
     <div
-      class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 text-sm text-[var(--color-text-muted)]"
+      class="pace-footer-navigation text-sm text-[var(--color-text-muted)]"
     >
       <div class="flex items-center gap-2 text-white">
         <span class="inline-flex items-end gap-[3px] h-5 w-6 text-[var(--color-accent)]" aria-hidden="true">
@@ -20,7 +20,7 @@
         </span>
       </div>
 
-      <div class="flex flex-wrap items-center gap-x-6 text-xs">
+      <div class="pace-footer-links text-xs">
         <a href="/download" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Download</a>
         <a href="/pricing" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Pricing</a>
         <a href="/compared" class="inline-flex min-h-11 items-center hover:text-white transition-colors">Compared</a>
@@ -55,4 +55,24 @@
         <span>© 2026</span>
       </div>
     </div>
-</footer>
+</nav>
+
+<style>
+  .pace-footer-navigation {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.25rem;
+    min-width: 0;
+  }
+  .pace-footer-links {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(8rem, 100%), 1fr));
+    column-gap: 1.5rem;
+    width: 100%;
+    min-width: 0;
+  }
+  .pace-footer-links > span {
+    padding-block: .8rem;
+  }
+</style>
