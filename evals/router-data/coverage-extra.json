@@ -1,0 +1,100 @@
+{
+  "arguments": {
+    "extra_total": 2500,
+    "seed": 13
+  },
+  "total_rows": 2500,
+  "by_split": {
+    "train": 2255,
+    "sealed": 245
+  },
+  "by_scenario": {
+    "abstract_click": 1250,
+    "disfluent_click": 650,
+    "abstract_ambiguous": 600
+  },
+  "by_scenario_and_split": {
+    "abstract_click|train": 1132,
+    "disfluent_click|train": 605,
+    "abstract_ambiguous|train": 518,
+    "abstract_click|sealed": 118,
+    "abstract_ambiguous|sealed": 82,
+    "disfluent_click|sealed": 45
+  },
+  "by_intended_label": {
+    "click": 1900,
+    "ASK_USER": 600
+  },
+  "by_source": {
+    "goal-catalog": 1216,
+    "goal-catalog-attribute": 381,
+    "disfluent-template": 379,
+    "goal-catalog-disfluent": 271,
+    "goal-catalog-dock": 253
+  },
+  "by_app_context": {
+    "Dock": 253,
+    "Mail (reading a message)": 136,
+    "System Settings": 119,
+    "Web browser toolbar": 114,
+    "Video player": 109,
+    "Shopping product page": 92,
+    "Document editor": 87,
+    "Team chat channel": 86,
+    "Spreadsheet": 80,
+    "Video call (in meeting)": 80,
+    "Code editor": 79,
+    "Code review page": 79,
+    "Mail (composing)": 79,
+    "Photo editor": 77,
+    "Maps place card": 73,
+    "Calendar event details": 68,
+    "Podcast player": 68,
+    "Food delivery order": 67,
+    "Task manager": 67,
+    "Music app (now playing)": 66,
+    "Finder window": 63,
+    "Flight booking results": 60,
+    "Social feed post": 60,
+    "list: apartments": 60,
+    "E-book reader": 57,
+    "list: support tickets": 55,
+    "list: flights": 49,
+    "list: laptops": 47,
+    "list: headphones": 43,
+    "list: recipes": 43,
+    "list: restaurants": 43,
+    "list: files": 41
+  },
+  "screen_element_count": {
+    "6": 503,
+    "5": 462,
+    "7": 453,
+    "4": 450,
+    "3": 344,
+    "8": 288
+  },
+  "unique_requests_by_split": {
+    "train": 1150,
+    "sealed": 124
+  },
+  "distinct_target_elements_used": 429,
+  "catalog": {
+    "app_contexts": 23,
+    "goal_entries": 271,
+    "goal_phrasings": 561,
+    "distinct_goal_to_element_pairs": 263,
+    "app_purpose_goals": 36,
+    "ambiguous_goals": 48,
+    "attribute_domains": 8
+  },
+  "leakage_guards": {
+    "requests_rejected_fixture_near_duplicate": 5,
+    "screens_rejected_fixture_label_overlap": 21,
+    "fixture_user_lines_checked": 127,
+    "fixture_label_sets_checked": 58,
+    "fixture_request_jaccard_threshold": 0.6,
+    "fixture_label_set_overlap_limit": 2,
+    "cross_split_jaccard_threshold": 0.8
+  }
+}

@@ -266,6 +266,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify patched HTTP cache behavior
+        run: PACE_CACHE_CONSUMER=website node ../scripts/http-cache-security.test.mjs
+
       - name: Build
         run: pnpm run build
 
@@ -292,6 +295,9 @@ jobs:
 
       - name: Install quality tooling
         run: pnpm install --frozen-lockfile
+
+      - name: Verify patched HTTP cache behavior
+        run: pnpm run test:dependency-security
 
       - name: Check production duplication baseline
         run: pnpm run quality:duplication

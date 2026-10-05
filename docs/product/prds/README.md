@@ -11,6 +11,10 @@ Canonical status: [PROJECT_STATUS.md](https://github.com/HeyPace/pace/blob/main/
   the Mac remains the only planner and memory owner. Status: **implemented in
   source**; pairing, permission, thermal, reconnection, and 12-hour physical
   iPad acceptance remain open.
+- [`next-step-router.md`](next-step-router.md) — Distill a small on-device
+  "best next step?" classifier (29 tools + ASK_USER/RESPOND/DONE) from a cloud
+  teacher's labels on synthetic step states; local LLM keeps filling args.
+  Status: **in progress** (v3 student 65% at 14 ms).
 - [`on-device-meeting-notes.md`](on-device-meeting-notes.md) — P0. Assemble
   Pace's meeting-mode stub into a real product: two-track capture →
   energy-based turn segmentation → on-device transcription → structured

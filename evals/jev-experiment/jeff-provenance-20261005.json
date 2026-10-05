@@ -1,0 +1,26 @@
+{
+  "pace_pr": 201,
+  "pace_source_sha": "2995366cd8ea60d9c1a88e0d682f19686df46875",
+  "jeff_upstream_sha": "d0173b4ee317a46dee031421b713f3fc5f868cfe",
+  "model_revisions": {
+    "mstrasser/Jeff-Qwen3.5-0.8B": "f0a2b523f1b64c567d4628fadd60caea03cc6847",
+    "mstrasser/Jeff-Qwen3.5-0.8B-tools": "a9086f3a10cb70d4ab13ed7b253458f204518dfa"
+  },
+  "base_sha256": "080ff4a5b419aaf59f5c5059c492de88a063f34087361fb3c3ff120d95d5396f",
+  "mac_chip": "Apple M5 Pro",
+  "memory_gb": 48,
+  "network_policy": "HF_HUB_OFFLINE=1 during inference; local argument fill at 127.0.0.1:1234; simulated execution only",
+  "python": "3.14.8",
+  "local_baseline": "qwen/qwen3.5-4b",
+  "evaluation_split": "123 previously inspected development fixtures; not sealed acceptance",
+  "status": "uncommitted local evaluation",
+  "base-v1.2_sha256": {
+    "decision_config.json": "4b9b07551651bef87710185c0ce6983c37d29cc86952ff878c453634c7b1df03",
+    "readout.safetensors": "86363dc193724b4c4321bfe107d07c0a53eb903b860b8c8bcb48865039f2e4f9"
+  },
+  "tools-v1.2_sha256": {
+    "decision_config.json": "62bdbeaf4e741b88cfcdc143e9f34b865ec0669a6fc52c06ed3dc685dd8cd15a",
+    "readout.safetensors": "dd67222fac35c87361053ad910e302fcc45c911f4e8b10d418cecd1afdeaca7f",
+    "adapter_model.safetensors": "6ea05c3a9f5b65b8c00bc23978e380ce658b5160263ab5977d0a5a3e4d6d57bf"
+  }
+}

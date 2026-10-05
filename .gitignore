@@ -34,3 +34,10 @@ dist/
 # Orphaned dependency tree — personal-platform/ holds only node_modules and
 # .wrangler with no source; safe to delete locally.
 personal-platform/
+
+# Next-step router data + student checkpoints (~1.7 GB, regenerable via
+# scripts/generate-router-step-states.py → label-router-step-states.py → train-router-student.py).
+# Coverage summaries stay tracked; run metrics are copied to evals/jev-experiment/students/.
+evals/router-data/*
+!evals/router-data/coverage.json
+!evals/router-data/coverage-extra.json

@@ -1,0 +1,1977 @@
+{
+  "created_at": "2026-10-05T00:26:57",
+  "jev_route": "classifier.dev (tier fast)",
+  "local_model": "qwen/qwen3.5-4b",
+  "max_steps": 5,
+  "arms": {
+    "jeff": {
+      "summary": {
+        "cases": 10,
+        "errors": 0,
+        "first_step_accuracy": 0.7,
+        "full_pass": 0.6,
+        "route_calls": 19,
+        "route_ms_p50": 103,
+        "route_ms_p95": 153,
+        "route_model_ms_p50": null,
+        "argument_ms_p50": 440,
+        "argument_ms_p95": 535,
+        "by_kind": {
+          "click": {
+            "n": 5,
+            "first_step": 0.6,
+            "args": 1.0,
+            "full_pass": 0.4
+          },
+          "respond": {
+            "n": 5,
+            "first_step": 0.8,
+            "args": 1.0,
+            "full_pass": 0.8
+          }
+        },
+        "by_category": {
+          "fm-fixtures": {
+            "n": 10,
+            "first_step": 0.7,
+            "args": 1.0,
+            "full_pass": 0.6
+          }
+        },
+        "wall_seconds": 7.3
+      },
+      "rows": [
+        {
+          "id": "fm-fixtures/ambiguous-two-saves",
+          "category": "fm-fixtures",
+          "kind": "click",
+          "request": "click save",
+          "expected_first": [
+            "click",
+            "double_click"
+          ],
+          "first_step": "click",
+          "first_step_correct": true,
+          "arguments_correct": true,
+          "no_forbidden_tools": true,
+          "enough_actions": true,
+          "terminal": "REPEAT_GUARD",
+          "terminated_cleanly": false,
+          "full_pass": false,
+          "error": null,
+          "steps": [
+            {
+              "tool": "click",
+              "args": {
+                "element_id": 2,
+                "x": 640,
+                "y": 40,
+                "screen": 1
+              },
+              "result": "ok: clicked 'save and send button'"
+            }
+          ],
+          "route_calls": [
+            {
+              "label": "click",
+              "ms": 100,
+              "model_ms": null,
+              "top3": [
+                [
+                  "click",
+                  0.454
+                ],
+                [
+                  "double_click",
+                  0.085
+                ],
+                [
+                  "mail",
+                  0.057
+                ]
+              ],
+              "probabilities": {
+                "click": 0.4537491798400879,
+                "double_click": 0.08457919955253601,
+                "type": 0.04816048964858055,
+                "set_value": 0.013322792015969753,
+                "undo_last": 0.02726178802549839,
+                "key": 0.024294262751936913,
+                "clipboard_read": 0.003995141480118036,
+                "window_snap": 0.008039949461817741,
+                "scroll": 0.007415588013827801,
+                "open_app": 0.009858787059783936,
+                "open_url": 0.008221243508160114,
+                "music": 0.032529234886169434,
+                "volume": 0.004206379409879446,
+                "brightness": 0.004414516035467386,
+                "calendar": 0.005588251631706953,
+                "calendar_create": 0.011766912415623665,
+                "reminder": 0.007887366227805614,
+                "finder": 0.008857650682330132,
+                "notes": 0.020244061946868896,
+                "mail": 0.05680014193058014,
+                "things": 0.006470429245382547,
+                "shortcuts": 0.010674701072275639,
+                "messages": 0.010844354517757893,
+                "download_file": 0.02264975942671299,
+                "start_timer": 0.012403858825564384,
+                "record_flow": 0.016209805384278297,
+                "run_flow": 0.015230885706841946,
+                "draw_annotation": 0.008908635005354881,
+                "clear_annotations": 0.006828179582953453,
+                "ASK_USER": 0.005314826499670744,
+                "RESPOND": 0.03001120500266552,
+                "DONE": 0.013260374777019024
+              }
+            },
+            {
+              "label": "click",
+              "ms": 107,
+              "model_ms": null,
+              "top3": [
+                [
+                  "click",
+                  0.326
+                ],
+                [
+                  "double_click",
+                  0.103
+                ],
+                [
+                  "mail",
+                  0.07
+                ]
+              ],
+              "probabilities": {
+                "click": 0.3260687589645386,
+                "double_click": 0.1032678559422493,
+                "type": 0.04756933078169823,
+                "set_value": 0.016619399189949036,
+                "undo_last": 0.03402331843972206,
+                "key": 0.03669789060950279,
+                "clipboard_read": 0.004349820781499147,
+                "window_snap": 0.008271798491477966,
+                "scroll": 0.009542472660541534,
+                "open_app": 0.010253063403069973,
+                "open_url": 0.009748979471623898,
+                "music": 0.03807295858860016,
+                "volume": 0.004213213920593262,
+                "brightness": 0.00500089256092906,
+                "calendar": 0.005260684061795473,
+                "calendar_create": 0.008729658089578152,
+                "reminder": 0.006917900871485472,
+                "finder": 0.010383879765868187,
+                "notes": 0.02192288637161255,
+                "mail": 0.07005101442337036,
+                "things": 0.0066677117720246315,
+                "shortcuts": 0.011225542984902859,
+                "messages": 0.011897382326424122,
+                "download_file": 0.02467031218111515,
+                "start_timer": 0.01132875494658947,
+                "record_flow": 0.016089867800474167,
+                "run_flow": 0.01414429023861885,
+                "draw_annotation": 0.01463310793042183,
+                "clear_annotations": 0.006819566246122122,
+                "ASK_USER": 0.008559209294617176,
+                "RESPOND": 0.056945256888866425,
+                "DONE": 0.040053267031908035
+              }
+            }
+          ],
+          "route_ms": [
+            100,
+            107
+          ],
+          "argument_ms": [
+            535,
+            563
+          ]
+        },
+        {
+          "id": "fm-fixtures/click-target-in-list",
+          "category": "fm-fixtures",
+          "kind": "click",
+          "request": "click the save button",
+          "expected_first": [
+            "click",
+            "double_click"
+          ],
+          "first_step": "click",
+          "first_step_correct": true,
+          "arguments_correct": true,
+          "no_forbidden_tools": true,
+          "enough_actions": true,
+          "terminal": "DONE",
+          "terminated_cleanly": true,
+          "full_pass": true,
+          "error": null,
+          "steps": [
+            {
+              "tool": "click",
+              "args": {
+                "element_id": 1,
+                "x": 548,
+                "y": 40
+              },
+              "result": "ok: clicked 'save button'"
+            }
+          ],
+          "route_calls": [
+            {
+              "label": "click",
+              "ms": 101,
+              "model_ms": null,
+              "top3": [
+                [
+                  "click",
+                  0.896
+                ],
+                [
+                  "double_click",
+                  0.029
+                ],
+                [
+                  "RESPOND",
+                  0.008
+                ]
+              ],
+              "probabilities": {
+                "click": 0.8957095146179199,
+                "double_click": 0.0289605800062418,
+                "type": 0.005420937202870846,
+                "set_value": 0.0023091817274689674,
+                "undo_last": 0.005254829302430153,
+                "key": 0.002756396308541298,
+                "clipboard_read": 0.000985539285466075,
+                "window_snap": 0.0015008002519607544,
+                "scroll": 0.001559081138111651,
+                "open_app": 0.002042274223640561,
+                "open_url": 0.0011842144886031747,
+                "music": 0.003693223465234041,
+                "volume": 0.0009146028314717114,
+                "brightness": 0.0009120731265284121,
+                "calendar": 0.0016768124187365174,
+                "calendar_create": 0.0015696486225351691,
+                "reminder": 0.0015651818830519915,
+                "finder": 0.0018261068034917116,
+                "notes": 0.0016837979201227427,
+                "mail": 0.0038048014976084232,
+                "things": 0.0009490476222708821,
+                "shortcuts": 0.0022863438352942467,
+                "messages": 0.001592640415765345,
+                "download_file": 0.0033417590893805027,
+                "start_timer": 0.0019405776401981711,
+                "record_flow": 0.001788895227946341,
+                "run_flow": 0.0059088123962283134,
+                "draw_annotation": 0.003966174554079771,
+                "clear_annotations": 0.0015447427285835147,
+                "ASK_USER": 0.0009778604144230485,
+                "RESPOND": 0.00753380311653018,
+                "DONE": 0.0028398355934768915
+              }
+            },
+            {
+              "label": "DONE",
+              "ms": 107,
+              "model_ms": null,
+              "top3": [
+                [
+                  "DONE",
+                  0.417
+                ],
+                [
+                  "click",
+                  0.358
+                ],
+                [
+                  "key",
+                  0.045
+                ]
+              ],
+              "probabilities": {
+                "click": 0.3578634262084961,
+                "double_click": 0.026189053431153297,
+                "type": 0.006933322176337242,
+                "set_value": 0.004046292509883642,
+                "undo_last": 0.010436437092721462,
+                "key": 0.04462999850511551,
+                "clipboard_read": 0.0016584291588515043,
+                "window_snap": 0.002599745523184538,
+                "scroll": 0.004103456158190966,
+                "open_app": 0.0068242428824305534,
+                "open_url": 0.00288120424374938,
+                "music": 0.006389706861227751,
+                "volume": 0.0013754001120105386,
+                "brightness": 0.0013391416287049651,
+                "calendar": 0.002428014762699604,
+                "calendar_create": 0.0031610780861228704,
+                "reminder": 0.002413083566352725,
+                "finder": 0.0026355006266385317,
+                "notes": 0.002232783706858754,
+                "mail": 0.006752134300768375,
+                "things": 0.0009301120298914611,
+                "shortcuts": 0.004184988792985678,
+                "messages": 0.001687360811047256,
+                "download_file": 0.005189883057028055,
+                "start_timer": 0.004727181512862444,
+                "record_flow": 0.0024224803782999516,
+                "run_flow": 0.01127831544727087,
+                "draw_annotation": 0.016398288309574127,
+                "clear_annotations": 0.002673663664609194,
+                "ASK_USER": 0.005315015092492104,
+                "RESPOND": 0.031388793140649796,
+                "DONE": 0.41691142320632935
+              }
+            }
+          ],
+          "route_ms": [
+            101,
+            107
+          ],
+          "argument_ms": [
+            469
+          ]
+        },
+        {
+          "id": "fm-fixtures/description-vs-overview",
+          "category": "fm-fixtures",
+          "kind": "respond",
+          "request": "describe what i'm looking at",
+          "expected_first": [
+            "RESPOND"
+          ],
+          "first_step": "RESPOND",
+          "first_step_correct": true,
+          "arguments_correct": true,
+          "no_forbidden_tools": true,
+          "enough_actions": true,
+          "terminal": "RESPOND",
+          "terminated_cleanly": true,
+          "full_pass": true,
+          "error": null,
+          "steps": [],
+          "route_calls": [
+            {
+              "label": "RESPOND",
+              "ms": 103,
+              "model_ms": null,
+              "top3": [
+                [
+                  "RESPOND",
+                  0.806
+                ],
+                [
+                  "click",
+                  0.046
+                ],
+                [
+                  "draw_annotation",
+                  0.031
+                ]
+              ],
+              "probabilities": {
+                "click": 0.04646024480462074,
+                "double_click": 0.01178298331797123,
+                "type": 0.0048784068785607815,
+                "set_value": 0.004323177505284548,
+                "undo_last": 0.02376936934888363,
+                "key": 0.0026521130930632353,
+                "clipboard_read": 0.0018680088687688112,
+                "window_snap": 0.0015522581525146961,
+                "scroll": 0.0008390045259147882,
+                "open_app": 0.002601699437946081,
+                "open_url": 0.00234291166998446,
+                "music": 0.002483025658875704,
+                "volume": 0.00107348442543298,
+                "brightness": 0.0009251552983187139,
+                "calendar": 0.0011382465017959476,
+                "calendar_create": 0.0010120491497218609,
+                "reminder": 0.0008291935664601624,
+                "finder": 0.0036937680561095476,
+                "notes": 0.0011559756239876151,
+                "mail": 0.001455681980587542,
+                "things": 0.0003692247555591166,
+                "shortcuts": 0.0039090304635465145,
+                "messages": 0.0008169924840331078,
+                "download_file": 0.0031778193078935146,
+                "start_timer": 0.0034267224837094545,
+                "record_flow": 0.0023959025274962187,
+                "run_flow": 0.011572171933948994,
+                "draw_annotation": 0.03082953207194805,
+                "clear_annotations": 0.0017847695853561163,
+                "ASK_USER": 0.006495276466012001,
+                "RESPOND": 0.806077778339386,
+                "DONE": 0.012308016419410706
+              }
+            }
+          ],
+          "route_ms": [
+            103
+          ],
+          "argument_ms": []
+        },
+        {
+          "id": "fm-fixtures/empty-screen-refuse",
+          "category": "fm-fixtures",
+          "kind": "respond",
+          "request": "click the save button",
+          "expected_first": [
+            "RESPOND"
+          ],
+          "first_step": "click",
+          "first_step_correct": false,
+          "arguments_correct": true,
+          "no_forbidden_tools": false,
+          "enough_actions": true,
+          "terminal": null,
+          "terminated_cleanly": false,
+          "full_pass": false,
+          "error": null,
+          "steps": [
+            {
+              "tool": "click",
+              "args": {
+                "x": 800,
+                "y": 450,
+                "screen": 1
+              },
+              "result": "ok: done"
+            },
+            {
+              "tool": "click",
+              "args": {
+                "x": 950,
+                "y": 420,
+                "screen": 1
+              },
+              "result": "ok: done"
+            },
+            {
+              "tool": "click",
+              "args": {
+                "x": 1100,
+                "y": 480,
+                "screen": 1
+              },
+              "result": "ok: done"
+            },
+            {
+              "tool": "click",
+              "args": {
+                "x": 1250,
+                "y": 460,
+                "screen": 1
+              },
+              "result": "ok: done"
+            },
+            {
+              "tool": "click",
+              "args": {
+                "x": 1400,
+                "y": 470,
+                "screen": 1
+              },
+              "result": "ok: done"
+            }
+          ],
+          "route_calls": [
+            {
+              "label": "click",
+              "ms": 378,
+              "model_ms": null,
+              "top3": [
+                [
+                  "click",
+                  0.794
+                ],
+                [
+                  "double_click",
+                  0.036
+                ],
+                [
+                  "key",
+                  0.014
+                ]
+              ],
+              "probabilities": {
+                "click": 0.7942523956298828,
+                "double_click": 0.03551071882247925,
+                "type": 0.008001475594937801,
+                "set_value": 0.004826175980269909,
+                "undo_last": 0.009212846867740154,
+                "key": 0.014051173813641071,
+                "clipboard_read": 0.0022661671973764896,
+                "window_snap": 0.0034774616360664368,
+                "scroll": 0.0027049940545111895,
+                "open_app": 0.004425831139087677,
+                "open_url": 0.003395946929231286,
+                "music": 0.007304175291210413,
+                "volume": 0.001842615776695311,
+                "brightness": 0.0012428699992597103,
+                "calendar": 0.0030958594288676977,
+                "calendar_create": 0.003113093553110957,
+                "reminder": 0.003255954710766673,
+                "finder": 0.0059832120314240456,
+                "notes": 0.004008636809885502,
+                "mail": 0.004168677609413862,
+                "things": 0.0031883108895272017,
+                "shortcuts": 0.0059812599793076515,
+                "messages": 0.0030397200025618076,
+                "download_file": 0.011295687407255173,
+                "start_timer": 0.00659505371004343,
+                "record_flow": 0.006525297649204731,
+                "run_flow": 0.011721578426659107,
+                "draw_annotation": 0.007593843620270491,
+                "clear_annotations": 0.0031864233314990997,
+                "ASK_USER": 0.002508762991055846,
+                "RESPOND": 0.012793969362974167,
+                "DONE": 0.009429866448044777
+              }
+            },
+            {
+              "label": "click",
+              "ms": 100,
+              "model_ms": null,
+              "top3": [
+                [
+                  "click",
+                  0.718
+                ],
+                [
+                  "double_click",
+                  0.061
+                ],
+                [
+                  "RESPOND",
+                  0.029
+                ]
+              ],
+              "probabilities": {
+                "click": 0.7180818915367126,
+                "double_click": 0.06082051619887352,
+                "type": 0.008756153285503387,
+                "set_value": 0.005401856731623411,
+                "undo_last": 0.013961849734187126,
+                "key": 0.015936795622110367,
+                "clipboard_read": 0.002527428325265646,
+                "window_snap": 0.0038974990602582693,
+                "scroll": 0.0029169772751629353,
+                "open_app": 0.004769208375364542,
+                "open_url": 0.00421448377892375,
+                "music": 0.009385520592331886,
+                "volume": 0.0021070463117212057,
+                "brightness": 0.0013446491211652756,
+                "calendar": 0.003395898500457406,
+                "calendar_create": 0.0035873553715646267,
+                "reminder": 0.0032989508472383022,
+                "finder": 0.0065894960425794125,
+                "notes": 0.005209445022046566,
+                "mail": 0.004950421396642923,
+                "things": 0.0034532167483121157,
+                "shortcuts": 0.007022199686616659,
+                "messages": 0.00336734508164227,
+                "download_file": 0.015840940177440643,
+                "start_timer": 0.006918725557625294,
+                "record_flow": 0.0066411602310836315,
+                "run_flow": 0.013251024298369884,
+                "draw_annotation": 0.012679632753133774,
+                "clear_annotations": 0.0029142326675355434,
+                "ASK_USER": 0.0032258322462439537,
+                "RESPOND": 0.02865283004939556,
+                "DONE": 0.0148794986307621
+              }
+            },
+            {
+              "label": "click",
+              "ms": 102,
+              "model_ms": null,
+              "top3": [
+                [
+                  "click",
+                  0.742
+                ],
+                [
+                  "double_click",
+                  0.059
+                ],
+                [
+                  "RESPOND",
+                  0.03
+                ]
+              ],
+              "probabilities": {
+                "click": 0.7421806454658508,
+                "double_click": 0.058917704969644547,
+                "type": 0.00788181647658348,
+                "set_value": 0.005227353889495134,
+                "undo_last": 0.013192560523748398,
+                "key": 0.0113550228998065,
+                "clipboard_read": 0.002451264066621661,
+                "window_snap": 0.003539379918947816,
+                "scroll": 0.0025305133312940598,
+                "open_app": 0.004239337053149939,
+                "open_url": 0.0037262141704559326,
+                "music": 0.007716008462011814,
+                "volume": 0.0019287477480247617,
+                "brightness": 0.0012736448552459478,
+                "calendar": 0.003204829292371869,
+                "calendar_create": 0.00322942272759974,
+                "reminder": 0.0031133689917623997,
+                "finder": 0.005274309776723385,
+                "notes": 0.0037273161578923464,
+                "mail": 0.004259697161614895,
+                "things": 0.0025894343852996826,
+                "shortcuts": 0.006382158026099205,
+                "messages": 0.0029454382602125406,
+                "download_file": 0.013639301061630249,
+                "start_timer": 0.006775630172342062,
+                "record_flow": 0.0050396304577589035,
+                "run_flow": 0.012566935271024704,
+                "draw_annotation": 0.01272070873528719,
+                "clear_annotations": 0.0027056357357650995,
+                "ASK_USER": 0.00315203913487494,
+                "RESPOND": 0.029796482995152473,
+                "DONE": 0.012717518024146557
+              }
+            },
+            {
+              "label": "click",
+              "ms": 104,
+              "model_ms": null,
+              "top3": [
+                [
+                  "click",
+                  0.713
+                ],
+                [
+                  "double_click",
+                  0.072
+                ],
+                [
+                  "RESPOND",
+                  0.028
+                ]
+              ],
+              "probabilities": {
+                "click": 0.7134089469909668,
+                "double_click": 0.07246211171150208,
+                "type": 0.008781778626143932,
+                "set_value": 0.005680879112333059,
+                "undo_last": 0.014491576701402664,
+                "key": 0.015037191100418568,
+                "clipboard_read": 0.002696226816624403,
+                "window_snap": 0.003972237464040518,
+                "scroll": 0.002812751801684499,
+                "open_app": 0.004371407441794872,
+                "open_url": 0.0037350612692534924,
+                "music": 0.009538904763758183,
+                "volume": 0.0020946424920111895,
+                "brightness": 0.0014253711560741067,
+                "calendar": 0.00342693948186934,
+                "calendar_create": 0.003656389657407999,
+                "reminder": 0.00312625034712255,
+                "finder": 0.006019250024110079,
+                "notes": 0.004445840138942003,
+                "mail": 0.004309216048568487,
+                "things": 0.002969917608425021,
+                "shortcuts": 0.0066807144321501255,
+                "messages": 0.003061143681406975,
+                "download_file": 0.01642942614853382,
+                "start_timer": 0.00675039691850543,
+                "record_flow": 0.0051335543394088745,
+                "run_flow": 0.012320244684815407,
+                "draw_annotation": 0.012962929904460907,
+                "clear_annotations": 0.0027412506751716137,
+                "ASK_USER": 0.003112019505351782,
+                "RESPOND": 0.028212234377861023,
+                "DONE": 0.014133096672594547
+              }
+            },
+            {
+              "label": "click",
+              "ms": 103,
+              "model_ms": null,
+              "top3": [
+                [
+                  "click",
+                  0.705
+                ],
+                [
+                  "double_click",
+                  0.073
+                ],
+                [
+                  "RESPOND",
+                  0.031
+                ]
+              ],
+              "probabilities": {
+                "click": 0.7045435905456543,
+                "double_click": 0.0733422040939331,
+                "type": 0.00853318627923727,
+                "set_value": 0.00594343664124608,
+                "undo_last": 0.015336326323449612,
+                "key": 0.01625564880669117,
+                "clipboard_read": 0.0027579066809266806,
+                "window_snap": 0.003981681540608406,
+                "scroll": 0.0028267058078199625,
+                "open_app": 0.004524667747318745,
+                "open_url": 0.003924919292330742,
+                "music": 0.00977220106869936,
+                "volume": 0.00211213156580925,
+                "brightness": 0.0014422477688640356,
+                "calendar": 0.0035233553498983383,
+                "calendar_create": 0.0034024594351649284,
+                "reminder": 0.003197620389983058,
+                "finder": 0.006216526031494141,
+                "notes": 0.00434051314368844,
+                "mail": 0.004563052207231522,
+                "things": 0.00329803884960711,
+                "shortcuts": 0.006593494210392237,
+                "messages": 0.0033536087721586227,
+                "download_file": 0.01493142731487751,
+                "start_timer": 0.006951312068849802,
+                "record_flow": 0.004858358763158321,
+                "run_flow": 0.012833599001169205,
+                "draw_annotation": 0.01384945958852768,
+                "clear_annotations": 0.0028570222202688456,
+                "ASK_USER": 0.0034772322978824377,
+                "RESPOND": 0.03134084492921829,
+                "DONE": 0.015115126967430115
+              }
+            }
+          ],
+          "route_ms": [
+            378,
+            100,
+            102,
+            104,
+            103
+          ],
+          "argument_ms": [
+            403,
+            412,
+            440,
+            459,
+            457
+          ]
+        },
+        {
+          "id": "fm-fixtures/explicit-siri-probe",
+          "category": "fm-fixtures",
+          "kind": "respond",
+          "request": "are you siri",
+          "expected_first": [
+            "RESPOND"
+          ],
+          "first_step": "RESPOND",
+          "first_step_correct": true,
+          "arguments_correct": true,
+          "no_forbidden_tools": true,
+          "enough_actions": true,
+          "terminal": "RESPOND",
+          "terminated_cleanly": true,
+          "full_pass": true,
+          "error": null,
+          "steps": [],
+          "route_calls": [
+            {
+              "label": "RESPOND",
+              "ms": 103,
+              "model_ms": null,
+              "top3": [
+                [
+                  "RESPOND",
+                  0.745
+                ],
+                [
+                  "DONE",
+                  0.046
+                ],
+                [
+                  "click",
+                  0.034
+                ]
+              ],
+              "probabilities": {
+                "click": 0.03441452980041504,
+                "double_click": 0.008145054802298546,
+                "type": 0.01507827453315258,
+                "set_value": 0.005459953099489212,
+                "undo_last": 0.03144353628158569,
+                "key": 0.008794719353318214,
+                "clipboard_read": 0.0016946530668064952,
+                "window_snap": 0.0022647706791758537,
+                "scroll": 0.0007310399087145925,
+                "open_app": 0.010438518598675728,
+                "open_url": 0.0056447191163897514,
+                "music": 0.005144380033016205,
+                "volume": 0.0015397729584947228,
+                "brightness": 0.0007949313730932772,
+                "calendar": 0.0019763982854783535,
+                "calendar_create": 0.0013435276923701167,
+                "reminder": 0.001193047035485506,
+                "finder": 0.0045642852783203125,
+                "notes": 0.0010964462999254465,
+                "mail": 0.002829894656315446,
+                "things": 0.00047446368262171745,
+                "shortcuts": 0.0043190219439566135,
+                "messages": 0.0014591581420972943,
+                "download_file": 0.002485814271494746,
+                "start_timer": 0.007280578371137381,
+                "record_flow": 0.00508523266762495,
+                "run_flow": 0.013190983794629574,
+                "draw_annotation": 0.008793745189905167,
+                "clear_annotations": 0.005658554844558239,
+                "ASK_USER": 0.015924690291285515,
+                "RESPOND": 0.7447463274002075,
+                "DONE": 0.04598892480134964
+              }
+            }
+          ],
+          "route_ms": [
+            103
+          ],
+          "argument_ms": []
+        },
+        {
+          "id": "fm-fixtures/identity-probe",
+          "category": "fm-fixtures",
+          "kind": "respond",
+          "request": "who are you",
+          "expected_first": [
+            "RESPOND"
+          ],
+          "first_step": "RESPOND",
+          "first_step_correct": true,
+          "arguments_correct": true,
+          "no_forbidden_tools": true,
+          "enough_actions": true,
+          "terminal": "RESPOND",
+          "terminated_cleanly": true,
+          "full_pass": true,
+          "error": null,
+          "steps": [],
+          "route_calls": [
+            {
+              "label": "RESPOND",
+              "ms": 96,
+              "model_ms": null,
+              "top3": [
+                [
+                  "RESPOND",
+                  0.886
+                ],
+                [
+                  "click",
+                  0.02
+                ],
+                [
+                  "undo_last",
+                  0.017
+                ]
+              ],
+              "probabilities": {
+                "click": 0.01983700692653656,
+                "double_click": 0.0022772708907723427,
+                "type": 0.00566906901076436,
+                "set_value": 0.002563589485362172,
+                "undo_last": 0.017195435240864754,
+                "key": 0.0021591500844806433,
+                "clipboard_read": 0.0006560109322890639,
+                "window_snap": 0.0007721696747466922,
+                "scroll": 0.00020823214435949922,
+                "open_app": 0.001985967392101884,
+                "open_url": 0.001465899171307683,
+                "music": 0.0013393925037235022,
+                "volume": 0.0006529228412546217,
+                "brightness": 0.00031780058634467423,
+                "calendar": 0.0005418951041065156,
+                "calendar_create": 0.0004947204724885523,
+                "reminder": 0.0004902714281342924,
+                "finder": 0.00172349251806736,
+                "notes": 0.00037194855394773185,
+                "mail": 0.000940586207434535,
+                "things": 0.0001402485795551911,
+                "shortcuts": 0.001892078435048461,
+                "messages": 0.0006480767042376101,
+                "download_file": 0.0007528605055995286,
+                "start_timer": 0.0017823620000854135,
+                "record_flow": 0.001528597786091268,
+                "run_flow": 0.009403856471180916,
+                "draw_annotation": 0.004895532503724098,
+                "clear_annotations": 0.002194572938606143,
+                "ASK_USER": 0.01203308254480362,
+                "RESPOND": 0.8864663243293762,
+                "DONE": 0.01659965142607689
+              }
+            }
+          ],
+          "route_ms": [
+            96
+          ],
+          "argument_ms": []
+        },
+        {
+          "id": "fm-fixtures/knowledge-with-screen",
+          "category": "fm-fixtures",
+          "kind": "respond",
+          "request": "what is css",
+          "expected_first": [
+            "RESPOND"
+          ],
+          "first_step": "RESPOND",
+          "first_step_correct": true,
+          "arguments_correct": true,
+          "no_forbidden_tools": true,
+          "enough_actions": true,
+          "terminal": "RESPOND",
+          "terminated_cleanly": true,
+          "full_pass": true,
+          "error": null,
+          "steps": [],
+          "route_calls": [
+            {
+              "label": "RESPOND",
+              "ms": 99,
+              "model_ms": null,
+              "top3": [
+                [
+                  "RESPOND",
+                  0.671
+                ],
+                [
+                  "type",
+                  0.065
+                ],
+                [
+                  "click",
+                  0.035
+                ]
+              ],
+              "probabilities": {
+                "click": 0.03481044992804527,
+                "double_click": 0.013248074799776077,
+                "type": 0.0645584911108017,
+                "set_value": 0.010727738961577415,
+                "undo_last": 0.03237937390804291,
+                "key": 0.005764629691839218,
+                "clipboard_read": 0.004289162810891867,
+                "window_snap": 0.003409334924072027,
+                "scroll": 0.0011839123908430338,
+                "open_app": 0.014075173065066338,
+                "open_url": 0.021226970478892326,
+                "music": 0.010395360179245472,
+                "volume": 0.002214310923591256,
+                "brightness": 0.0012414840748533607,
+                "calendar": 0.0016212600748986006,
+                "calendar_create": 0.002187004778534174,
+                "reminder": 0.001316716312430799,
+                "finder": 0.004234448075294495,
+                "notes": 0.004044968634843826,
+                "mail": 0.006951416842639446,
+                "things": 0.0009005667525343597,
+                "shortcuts": 0.00614110566675663,
+                "messages": 0.0021823530551046133,
+                "download_file": 0.00795503705739975,
+                "start_timer": 0.006452317349612713,
+                "record_flow": 0.007597818970680237,
+                "run_flow": 0.012319065630435944,
+                "draw_annotation": 0.01680058240890503,
+                "clear_annotations": 0.005608647130429745,
+                "ASK_USER": 0.009605779312551022,
+                "RESPOND": 0.6706854701042175,
+                "DONE": 0.0138709070160985
+              }
+            }
+          ],
+          "route_ms": [
+            99
+          ],
+          "argument_ms": []
+        },
+        {
+          "id": "fm-fixtures/long-list-pick-target",
+          "category": "fm-fixtures",
+          "kind": "click",
+          "request": "click the save draft button",
+          "expected_first": [
+            "click",
+            "double_click"
+          ],
+          "first_step": "click",
+          "first_step_correct": true,
+          "arguments_correct": true,
+          "no_forbidden_tools": true,
+          "enough_actions": true,
+          "terminal": "DONE",
+          "terminated_cleanly": true,
+          "full_pass": true,
+          "error": null,
+          "steps": [
+            {
+              "tool": "click",
+              "args": {
+                "element_id": 26
+              },
+              "result": "ok: clicked 'save draft button'"
+            }
+          ],
+          "route_calls": [
+            {
+              "label": "click",
+              "ms": 149,
+              "model_ms": null,
+              "top3": [
+                [
+                  "click",
+                  0.626
+                ],
+                [
+                  "mail",
+                  0.153
+                ],
+                [
+                  "double_click",
+                  0.068
+                ]
+              ],
+              "probabilities": {
+                "click": 0.6259775757789612,
+                "double_click": 0.06841638684272766,
+                "type": 0.006371027790009975,
+                "set_value": 0.0023642792366445065,
+                "undo_last": 0.010426518507301807,
+                "key": 0.004634862300008535,
+                "clipboard_read": 0.001241919118911028,
+                "window_snap": 0.0018831806955859065,
+                "scroll": 0.0013715601526200771,
+                "open_app": 0.0008880883688107133,
+                "open_url": 0.0015756606590002775,
+                "music": 0.003457616548985243,
+                "volume": 0.0012916631530970335,
+                "brightness": 0.0007124158437363803,
+                "calendar": 0.0010208990424871445,
+                "calendar_create": 0.001607464044354856,
+                "reminder": 0.0013003218919038773,
+                "finder": 0.011730187572538853,
+                "notes": 0.010539376176893711,
+                "mail": 0.15349401533603668,
+                "things": 0.0004703463055193424,
+                "shortcuts": 0.004531754180788994,
+                "messages": 0.00812729261815548,
+                "download_file": 0.004483290947973728,
+                "start_timer": 0.001947631943039596,
+                "record_flow": 0.0012333615450188518,
+                "run_flow": 0.012498872354626656,
+                "draw_annotation": 0.009927823208272457,
+                "clear_annotations": 0.002402088837698102,
+                "ASK_USER": 0.0007503223023377359,
+                "RESPOND": 0.03222593292593956,
+                "DONE": 0.011096199043095112
+              }
+            },
+            {
+              "label": "DONE",
+              "ms": 153,
+              "model_ms": null,
+              "top3": [
+                [
+                  "DONE",
+                  0.696
+                ],
+                [
+                  "click",
+                  0.121
+                ],
+                [
+                  "RESPOND",
+                  0.055
+                ]
+              ],
+              "probabilities": {
+                "click": 0.1213119700551033,
+                "double_click": 0.006942296866327524,
+                "type": 0.0019407013896852732,
+                "set_value": 0.0015196406748145819,
+                "undo_last": 0.006480238400399685,
+                "key": 0.02095344103872776,
+                "clipboard_read": 0.0009103608899749815,
+                "window_snap": 0.001530488021671772,
+                "scroll": 0.0015779875684529543,
+                "open_app": 0.0023566260933876038,
+                "open_url": 0.0019191631581634283,
+                "music": 0.0019109700806438923,
+                "volume": 0.000681533943861723,
+                "brightness": 0.0006171519053168595,
+                "calendar": 0.0009609571425244212,
+                "calendar_create": 0.0014196733245626092,
+                "reminder": 0.0007783925393596292,
+                "finder": 0.0035035230685025454,
+                "notes": 0.0026379702612757683,
+                "mail": 0.03062143549323082,
+                "things": 0.0002751002029981464,
+                "shortcuts": 0.0027962131425738335,
+                "messages": 0.0018423802684992552,
+                "download_file": 0.0023489913437515497,
+                "start_timer": 0.0019987088162451982,
+                "record_flow": 0.0007167722214944661,
+                "run_flow": 0.012539239600300789,
+                "draw_annotation": 0.011065099388360977,
+                "clear_annotations": 0.0017185283359140158,
+                "ASK_USER": 0.003369170008227229,
+                "RESPOND": 0.055137887597084045,
+                "DONE": 0.6956173181533813
+              }
+            }
+          ],
+          "route_ms": [
+            149,
+            153
+          ],
+          "argument_ms": [
+            214
+          ]
+        },
+        {
+          "id": "fm-fixtures/menu-bar-click",
+          "category": "fm-fixtures",
+          "kind": "click",
+          "request": "click the file menu",
+          "expected_first": [
+            "click",
+            "double_click"
+          ],
+          "first_step": "download_file",
+          "first_step_correct": false,
+          "arguments_correct": true,
+          "no_forbidden_tools": true,
+          "enough_actions": true,
+          "terminal": "REPEAT_GUARD",
+          "terminated_cleanly": false,
+          "full_pass": false,
+          "error": null,
+          "steps": [
+            {
+              "tool": "download_file",
+              "args": {
+                "url": "https://example.com/report.pdf",
+                "name": "report.pdf"
+              },
+              "result": "ok: done"
+            }
+          ],
+          "route_calls": [
+            {
+              "label": "download_file",
+              "ms": 99,
+              "model_ms": null,
+              "top3": [
+                [
+                  "download_file",
+                  0.174
+                ],
+                [
+                  "finder",
+                  0.131
+                ],
+                [
+                  "double_click",
+                  0.122
+                ]
+              ],
+              "probabilities": {
+                "click": 0.09646808356046677,
+                "double_click": 0.12188441306352615,
+                "type": 0.026241496205329895,
+                "set_value": 0.006717044860124588,
+                "undo_last": 0.021130502223968506,
+                "key": 0.0312720462679863,
+                "clipboard_read": 0.004529311787337065,
+                "window_snap": 0.007548820227384567,
+                "scroll": 0.008882291615009308,
+                "open_app": 0.04274711385369301,
+                "open_url": 0.06034556403756142,
+                "music": 0.03334780037403107,
+                "volume": 0.002939680591225624,
+                "brightness": 0.0021063792519271374,
+                "calendar": 0.0038812069687992334,
+                "calendar_create": 0.004107198212295771,
+                "reminder": 0.0029069429729133844,
+                "finder": 0.13138452172279358,
+                "notes": 0.004083451349288225,
+                "mail": 0.010423571802675724,
+                "things": 0.001690138247795403,
+                "shortcuts": 0.01630259118974209,
+                "messages": 0.0049457247368991375,
+                "download_file": 0.1741996854543686,
+                "start_timer": 0.012337320484220982,
+                "record_flow": 0.009232121519744396,
+                "run_flow": 0.0139206787571311,
+                "draw_annotation": 0.0255290474742651,
+                "clear_annotations": 0.005745106842368841,
+                "ASK_USER": 0.006343256216496229,
+                "RESPOND": 0.06503422558307648,
+                "DONE": 0.04177265614271164
+              }
+            },
+            {
+              "label": "download_file",
+              "ms": 104,
+              "model_ms": null,
+              "top3": [
+                [
+                  "download_file",
+                  0.366
+                ],
+                [
+                  "finder",
+                  0.104
+                ],
+                [
+                  "click",
+                  0.074
+                ]
+              ],
+              "probabilities": {
+                "click": 0.07358686625957489,
+                "double_click": 0.0672527477145195,
+                "type": 0.012716470286250114,
+                "set_value": 0.005012093111872673,
+                "undo_last": 0.019953344017267227,
+                "key": 0.026162197813391685,
+                "clipboard_read": 0.003613140434026718,
+                "window_snap": 0.008821296505630016,
+                "scroll": 0.009452927857637405,
+                "open_app": 0.02654891088604927,
+                "open_url": 0.06216530129313469,
+                "music": 0.019026508554816246,
+                "volume": 0.0025483856443315744,
+                "brightness": 0.001376036205329001,
+                "calendar": 0.0029368603136390448,
+                "calendar_create": 0.003473142860457301,
+                "reminder": 0.002630185568705201,
+                "finder": 0.10352353751659393,
+                "notes": 0.003589508356526494,
+                "mail": 0.008391907438635826,
+                "things": 0.0012860068818554282,
+                "shortcuts": 0.007977619767189026,
+                "messages": 0.0044406624510884285,
+                "download_file": 0.36573106050491333,
+                "start_timer": 0.010532114654779434,
+                "record_flow": 0.006825865246355534,
+                "run_flow": 0.009652726352214813,
+                "draw_annotation": 0.017078066244721413,
+                "clear_annotations": 0.004061104264110327,
+                "ASK_USER": 0.005153937265276909,
+                "RESPOND": 0.05009400472044945,
+                "DONE": 0.054385390132665634
+              }
+            }
+          ],
+          "route_ms": [
+            99,
+            104
+          ],
+          "argument_ms": [
+            392,
+            438
+          ]
+        },
+        {
+          "id": "fm-fixtures/mumbled-target",
+          "category": "fm-fixtures",
+          "kind": "click",
+          "request": "click sayv",
+          "expected_first": [
+            "click",
+            "double_click"
+          ],
+          "first_step": "type",
+          "first_step_correct": false,
+          "arguments_correct": true,
+          "no_forbidden_tools": true,
+          "enough_actions": true,
+          "terminal": "DONE",
+          "terminated_cleanly": true,
+          "full_pass": false,
+          "error": null,
+          "steps": [
+            {
+              "tool": "type",
+              "args": {
+                "text": "sayv"
+              },
+              "result": "ok: done"
+            }
+          ],
+          "route_calls": [
+            {
+              "label": "type",
+              "ms": 101,
+              "model_ms": null,
+              "top3": [
+                [
+                  "type",
+                  0.204
+                ],
+                [
+                  "RESPOND",
+                  0.074
+                ],
+                [
+                  "double_click",
+                  0.068
+                ]
+              ],
+              "probabilities": {
+                "click": 0.06240507587790489,
+                "double_click": 0.06844352185726166,
+                "type": 0.20446033775806427,
+                "set_value": 0.02611243724822998,
+                "undo_last": 0.037555031478405,
+                "key": 0.03159996494650841,
+                "clipboard_read": 0.006031850818544626,
+                "window_snap": 0.013539035804569721,
+                "scroll": 0.006518697366118431,
+                "open_app": 0.027768274769186974,
+                "open_url": 0.020964128896594048,
+                "music": 0.061509329825639725,
+                "volume": 0.007896119728684425,
+                "brightness": 0.0041030882857739925,
+                "calendar": 0.00633512856438756,
+                "calendar_create": 0.0073853968642652035,
+                "reminder": 0.0058725494891405106,
+                "finder": 0.01694478839635849,
+                "notes": 0.005533358082175255,
+                "mail": 0.035466134548187256,
+                "things": 0.0054092626087367535,
+                "shortcuts": 0.021860245615243912,
+                "messages": 0.03892827406525612,
+                "download_file": 0.008011062629520893,
+                "start_timer": 0.043470799922943115,
+                "record_flow": 0.03859999403357506,
+                "run_flow": 0.02283676713705063,
+                "draw_annotation": 0.01655977964401245,
+                "clear_annotations": 0.021343020722270012,
+                "ASK_USER": 0.02054426074028015,
+                "RESPOND": 0.07438130676746368,
+                "DONE": 0.031610939651727676
+              }
+            },
+            {
+              "label": "DONE",
+              "ms": 101,
+              "model_ms": null,
+              "top3": [
+                [
+                  "DONE",
+                  0.451
+                ],
+                [
+                  "RESPOND",
+                  0.121
+                ],
+                [
+                  "click",
+                  0.086
+                ]
+              ],
+              "probabilities": {
+                "click": 0.08581636846065521,
+                "double_click": 0.023993762210011482,
+                "type": 0.046439945697784424,
+                "set_value": 0.015984755009412766,
+                "undo_last": 0.028265200555324554,
+                "key": 0.062102463096380234,
+                "clipboard_read": 0.002466262085363269,
+                "window_snap": 0.004201059229671955,
+                "scroll": 0.003873667446896434,
+                "open_app": 0.01720445789396763,
+                "open_url": 0.008496220223605633,
+                "music": 0.014227471314370632,
+                "volume": 0.0021397434175014496,
+                "brightness": 0.0013493425212800503,
+                "calendar": 0.0025494699366390705,
+                "calendar_create": 0.002483054995536804,
+                "reminder": 0.002444387646391988,
+                "finder": 0.004962330684065819,
+                "notes": 0.0015707098646089435,
+                "mail": 0.008521479554474354,
+                "things": 0.0011447678552940488,
+                "shortcuts": 0.006348056718707085,
+                "messages": 0.003502695122733712,
+                "download_file": 0.0034097381867468357,
+                "start_timer": 0.01410707551985979,
+                "record_flow": 0.008490321226418018,
+                "run_flow": 0.014221055433154106,
+                "draw_annotation": 0.011602670885622501,
+                "clear_annotations": 0.007177626248449087,
+                "ASK_USER": 0.019584298133850098,
+                "RESPOND": 0.12080693244934082,
+                "DONE": 0.45051267743110657
+              }
+            }
+          ],
+          "route_ms": [
+            101,
+            101
+          ],
+          "argument_ms": [
+            223
+          ]
+        }
+      ]
+    }
+  },
+  "evaluation_split": "development; not sealed acceptance evidence",
+  "format_sha256": "c16b70898b42ef057b6c42204040a887f15ebb2891fafd857292228c9b4f929e",
+  "fixture_sha256": "05e880c0c8c1d46855bcaa1a0c0aff5dd1350829d21ceee2edab2e5e017cf1a5",
+  "jeff_prompt_sha256": "1801b7ab3385f83c03c1219811b5e9aafea5ee029bc5a647010966fd9e197350",
+  "jeff": {
+    "backend": "mlx",
+    "checkpoint": "../models/base-v1.2",
+    "adapter": null,
+    "decision_config": {
+      "step": 1113,
+      "provenance": {
+        "run": "0.8b-20260929-2258",
+        "git_commit": "a095c98f3fd2782bba033b378f7375ecc33c35fa",
+        "development": "ebcedc3e726548c08da90ff569b94e4822f23312dfc3ea29b93579cfec3016c7",
+        "temperature": "e735fa4e0df3482752112bc9cdff6af9ddb7be07a0a9f2fb8dd8cf2355042bf6",
+        "train": "f826592e75acdaa9510af5b15d5c944e07628632134cd57d2d6840192696e4ac",
+        "train.py": "6c8c17694057e4d5f027dbb25d790b648f67381c00ed8e65480a7cf0bd5bafde",
+        "model.py": "cbb5c04fe21c696fb019aab06b64273e9bb2489db5dde7a35aed740a375db206",
+        "encoder.py": "cca3a60bb8078d599a0372c488d13083feb35cdbe826151936d50dd60ed6a40c",
+        "decoder.py": "2f3116390bc18295dd934b78680f5845e0efb5feac351c15857b3e73869a26a1",
+        "models.py": "4fb30630b099f0b0c9bfe50b2cbd29dd477f8df7f87e83d2df8cc7000e2d2499",
+        "optim.py": "ae0ec56aafe7d01cd46f7d9e088909610fa48314ed215b550b5c67c38d6f365d",
+        "evaluate.py": "1527503162600d0d03daa6dbf14d6e64de1763ab83f756986dcb0fb5e2d5dedc",
+        "types.py": "0f8e3bfa4e92693ec50b9f258fb9180438a62d30caf9b3e6c00860a71e46dc5a",
+        "events.py": "98c77d359fea9a6eeb62753004f93ded41479aefb5812a4812ed149cfff26f7f",
+        "uv.lock": "9f0b5b955cb9a06536c89a0099205dc56ecfea9dabf928318794681101ad705e"
+      },
+      "max_options": 254,
+      "format_version": 1,
+      "base_model": "Qwen/Qwen3.5-0.8B",
+      "revision": "2fc06364715b967f1860aea9cf38778875588b17",
+      "codes": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H",
+        "I",
+        "J",
+        "K",
+        "L",
+        "M",
+        "N",
+        "O",
+        "P",
+        "Q",
+        "R",
+        "S",
+        "T",
+        "U",
+        "V",
+        "W",
+        "X",
+        "Y",
+        "Z",
+        "AA",
+        "AB",
+        "AC",
+        "AD",
+        "AE",
+        "AF",
+        "AG",
+        "AH",
+        "AI",
+        "AJ",
+        "AK",
+        "AL",
+        "AM",
+        "AN",
+        "AO",
+        "AP",
+        "AQ",
+        "AR",
+        "AS",
+        "AT",
+        "AU",
+        "AV",
+        "AW",
+        "AX",
+        "AY",
+        "AZ",
+        "BA",
+        "BB",
+        "BC",
+        "BD",
+        "BE",
+        "BF",
+        "BG",
+        "BH",
+        "BI",
+        "BJ",
+        "BK",
+        "BL",
+        "BM",
+        "BN",
+        "BO",
+        "BP",
+        "BR",
+        "BS",
+        "BT",
+        "BU",
+        "BV",
+        "BW",
+        "BX",
+        "BY",
+        "CA",
+        "CB",
+        "CC",
+        "CD",
+        "CE",
+        "CF",
+        "CG",
+        "CH",
+        "CI",
+        "CK",
+        "CL",
+        "CM",
+        "CN",
+        "CO",
+        "CP",
+        "CR",
+        "CS",
+        "CT",
+        "CU",
+        "CV",
+        "CW",
+        "CX",
+        "CY",
+        "DA",
+        "DB",
+        "DC",
+        "DD",
+        "DE",
+        "DF",
+        "DG",
+        "DH",
+        "DI",
+        "DJ",
+        "DK",
+        "DL",
+        "DM",
+        "DN",
+        "DO",
+        "DP",
+        "DR",
+        "DS",
+        "DT",
+        "DU",
+        "DV",
+        "DW",
+        "DX",
+        "DY",
+        "EA",
+        "EB",
+        "EC",
+        "ED",
+        "EE",
+        "EF",
+        "EG",
+        "EH",
+        "EI",
+        "EK",
+        "EL",
+        "EM",
+        "EN",
+        "EO",
+        "EP",
+        "EQ",
+        "ER",
+        "ES",
+        "ET",
+        "EU",
+        "EV",
+        "EW",
+        "EX",
+        "EZ",
+        "FA",
+        "FB",
+        "FC",
+        "FD",
+        "FE",
+        "FF",
+        "FG",
+        "FH",
+        "FI",
+        "FK",
+        "FL",
+        "FM",
+        "FN",
+        "FO",
+        "FP",
+        "FR",
+        "FS",
+        "FT",
+        "FU",
+        "FW",
+        "FX",
+        "FY",
+        "GA",
+        "GB",
+        "GC",
+        "GD",
+        "GE",
+        "GF",
+        "GG",
+        "GH",
+        "GI",
+        "GL",
+        "GM",
+        "GN",
+        "GO",
+        "GP",
+        "GR",
+        "GS",
+        "GT",
+        "GU",
+        "GV",
+        "GW",
+        "GX",
+        "GY",
+        "HA",
+        "HB",
+        "HC",
+        "HD",
+        "HE",
+        "HF",
+        "HG",
+        "HH",
+        "HI",
+        "HK",
+        "HL",
+        "HM",
+        "HN",
+        "HO",
+        "HP",
+        "HQ",
+        "HR",
+        "HS",
+        "HT",
+        "HU",
+        "HV",
+        "HW",
+        "HX",
+        "HY",
+        "HZ",
+        "IA",
+        "IB",
+        "IC",
+        "ID",
+        "IE",
+        "IF",
+        "IG",
+        "IH",
+        "II",
+        "IJ",
+        "IK",
+        "IL",
+        "IM",
+        "IN",
+        "IO",
+        "IP",
+        "IQ",
+        "IR",
+        "IS",
+        "IT",
+        "IU",
+        "IV",
+        "IW",
+        "IX",
+        "IZ",
+        "JA",
+        "JB",
+        "JC",
+        "JD",
+        "JE",
+        "JI",
+        "JJ",
+        "JK",
+        "JM",
+        "JO",
+        "JP",
+        "JR",
+        "JS",
+        "JT"
+      ],
+      "token_ids": [
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        5840,
+        1803,
+        1646,
+        1745,
+        13276,
+        8018,
+        1825,
+        28946,
+        15015,
+        29595,
+        11568,
+        939,
+        1354,
+        1058,
+        18183,
+        2456,
+        88898,
+        905,
+        1846,
+        802,
+        33869,
+        7839,
+        14006,
+        2860,
+        2926,
+        22828,
+        6844,
+        9798,
+        4738,
+        9265,
+        11261,
+        19278,
+        36513,
+        93801,
+        8335,
+        14544,
+        85266,
+        9110,
+        28000,
+        15137,
+        4525,
+        25261,
+        12717,
+        7116,
+        17078,
+        14497,
+        57339,
+        74909,
+        52072,
+        19305,
+        4887,
+        12607,
+        3580,
+        6281,
+        2036,
+        9362,
+        8533,
+        2080,
+        10911,
+        2925,
+        3040,
+        9690,
+        27731,
+        8023,
+        6901,
+        8702,
+        6211,
+        1123,
+        16307,
+        18990,
+        64045,
+        63037,
+        33380,
+        6151,
+        3392,
+        5449,
+        3967,
+        1113,
+        5095,
+        51923,
+        49600,
+        17099,
+        51483,
+        17756,
+        16037,
+        8135,
+        30237,
+        5683,
+        9992,
+        7444,
+        5751,
+        10284,
+        20887,
+        59884,
+        52396,
+        16103,
+        67547,
+        18535,
+        8006,
+        7263,
+        1425,
+        6878,
+        14453,
+        9097,
+        44072,
+        76089,
+        68720,
+        2662,
+        2629,
+        923,
+        6548,
+        8924,
+        52194,
+        622,
+        1515,
+        1300,
+        37523,
+        44473,
+        36530,
+        3152,
+        93924,
+        3505,
+        15731,
+        6542,
+        14176,
+        11091,
+        1686,
+        11660,
+        80440,
+        18836,
+        26132,
+        5934,
+        24794,
+        40229,
+        3660,
+        11361,
+        10191,
+        8225,
+        3860,
+        78413,
+        17680,
+        15900,
+        78138,
+        15653,
+        5213,
+        22150,
+        39500,
+        10460,
+        35131,
+        21563,
+        43194,
+        27127,
+        3697,
+        20011,
+        24368,
+        15058,
+        23658,
+        8362,
+        16035,
+        24583,
+        52857,
+        38403,
+        60456,
+        81519,
+        40097,
+        16522,
+        29722,
+        21756,
+        18567,
+        1736,
+        48043,
+        87013,
+        22456,
+        23165,
+        55523,
+        13097,
+        50397,
+        41741,
+        23073,
+        6401,
+        86538,
+        16585,
+        11622,
+        2464,
+        84982,
+        75516,
+        36984,
+        58795,
+        47217,
+        59675,
+        5681,
+        3151,
+        1271,
+        887,
+        5203,
+        2685,
+        1849,
+        72470,
+        5370,
+        74063,
+        27629,
+        1655,
+        1728,
+        669,
+        3682,
+        3191,
+        59865,
+        2712,
+        1580,
+        922,
+        77243,
+        2990,
+        78493,
+        5228,
+        2750,
+        42711,
+        44568,
+        56402,
+        48236,
+        38993,
+        43559,
+        61250,
+        32942,
+        86302,
+        25310,
+        26313,
+        81770,
+        12185,
+        78382
+      ],
+      "temperature": 1.0845714325759162,
+      "prompt_layout": "state-first"
+    }
+  }
+}
