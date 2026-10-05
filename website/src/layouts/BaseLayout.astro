@@ -1,5 +1,6 @@
 ---
 import "../styles/global.css";
+import Footer from "../components/Footer.astro";
 import {
   canonicalPublicPagePath,
   markdownPublicPagePath,
@@ -103,13 +104,46 @@ const clampedDescription = clampDescription(description);
     <!--email_off-->
     <slot />
     <!--/email_off-->
-    <saas-maker-newsletter-capture
-      catalog-id="pace"
+    <footer aria-label="Pace footer">
+    <fleet-footer-extension
+      data-fleet-footer-project="pace"
       product-name="HeyPace"
-      kind="newsletter"
-      source="footer"
-      privacy-url="https://heypace.app/privacy"
-    ></saas-maker-newsletter-capture>
+      signature-name="HeyPace"
+      signature-font="inherit"
+      font-base="/fonts/fleet-footer-precise-v1/"
+      surface="web"
+      theme="dark"
+      art-src="/footer-art/pace.webp"
+      art-alt="Original pixel illustration of a microphone connected to a quiet local workspace by a short blue ribbon"
+      art-width="2170"
+      art-height="725"
+      art-position="50% 50%"
+      art-credit="Original illustration for HeyPace"
+      style="font-family:var(--font-display);--fleet-footer-display-font:var(--font-display);--fleet-footer-focus:var(--color-accent);--fleet-footer-caption-background:#0b0b0d;--fleet-footer-caption-color:#9ca3af;--fleet-footer-art-surface:#0b0b0d"
+    >
+      <section slot="cta" data-fleet-footer-cta aria-labelledby="pace-closing-title">
+        <h2 id="pace-closing-title" class="pace-display text-3xl md:text-4xl text-white">Try Pace on your Mac.</h2>
+        <div class="mt-6 flex flex-wrap gap-3">
+          <a href="/download" class="pace-cta-primary">Download the free preview <span aria-hidden="true">↓</span></a>
+          <a href="/pricing" class="pace-cta-secondary">See the $29 local stack</a>
+        </div>
+        <p class="mt-4 text-sm text-[var(--color-text-muted)]">Free with Apple Foundation Models on macOS 26 · bundled local models are $29 once</p>
+      </section>
+      <saas-maker-newsletter-capture
+        slot="capture"
+        catalog-id="pace"
+        product-name="HeyPace"
+        kind="newsletter"
+        source="footer"
+        theme="dark"
+        layout="compact"
+        compact="true"
+        integrated="true"
+        privacy-url="https://heypace.app/privacy"
+      ></saas-maker-newsletter-capture>
+      <slot name="footer-navigation"><Footer /></slot>
+    </fleet-footer-extension>
+    </footer>
     <script
       is:inline
       type="module"
@@ -118,16 +152,23 @@ const clampedDescription = clampDescription(description);
     ></script>
     <script
       is:inline
-      src="https://sassmaker.com/project-strip.js"
+      src="https://sassmaker.com/project-strip.js?v=precise-b0adaa67"
       crossorigin="anonymous"
       data-project="pace"
+      data-theme="dark"
+      data-host-only="true"
       defer
     ></script>
     <script
       is:inline
-      src="https://sassmaker.com/ai-chat-footer.js"
+      src="https://sassmaker.com/ai-chat-footer.js?v=precise-b0adaa67"
       crossorigin="anonymous"
       data-name="HeyPace"
+      data-surface="web"
+      data-capture="false"
+      data-project="pace"
+      data-theme="dark"
+      data-host-only="true"
       defer
     ></script>
     <script is:inline>
