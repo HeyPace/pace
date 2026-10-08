@@ -4,7 +4,9 @@ Scope: offline next-step classification, not authorization to execute an action.
 This draft continues [issue #200](https://github.com/HeyPace/pace/issues/200).
 The existing 123 fixtures are development cases. Their historical gold labels
 are retained in reports; this policy must not silently rewrite a comparison.
-Human adjudication and the sealed acceptance set remain outstanding.
+The owner withdrew the requirement to handwrite 400–500 cases on 2026-10-08:
+“No one's going to handwrite 400, 500 cases.” Use automated policy checks and
+frozen machine-generated challenges instead; do not describe them as human gold.
 
 ## Decide in this order
 
@@ -70,13 +72,17 @@ acceptance evidence. None of these draft decisions has human sign-off.
   and exact approval state for every new case; allow equivalent outcomes.
 - Resolve ambiguous gold labels before evaluating candidates. Record disputes;
   exclude unresolved cases from a confirmatory denominator with their counts.
-- Keep the 123 historical fixtures and all model-generated synthetic rows in
-  development or smoke reports. Agent-written cases are agent-written, not
-  human-adjudicated evidence.
-- Construct 400–500 fresh human-adjudicated cases independently of development
-  misses and training rows. Include ASK_USER, RESPOND, DONE, clicks, named tools,
-  composition, errors, partial progress, unsupported work, and adversarial
-  on-screen text. Freeze hashes before further training.
+- Keep the 123 historical fixtures in development reports. Machine-generated
+  training rows remain development data; independently frozen policy cases
+  remain machine-generated checks, not human-adjudicated evidence.
+- Generate versioned policy cases with explicit provenance and byte hashes.
+  Keep calibration and evaluation identities disjoint; freeze before comparison.
+  Include ASK_USER, RESPOND, DONE, clicks, named tools and composition, then
+  challenge errors, partial progress, unsupported work and adversarial screen
+  text. Reject an easy template set as generalization evidence.
+- Prefer small executable boundary checks over collecting hundreds of labels.
+  Report uncertainty and unresolved policy disputes; machine-generated labels
+  do not resolve those disputes or establish real-user accuracy.
 - Use a separate policy-adjudicated calibration split for temperature and
   fallback thresholds. Fit neither on the sealed acceptance set. The issue's
   instruction to fit on sealed must be corrected before that work proceeds.
@@ -85,3 +91,47 @@ acceptance evidence. None of these draft decisions has human sign-off.
   latency, memory, serializer/label hash, model revisions, and all errors.
 
 No change to the app or model defaults follows from a development score.
+
+## Automated checks and current decision (2026-10-08)
+
+`scripts/router-policy-cases.py` freezes 96 evaluation cases and 24 calibration
+cases in `evals/router-policy-20261008/`. The splits have disjoint identities
+and include completed-step state. The harness verifies each bundle's SHA-256
+before reading it and records provenance in its report. The rules-only arm
+needs no model server and executed 96/96 full passes. These are templated policy
+regressions: that perfect lexical baseline invalidates their use as evidence
+for classifier generalization or a native default switch.
+
+The first local endpoint check was unavailable. A subsequent fresh comparison
+used the same frozen cases and scorer with cached Qwen3.5-4B (MLX, 4-bit, 8192
+context, temperature zero, one request at a time). Rules passed 96/96; Qwen
+passed 48/96 with zero errors. Qwen passed all click, compose and done cases,
+but none of the 16 cases each for ask, respond and named tools. Its route
+latency p50/p95 was 394.751/953.559 ms; the complete arm took 164.474 seconds.
+The cached model artifact was 3,061,316,115 bytes. Shared-host MLX timing is not
+Pace's native MPS/CPU hardware qualification, peak memory or calibrated ECE.
+
+The [comparison summary](../../../evals/router-policy-20261008/local-comparison.json)
+retains the predeclared decision, input hashes, per-class counts and raw-report
+SHA-256. All raw attempts remain in the private lane evidence. No calibration
+threshold was fitted and no new student was trained. Historical 123-case
+development reports remain unchanged. Keep the working native planner: neither
+this easy template set nor incompatible legacy student artifacts supports a
+switch. Broader policy challenges and an independently qualified candidate
+remain future acceptance work.
+
+New student artifacts bind the serializer, instructions, tool descriptions and
+label order with format contract v2. Legacy artifacts without this binding
+fail before model loading; historical reports remain readable. This is an
+evaluator compatibility check, not a claim that old checkpoints were retrained.
+
+Run the deterministic checks with:
+
+```sh
+python3 -B -m unittest discover -s scripts -p 'test_*router*.py'
+python3 -B -m unittest discover -s scripts -p 'test_experiment_jev_planner.py'
+python3 -B scripts/experiment-jev-planner.py --arms rules \
+  --policy-fixtures evals/router-policy-20261008/policy_acceptance.json \
+  --policy-sha256 bdddbcce8218d21ba60f7ff7b7c1bffb0d96712bb9ad52646c24e5ff421f0f6a \
+  --output /tmp/pace-rules-policy-report.json
+```

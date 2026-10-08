@@ -1,0 +1,15 @@
+{
+  "schema_version": "pace.router-policy-freeze/v1",
+  "origin": "machine_generated",
+  "generator_sha256": "3d543393bfc2d22d63163515d1c560e5abe3b3991fc4b2dfd1e9bfacc8611c14",
+  "files": {
+    "policy_acceptance.json": {
+      "sha256": "bdddbcce8218d21ba60f7ff7b7c1bffb0d96712bb9ad52646c24e5ff421f0f6a",
+      "cases": 96
+    },
+    "policy_calibration.json": {
+      "sha256": "b63b1da83f2224426c15833f87bb095dcda613b5aab2ecd2d2078bd7b6560e31",
+      "cases": 24
+    }
+  }
+}
