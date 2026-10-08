@@ -1,0 +1,224 @@
+{
+  "schema": "lane09.pace-comparison-decision/v1",
+  "freeze": {
+    "schema": "pace.background-comparison/v1",
+    "harness_sha256": "ca71577104ae001289753e520cc8b98b19811b7ad8041e38c255b5acc8bcf181",
+    "bundle_sha256": "bdddbcce8218d21ba60f7ff7b7c1bffb0d96712bb9ad52646c24e5ff421f0f6a",
+    "arms": [
+      "rules",
+      "local"
+    ],
+    "model": "qwen/qwen3.5-4b@4bit",
+    "runtime_identifier": "lane09-pace-qwen35",
+    "model_bytes": 3061316115,
+    "context_length": 8192,
+    "parallel": 1,
+    "temperature": 0,
+    "calibration": "no fitting on evaluation split",
+    "decision_rule": "Keep current native planner. Generated policy regressions cannot qualify a model switch; report each class and errors. Require no missing/error cases and no class regression >3pp to consider a candidate for subsequent harder evaluation. No training from evaluation misses.",
+    "purpose": "Fresh local learned-model comparison on frozen machine-generated policy regressions, not shipping-generalization proof",
+    "provider": "loopback LM Studio headless daemon only",
+    "foreground": false,
+    "training": false,
+    "source_base": "c0148d04a9fc2a513b621e10f88082224076af81"
+  },
+  "report": "Private lane artifact 09-pace-fresh-qwen-policy-20261008.json",
+  "report_sha256": "869ef110a93269fdb64acdc8d428e285b4a0a961fedb24b5c081dbcc979ac8b8",
+  "decision": "keep_current_native_planner",
+  "reason": "Templated policy checks do not qualify generalization; no compatible student candidate or native hardware evidence supports a switch.",
+  "arms": {
+    "rules": {
+      "cases": 96,
+      "errors": 0,
+      "first_step_accuracy": 1.0,
+      "full_pass": 1.0,
+      "route_calls": 144,
+      "route_ms_p50": 0.0007,
+      "route_ms_p95": 0.0027,
+      "route_model_ms_p50": null,
+      "argument_ms_p50": null,
+      "argument_ms_p95": null,
+      "by_kind": {
+        "ask": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        },
+        "click": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        },
+        "compose": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        },
+        "done": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        },
+        "respond": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        },
+        "tool": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        }
+      },
+      "by_category": {
+        "policy-ask": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        },
+        "policy-click": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        },
+        "policy-compose": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        },
+        "policy-done": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        },
+        "policy-respond": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        },
+        "policy-tool": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        }
+      },
+      "wall_seconds": 0.0072
+    },
+    "local": {
+      "cases": 96,
+      "errors": 0,
+      "first_step_accuracy": 0.5,
+      "full_pass": 0.5,
+      "route_calls": 187,
+      "route_ms_p50": 394.7507,
+      "route_ms_p95": 953.5587,
+      "route_model_ms_p50": null,
+      "argument_ms_p50": 813,
+      "argument_ms_p95": 1606,
+      "by_kind": {
+        "ask": {
+          "n": 16,
+          "first_step": 0.0,
+          "args": 1.0,
+          "full_pass": 0.0
+        },
+        "click": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        },
+        "compose": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        },
+        "done": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        },
+        "respond": {
+          "n": 16,
+          "first_step": 0.0,
+          "args": 1.0,
+          "full_pass": 0.0
+        },
+        "tool": {
+          "n": 16,
+          "first_step": 0.0,
+          "args": 0.688,
+          "full_pass": 0.0
+        }
+      },
+      "by_category": {
+        "policy-ask": {
+          "n": 16,
+          "first_step": 0.0,
+          "args": 1.0,
+          "full_pass": 0.0
+        },
+        "policy-click": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        },
+        "policy-compose": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        },
+        "policy-done": {
+          "n": 16,
+          "first_step": 1.0,
+          "args": 1.0,
+          "full_pass": 1.0
+        },
+        "policy-respond": {
+          "n": 16,
+          "first_step": 0.0,
+          "args": 1.0,
+          "full_pass": 0.0
+        },
+        "policy-tool": {
+          "n": 16,
+          "first_step": 0.0,
+          "args": 0.688,
+          "full_pass": 0.0
+        }
+      },
+      "wall_seconds": 164.474
+    }
+  },
+  "model_artifact_bytes": 3061316115,
+  "model_context": 8192,
+  "calibration": "not fitted; no compatible new student candidate",
+  "ece": null,
+  "native_hardware_latency": null,
+  "mps_cpu_comparison": null,
+  "controlled_source_hash": "9419768a2b8021ff77ffc2acd026f324788cc4b7929bd702fc47ca84ce52fb9d",
+  "dataset_sha256": "bdddbcce8218d21ba60f7ff7b7c1bffb0d96712bb9ad52646c24e5ff421f0f6a",
+  "user_policy": "400-500 handwritten cases withdrawn; machine-generated checks remain explicitly labeled",
+  "limitations": [
+    "Machine-generated templated regressions; not human-adjudicated or generalization evidence",
+    "No new compatible student candidate, calibration, native hardware smoke, MPS/CPU comparison or model switch",
+    "Shared-host local model; artifact bytes are not measured peak memory",
+    "No paid or cloud inference"
+  ]
+}

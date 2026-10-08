@@ -126,14 +126,16 @@ class StudentRouter:
     returning temperature-scaled probabilities over the saved label order."""
 
     def __init__(self, student_directory, device_name=None):
+        student_directory = Path(student_directory)
+        self.harness_module = load_experiment_harness()
+        metadata = json.loads((student_directory / "labels.json").read_text())
+        validate_student_format(metadata, self.harness_module)
+        self.router_labels = metadata["labels"]
+        self.temperature = json.loads((student_directory / "temperature.json").read_text())["temperature"]
+        self.max_length = metadata["max_length"]
         import torch
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
         self.torch = torch
-        student_directory = Path(student_directory)
-        self.harness_module = load_experiment_harness()
-        self.router_labels = json.loads((student_directory / "labels.json").read_text())["labels"]
-        self.temperature = json.loads((student_directory / "temperature.json").read_text())["temperature"]
-        self.max_length = json.loads((student_directory / "labels.json").read_text())["max_length"]
         self.tokenizer = AutoTokenizer.from_pretrained(student_directory)
         if device_name is None:
             device_name = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -158,6 +160,17 @@ class StudentRouter:
 
 
 # ---------------------------------------------------------------- training helpers
+
+def validate_student_format(metadata, harness_module):
+    expected_hash = harness_module.router_format_sha256(harness_module.load_tool_catalog())
+    if metadata.get("format_contract_version") != 2 or metadata.get("format_sha256") != expected_hash:
+        raise ValueError("Student format identity is missing or differs from the current serializer/registry; "
+                         "historical checkpoints remain unqualified and must not be relabelled with a new hash.")
+    if metadata.get("labels") != sorted_router_labels(harness_module):
+        raise ValueError("Student label order differs from the current registry")
+    maximum_length = metadata.get("max_length")
+    if type(maximum_length) is not int or maximum_length <= 0:
+        raise ValueError("Student token limit must be a positive integer")
 
 def encode_rows(harness_module, tokenizer, step_state_rows, router_labels, max_length):
     """Adds input_text, hard label index and renormalised teacher distribution to each row."""
@@ -324,6 +337,7 @@ def main():
 
     harness_module = load_experiment_harness()
     router_labels = sorted_router_labels(harness_module)
+    format_sha256 = harness_module.router_format_sha256(harness_module.load_tool_catalog())
     data_directory = Path(parsed_arguments.data_dir)
     run_directory = data_directory / "student" / parsed_arguments.run_name
     run_directory.mkdir(parents=True, exist_ok=True)
@@ -483,7 +497,8 @@ def main():
     model.save_pretrained(run_directory)
     tokenizer.save_pretrained(run_directory)
     (run_directory / "labels.json").write_text(json.dumps(
-        {"labels": router_labels, "max_length": parsed_arguments.max_length, "base_model": parsed_arguments.base_model}, indent=2) + "\n")
+        {"labels": router_labels, "max_length": parsed_arguments.max_length, "base_model": parsed_arguments.base_model,
+         "format_contract_version": 2, "format_sha256": format_sha256}, indent=2) + "\n")
     (run_directory / "temperature.json").write_text(json.dumps({"temperature": round(fitted_temperature, 5)}, indent=2) + "\n")
     del model
     if device_name == "mps":
@@ -505,6 +520,9 @@ def main():
         "temperature": round(fitted_temperature, 5), "validation": validation_report, "sealed": sealed_report,
         "sealed_extra": extra_sealed_report,
         "latency": latency_report,
+        "format_contract_version": 2, "format_sha256": format_sha256,
+        "checkpoint_size_bytes": sum(path.stat().st_size for path in run_directory.rglob("*")
+                                     if path.is_file() and path.name not in ("metrics.json", "harness-results.json")),
     }
     (run_directory / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
     print(f"\nwrote {run_directory}")

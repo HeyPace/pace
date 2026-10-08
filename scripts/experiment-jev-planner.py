@@ -179,6 +179,8 @@ def parse_fixture(fixture_path):
         expectation["kind"] = "click"
         expectation["acceptable_first_steps"] = {"click", "double_click"}
         expectation["expected_click_ids"] = {click_id for click_id in expected_click_ids if click_id >= 0}
+        if any(click_id < 0 for click_id in expected_click_ids):
+            expectation["acceptable_first_steps"].add("RESPOND")
     else:
         return None  # nothing scorable for routing
 
@@ -199,6 +201,26 @@ def load_fixtures(fixture_directory_names):
             if parsed_fixture:
                 fixtures.append(parsed_fixture)
     return fixtures
+
+
+def load_policy_fixture_bundle(path, expected_sha256):
+    raw = Path(path).read_bytes()
+    if hashlib.sha256(raw).hexdigest() != expected_sha256:
+        raise ValueError("Frozen policy fixture hash changed")
+    bundle = json.loads(raw)
+    if (bundle.get("schema_version") != "pace.router-policy-cases/v1"
+            or bundle.get("origin") != "machine_generated"
+            or bundle.get("split") not in ("policy_acceptance", "policy_calibration")):
+        raise ValueError("Unsupported policy fixture provenance or split")
+    fixtures = bundle["cases"]
+    if not fixtures or len({fixture["id"] for fixture in fixtures}) != len(fixtures):
+        raise ValueError("Empty policy cases or duplicate identities")
+    for fixture in fixtures:
+        expectation = fixture["expectation"]
+        for key in ("acceptable_first_steps", "forbidden_tools", "expected_click_ids"):
+            if key in expectation:
+                expectation[key] = set(expectation[key])
+    return bundle, fixtures
 
 
 # ---------------------------------------------------------------- shared context text
@@ -238,6 +260,16 @@ def router_label_descriptions(tool_catalog):
     }
     label_descriptions.update(CONTROL_LABEL_DESCRIPTIONS)
     return label_descriptions
+
+
+def router_format_sha256(tool_catalog):
+    contract = {"serializer": inspect.getsource(router_input_text),
+                "instructions": ROUTER_INSTRUCTIONS,
+                "labels": router_label_descriptions(tool_catalog),
+                "label_order": sorted(router_label_descriptions(tool_catalog)),
+                "screen": inspect.getsource(screen_text),
+                "completed": inspect.getsource(completed_steps_text)}
+    return hashlib.sha256(json.dumps(contract, sort_keys=True).encode()).hexdigest()
 
 
 class JevAccessDenied(Exception):
@@ -479,6 +511,40 @@ def route_with_local_model(fixture, completed_steps, tool_catalog, local_model_i
 
 # ---------------------------------------------------------------- args + simulated execution
 
+def rule_label(fixture, completed_steps):
+    request = fixture["user_request"].lower()
+    if completed_steps and completed_steps[-1]["result"].startswith("ok:"):
+        return "DONE"
+    labels = [element["label"] for element in fixture["screen_elements"]]
+    if len(labels) != len(set(labels)) or request.startswith(("send ", "delete ", "pay ")):
+        return "ASK_USER"
+    if "thermostat" in request:
+        return "RESPOND"
+    if "draft a note" in request:
+        return "notes"
+    if "open calculator" in request:
+        return "open_app"
+    if "click" in request:
+        return "click"
+    return "RESPOND"
+
+
+def route_with_rules(fixture, completed_steps):
+    started = time.perf_counter()
+    label = rule_label(fixture, completed_steps)
+    return label, {}, (time.perf_counter() - started) * 1000, None
+
+
+def rule_arguments(fixture, tool_name):
+    if tool_name in ("click", "double_click"):
+        return {"element_id": next((element["id"] for element in fixture["screen_elements"]
+                                    if element["label"].lower() in fixture["user_request"].lower()), -1)}
+    if tool_name == "open_app":
+        return {"app": "Calculator"}
+    if tool_name == "notes":
+        return {"body": fixture["user_request"].split(":", 1)[-1].strip()}
+    return {}
+
 def extract_arguments(fixture, completed_steps, tool_name, tool_catalog, local_model_identifier):
     argument_schema = argument_schema_for_tool(tool_name, tool_catalog, fixture["screen_elements"])
     if not argument_schema.get("properties"):
@@ -509,14 +575,17 @@ def simulated_result(tool_name, tool_arguments, fixture):
 # ---------------------------------------------------------------- loop + scoring
 
 def run_fixture(fixture, arm_name, tool_catalog, local_model_identifier, max_steps):
-    completed_steps = []
+    completed_steps = list(fixture.get("initial_completed_steps", []))
+    initial_step_count = len(completed_steps)
     route_calls = []
     argument_call_ms = []
     terminal_label = None
     error_text = None
     try:
         for _ in range(max_steps):
-            if arm_name == "jev":
+            if arm_name == "rules":
+                chosen_label, probabilities, route_ms, model_ms = route_with_rules(fixture, completed_steps)
+            elif arm_name == "jev":
                 chosen_label, probabilities, route_ms, model_ms = route_with_jev(fixture, completed_steps, tool_catalog)
             elif arm_name == "jeff":
                 chosen_label, probabilities, route_ms, model_ms = route_with_jeff(fixture, completed_steps, tool_catalog)
@@ -529,14 +598,17 @@ def run_fixture(fixture, arm_name, tool_catalog, local_model_identifier, max_ste
                 chosen_label, probabilities, route_ms, model_ms = route_with_local_model(
                     fixture, completed_steps, tool_catalog, local_model_identifier)
             top_alternatives = sorted(probabilities.items(), key=lambda item: -item[1])[:3]
-            route_calls.append({"label": chosen_label, "ms": round(route_ms), "model_ms": model_ms,
+            route_calls.append({"label": chosen_label, "ms": round(route_ms, 4), "model_ms": model_ms,
                                 "top3": [[label, round(score, 3)] for label, score in top_alternatives],
                                 **({"probabilities": probabilities} if arm_name == "jeff" else {})})
             if chosen_label in CONTROL_LABEL_DESCRIPTIONS:
                 terminal_label = chosen_label
                 break
-            tool_arguments, argument_ms = extract_arguments(
-                fixture, completed_steps, chosen_label, tool_catalog, local_model_identifier)
+            if arm_name == "rules":
+                tool_arguments, argument_ms = rule_arguments(fixture, chosen_label), 0
+            else:
+                tool_arguments, argument_ms = extract_arguments(
+                    fixture, completed_steps, chosen_label, tool_catalog, local_model_identifier)
             argument_call_ms.append(argument_ms)
             # Loop guard: identical repeated call means the router is not seeing progress.
             if completed_steps and completed_steps[-1]["tool"] == chosen_label and completed_steps[-1]["args"] == tool_arguments:
@@ -548,7 +620,7 @@ def run_fixture(fixture, arm_name, tool_catalog, local_model_identifier, max_ste
         raise
     except (urllib.error.URLError, KeyError, ValueError, TimeoutError) as error:
         error_text = f"{type(error).__name__}: {error}"
-    return score_fixture(fixture, completed_steps, route_calls, argument_call_ms, terminal_label, error_text)
+    return score_fixture(fixture, completed_steps[initial_step_count:], route_calls, argument_call_ms, terminal_label, error_text)
 
 
 def argument_check_passes(argument_check, completed_steps):
@@ -609,7 +681,7 @@ def percentile(values, fraction):
     if not values:
         return None
     ordered = sorted(values)
-    return round(ordered[min(len(ordered) - 1, int(round(fraction * (len(ordered) - 1))))])
+    return round(ordered[min(len(ordered) - 1, int(round(fraction * (len(ordered) - 1))))], 4)
 
 
 def summarize(arm_results):
@@ -643,10 +715,12 @@ def summarize(arm_results):
 
 def main():
     argument_parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    argument_parser.add_argument("--arms", nargs="+", default=["jev", "local"], choices=["jev", "local", "gliner", "gliner-prose", "student", "jeff"])
+    argument_parser.add_argument("--arms", nargs="+", default=["jev", "local"], choices=["jev", "local", "gliner", "gliner-prose", "student", "jeff", "rules"])
     argument_parser.add_argument("--jeff-checkpoint", help="downloaded Jeff Qwen3.5 checkpoint (local MLX only)")
     argument_parser.add_argument("--jeff-adapter-dir", help="optional tools adapter trained on exactly this base")
     argument_parser.add_argument("--fixtures-dirs", nargs="+", default=DEFAULT_FIXTURE_DIRECTORIES)
+    argument_parser.add_argument("--policy-fixtures", type=Path)
+    argument_parser.add_argument("--policy-sha256")
     argument_parser.add_argument("--local-model", default="qwen/qwen3.5-4b")
     argument_parser.add_argument("--gliner-model", default="fastino/gliner2.5-base-v1")
     argument_parser.add_argument("--student-dir", default=None, help="trained run dir for the student arm")
@@ -666,7 +740,15 @@ def main():
     if "student" in parsed_arguments.arms and not STUDENT_DIRECTORY:
         argument_parser.error("--arms student needs --student-dir")
     tool_catalog = load_tool_catalog()
-    fixtures = load_fixtures(parsed_arguments.fixtures_dirs)
+    policy_bundle = None
+    if parsed_arguments.policy_fixtures:
+        if not parsed_arguments.policy_sha256:
+            argument_parser.error("--policy-fixtures requires the frozen --policy-sha256")
+        policy_bundle, fixtures = load_policy_fixture_bundle(parsed_arguments.policy_fixtures, parsed_arguments.policy_sha256)
+    else:
+        if parsed_arguments.policy_sha256:
+            argument_parser.error("--policy-sha256 requires --policy-fixtures")
+        fixtures = load_fixtures(parsed_arguments.fixtures_dirs)
     if parsed_arguments.limit:
         fixtures = fixtures[:parsed_arguments.limit]
     jev_route = "typesafe direct (jev-latest)" if os.environ.get("TYPESAFE_API_KEY") else "classifier.dev (tier fast)"
@@ -676,21 +758,23 @@ def main():
             route_with_jeff(warmup_fixture, [], tool_catalog)
 
     # Warm the local model so the first timed call does not include load/compile cost.
-    try:
-        call_local_model("Reply with JSON.", "warm up", {"type": "object", "properties": {"ok": {"type": "boolean"}},
-                         "required": ["ok"]}, parsed_arguments.local_model, max_tokens=40)
-    except ValueError:
-        pass  # warm-up output is irrelevant; only the load cost matters
+    if any(arm != "rules" for arm in parsed_arguments.arms):
+        try:
+            call_local_model("Reply with JSON.", "warm up", {"type": "object", "properties": {"ok": {"type": "boolean"}},
+                             "required": ["ok"]}, parsed_arguments.local_model, max_tokens=40)
+        except ValueError:
+            pass  # warm-up output is irrelevant; only the load cost matters
 
     report = {"created_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "jev_route": jev_route,
               "local_model": parsed_arguments.local_model, "max_steps": parsed_arguments.max_steps, "arms": {}}
     report["evaluation_split"] = "development; not sealed acceptance evidence"
-    format_contract = {"serializer": inspect.getsource(router_input_text),
-                       "instructions": ROUTER_INSTRUCTIONS,
-                       "labels": router_label_descriptions(tool_catalog),
-                       "screen": inspect.getsource(screen_text),
-                       "completed": inspect.getsource(completed_steps_text)}
-    report["format_sha256"] = hashlib.sha256(json.dumps(format_contract, sort_keys=True).encode()).hexdigest()
+    if policy_bundle:
+        report["evaluation_split"] = policy_bundle["split"]
+        report["evidence_origin"] = policy_bundle["origin"]
+        report["limitations"] = policy_bundle["limitations"]
+        report["frozen_bundle_sha256"] = parsed_arguments.policy_sha256
+    report["format_contract_version"] = 2
+    report["format_sha256"] = router_format_sha256(tool_catalog)
     fixture_contract = json.dumps(fixtures, sort_keys=True, default=lambda value: sorted(value))
     report["fixture_sha256"] = hashlib.sha256(fixture_contract.encode()).hexdigest()
     if "jeff" in parsed_arguments.arms:
@@ -714,7 +798,7 @@ def main():
                   "Set TYPESAFE_API_KEY to use the direct API.")
             continue
         arm_summary = summarize(arm_results)
-        arm_summary["wall_seconds"] = round(time.perf_counter() - started, 1)
+        arm_summary["wall_seconds"] = round(time.perf_counter() - started, 4)
         report["arms"][arm_name] = {"summary": arm_summary, "rows": arm_results}
         print(f"\n== {arm_name}")
         print(json.dumps({key: value for key, value in arm_summary.items() if key != "by_category"}, indent=2))

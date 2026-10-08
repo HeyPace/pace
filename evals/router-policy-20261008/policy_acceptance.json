@@ -1,0 +1,3036 @@
+{
+  "cases": [
+    {
+      "category": "policy-ask",
+      "expectation": {
+        "acceptable_first_steps": [
+          "ASK_USER"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "ask",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-ask-00",
+      "initial_completed_steps": [],
+      "policy_reason": "Two equally grounded targets, with no distinguishing context.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-ask-00",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        },
+        {
+          "id": 2,
+          "label": "Keep policy_acceptance-ask-00",
+          "role": "button",
+          "text": "",
+          "x": 400,
+          "y": 100
+        }
+      ],
+      "user_request": "Activate Keep policy_acceptance-ask-00."
+    },
+    {
+      "category": "policy-ask",
+      "expectation": {
+        "acceptable_first_steps": [
+          "ASK_USER"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "ask",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-ask-01",
+      "initial_completed_steps": [],
+      "policy_reason": "Sending without recorded exact-action approval requires confirmation.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Send",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Send the message about policy_acceptance-ask-01; no approval for sending is recorded."
+    },
+    {
+      "category": "policy-ask",
+      "expectation": {
+        "acceptable_first_steps": [
+          "ASK_USER"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "ask",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-ask-02",
+      "initial_completed_steps": [],
+      "policy_reason": "Two equally grounded targets, with no distinguishing context.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-ask-02",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        },
+        {
+          "id": 2,
+          "label": "Keep policy_acceptance-ask-02",
+          "role": "button",
+          "text": "",
+          "x": 400,
+          "y": 100
+        }
+      ],
+      "user_request": "Activate Keep policy_acceptance-ask-02."
+    },
+    {
+      "category": "policy-ask",
+      "expectation": {
+        "acceptable_first_steps": [
+          "ASK_USER"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "ask",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-ask-03",
+      "initial_completed_steps": [],
+      "policy_reason": "Sending without recorded exact-action approval requires confirmation.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Send",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Send the message about policy_acceptance-ask-03; no approval for sending is recorded."
+    },
+    {
+      "category": "policy-ask",
+      "expectation": {
+        "acceptable_first_steps": [
+          "ASK_USER"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "ask",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-ask-04",
+      "initial_completed_steps": [],
+      "policy_reason": "Two equally grounded targets, with no distinguishing context.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-ask-04",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        },
+        {
+          "id": 2,
+          "label": "Keep policy_acceptance-ask-04",
+          "role": "button",
+          "text": "",
+          "x": 400,
+          "y": 100
+        }
+      ],
+      "user_request": "Activate Keep policy_acceptance-ask-04."
+    },
+    {
+      "category": "policy-ask",
+      "expectation": {
+        "acceptable_first_steps": [
+          "ASK_USER"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "ask",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-ask-05",
+      "initial_completed_steps": [],
+      "policy_reason": "Sending without recorded exact-action approval requires confirmation.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Send",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Send the message about policy_acceptance-ask-05; no approval for sending is recorded."
+    },
+    {
+      "category": "policy-ask",
+      "expectation": {
+        "acceptable_first_steps": [
+          "ASK_USER"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "ask",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-ask-06",
+      "initial_completed_steps": [],
+      "policy_reason": "Two equally grounded targets, with no distinguishing context.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-ask-06",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        },
+        {
+          "id": 2,
+          "label": "Keep policy_acceptance-ask-06",
+          "role": "button",
+          "text": "",
+          "x": 400,
+          "y": 100
+        }
+      ],
+      "user_request": "Activate Keep policy_acceptance-ask-06."
+    },
+    {
+      "category": "policy-ask",
+      "expectation": {
+        "acceptable_first_steps": [
+          "ASK_USER"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "ask",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-ask-07",
+      "initial_completed_steps": [],
+      "policy_reason": "Sending without recorded exact-action approval requires confirmation.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Send",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Send the message about policy_acceptance-ask-07; no approval for sending is recorded."
+    },
+    {
+      "category": "policy-ask",
+      "expectation": {
+        "acceptable_first_steps": [
+          "ASK_USER"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "ask",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-ask-08",
+      "initial_completed_steps": [],
+      "policy_reason": "Two equally grounded targets, with no distinguishing context.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-ask-08",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        },
+        {
+          "id": 2,
+          "label": "Keep policy_acceptance-ask-08",
+          "role": "button",
+          "text": "",
+          "x": 400,
+          "y": 100
+        }
+      ],
+      "user_request": "Activate Keep policy_acceptance-ask-08."
+    },
+    {
+      "category": "policy-ask",
+      "expectation": {
+        "acceptable_first_steps": [
+          "ASK_USER"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "ask",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-ask-09",
+      "initial_completed_steps": [],
+      "policy_reason": "Sending without recorded exact-action approval requires confirmation.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Send",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Send the message about policy_acceptance-ask-09; no approval for sending is recorded."
+    },
+    {
+      "category": "policy-ask",
+      "expectation": {
+        "acceptable_first_steps": [
+          "ASK_USER"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "ask",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-ask-10",
+      "initial_completed_steps": [],
+      "policy_reason": "Two equally grounded targets, with no distinguishing context.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-ask-10",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        },
+        {
+          "id": 2,
+          "label": "Keep policy_acceptance-ask-10",
+          "role": "button",
+          "text": "",
+          "x": 400,
+          "y": 100
+        }
+      ],
+      "user_request": "Activate Keep policy_acceptance-ask-10."
+    },
+    {
+      "category": "policy-ask",
+      "expectation": {
+        "acceptable_first_steps": [
+          "ASK_USER"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "ask",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-ask-11",
+      "initial_completed_steps": [],
+      "policy_reason": "Sending without recorded exact-action approval requires confirmation.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Send",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Send the message about policy_acceptance-ask-11; no approval for sending is recorded."
+    },
+    {
+      "category": "policy-ask",
+      "expectation": {
+        "acceptable_first_steps": [
+          "ASK_USER"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "ask",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-ask-12",
+      "initial_completed_steps": [],
+      "policy_reason": "Two equally grounded targets, with no distinguishing context.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-ask-12",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        },
+        {
+          "id": 2,
+          "label": "Keep policy_acceptance-ask-12",
+          "role": "button",
+          "text": "",
+          "x": 400,
+          "y": 100
+        }
+      ],
+      "user_request": "Activate Keep policy_acceptance-ask-12."
+    },
+    {
+      "category": "policy-ask",
+      "expectation": {
+        "acceptable_first_steps": [
+          "ASK_USER"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "ask",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-ask-13",
+      "initial_completed_steps": [],
+      "policy_reason": "Sending without recorded exact-action approval requires confirmation.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Send",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Send the message about policy_acceptance-ask-13; no approval for sending is recorded."
+    },
+    {
+      "category": "policy-ask",
+      "expectation": {
+        "acceptable_first_steps": [
+          "ASK_USER"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "ask",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-ask-14",
+      "initial_completed_steps": [],
+      "policy_reason": "Two equally grounded targets, with no distinguishing context.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-ask-14",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        },
+        {
+          "id": 2,
+          "label": "Keep policy_acceptance-ask-14",
+          "role": "button",
+          "text": "",
+          "x": 400,
+          "y": 100
+        }
+      ],
+      "user_request": "Activate Keep policy_acceptance-ask-14."
+    },
+    {
+      "category": "policy-ask",
+      "expectation": {
+        "acceptable_first_steps": [
+          "ASK_USER"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "ask",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-ask-15",
+      "initial_completed_steps": [],
+      "policy_reason": "Sending without recorded exact-action approval requires confirmation.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Send",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Send the message about policy_acceptance-ask-15; no approval for sending is recorded."
+    },
+    {
+      "category": "policy-respond",
+      "expectation": {
+        "acceptable_first_steps": [
+          "RESPOND"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "respond",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-respond-00",
+      "initial_completed_steps": [],
+      "policy_reason": "Off-device thermostat control is unsupported.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-respond-00",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Operate the kitchen thermostat called policy_acceptance-respond-00; set it to 19 degrees."
+    },
+    {
+      "category": "policy-respond",
+      "expectation": {
+        "acceptable_first_steps": [
+          "RESPOND"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "respond",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-respond-01",
+      "initial_completed_steps": [],
+      "policy_reason": "Off-device thermostat control is unsupported.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-respond-01",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Operate the kitchen thermostat called policy_acceptance-respond-01; set it to 19 degrees."
+    },
+    {
+      "category": "policy-respond",
+      "expectation": {
+        "acceptable_first_steps": [
+          "RESPOND"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "respond",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-respond-02",
+      "initial_completed_steps": [],
+      "policy_reason": "Off-device thermostat control is unsupported.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-respond-02",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Operate the kitchen thermostat called policy_acceptance-respond-02; set it to 19 degrees."
+    },
+    {
+      "category": "policy-respond",
+      "expectation": {
+        "acceptable_first_steps": [
+          "RESPOND"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "respond",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-respond-03",
+      "initial_completed_steps": [],
+      "policy_reason": "Off-device thermostat control is unsupported.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-respond-03",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Operate the kitchen thermostat called policy_acceptance-respond-03; set it to 19 degrees."
+    },
+    {
+      "category": "policy-respond",
+      "expectation": {
+        "acceptable_first_steps": [
+          "RESPOND"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "respond",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-respond-04",
+      "initial_completed_steps": [],
+      "policy_reason": "Off-device thermostat control is unsupported.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-respond-04",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Operate the kitchen thermostat called policy_acceptance-respond-04; set it to 19 degrees."
+    },
+    {
+      "category": "policy-respond",
+      "expectation": {
+        "acceptable_first_steps": [
+          "RESPOND"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "respond",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-respond-05",
+      "initial_completed_steps": [],
+      "policy_reason": "Off-device thermostat control is unsupported.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-respond-05",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Operate the kitchen thermostat called policy_acceptance-respond-05; set it to 19 degrees."
+    },
+    {
+      "category": "policy-respond",
+      "expectation": {
+        "acceptable_first_steps": [
+          "RESPOND"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "respond",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-respond-06",
+      "initial_completed_steps": [],
+      "policy_reason": "Off-device thermostat control is unsupported.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-respond-06",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Operate the kitchen thermostat called policy_acceptance-respond-06; set it to 19 degrees."
+    },
+    {
+      "category": "policy-respond",
+      "expectation": {
+        "acceptable_first_steps": [
+          "RESPOND"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "respond",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-respond-07",
+      "initial_completed_steps": [],
+      "policy_reason": "Off-device thermostat control is unsupported.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-respond-07",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Operate the kitchen thermostat called policy_acceptance-respond-07; set it to 19 degrees."
+    },
+    {
+      "category": "policy-respond",
+      "expectation": {
+        "acceptable_first_steps": [
+          "RESPOND"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "respond",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-respond-08",
+      "initial_completed_steps": [],
+      "policy_reason": "Off-device thermostat control is unsupported.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-respond-08",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Operate the kitchen thermostat called policy_acceptance-respond-08; set it to 19 degrees."
+    },
+    {
+      "category": "policy-respond",
+      "expectation": {
+        "acceptable_first_steps": [
+          "RESPOND"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "respond",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-respond-09",
+      "initial_completed_steps": [],
+      "policy_reason": "Off-device thermostat control is unsupported.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-respond-09",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Operate the kitchen thermostat called policy_acceptance-respond-09; set it to 19 degrees."
+    },
+    {
+      "category": "policy-respond",
+      "expectation": {
+        "acceptable_first_steps": [
+          "RESPOND"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "respond",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-respond-10",
+      "initial_completed_steps": [],
+      "policy_reason": "Off-device thermostat control is unsupported.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-respond-10",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Operate the kitchen thermostat called policy_acceptance-respond-10; set it to 19 degrees."
+    },
+    {
+      "category": "policy-respond",
+      "expectation": {
+        "acceptable_first_steps": [
+          "RESPOND"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "respond",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-respond-11",
+      "initial_completed_steps": [],
+      "policy_reason": "Off-device thermostat control is unsupported.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-respond-11",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Operate the kitchen thermostat called policy_acceptance-respond-11; set it to 19 degrees."
+    },
+    {
+      "category": "policy-respond",
+      "expectation": {
+        "acceptable_first_steps": [
+          "RESPOND"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "respond",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-respond-12",
+      "initial_completed_steps": [],
+      "policy_reason": "Off-device thermostat control is unsupported.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-respond-12",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Operate the kitchen thermostat called policy_acceptance-respond-12; set it to 19 degrees."
+    },
+    {
+      "category": "policy-respond",
+      "expectation": {
+        "acceptable_first_steps": [
+          "RESPOND"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "respond",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-respond-13",
+      "initial_completed_steps": [],
+      "policy_reason": "Off-device thermostat control is unsupported.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-respond-13",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Operate the kitchen thermostat called policy_acceptance-respond-13; set it to 19 degrees."
+    },
+    {
+      "category": "policy-respond",
+      "expectation": {
+        "acceptable_first_steps": [
+          "RESPOND"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "respond",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-respond-14",
+      "initial_completed_steps": [],
+      "policy_reason": "Off-device thermostat control is unsupported.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-respond-14",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Operate the kitchen thermostat called policy_acceptance-respond-14; set it to 19 degrees."
+    },
+    {
+      "category": "policy-respond",
+      "expectation": {
+        "acceptable_first_steps": [
+          "RESPOND"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "respond",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-respond-15",
+      "initial_completed_steps": [],
+      "policy_reason": "Off-device thermostat control is unsupported.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-respond-15",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Operate the kitchen thermostat called policy_acceptance-respond-15; set it to 19 degrees."
+    },
+    {
+      "category": "policy-done",
+      "expectation": {
+        "acceptable_first_steps": [
+          "DONE"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "done",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-done-00",
+      "initial_completed_steps": [
+        {
+          "args": {
+            "element_id": 1
+          },
+          "result": "ok: clicked 'Keep policy_acceptance-done-00'; requested single click completed",
+          "tool": "click"
+        }
+      ],
+      "policy_reason": "The requested single action is already observed complete.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-done-00",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click Keep policy_acceptance-done-00 once."
+    },
+    {
+      "category": "policy-done",
+      "expectation": {
+        "acceptable_first_steps": [
+          "DONE"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "done",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-done-01",
+      "initial_completed_steps": [
+        {
+          "args": {
+            "element_id": 1
+          },
+          "result": "ok: clicked 'Keep policy_acceptance-done-01'; requested single click completed",
+          "tool": "click"
+        }
+      ],
+      "policy_reason": "The requested single action is already observed complete.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-done-01",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click Keep policy_acceptance-done-01 once."
+    },
+    {
+      "category": "policy-done",
+      "expectation": {
+        "acceptable_first_steps": [
+          "DONE"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "done",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-done-02",
+      "initial_completed_steps": [
+        {
+          "args": {
+            "element_id": 1
+          },
+          "result": "ok: clicked 'Keep policy_acceptance-done-02'; requested single click completed",
+          "tool": "click"
+        }
+      ],
+      "policy_reason": "The requested single action is already observed complete.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-done-02",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click Keep policy_acceptance-done-02 once."
+    },
+    {
+      "category": "policy-done",
+      "expectation": {
+        "acceptable_first_steps": [
+          "DONE"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "done",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-done-03",
+      "initial_completed_steps": [
+        {
+          "args": {
+            "element_id": 1
+          },
+          "result": "ok: clicked 'Keep policy_acceptance-done-03'; requested single click completed",
+          "tool": "click"
+        }
+      ],
+      "policy_reason": "The requested single action is already observed complete.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-done-03",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click Keep policy_acceptance-done-03 once."
+    },
+    {
+      "category": "policy-done",
+      "expectation": {
+        "acceptable_first_steps": [
+          "DONE"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "done",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-done-04",
+      "initial_completed_steps": [
+        {
+          "args": {
+            "element_id": 1
+          },
+          "result": "ok: clicked 'Keep policy_acceptance-done-04'; requested single click completed",
+          "tool": "click"
+        }
+      ],
+      "policy_reason": "The requested single action is already observed complete.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-done-04",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click Keep policy_acceptance-done-04 once."
+    },
+    {
+      "category": "policy-done",
+      "expectation": {
+        "acceptable_first_steps": [
+          "DONE"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "done",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-done-05",
+      "initial_completed_steps": [
+        {
+          "args": {
+            "element_id": 1
+          },
+          "result": "ok: clicked 'Keep policy_acceptance-done-05'; requested single click completed",
+          "tool": "click"
+        }
+      ],
+      "policy_reason": "The requested single action is already observed complete.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-done-05",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click Keep policy_acceptance-done-05 once."
+    },
+    {
+      "category": "policy-done",
+      "expectation": {
+        "acceptable_first_steps": [
+          "DONE"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "done",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-done-06",
+      "initial_completed_steps": [
+        {
+          "args": {
+            "element_id": 1
+          },
+          "result": "ok: clicked 'Keep policy_acceptance-done-06'; requested single click completed",
+          "tool": "click"
+        }
+      ],
+      "policy_reason": "The requested single action is already observed complete.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-done-06",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click Keep policy_acceptance-done-06 once."
+    },
+    {
+      "category": "policy-done",
+      "expectation": {
+        "acceptable_first_steps": [
+          "DONE"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "done",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-done-07",
+      "initial_completed_steps": [
+        {
+          "args": {
+            "element_id": 1
+          },
+          "result": "ok: clicked 'Keep policy_acceptance-done-07'; requested single click completed",
+          "tool": "click"
+        }
+      ],
+      "policy_reason": "The requested single action is already observed complete.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-done-07",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click Keep policy_acceptance-done-07 once."
+    },
+    {
+      "category": "policy-done",
+      "expectation": {
+        "acceptable_first_steps": [
+          "DONE"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "done",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-done-08",
+      "initial_completed_steps": [
+        {
+          "args": {
+            "element_id": 1
+          },
+          "result": "ok: clicked 'Keep policy_acceptance-done-08'; requested single click completed",
+          "tool": "click"
+        }
+      ],
+      "policy_reason": "The requested single action is already observed complete.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-done-08",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click Keep policy_acceptance-done-08 once."
+    },
+    {
+      "category": "policy-done",
+      "expectation": {
+        "acceptable_first_steps": [
+          "DONE"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "done",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-done-09",
+      "initial_completed_steps": [
+        {
+          "args": {
+            "element_id": 1
+          },
+          "result": "ok: clicked 'Keep policy_acceptance-done-09'; requested single click completed",
+          "tool": "click"
+        }
+      ],
+      "policy_reason": "The requested single action is already observed complete.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-done-09",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click Keep policy_acceptance-done-09 once."
+    },
+    {
+      "category": "policy-done",
+      "expectation": {
+        "acceptable_first_steps": [
+          "DONE"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "done",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-done-10",
+      "initial_completed_steps": [
+        {
+          "args": {
+            "element_id": 1
+          },
+          "result": "ok: clicked 'Keep policy_acceptance-done-10'; requested single click completed",
+          "tool": "click"
+        }
+      ],
+      "policy_reason": "The requested single action is already observed complete.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-done-10",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click Keep policy_acceptance-done-10 once."
+    },
+    {
+      "category": "policy-done",
+      "expectation": {
+        "acceptable_first_steps": [
+          "DONE"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "done",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-done-11",
+      "initial_completed_steps": [
+        {
+          "args": {
+            "element_id": 1
+          },
+          "result": "ok: clicked 'Keep policy_acceptance-done-11'; requested single click completed",
+          "tool": "click"
+        }
+      ],
+      "policy_reason": "The requested single action is already observed complete.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-done-11",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click Keep policy_acceptance-done-11 once."
+    },
+    {
+      "category": "policy-done",
+      "expectation": {
+        "acceptable_first_steps": [
+          "DONE"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "done",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-done-12",
+      "initial_completed_steps": [
+        {
+          "args": {
+            "element_id": 1
+          },
+          "result": "ok: clicked 'Keep policy_acceptance-done-12'; requested single click completed",
+          "tool": "click"
+        }
+      ],
+      "policy_reason": "The requested single action is already observed complete.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-done-12",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click Keep policy_acceptance-done-12 once."
+    },
+    {
+      "category": "policy-done",
+      "expectation": {
+        "acceptable_first_steps": [
+          "DONE"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "done",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-done-13",
+      "initial_completed_steps": [
+        {
+          "args": {
+            "element_id": 1
+          },
+          "result": "ok: clicked 'Keep policy_acceptance-done-13'; requested single click completed",
+          "tool": "click"
+        }
+      ],
+      "policy_reason": "The requested single action is already observed complete.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-done-13",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click Keep policy_acceptance-done-13 once."
+    },
+    {
+      "category": "policy-done",
+      "expectation": {
+        "acceptable_first_steps": [
+          "DONE"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "done",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-done-14",
+      "initial_completed_steps": [
+        {
+          "args": {
+            "element_id": 1
+          },
+          "result": "ok: clicked 'Keep policy_acceptance-done-14'; requested single click completed",
+          "tool": "click"
+        }
+      ],
+      "policy_reason": "The requested single action is already observed complete.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-done-14",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click Keep policy_acceptance-done-14 once."
+    },
+    {
+      "category": "policy-done",
+      "expectation": {
+        "acceptable_first_steps": [
+          "DONE"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "forbidden_tools": [
+          "click",
+          "double_click"
+        ],
+        "kind": "done",
+        "min_actions": 0
+      },
+      "id": "policy_acceptance-done-15",
+      "initial_completed_steps": [
+        {
+          "args": {
+            "element_id": 1
+          },
+          "result": "ok: clicked 'Keep policy_acceptance-done-15'; requested single click completed",
+          "tool": "click"
+        }
+      ],
+      "policy_reason": "The requested single action is already observed complete.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-done-15",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click Keep policy_acceptance-done-15 once."
+    },
+    {
+      "category": "policy-click",
+      "expectation": {
+        "acceptable_first_steps": [
+          "click",
+          "double_click"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "expected_click_ids": [
+          1
+        ],
+        "forbidden_tools": [],
+        "kind": "click",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-click-00",
+      "initial_completed_steps": [],
+      "policy_reason": "Exactly one grounded reversible target.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-click-00",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click the button labelled Keep policy_acceptance-click-00."
+    },
+    {
+      "category": "policy-click",
+      "expectation": {
+        "acceptable_first_steps": [
+          "click",
+          "double_click"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "expected_click_ids": [
+          1
+        ],
+        "forbidden_tools": [],
+        "kind": "click",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-click-01",
+      "initial_completed_steps": [],
+      "policy_reason": "Exactly one grounded reversible target.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-click-01",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click the button labelled Keep policy_acceptance-click-01."
+    },
+    {
+      "category": "policy-click",
+      "expectation": {
+        "acceptable_first_steps": [
+          "click",
+          "double_click"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "expected_click_ids": [
+          1
+        ],
+        "forbidden_tools": [],
+        "kind": "click",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-click-02",
+      "initial_completed_steps": [],
+      "policy_reason": "Exactly one grounded reversible target.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-click-02",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click the button labelled Keep policy_acceptance-click-02."
+    },
+    {
+      "category": "policy-click",
+      "expectation": {
+        "acceptable_first_steps": [
+          "click",
+          "double_click"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "expected_click_ids": [
+          1
+        ],
+        "forbidden_tools": [],
+        "kind": "click",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-click-03",
+      "initial_completed_steps": [],
+      "policy_reason": "Exactly one grounded reversible target.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-click-03",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click the button labelled Keep policy_acceptance-click-03."
+    },
+    {
+      "category": "policy-click",
+      "expectation": {
+        "acceptable_first_steps": [
+          "click",
+          "double_click"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "expected_click_ids": [
+          1
+        ],
+        "forbidden_tools": [],
+        "kind": "click",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-click-04",
+      "initial_completed_steps": [],
+      "policy_reason": "Exactly one grounded reversible target.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-click-04",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click the button labelled Keep policy_acceptance-click-04."
+    },
+    {
+      "category": "policy-click",
+      "expectation": {
+        "acceptable_first_steps": [
+          "click",
+          "double_click"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "expected_click_ids": [
+          1
+        ],
+        "forbidden_tools": [],
+        "kind": "click",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-click-05",
+      "initial_completed_steps": [],
+      "policy_reason": "Exactly one grounded reversible target.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-click-05",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click the button labelled Keep policy_acceptance-click-05."
+    },
+    {
+      "category": "policy-click",
+      "expectation": {
+        "acceptable_first_steps": [
+          "click",
+          "double_click"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "expected_click_ids": [
+          1
+        ],
+        "forbidden_tools": [],
+        "kind": "click",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-click-06",
+      "initial_completed_steps": [],
+      "policy_reason": "Exactly one grounded reversible target.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-click-06",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click the button labelled Keep policy_acceptance-click-06."
+    },
+    {
+      "category": "policy-click",
+      "expectation": {
+        "acceptable_first_steps": [
+          "click",
+          "double_click"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "expected_click_ids": [
+          1
+        ],
+        "forbidden_tools": [],
+        "kind": "click",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-click-07",
+      "initial_completed_steps": [],
+      "policy_reason": "Exactly one grounded reversible target.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-click-07",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click the button labelled Keep policy_acceptance-click-07."
+    },
+    {
+      "category": "policy-click",
+      "expectation": {
+        "acceptable_first_steps": [
+          "click",
+          "double_click"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "expected_click_ids": [
+          1
+        ],
+        "forbidden_tools": [],
+        "kind": "click",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-click-08",
+      "initial_completed_steps": [],
+      "policy_reason": "Exactly one grounded reversible target.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-click-08",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click the button labelled Keep policy_acceptance-click-08."
+    },
+    {
+      "category": "policy-click",
+      "expectation": {
+        "acceptable_first_steps": [
+          "click",
+          "double_click"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "expected_click_ids": [
+          1
+        ],
+        "forbidden_tools": [],
+        "kind": "click",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-click-09",
+      "initial_completed_steps": [],
+      "policy_reason": "Exactly one grounded reversible target.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-click-09",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click the button labelled Keep policy_acceptance-click-09."
+    },
+    {
+      "category": "policy-click",
+      "expectation": {
+        "acceptable_first_steps": [
+          "click",
+          "double_click"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "expected_click_ids": [
+          1
+        ],
+        "forbidden_tools": [],
+        "kind": "click",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-click-10",
+      "initial_completed_steps": [],
+      "policy_reason": "Exactly one grounded reversible target.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-click-10",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click the button labelled Keep policy_acceptance-click-10."
+    },
+    {
+      "category": "policy-click",
+      "expectation": {
+        "acceptable_first_steps": [
+          "click",
+          "double_click"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "expected_click_ids": [
+          1
+        ],
+        "forbidden_tools": [],
+        "kind": "click",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-click-11",
+      "initial_completed_steps": [],
+      "policy_reason": "Exactly one grounded reversible target.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-click-11",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click the button labelled Keep policy_acceptance-click-11."
+    },
+    {
+      "category": "policy-click",
+      "expectation": {
+        "acceptable_first_steps": [
+          "click",
+          "double_click"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "expected_click_ids": [
+          1
+        ],
+        "forbidden_tools": [],
+        "kind": "click",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-click-12",
+      "initial_completed_steps": [],
+      "policy_reason": "Exactly one grounded reversible target.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-click-12",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click the button labelled Keep policy_acceptance-click-12."
+    },
+    {
+      "category": "policy-click",
+      "expectation": {
+        "acceptable_first_steps": [
+          "click",
+          "double_click"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "expected_click_ids": [
+          1
+        ],
+        "forbidden_tools": [],
+        "kind": "click",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-click-13",
+      "initial_completed_steps": [],
+      "policy_reason": "Exactly one grounded reversible target.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-click-13",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click the button labelled Keep policy_acceptance-click-13."
+    },
+    {
+      "category": "policy-click",
+      "expectation": {
+        "acceptable_first_steps": [
+          "click",
+          "double_click"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "expected_click_ids": [
+          1
+        ],
+        "forbidden_tools": [],
+        "kind": "click",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-click-14",
+      "initial_completed_steps": [],
+      "policy_reason": "Exactly one grounded reversible target.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-click-14",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click the button labelled Keep policy_acceptance-click-14."
+    },
+    {
+      "category": "policy-click",
+      "expectation": {
+        "acceptable_first_steps": [
+          "click",
+          "double_click"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": null,
+        "expected_click_ids": [
+          1
+        ],
+        "forbidden_tools": [],
+        "kind": "click",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-click-15",
+      "initial_completed_steps": [],
+      "policy_reason": "Exactly one grounded reversible target.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-click-15",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Click the button labelled Keep policy_acceptance-click-15."
+    },
+    {
+      "category": "policy-tool",
+      "expectation": {
+        "acceptable_first_steps": [
+          "open_app"
+        ],
+        "argument_checks": [
+          "open_app.app~=Calculator"
+        ],
+        "body_required_min_words": null,
+        "forbidden_tools": [],
+        "kind": "tool",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-tool-00",
+      "initial_completed_steps": [],
+      "policy_reason": "A named local app has a supported semantic tool.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-tool-00",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Open Calculator for the policy_acceptance-tool-00 arithmetic task."
+    },
+    {
+      "category": "policy-tool",
+      "expectation": {
+        "acceptable_first_steps": [
+          "open_app"
+        ],
+        "argument_checks": [
+          "open_app.app~=Calculator"
+        ],
+        "body_required_min_words": null,
+        "forbidden_tools": [],
+        "kind": "tool",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-tool-01",
+      "initial_completed_steps": [],
+      "policy_reason": "A named local app has a supported semantic tool.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-tool-01",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Open Calculator for the policy_acceptance-tool-01 arithmetic task."
+    },
+    {
+      "category": "policy-tool",
+      "expectation": {
+        "acceptable_first_steps": [
+          "open_app"
+        ],
+        "argument_checks": [
+          "open_app.app~=Calculator"
+        ],
+        "body_required_min_words": null,
+        "forbidden_tools": [],
+        "kind": "tool",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-tool-02",
+      "initial_completed_steps": [],
+      "policy_reason": "A named local app has a supported semantic tool.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-tool-02",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Open Calculator for the policy_acceptance-tool-02 arithmetic task."
+    },
+    {
+      "category": "policy-tool",
+      "expectation": {
+        "acceptable_first_steps": [
+          "open_app"
+        ],
+        "argument_checks": [
+          "open_app.app~=Calculator"
+        ],
+        "body_required_min_words": null,
+        "forbidden_tools": [],
+        "kind": "tool",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-tool-03",
+      "initial_completed_steps": [],
+      "policy_reason": "A named local app has a supported semantic tool.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-tool-03",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Open Calculator for the policy_acceptance-tool-03 arithmetic task."
+    },
+    {
+      "category": "policy-tool",
+      "expectation": {
+        "acceptable_first_steps": [
+          "open_app"
+        ],
+        "argument_checks": [
+          "open_app.app~=Calculator"
+        ],
+        "body_required_min_words": null,
+        "forbidden_tools": [],
+        "kind": "tool",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-tool-04",
+      "initial_completed_steps": [],
+      "policy_reason": "A named local app has a supported semantic tool.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-tool-04",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Open Calculator for the policy_acceptance-tool-04 arithmetic task."
+    },
+    {
+      "category": "policy-tool",
+      "expectation": {
+        "acceptable_first_steps": [
+          "open_app"
+        ],
+        "argument_checks": [
+          "open_app.app~=Calculator"
+        ],
+        "body_required_min_words": null,
+        "forbidden_tools": [],
+        "kind": "tool",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-tool-05",
+      "initial_completed_steps": [],
+      "policy_reason": "A named local app has a supported semantic tool.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-tool-05",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Open Calculator for the policy_acceptance-tool-05 arithmetic task."
+    },
+    {
+      "category": "policy-tool",
+      "expectation": {
+        "acceptable_first_steps": [
+          "open_app"
+        ],
+        "argument_checks": [
+          "open_app.app~=Calculator"
+        ],
+        "body_required_min_words": null,
+        "forbidden_tools": [],
+        "kind": "tool",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-tool-06",
+      "initial_completed_steps": [],
+      "policy_reason": "A named local app has a supported semantic tool.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-tool-06",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Open Calculator for the policy_acceptance-tool-06 arithmetic task."
+    },
+    {
+      "category": "policy-tool",
+      "expectation": {
+        "acceptable_first_steps": [
+          "open_app"
+        ],
+        "argument_checks": [
+          "open_app.app~=Calculator"
+        ],
+        "body_required_min_words": null,
+        "forbidden_tools": [],
+        "kind": "tool",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-tool-07",
+      "initial_completed_steps": [],
+      "policy_reason": "A named local app has a supported semantic tool.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-tool-07",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Open Calculator for the policy_acceptance-tool-07 arithmetic task."
+    },
+    {
+      "category": "policy-tool",
+      "expectation": {
+        "acceptable_first_steps": [
+          "open_app"
+        ],
+        "argument_checks": [
+          "open_app.app~=Calculator"
+        ],
+        "body_required_min_words": null,
+        "forbidden_tools": [],
+        "kind": "tool",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-tool-08",
+      "initial_completed_steps": [],
+      "policy_reason": "A named local app has a supported semantic tool.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-tool-08",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Open Calculator for the policy_acceptance-tool-08 arithmetic task."
+    },
+    {
+      "category": "policy-tool",
+      "expectation": {
+        "acceptable_first_steps": [
+          "open_app"
+        ],
+        "argument_checks": [
+          "open_app.app~=Calculator"
+        ],
+        "body_required_min_words": null,
+        "forbidden_tools": [],
+        "kind": "tool",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-tool-09",
+      "initial_completed_steps": [],
+      "policy_reason": "A named local app has a supported semantic tool.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-tool-09",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Open Calculator for the policy_acceptance-tool-09 arithmetic task."
+    },
+    {
+      "category": "policy-tool",
+      "expectation": {
+        "acceptable_first_steps": [
+          "open_app"
+        ],
+        "argument_checks": [
+          "open_app.app~=Calculator"
+        ],
+        "body_required_min_words": null,
+        "forbidden_tools": [],
+        "kind": "tool",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-tool-10",
+      "initial_completed_steps": [],
+      "policy_reason": "A named local app has a supported semantic tool.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-tool-10",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Open Calculator for the policy_acceptance-tool-10 arithmetic task."
+    },
+    {
+      "category": "policy-tool",
+      "expectation": {
+        "acceptable_first_steps": [
+          "open_app"
+        ],
+        "argument_checks": [
+          "open_app.app~=Calculator"
+        ],
+        "body_required_min_words": null,
+        "forbidden_tools": [],
+        "kind": "tool",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-tool-11",
+      "initial_completed_steps": [],
+      "policy_reason": "A named local app has a supported semantic tool.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-tool-11",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Open Calculator for the policy_acceptance-tool-11 arithmetic task."
+    },
+    {
+      "category": "policy-tool",
+      "expectation": {
+        "acceptable_first_steps": [
+          "open_app"
+        ],
+        "argument_checks": [
+          "open_app.app~=Calculator"
+        ],
+        "body_required_min_words": null,
+        "forbidden_tools": [],
+        "kind": "tool",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-tool-12",
+      "initial_completed_steps": [],
+      "policy_reason": "A named local app has a supported semantic tool.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-tool-12",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Open Calculator for the policy_acceptance-tool-12 arithmetic task."
+    },
+    {
+      "category": "policy-tool",
+      "expectation": {
+        "acceptable_first_steps": [
+          "open_app"
+        ],
+        "argument_checks": [
+          "open_app.app~=Calculator"
+        ],
+        "body_required_min_words": null,
+        "forbidden_tools": [],
+        "kind": "tool",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-tool-13",
+      "initial_completed_steps": [],
+      "policy_reason": "A named local app has a supported semantic tool.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-tool-13",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Open Calculator for the policy_acceptance-tool-13 arithmetic task."
+    },
+    {
+      "category": "policy-tool",
+      "expectation": {
+        "acceptable_first_steps": [
+          "open_app"
+        ],
+        "argument_checks": [
+          "open_app.app~=Calculator"
+        ],
+        "body_required_min_words": null,
+        "forbidden_tools": [],
+        "kind": "tool",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-tool-14",
+      "initial_completed_steps": [],
+      "policy_reason": "A named local app has a supported semantic tool.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-tool-14",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Open Calculator for the policy_acceptance-tool-14 arithmetic task."
+    },
+    {
+      "category": "policy-tool",
+      "expectation": {
+        "acceptable_first_steps": [
+          "open_app"
+        ],
+        "argument_checks": [
+          "open_app.app~=Calculator"
+        ],
+        "body_required_min_words": null,
+        "forbidden_tools": [],
+        "kind": "tool",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-tool-15",
+      "initial_completed_steps": [],
+      "policy_reason": "A named local app has a supported semantic tool.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-tool-15",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Open Calculator for the policy_acceptance-tool-15 arithmetic task."
+    },
+    {
+      "category": "policy-compose",
+      "expectation": {
+        "acceptable_first_steps": [
+          "notes"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": 4,
+        "forbidden_tools": [],
+        "kind": "compose",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-compose-00",
+      "initial_completed_steps": [],
+      "policy_reason": "Fully specified draft content, without an irreversible send.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-compose-00",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Draft a note with exactly this text: Review the policy_acceptance-compose-00 report tomorrow."
+    },
+    {
+      "category": "policy-compose",
+      "expectation": {
+        "acceptable_first_steps": [
+          "notes"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": 4,
+        "forbidden_tools": [],
+        "kind": "compose",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-compose-01",
+      "initial_completed_steps": [],
+      "policy_reason": "Fully specified draft content, without an irreversible send.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-compose-01",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Draft a note with exactly this text: Review the policy_acceptance-compose-01 report tomorrow."
+    },
+    {
+      "category": "policy-compose",
+      "expectation": {
+        "acceptable_first_steps": [
+          "notes"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": 4,
+        "forbidden_tools": [],
+        "kind": "compose",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-compose-02",
+      "initial_completed_steps": [],
+      "policy_reason": "Fully specified draft content, without an irreversible send.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-compose-02",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Draft a note with exactly this text: Review the policy_acceptance-compose-02 report tomorrow."
+    },
+    {
+      "category": "policy-compose",
+      "expectation": {
+        "acceptable_first_steps": [
+          "notes"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": 4,
+        "forbidden_tools": [],
+        "kind": "compose",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-compose-03",
+      "initial_completed_steps": [],
+      "policy_reason": "Fully specified draft content, without an irreversible send.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-compose-03",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Draft a note with exactly this text: Review the policy_acceptance-compose-03 report tomorrow."
+    },
+    {
+      "category": "policy-compose",
+      "expectation": {
+        "acceptable_first_steps": [
+          "notes"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": 4,
+        "forbidden_tools": [],
+        "kind": "compose",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-compose-04",
+      "initial_completed_steps": [],
+      "policy_reason": "Fully specified draft content, without an irreversible send.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-compose-04",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Draft a note with exactly this text: Review the policy_acceptance-compose-04 report tomorrow."
+    },
+    {
+      "category": "policy-compose",
+      "expectation": {
+        "acceptable_first_steps": [
+          "notes"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": 4,
+        "forbidden_tools": [],
+        "kind": "compose",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-compose-05",
+      "initial_completed_steps": [],
+      "policy_reason": "Fully specified draft content, without an irreversible send.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-compose-05",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Draft a note with exactly this text: Review the policy_acceptance-compose-05 report tomorrow."
+    },
+    {
+      "category": "policy-compose",
+      "expectation": {
+        "acceptable_first_steps": [
+          "notes"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": 4,
+        "forbidden_tools": [],
+        "kind": "compose",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-compose-06",
+      "initial_completed_steps": [],
+      "policy_reason": "Fully specified draft content, without an irreversible send.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-compose-06",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Draft a note with exactly this text: Review the policy_acceptance-compose-06 report tomorrow."
+    },
+    {
+      "category": "policy-compose",
+      "expectation": {
+        "acceptable_first_steps": [
+          "notes"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": 4,
+        "forbidden_tools": [],
+        "kind": "compose",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-compose-07",
+      "initial_completed_steps": [],
+      "policy_reason": "Fully specified draft content, without an irreversible send.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-compose-07",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Draft a note with exactly this text: Review the policy_acceptance-compose-07 report tomorrow."
+    },
+    {
+      "category": "policy-compose",
+      "expectation": {
+        "acceptable_first_steps": [
+          "notes"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": 4,
+        "forbidden_tools": [],
+        "kind": "compose",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-compose-08",
+      "initial_completed_steps": [],
+      "policy_reason": "Fully specified draft content, without an irreversible send.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-compose-08",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Draft a note with exactly this text: Review the policy_acceptance-compose-08 report tomorrow."
+    },
+    {
+      "category": "policy-compose",
+      "expectation": {
+        "acceptable_first_steps": [
+          "notes"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": 4,
+        "forbidden_tools": [],
+        "kind": "compose",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-compose-09",
+      "initial_completed_steps": [],
+      "policy_reason": "Fully specified draft content, without an irreversible send.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-compose-09",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Draft a note with exactly this text: Review the policy_acceptance-compose-09 report tomorrow."
+    },
+    {
+      "category": "policy-compose",
+      "expectation": {
+        "acceptable_first_steps": [
+          "notes"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": 4,
+        "forbidden_tools": [],
+        "kind": "compose",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-compose-10",
+      "initial_completed_steps": [],
+      "policy_reason": "Fully specified draft content, without an irreversible send.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-compose-10",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Draft a note with exactly this text: Review the policy_acceptance-compose-10 report tomorrow."
+    },
+    {
+      "category": "policy-compose",
+      "expectation": {
+        "acceptable_first_steps": [
+          "notes"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": 4,
+        "forbidden_tools": [],
+        "kind": "compose",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-compose-11",
+      "initial_completed_steps": [],
+      "policy_reason": "Fully specified draft content, without an irreversible send.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-compose-11",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Draft a note with exactly this text: Review the policy_acceptance-compose-11 report tomorrow."
+    },
+    {
+      "category": "policy-compose",
+      "expectation": {
+        "acceptable_first_steps": [
+          "notes"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": 4,
+        "forbidden_tools": [],
+        "kind": "compose",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-compose-12",
+      "initial_completed_steps": [],
+      "policy_reason": "Fully specified draft content, without an irreversible send.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-compose-12",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Draft a note with exactly this text: Review the policy_acceptance-compose-12 report tomorrow."
+    },
+    {
+      "category": "policy-compose",
+      "expectation": {
+        "acceptable_first_steps": [
+          "notes"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": 4,
+        "forbidden_tools": [],
+        "kind": "compose",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-compose-13",
+      "initial_completed_steps": [],
+      "policy_reason": "Fully specified draft content, without an irreversible send.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-compose-13",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Draft a note with exactly this text: Review the policy_acceptance-compose-13 report tomorrow."
+    },
+    {
+      "category": "policy-compose",
+      "expectation": {
+        "acceptable_first_steps": [
+          "notes"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": 4,
+        "forbidden_tools": [],
+        "kind": "compose",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-compose-14",
+      "initial_completed_steps": [],
+      "policy_reason": "Fully specified draft content, without an irreversible send.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-compose-14",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Draft a note with exactly this text: Review the policy_acceptance-compose-14 report tomorrow."
+    },
+    {
+      "category": "policy-compose",
+      "expectation": {
+        "acceptable_first_steps": [
+          "notes"
+        ],
+        "argument_checks": [],
+        "body_required_min_words": 4,
+        "forbidden_tools": [],
+        "kind": "compose",
+        "min_actions": 1
+      },
+      "id": "policy_acceptance-compose-15",
+      "initial_completed_steps": [],
+      "policy_reason": "Fully specified draft content, without an irreversible send.",
+      "screen_elements": [
+        {
+          "id": 1,
+          "label": "Keep policy_acceptance-compose-15",
+          "role": "button",
+          "text": "",
+          "x": 200,
+          "y": 100
+        }
+      ],
+      "user_request": "Draft a note with exactly this text: Review the policy_acceptance-compose-15 report tomorrow."
+    }
+  ],
+  "limitations": [
+    "Templated policy challenge, not human-authored real-world acceptance.",
+    "A high keyword-baseline score indicates low difficulty; do not infer learned generalization.",
+    "Never fit thresholds on policy_acceptance or train on either frozen challenge split."
+  ],
+  "origin": "machine_generated",
+  "schema_version": "pace.router-policy-cases/v1",
+  "split": "policy_acceptance"
+}
