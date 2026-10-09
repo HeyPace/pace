@@ -303,7 +303,8 @@ nonisolated enum PaceParsedAction {
         case .openURL(let urlString):
             return "Open URL: \(urlString)"
         case .openBrowser(let request):
-            return "Open \(request.browserName)\(request.chromeProfile.map { " (\($0) profile)" } ?? "")\(request.url.map { ": \($0)" } ?? "")"
+            return
+                "Open \(request.browserName)\(request.chromeProfile.map { " (\($0) profile)" } ?? "")\(request.url.map { ": \($0)" } ?? "")"
         case .screenCapture(let kind):
             return "Open \(kind.rawValue) controls"
         case .codexSession(let request):
@@ -777,9 +778,11 @@ nonisolated enum PaceFastActionCommandParser {
         if let urlString = parseURLCommand(from: normalizedTranscript) {
             return PaceFastActionParseResult(
                 spokenText: "opening \(displayNameForOpenedURL(urlString)).",
-                executionPlan: .serial(actions: [requestedBrowser(in: normalizedTranscript).map {
-                    .openBrowser(.init(browserName: $0, url: urlString, chromeProfile: nil))
-                } ?? .openURL(urlString)])
+                executionPlan: .serial(actions: [
+                    requestedBrowser(in: normalizedTranscript).map {
+                        .openBrowser(.init(browserName: $0, url: urlString, chromeProfile: nil))
+                    } ?? .openURL(urlString)
+                ])
             )
         }
 
@@ -1143,11 +1146,15 @@ nonisolated enum PaceFastActionCommandParser {
     /// Preserve an explicitly named browser while the URL parser strips
     /// the suffix from the site name.
     private static func requestedBrowser(in transcript: String) -> String? {
-        let browsers = ["chrome": "Google Chrome", "google chrome": "Google Chrome", "safari": "Safari",
-                        "arc": "Arc", "firefox": "Firefox", "edge": "Microsoft Edge", "brave": "Brave Browser"]
+        let browsers = [
+            "chrome": "Google Chrome", "google chrome": "Google Chrome", "safari": "Safari",
+            "arc": "Arc", "firefox": "Firefox", "edge": "Microsoft Edge", "brave": "Brave Browser",
+        ]
         for connector in [" on ", " in ", " using "] {
             guard let range = transcript.range(of: connector, options: .backwards) else { continue }
-            if let browser = browsers[String(transcript[range.upperBound...]).trimmingCharacters(in: .whitespaces)] { return browser }
+            if let browser = browsers[String(transcript[range.upperBound...]).trimmingCharacters(in: .whitespaces)] {
+                return browser
+            }
         }
         return nil
     }

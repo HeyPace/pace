@@ -571,7 +571,8 @@ extension CompanionManager {
                 // CLI or a larger LM Studio model) before speaking.
                 // This catches cases where complexity estimation missed
                 // a query that the local model can't handle well.
-                let qualityVerdict: PaceResponseQualityVerdict = usesOffDeviceTextPlanner
+                let qualityVerdict: PaceResponseQualityVerdict =
+                    usesOffDeviceTextPlanner
                     ? .adequate
                     : await responseQualityChecker.check(query: transcript, response: spokenText)
                 var qualityReRouted = false
@@ -1092,7 +1093,8 @@ extension CompanionManager {
         // no-op.
         plannerClient.resetForNewTurn()
         PaceMeetingModeController.shared.localRetriever = localRetriever
-        PaceMeetingModeController.shared.plannerClient = BuddyPlannerClientFactory.makeLocalOnlyPlannerForPrivacyPinnedFeatures()
+        PaceMeetingModeController.shared.plannerClient =
+            BuddyPlannerClientFactory.makeLocalOnlyPlannerForPrivacyPinnedFeatures()
 
         if let deterministicAnswer = PaceDeterministicAnswerParser.parse(transcript: transcript) {
             print("🧮 Deterministic answer: \(deterministicAnswer.routingDetail)")
@@ -1714,7 +1716,8 @@ extension CompanionManager {
                             includeAgentMode: isAgentModeEnabled,
                             isTuitionModeEnabled: isTuitionModeEnabled,
                             threadSummaryInjection: threadSummaryInjectionForTurn,
-                            ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment
+                            ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment,
+                            usesIterativeComputerUse: plannerClientForThisTurn is PaceLocalCLIPlannerClient
                         )
                     }
                     // Mark this turn as off-device for the amber-tint
@@ -1855,7 +1858,8 @@ extension CompanionManager {
                         //    override (research tier swap) when set, else the
                         //    standard `plannerClient` Pace was constructed with.
                         let imagesForPlanner: [(data: Data, label: String)] =
-                            plannerClientForThisTurn.supportsImageInput && useLocalVLMForScreenContext ? labeledImages : []
+                            plannerClientForThisTurn.supportsImageInput && useLocalVLMForScreenContext
+                            ? labeledImages : []
 
                         let (singlePlannerResponseText, _) =
                             try await plannerClientForThisTurn.generateResponseStreaming(
@@ -2878,8 +2882,11 @@ extension CompanionManager {
                 await controller.start()
                 guard controller.state == .active else {
                     let failureMessage: String
-                    if case .failed(let reason) = controller.state { failureMessage = "Meeting recording failed: \(reason)" }
-                    else { failureMessage = "Meeting recording did not start." }
+                    if case .failed(let reason) = controller.state {
+                        failureMessage = "Meeting recording failed: \(reason)"
+                    } else {
+                        failureMessage = "Meeting recording did not start."
+                    }
                     try? await ttsClient.speakText(failureMessage)
                     voiceState = .idle
                     return
@@ -3042,7 +3049,8 @@ extension CompanionManager {
         currentResponseTask = Task { @MainActor in
             try? await ttsClient.speakText(setupSpokenText)
 
-            let authoringPlanner = activePlannerTierIsOffDevice
+            let authoringPlanner =
+                activePlannerTierIsOffDevice
                 ? plannerClient
                 : BuddyPlannerClientFactory.makeLocalOnlyTextPlannerForPrivacyPinnedFeatures()
             isOffDeviceTurnInFlight = activePlannerTierIsOffDevice

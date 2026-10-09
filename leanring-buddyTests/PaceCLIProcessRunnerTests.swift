@@ -10,7 +10,10 @@ struct PaceCLIProcessRunnerTests {
         var output: [String] = []
         for try await line in PaceCLIProcessRunner.lines(
             executableURL: URL(fileURLWithPath: "/usr/bin/python3"),
-            arguments: ["-c", "import os; os.write(2, b'e' * 200000); os.write(1, bytes([226])); os.write(1, bytes([130,172,10])); print('done')"],
+            arguments: [
+                "-c",
+                "import os; os.write(2, b'e' * 200000); os.write(1, bytes([226])); os.write(1, bytes([130,172,10])); print('done')",
+            ],
             stdinPayload: "", workingDirectoryURL: directory, timeout: 10
         ) { output.append(line) }
         #expect(output == ["€", "done"])

@@ -593,7 +593,10 @@ nonisolated enum PaceActionTagParser {
             let urlString = firstStringValue(for: ["url", "text"], in: arguments)
             guard let urlString else { return nil }
             if let browser = firstStringValue(for: ["browser"], in: arguments) {
-                return .openBrowser(.init(browserName: browser, url: urlString, chromeProfile: firstStringValue(for: ["profile"], in: arguments)))
+                return .openBrowser(
+                    .init(
+                        browserName: browser, url: urlString,
+                        chromeProfile: firstStringValue(for: ["profile"], in: arguments)))
             }
             if let profile = firstStringValue(for: ["profile"], in: arguments) {
                 return .openBrowser(.init(browserName: "Google Chrome", url: urlString, chromeProfile: profile))
@@ -1292,14 +1295,18 @@ nonisolated enum PaceActionTagParser {
             )
         case .openApp:
             if let profile = firstStringValue(for: ["profile"], in: mergeMCPArguments(from: toolCall)) {
-                return .openBrowser(.init(browserName: toolCall.app ?? toolCall.name ?? "", url: nil, chromeProfile: profile))
+                return .openBrowser(
+                    .init(browserName: toolCall.app ?? toolCall.name ?? "", url: nil, chromeProfile: profile))
             }
             return parseOpenApplicationPayload(toolCall.app ?? toolCall.name ?? "")
         case .openURL:
             let arguments = mergeMCPArguments(from: toolCall)
             let profile = firstStringValue(for: ["profile"], in: arguments)
-            if let browser = firstStringValue(for: ["browser"], in: arguments) ?? (profile == nil ? nil : "Google Chrome") {
-                return .openBrowser(.init(browserName: browser, url: toolCall.url ?? toolCall.text, chromeProfile: profile))
+            if let browser = firstStringValue(for: ["browser"], in: arguments)
+                ?? (profile == nil ? nil : "Google Chrome")
+            {
+                return .openBrowser(
+                    .init(browserName: browser, url: toolCall.url ?? toolCall.text, chromeProfile: profile))
             }
             return parseOpenURLPayload(toolCall.url ?? toolCall.text ?? "")
         case .codexSession:
@@ -1547,7 +1554,9 @@ nonisolated enum PaceActionTagParser {
         case .codexSession:
             if parseCodexSessionArguments(mergedArguments) == nil { issues.append("requires directory path") }
         case .screenCapture:
-            if parseScreenCaptureArguments(mergedArguments) == nil { issues.append("requires mode screenshot or recording") }
+            if parseScreenCaptureArguments(mergedArguments) == nil {
+                issues.append("requires mode screenshot or recording")
+            }
         case .meeting:
             if parseMeetingArguments(mergedArguments) == nil { issues.append("requires action start, stop, or status") }
         case .clearAnnotations:
@@ -1559,13 +1568,15 @@ nonisolated enum PaceActionTagParser {
 
     private static func parseCodexSessionArguments(_ arguments: [String: PaceMCPJSONValue]) -> PaceParsedAction? {
         guard let directory = firstStringValue(for: ["directory", "path"], in: arguments),
-              directory.hasPrefix("/") || directory.hasPrefix("~/") else { return nil }
+            directory.hasPrefix("/") || directory.hasPrefix("~/")
+        else { return nil }
         return .codexSession(.init(directory: directory))
     }
 
     private static func parseScreenCaptureArguments(_ arguments: [String: PaceMCPJSONValue]) -> PaceParsedAction? {
         guard let rawMode = firstStringValue(for: ["mode"], in: arguments),
-              let kind = PaceScreenCaptureKind(rawValue: rawMode.lowercased()) else { return nil }
+            let kind = PaceScreenCaptureKind(rawValue: rawMode.lowercased())
+        else { return nil }
         return .screenCapture(kind)
     }
 

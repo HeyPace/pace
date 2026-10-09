@@ -1,22 +1,25 @@
 import Foundation
 import Testing
+
 @testable import Pace
 
 @MainActor
 struct PaceDesktopRequestsTests {
     @Test func plannerCanComposeWorkAppsAndFolderSpecificCodexSession() {
-        let result = PaceActionTagParser.parseActions(from: """
-        {"spokenText":"Opening your workspace.","intent":"action","payload":{"calls":[
-          {"name":"App.launch","args":{"name":"Linear"}},
-          {"name":"App.launch","args":{"name":"Slack"}},
-          {"name":"App.launch","args":{"name":"Chrome","profile":"work"}},
-          {"name":"Codex.session","args":{"directory":"~/projects/example"}}
-        ]}}
-        """)
+        let result = PaceActionTagParser.parseActions(
+            from: """
+                {"spokenText":"Opening your workspace.","intent":"action","payload":{"calls":[
+                  {"name":"App.launch","args":{"name":"Linear"}},
+                  {"name":"App.launch","args":{"name":"Slack"}},
+                  {"name":"App.launch","args":{"name":"Chrome","profile":"work"}},
+                  {"name":"Codex.session","args":{"directory":"~/projects/example"}}
+                ]}}
+                """)
         #expect(result.actions.count == 4)
         guard result.actions.count == 4 else { return }
         guard case .openBrowser(let browser) = result.actions[2],
-              case .codexSession(let session) = result.actions[3] else {
+            case .codexSession(let session) = result.actions[3]
+        else {
             Issue.record("Expected profile-aware browser and Codex session")
             return
         }
@@ -25,11 +28,21 @@ struct PaceDesktopRequestsTests {
     }
 
     @Test func recordingModesRemainDistinctAndInvalidModesFailClosed() {
-        let screen = PaceActionTagParser.parseActions(from: #"{"spokenText":"Opening controls.","intent":"action","payload":{"name":"screen_capture","args":{"mode":"recording"}}}"#)
-        let meeting = PaceActionTagParser.parseActions(from: #"{"spokenText":"Recording audio.","intent":"action","payload":{"name":"meeting","args":{"action":"start"}}}"#)
-        let invalid = PaceActionTagParser.parseActions(from: #"{"spokenText":"Bad mode.","intent":"action","payload":{"name":"screen_capture","args":{"mode":"everything"}}}"#)
+        let screen = PaceActionTagParser.parseActions(
+            from:
+                #"{"spokenText":"Opening controls.","intent":"action","payload":{"name":"screen_capture","args":{"mode":"recording"}}}"#
+        )
+        let meeting = PaceActionTagParser.parseActions(
+            from:
+                #"{"spokenText":"Recording audio.","intent":"action","payload":{"name":"meeting","args":{"action":"start"}}}"#
+        )
+        let invalid = PaceActionTagParser.parseActions(
+            from:
+                #"{"spokenText":"Bad mode.","intent":"action","payload":{"name":"screen_capture","args":{"mode":"everything"}}}"#
+        )
         guard case .screenCapture(.recording) = screen.actions.first,
-              case .meeting(.start(profileSlug: nil)) = meeting.actions.first else {
+            case .meeting(.start(profileSlug: nil)) = meeting.actions.first
+        else {
             Issue.record("Expected distinct screen and meeting actions")
             return
         }
@@ -55,9 +68,12 @@ struct PaceDesktopRequestsTests {
         let executable = URL(fileURLWithPath: "/tmp/codex's executable")
         let configuration = try PaceCodexSessionRequest.warpConfiguration(directory: folder, executable: executable)
         #expect(configuration.contains("directory = "))
+        #expect(!configuration.contains(#"\/"#))
         #expect(configuration.contains("shell = \"zsh\""))
         let quotedExecutable = "'" + executable.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        let encodedCommand = String(decoding: try JSONEncoder().encode(quotedExecutable), as: UTF8.self)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        let encodedCommand = String(decoding: try encoder.encode(quotedExecutable), as: UTF8.self)
         #expect(configuration.contains("commands = [" + encodedCommand + "]"))
         #expect(!configuration.contains("cd "))
         #expect(PaceCodexSessionRequest(directory: "/unlikely-nonexistent-pace-folder").resolvedDirectory() == nil)
@@ -69,7 +85,17 @@ struct PaceDesktopRequestsTests {
         #expect(arguments.contains("--ignore-user-config"))
         #expect(arguments.contains("shell_tool"))
         #expect(arguments.contains("web_search=\"disabled\""))
-        let directories = PaceLocalCLIPlannerClient.executableSearchDirectories(path: "/usr/bin", homeDirectory: URL(fileURLWithPath: "/Users/example"))
+        let directories = PaceLocalCLIPlannerClient.executableSearchDirectories(
+            path: "/usr/bin", homeDirectory: URL(fileURLWithPath: "/Users/example"))
         #expect(directories.contains("/Users/example/.local/bin"))
     }
+    @Test func codexComputerUsePromptRequestsFreshObservationsBeforeDependentActions() {
+        let prompt = CompanionSystemPrompt.build(includeAgentMode: true, usesIterativeComputerUse: true)
+        #expect(prompt.contains("Pace WILL call you again"))
+        #expect(prompt.contains("Do not replay completed actions"))
+        #expect(prompt.contains("codex_session"))
+        let readOnlyPrompt = CompanionSystemPrompt.build(includeAgentMode: false, usesIterativeComputerUse: true)
+        #expect(!readOnlyPrompt.contains("Pace WILL call you again"))
+    }
+
 }

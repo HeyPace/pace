@@ -251,7 +251,8 @@ enum PaceCloudBridgeConsent {
         guard hasAcceptedDirectSpawnConsent() else { return false }
         guard let storedTimeInterval = UserDefaults.standard.object(
             forKey: CloudBridgeUserDefaultsKey.directSpawnFirstUsedAt.rawValue
-        ) as? Double else { return false }
+            ) as? Double
+        else { return false }
         let firstUsedAt = Date(timeIntervalSinceReferenceDate: storedTimeInterval)
         return now.timeIntervalSince(firstUsedAt) >= 24 * 60 * 60
     }

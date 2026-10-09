@@ -49,7 +49,7 @@ remain unverified on hardware. This source work is not a release.
 | Surface | Stack | Commands |
 | --- | --- | --- |
 | macOS app | Swift/SwiftUI, Xcode `leanring-buddy.xcodeproj` | Open in Xcode → Cmd+R (**do not** `xcodebuild` — invalidates TCC) |
-| Tests | XCTest via isolated DerivedData | `bash scripts/test-pace.sh` — **1736 passed, 3 hardware skips on 2026-10-09 (CI mode, UTC)** |
+| Tests | XCTest via isolated DerivedData | `bash scripts/test-pace.sh` — **1737 passed, 3 hardware skips on 2026-10-10 (CI mode, UTC)** |
 | Local models | MLX, WhisperKit, TTSKit, Apple Speech | Settings → Models; Sparkle manifest in Info.plist |
 | Landing | Astro 5 + Tailwind v4 + Lightning CSS | `cd website && pnpm install && pnpm run dev` (:4321) |
 | Deploy landing | Cloudflare Pages project `pace` | `pnpm run build && pnpm run deploy` |

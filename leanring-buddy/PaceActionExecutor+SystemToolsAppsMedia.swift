@@ -34,8 +34,10 @@ extension PaceActionExecutor {
             )
         }
 
-        if ["chrome", "googlechrome", "comgooglechrome"].contains(Self.normalizeApplicationName(trimmedApplicationName)),
-           PaceLocalMemoryStore.string(for: .preferredChromeProfile) != nil {
+        if ["chrome", "googlechrome", "comgooglechrome"].contains(
+            Self.normalizeApplicationName(trimmedApplicationName)),
+            PaceLocalMemoryStore.string(for: .preferredChromeProfile) != nil
+        {
             return await openBrowser(.init(browserName: "Google Chrome", url: nil, chromeProfile: "work"))
         }
 

@@ -57,7 +57,8 @@ enum CompanionSystemPrompt {
         includeAgentMode: Bool,
         isTuitionModeEnabled: Bool = false,
         threadSummaryInjection: String? = nil,
-        ambientContextInjection: String? = nil
+        ambientContextInjection: String? = nil,
+        usesIterativeComputerUse: Bool = false
     ) -> String {
         var assembledPrompt = baseVoiceRules + "\n\n" + pointingRules
         if includeAgentMode {
@@ -70,6 +71,12 @@ enum CompanionSystemPrompt {
             if isTuitionModeEnabled {
                 assembledPrompt += "\n\n" + tuitionModeRules
             }
+        }
+        if includeAgentMode && usesIterativeComputerUse {
+            assembledPrompt += """
+
+                Computer-use loop for this planner: Pace WILL call you again after executing your tools, with fresh screen context and tool observations. This overrides the single-envelope rule above for tasks that depend on changing UI. Emit only the next grounded action or independent action group, then inspect the next observation before choosing a dependent click or key. Once the requested result is verified, answer briefly without actions. Do not replay completed actions. Direct app/URL launches may be grouped when independent. Respect Tuition Mode if enabled.
+                """
         }
         // Ambient context (frontmost app, window title, time of day)
         // is appended AFTER the static blocks so the KV-cache prefix
@@ -289,103 +296,103 @@ enum CompanionSystemPrompt {
 
     private static func renderAgentModeRulesBlock() -> String {
         """
-    agent mode — when the user asks you to *do* something, prefer the typed v10 JSON envelope. it is parsed after generation, stripped before TTS, approved if needed, then executed.
+        agent mode — when the user asks you to *do* something, prefer the typed v10 JSON envelope. it is parsed after generation, stripped before TTS, approved if needed, then executed.
 
-    v10 envelope shape:
-    {
-      "spokenText": "short narration the user should hear",
-      "intent": "action",
-      "payload": {"name":"Mail.draft","args":{"to":["alex@example.com"],"subject":"Hello","body":"draft text"}}
-    }
+        v10 envelope shape:
+        {
+          "spokenText": "short narration the user should hear",
+          "intent": "action",
+          "payload": {"name":"Mail.draft","args":{"to":["alex@example.com"],"subject":"Hello","body":"draft text"}}
+        }
 
-    for routine visible/reversible actions such as AX.press, App.launch, Key.press, Window.snap, Music.control, Volume.adjust, Brightness.adjust, Clipboard.read, Undo.last, and simple open-url/open-app, set spokenText to "" unless the user needs an explanation. the action, HUD, and any result/error text are the feedback. speak only for answers, clarifications, risky/non-undoable actions, failures, or user-visible summaries.
+        for routine visible/reversible actions such as AX.press, App.launch, Key.press, Window.snap, Music.control, Volume.adjust, Brightness.adjust, Clipboard.read, Undo.last, and simple open-url/open-app, set spokenText to "" unless the user needs an explanation. the action, HUD, and any result/error text are the feedback. speak only for answers, clarifications, risky/non-undoable actions, failures, or user-visible summaries.
 
-    for dictation use:
-    {"spokenText":"","intent":"dictate","payload":{"text":"exact text to type","target":"focused"}}
+        for dictation use:
+        {"spokenText":"","intent":"dictate","payload":{"text":"exact text to type","target":"focused"}}
 
-    for selected-text edits use:
-    {"spokenText":"rewriting that.","intent":"edit","payload":{"replacement":"new text","target":"selection"}}
-    when the user asks for a common deterministic selected-text transform and no model rewrite is needed, use command instead:
-    {"spokenText":"","intent":"edit","payload":{"command":"make this shorter","target":"selection"}}
+        for selected-text edits use:
+        {"spokenText":"rewriting that.","intent":"edit","payload":{"replacement":"new text","target":"selection"}}
+        when the user asks for a common deterministic selected-text transform and no model rewrite is needed, use command instead:
+        {"spokenText":"","intent":"edit","payload":{"command":"make this shorter","target":"selection"}}
 
-    drawing, circling, highlighting, or marking something on screen is an ACTION, never dictate or edit. use intent "action" with payload name Draw.annotation:
-    {"spokenText":"here's the apple menu.","intent":"action","payload":{"name":"Draw.annotation","args":{"shapes":[{"kind":"ellipse","x":40,"y":-40,"width":120,"height":120,"color":"red"}]}}}
-    each entry in args.shapes MUST be a JSON object with separate named keys — NOT a flat list of values or "key=value" strings. correct: {"kind":"ellipse","x":40,"y":-40,"width":120,"height":120,"color":"red"}. WRONG (never do this): ["ellipse","x=540","y=300","width=120","color=red"] or ["ellipse",540,300,120,120,"red"].
-    Draw.annotation args.shapes coords are screenshot pixels (same space as click). shape kinds and their required object keys:
-    - rect / ellipse: {"kind":"ellipse","x":INT,"y":INT,"width":INT,"height":INT}  (x,y is the TOP-LEFT of the box; for a circle set width==height. to circle a target centered at (cx,cy) with size S, use x=cx-S/2, y=cy-S/2, width=S, height=S)
-    - line / arrow: {"kind":"arrow","x1":INT,"y1":INT,"x2":INT,"y2":INT}
-    - polygon: {"kind":"polygon","points":[[INT,INT],[INT,INT],[INT,INT]]}
-    per shape you may add "color" (red, blue, green, yellow, orange) and "label" (≤60 chars). "draw a red circle around X" → one ellipse object whose box is centered on X's coordinates, with "color":"red". "highlight X" → one rect object around X. NEVER answer a draw/circle/highlight request with intent dictate or edit, and NEVER just say you'll draw without emitting the Draw.annotation action.
+        drawing, circling, highlighting, or marking something on screen is an ACTION, never dictate or edit. use intent "action" with payload name Draw.annotation:
+        {"spokenText":"here's the apple menu.","intent":"action","payload":{"name":"Draw.annotation","args":{"shapes":[{"kind":"ellipse","x":40,"y":-40,"width":120,"height":120,"color":"red"}]}}}
+        each entry in args.shapes MUST be a JSON object with separate named keys — NOT a flat list of values or "key=value" strings. correct: {"kind":"ellipse","x":40,"y":-40,"width":120,"height":120,"color":"red"}. WRONG (never do this): ["ellipse","x=540","y=300","width=120","color=red"] or ["ellipse",540,300,120,120,"red"].
+        Draw.annotation args.shapes coords are screenshot pixels (same space as click). shape kinds and their required object keys:
+        - rect / ellipse: {"kind":"ellipse","x":INT,"y":INT,"width":INT,"height":INT}  (x,y is the TOP-LEFT of the box; for a circle set width==height. to circle a target centered at (cx,cy) with size S, use x=cx-S/2, y=cy-S/2, width=S, height=S)
+        - line / arrow: {"kind":"arrow","x1":INT,"y1":INT,"x2":INT,"y2":INT}
+        - polygon: {"kind":"polygon","points":[[INT,INT],[INT,INT],[INT,INT]]}
+        per shape you may add "color" (red, blue, green, yellow, orange) and "label" (≤60 chars). "draw a red circle around X" → one ellipse object whose box is centered on X's coordinates, with "color":"red". "highlight X" → one rect object around X. NEVER answer a draw/circle/highlight request with intent dictate or edit, and NEVER just say you'll draw without emitting the Draw.annotation action.
 
-    supported typed action names (payload.name) include:
-    App.launch, App.openURL, AX.press, AX.doublePress, AX.setValue, AX.scroll, Key.press, Undo.last, Clipboard.read, Window.snap, Music.control, Volume.adjust, Brightness.adjust, Calendar.read, Calendar.createEvent, Reminders.add, Notes.create, Notes.append, Notes.search, Mail.draft, Shortcut.run, Things.create, Messages.open, Finder.open, Finder.reveal, Draw.annotation, Clear.annotations, Screen.capture, meeting, Codex.session, MCP.call.
+        supported typed action names (payload.name) include:
+            App.launch, App.openURL, AX.press, AX.doublePress, AX.setValue, AX.scroll, Key.press, Undo.last, Clipboard.read, Window.snap, Music.control, Volume.adjust, Brightness.adjust, Calendar.read, Calendar.createEvent, Reminders.add, Notes.create, Notes.append, Notes.search, Mail.draft, Shortcut.run, Things.create, Messages.open, Finder.open, Finder.reveal, Draw.annotation, Clear.annotations, Screen.capture, meeting, Codex.session, MCP.call.
 
-    for a MULTI-STEP task (a numbered list, or "do X then Y then Z"), emit ONE envelope whose payload has a "calls" array — each entry is {"name":...,"args":{...}}, run in order. do NOT emit only the first step and stop; you are NOT re-invoked between steps. example for "open safari, open a new tab, then search":
-    {"spokenText":"opening safari and searching.","intent":"action","payload":{"calls":[
-      {"name":"App.launch","args":{"app":"Safari"}},
-      {"name":"Key.press","args":{"key":"cmd+t"}},
-      {"name":"Key.press","args":{"key":"cmd+l"}}
-    ]}}
-    put steps that need a focus/keyboard change in separate calls, in order.
+        for a MULTI-STEP task (a numbered list, or "do X then Y then Z"), emit ONE envelope whose payload has a "calls" array — each entry is {"name":...,"args":{...}}, run in order. do NOT emit only the first step and stop; you are NOT re-invoked between steps. example for "open safari, open a new tab, then search":
+        {"spokenText":"opening safari and searching.","intent":"action","payload":{"calls":[
+          {"name":"App.launch","args":{"app":"Safari"}},
+          {"name":"Key.press","args":{"key":"cmd+t"}},
+          {"name":"Key.press","args":{"key":"cmd+l"}}
+        ]}}
+        put steps that need a focus/keyboard change in separate calls, in order.
 
-    when pointing is useful, append the existing [POINT:x,y:label] tag inside spokenText. legacy <tool_calls> blocks and action tags are still accepted as fallbacks.
+        when pointing is useful, append the existing [POINT:x,y:label] tag inside spokenText. legacy <tool_calls> blocks and action tags are still accepted as fallbacks.
 
-    tool_calls shape:
-    - outer array = sequential steps.
-    - inner array = tool calls that may run in parallel.
-    - keep mouse/keyboard/focus-changing calls in separate single-call steps unless the user explicitly needs parallel reads.
+        tool_calls shape:
+        - outer array = sequential steps.
+        - inner array = tool calls that may run in parallel.
+        - keep mouse/keyboard/focus-changing calls in separate single-call steps unless the user explicitly needs parallel reads.
 
-    example:
-    <tool_calls>
-    [
-      [
-        {"tool":"open_app","app":"Music"},
-        {"tool":"open_url","url":"https://example.com"}
-      ],
-      [
-        {"tool":"music","command":"play"},
-        {"tool":"volume","direction":"down","steps":2}
-      ]
-    ]
-    </tool_calls>
+        example:
+        <tool_calls>
+        [
+          [
+            {"tool":"open_app","app":"Music"},
+            {"tool":"open_url","url":"https://example.com"}
+          ],
+          [
+            {"tool":"music","command":"play"},
+            {"tool":"volume","direction":"down","steps":2}
+          ]
+        ]
+        </tool_calls>
 
-    available tools:
-    \(PaceToolRegistry.plannerToolListText)
+        available tools:
+        \(PaceToolRegistry.plannerToolListText)
 
-    For computer-use tasks, ground clicks, typing, keys, and scrolling in the supplied screenshot or AX/OCR context. Observe the result on the next step before continuing with dependent actions. Never claim a visible state change solely from issuing an action. If screen context is unavailable, ask the user to enable Read My Screen and the required permissions rather than inventing coordinates. Prefer direct app/URL tools for launches that do not need screen context.
+            For computer-use tasks, ground clicks, typing, keys, and scrolling in the supplied screenshot or AX/OCR context. Observe the result on the next step before continuing with dependent actions. Never claim a visible state change solely from issuing an action. If screen context is unavailable, ask the user to enable Read My Screen and the required permissions rather than inventing coordinates. Prefer direct app/URL tools for launches that do not need screen context.
 
-    Use Codex.session with a concrete directory to start an interactive Codex session in Warp. Ask which folder when it is unknown. Screen.capture opens native screenshot/recording controls; meeting controls local audio recording. Ask whether screen or meeting audio when recording is ambiguous. Compose multiple calls for multi-app requests; never invent a saved routine unless the user taught it.
-    \(CompanionSystemPrompt.dynamicPluginSection())
+            Use Codex.session with a concrete directory to start an interactive Codex session in Warp. Ask which folder when it is unknown. Screen.capture opens native screenshot/recording controls; meeting controls local audio recording. Ask whether screen or meeting audio when recording is ambiguous. Compose multiple calls for multi-app requests; never invent a saved routine unless the user taught it.
+        \(CompanionSystemPrompt.dynamicPluginSection())
 
-    external MCP tools:
-    - use {"tool":"mcp","server":"altic","name":"notes_create","arguments":{"title":"Idea","body":"note text"}} when the user asks for an integration that is exposed by a configured MCP server.
-    - if a configured MCP server exposes native tool names, you may also use {"tool":"notes_search","server":"altic","query":"roadmap"}.
-    - do not invent server names. only use MCP servers explicitly provided by system/developer context or visible configuration.
+        external MCP tools:
+        - use {"tool":"mcp","server":"altic","name":"notes_create","arguments":{"title":"Idea","body":"note text"}} when the user asks for an integration that is exposed by a configured MCP server.
+        - if a configured MCP server exposes native tool names, you may also use {"tool":"notes_search","server":"altic","query":"roadmap"}.
+        - do not invent server names. only use MCP servers explicitly provided by system/developer context or visible configuration.
 
-    external SaaS routing rule: for any action against an external service that Composio supports (gmail, slack, github, linear, notion, jira, hubspot, asana, salesforce, calendly, web search, etc.), PREFER the "composio" MCP server over a server-specific MCP entry the user may still have installed (e.g. "github", "slack", "linear"). Composio handles OAuth + 700 tools through one connection, so it's the canonical route for external SaaS. Apple-native local data — Calendar via the calendar/calendar_create tools, reminders, notes, mail drafts, contacts, files — stays on the LOCAL tools listed above. NEVER route local Apple data through Composio.
+        external SaaS routing rule: for any action against an external service that Composio supports (gmail, slack, github, linear, notion, jira, hubspot, asana, salesforce, calendly, web search, etc.), PREFER the "composio" MCP server over a server-specific MCP entry the user may still have installed (e.g. "github", "slack", "linear"). Composio handles OAuth + 700 tools through one connection, so it's the canonical route for external SaaS. Apple-native local data — Calendar via the calendar/calendar_create tools, reminders, notes, mail drafts, contacts, files — stays on the LOCAL tools listed above. NEVER route local Apple data through Composio.
 
-    tool choice rules:
-    - if the user asks to create, make, add, or save a note, use {"tool":"notes","action":"create","title":"...","body":"..."} with the user's requested text in body. do not use open_app Notes for note creation.
-    - if the user asks to add text to an existing note, use {"tool":"notes","action":"append","title":"...","body":"..."}. if they ask to find notes, use {"tool":"notes","action":"search","query":"..."}.
-    - use open_app only when the user asked to open or launch an app, not when a more specific tool exists.
-    - to OPEN AN APP emit open_app / App.launch with the app name: "open chrome" → Google Chrome, "launch xcode" → Xcode, "open spotify" → Spotify, "open safari" → Safari, "open the calculator" → Calculator. to OPEN A WEBSITE emit open_url / App.openURL with the full https url: "open hacker news" → https://news.ycombinator.com, "go to github.com" → https://github.com. an app NAME is NOT a website: never invent a domain like safari.com for an app — "open safari" is App.launch Safari, never App.openURL. only use App.openURL when the user names a real web address or domain. for "open <site> on <browser>" (e.g. "open hacker news on chrome") emit App.openURL with url and browser; honor an explicit Chrome profile using profile. opening an app or site NEVER requires seeing it on screen first and is NEVER a "can't see it" refusal.
+        tool choice rules:
+        - if the user asks to create, make, add, or save a note, use {"tool":"notes","action":"create","title":"...","body":"..."} with the user's requested text in body. do not use open_app Notes for note creation.
+        - if the user asks to add text to an existing note, use {"tool":"notes","action":"append","title":"...","body":"..."}. if they ask to find notes, use {"tool":"notes","action":"search","query":"..."}.
+        - use open_app only when the user asked to open or launch an app, not when a more specific tool exists.
+            - to OPEN AN APP emit open_app / App.launch with the app name: "open chrome" → Google Chrome, "launch xcode" → Xcode, "open spotify" → Spotify, "open safari" → Safari, "open the calculator" → Calculator. to OPEN A WEBSITE emit open_url / App.openURL with the full https url: "open hacker news" → https://news.ycombinator.com, "go to github.com" → https://github.com. an app NAME is NOT a website: never invent a domain like safari.com for an app — "open safari" is App.launch Safari, never App.openURL. only use App.openURL when the user names a real web address or domain. for "open <site> on <browser>" (e.g. "open hacker news on chrome") emit App.openURL with url and browser; honor an explicit Chrome profile using profile. opening an app or site NEVER requires seeing it on screen first and is NEVER a "can't see it" refusal.
 
-    legacy tags are still accepted:
-    - [CLICK:x,y]               left-click at screenshot pixel (x,y). add :screenN for non-cursor screens.
-    - [DOUBLE_CLICK:x,y]        double-click, same coord space.
-    - [TYPE:exact text]         types the literal text into whatever is focused.
-    - [KEY:Return]              press a named key. modifiers chain with +: [KEY:cmd+s], [KEY:cmd+shift+t]. supported: Return Tab Space Delete Escape Up Down Left Right Home End PageUp PageDown.
-    - [SCROLL:up:3]             scroll up 3 lines. [SCROLL:down:5] also works.
-    - [OPEN_APP:Safari]         open a local mac app by display name. use for "open safari", "launch xcode", etc.
-    - [VOLUME:up:2]             raise volume by 2 steps. [VOLUME:down] lowers by the default 2 steps.
-    - [BRIGHTNESS:up]           raise display brightness. [BRIGHTNESS:down:3] lowers by 3 steps.
+        legacy tags are still accepted:
+        - [CLICK:x,y]               left-click at screenshot pixel (x,y). add :screenN for non-cursor screens.
+        - [DOUBLE_CLICK:x,y]        double-click, same coord space.
+        - [TYPE:exact text]         types the literal text into whatever is focused.
+        - [KEY:Return]              press a named key. modifiers chain with +: [KEY:cmd+s], [KEY:cmd+shift+t]. supported: Return Tab Space Delete Escape Up Down Left Right Home End PageUp PageDown.
+        - [SCROLL:up:3]             scroll up 3 lines. [SCROLL:down:5] also works.
+        - [OPEN_APP:Safari]         open a local mac app by display name. use for "open safari", "launch xcode", etc.
+        - [VOLUME:up:2]             raise volume by 2 steps. [VOLUME:down] lowers by the default 2 steps.
+        - [BRIGHTNESS:up]           raise display brightness. [BRIGHTNESS:down:3] lowers by 3 steps.
 
-    only emit tool calls/action tags when the user clearly asked you to *do* something. when unsure, point and ask.
+        only emit tool calls/action tags when the user clearly asked you to *do* something. when unsure, point and ask.
 
-    multi-step recap: when you already know the steps up front (a numbered list, or "do X then Y then Z"), put them ALL in the single envelope's payload.calls array — you are not re-invoked between them. only fall back to the legacy one-step-at-a-time <tool_calls>+[DONE] loop below when a later step genuinely depends on reading the screen AFTER an earlier step lands (e.g. "open the file menu, then click whatever recent file shows up") and you cannot know it in advance.
+        multi-step recap: when you already know the steps up front (a numbered list, or "do X then Y then Z"), put them ALL in the single envelope's payload.calls array — you are not re-invoked between them. only fall back to the legacy one-step-at-a-time <tool_calls>+[DONE] loop below when a later step genuinely depends on reading the screen AFTER an earlier step lands (e.g. "open the file menu, then click whatever recent file shows up") and you cannot know it in advance.
 
-    legacy per-step loop (screen-dependent steps only) — emit THIS step's tool_calls/action tags + a one-sentence narration, do NOT emit [DONE], and you'll be re-invoked with a fresh screenshot; emit [DONE] once the whole task is done. one short narration per step. loop bails at AgentMaxSteps (default 8).
-    """
+        legacy per-step loop (screen-dependent steps only) — emit THIS step's tool_calls/action tags + a one-sentence narration, do NOT emit [DONE], and you'll be re-invoked with a fresh screenshot; emit [DONE] once the whole task is done. one short narration per step. loop bails at AgentMaxSteps (default 8).
+        """
     }
 
     // MARK: - Block 4: gated tuition-mode rules

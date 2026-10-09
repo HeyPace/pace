@@ -216,7 +216,8 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         // dashboard aggregates for the "0 bytes → X KB to <upstream>"
         // headline, so it MUST be recorded on every turn — direct-spawn
         // is off-device and cannot be silent about egress.
-        let estimatedInputCharacterCount = systemPrompt.utf8.count
+        let estimatedInputCharacterCount =
+            systemPrompt.utf8.count
             + conversationHistory.reduce(0) { $0 + $1.userPlaceholder.utf8.count + $1.assistantResponse.utf8.count }
             + userPrompt.utf8.count
             + (supportsImageInput ? images.reduce(0) { $0 + $1.data.count } : 0)
@@ -364,7 +365,8 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
 
         let workingDirectoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("pace-planner-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: workingDirectoryURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try FileManager.default.createDirectory(
+            at: workingDirectoryURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: workingDirectoryURL) }
 
         var arguments = Self.codexArguments(modelIdentifier: modelIdentifier, isResearchTurn: isResearchTurn)
@@ -412,11 +414,15 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         onTextChunk: @MainActor @Sendable (String) -> Void
     ) async throws -> (assembled: String, capturedSessionId: String?) {
         guard let executableURL = Self.resolveExecutable(named: executable) else {
-            throw PaceLocalCLIPlannerError.spawnFailed(executable: executable, underlying: "not found on PATH or standard CLI install locations")
+            throw PaceLocalCLIPlannerError.spawnFailed(
+                executable: executable, underlying: "not found on PATH or standard CLI install locations")
         }
-        let directoryURL = workingDirectoryURL ?? FileManager.default.temporaryDirectory
+        let directoryURL =
+            workingDirectoryURL
+            ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("pace-planner-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try FileManager.default.createDirectory(
+            at: directoryURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer {
             if workingDirectoryURL == nil { try? FileManager.default.removeItem(at: directoryURL) }
         }
@@ -454,12 +460,14 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
     nonisolated static func codexArguments(modelIdentifier: String?, isResearchTurn: Bool) -> [String] {
         // Pace approves and executes Mac actions. The CLI only plans; do not
         // inherit a coding workspace, hooks, MCP integrations, or shell tools.
-        var arguments = ["exec", "--json", "--skip-git-repo-check", "--ephemeral",
-                         "--ignore-user-config", "--sandbox", "read-only",
-                         "--disable", "shell_tool", "--disable", "hooks",
-                         "--disable", "apps", "--disable", "browser_use",
-                         "--disable", "computer_use", "--disable", "multi_agent",
-                         "--config", "web_search=\"\(isResearchTurn ? "live" : "disabled")\""]
+        var arguments = [
+            "exec", "--json", "--skip-git-repo-check", "--ephemeral",
+            "--ignore-user-config", "--sandbox", "read-only",
+            "--disable", "shell_tool", "--disable", "hooks",
+            "--disable", "apps", "--disable", "browser_use",
+            "--disable", "computer_use", "--disable", "multi_agent",
+            "--config", "web_search=\"\(isResearchTurn ? "live" : "disabled")\"",
+        ]
         if let modelIdentifier, !modelIdentifier.isEmpty {
             arguments.append(contentsOf: ["--model", modelIdentifier])
         }
@@ -513,8 +521,10 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         path: String? = ProcessInfo.processInfo.environment["PATH"],
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> [String] {
-        let standardDirectories = [homeDirectory.appendingPathComponent(".local/bin").path,
-                                   "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+        let standardDirectories = [
+            homeDirectory.appendingPathComponent(".local/bin").path,
+            "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin",
+        ]
         var directories: [String] = []
         for directory in (path ?? "").split(separator: ":").map(String.init) + standardDirectories {
             if directory.hasPrefix("/"), !directories.contains(directory) { directories.append(directory) }

@@ -1,5 +1,5 @@
-import Foundation
 import Darwin
+import Foundation
 
 nonisolated enum PaceCLIProcessError: LocalizedError {
     case timedOut

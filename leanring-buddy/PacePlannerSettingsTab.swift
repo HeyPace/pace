@@ -215,7 +215,9 @@ struct PacePlannerSettingsTab: View {
                 Spacer()
             }
 
-            Text("Off-device: each turn's transcript and screen context is sent off your Mac via \(chosenUpstream.displayLabel). Usable immediately after consent; the capsule tints amber and every call is logged to the Privacy dashboard. Failures surface verbatim — no silent fallback to local.")
+            Text(
+                "Off-device: each turn's transcript and screen context is sent off your Mac via \(chosenUpstream.displayLabel). Usable immediately after consent; the capsule tints amber and every call is logged to the Privacy dashboard. Failures surface verbatim — no silent fallback to local."
+            )
                 .font(.system(size: 11))
                 .foregroundColor(DS.Colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
