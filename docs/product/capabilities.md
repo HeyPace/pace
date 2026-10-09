@@ -96,7 +96,7 @@ call / when you're actively typing).
 
 **External integrations (MCP)** — Peekaboo provides optional OSS Mac observation and app-scoped computer control through the existing MCP settings catalog. Its own macOS permissions and Pace’s Read My Screen setting gate screen control. Beyond that, anything a configured Model Context Protocol
 server exposes. Configured via `~/.config/pace/mcp-servers.json` or the one-tap
-catalog in Settings → MCP (filesystem, fetch, applescript, composio — github/slack/linear route through composio).
+catalog in Settings → MCP (Peekaboo, Playwright, filesystem, fetch, applescript, composio — github/slack/linear route through composio).
 
 **Automation (all default OFF)** — four opt-in automation surfaces in Settings →
 General → Automation:
@@ -174,3 +174,5 @@ default-off. See `docs/architecture/overview.md` for the privacy posture.
 
 The Settings → Debug tab shows, per turn, which lane handled it, the latency,
 the raw planner output, the parsed tool calls, and the dispatch outcome.
+
+Typed and voice utility commands include `read aloud <text>`, `read aloud using Kokoro <text>`, `transcribe audio <absolute or ~/path>`, and `check for updates`. WhisperKit base.en and Silero run locally; provision the English model with `python3 scripts/setup-whisperkit.py`. Playwright can navigate and interact with pages through an isolated Chrome session; it does not share the signed-in work profile.

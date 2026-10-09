@@ -59,7 +59,7 @@ struct LocalServerTTSConfigurationTests {
             configuredSpeedString: nil
         )
         #expect(configuration.baseURL == LocalServerTTSConfiguration.defaultBaseURL)
-        #expect(configuration.modelIdentifier == "kokoro")
+        #expect(configuration.modelIdentifier == "mlx-community/Kokoro-82M-bf16")
         #expect(configuration.voiceIdentifier == "af_heart")
         #expect(configuration.speed == 1.0)
     }

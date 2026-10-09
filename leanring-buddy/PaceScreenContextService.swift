@@ -471,16 +471,26 @@ final class PaceScreenContextService {
                     scalingToScreenshot: capture
                 )
                 if !axElements.isEmpty || !allowsLocalVLM {
-                    let ocrBoxes = (try? await visionOCRClientForLoopBody.recognizeText(
-                        in: capture.imageData,
-                        screenshotWidthInPixels: capture.screenshotWidthInPixels,
-                        screenshotHeightInPixels: capture.screenshotHeightInPixels
-                    )) ?? []
+                    // The consented CLI planner already receives the screenshot.
+                    // Give it AX context directly without waiting for native OCR.
+                    let ocrBoxes: [RecognizedTextBox]
+                    if allowsLocalVLM {
+                        ocrBoxes =
+                            (try? await visionOCRClientForLoopBody.recognizeText(
+                                in: capture.imageData,
+                                screenshotWidthInPixels: capture.screenshotWidthInPixels,
+                                screenshotHeightInPixels: capture.screenshotHeightInPixels
+                            )) ?? []
+                    } else {
+                        ocrBoxes = []
+                    }
                     let axBackedAnalysis = PaceScreenContextMerger.enrich(
                         vlmAnalysis: LocalVLMScreenAnalysis(elements: axElements, description: ""),
                         with: ocrBoxes
                     )
-                    print("👁️  In-loop AX HIT for \(capture.label): \(axElements.count) elements + \(ocrBoxes.count) OCR boxes — skipping VLM")
+                    print(
+                        "👁️  In-loop AX HIT for \(capture.label): \(axElements.count) elements + \(ocrBoxes.count) OCR boxes — skipping VLM"
+                    )
                     freshAnalysesByCaptureIndex[captureIndex] = axBackedAnalysis
                     perScreenAnalysisCache[capture.label] = PaceCachedScreenAnalysis(
                         identity: PaceScreenAnalysisCacheIdentity(

@@ -11,11 +11,8 @@
 //
 //  Why two backends:
 //
-//    - WhisperKit handles long audio (minutes to hours) at ~9x
-//      realtime on Apple Silicon's ANE, and produces materially
-//      better transcripts than Apple Speech on technical or
-//      domain vocabulary. It's the right tool for "transcribe
-//      this meeting recording I dropped into Pace."
+//    - WhisperKit base.en runs locally on Apple Silicon and
+//      supports English recordings beyond Apple Speech's file cap.
 //
 //    - Apple SFSpeechRecognizer has a 1-minute file cap but is
 //      universally available (no model download) so it's the
@@ -79,6 +76,7 @@ enum PaceAudioFileTranscriber {
 
         let pcmSamples = try decodeAudioToMonoFloatSamplesAt16kHz(fileURL: fileURL)
         guard !pcmSamples.isEmpty else { return "" }
+        guard try PaceSileroSpeechDetector.containsSpeech(in: pcmSamples) else { return "" }
 
         var whisperKitError: String?
         #if canImport(WhisperKit)
@@ -124,6 +122,7 @@ enum PaceAudioFileTranscriber {
 
         let pcmSamples = try decodeAudioToMonoFloatSamplesAt16kHz(fileURL: fileURL)
         guard !pcmSamples.isEmpty else { return [] }
+        guard try PaceSileroSpeechDetector.containsSpeech(in: pcmSamples) else { return [] }
 
         var whisperKitError: String?
         #if canImport(WhisperKit)
@@ -257,7 +256,7 @@ enum PaceAudioFileTranscriber {
         var decodingOptions = DecodingOptions()
         // language: nil → auto-detect. Long-form files may not be
         // English (a podcast, a Spanish-language meeting recording);
-        // letting WhisperKit detect the language is the right default.
+            // The small installed base.en model recognises English.
         decodingOptions.language = nil
         decodingOptions.temperature = 0
         let results = try await pipeline.transcribe(audioArray: pcmSamples, decodeOptions: decodingOptions)

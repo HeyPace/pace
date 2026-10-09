@@ -94,6 +94,16 @@ extension CompanionManager {
         )
         isChatModeMutedForCurrentTurn = false
 
+        // A permission prompt can suspend meeting startup. Its stop command
+        // must cancel that lifecycle rather than queue behind the pending start.
+        if PaceMeetingModeController.shared.state == .starting,
+            PaceMeetingModeCommandParser.parse(transcript) == .stop
+        {
+            isChatModeMutedForCurrentTurn = queuedTurn.shouldMuteTTS
+            handleMeetingModeCommand(.stop, transcript: transcript)
+            return
+        }
+
         if voiceState != .idle {
             let queuePosition = chatTurnQueue.enqueue(queuedTurn)
             queuedChatTurnCount = chatTurnQueue.count

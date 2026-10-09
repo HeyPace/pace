@@ -729,6 +729,7 @@ final class CompanionManager: ObservableObject {
     /// AND `isAlwaysListeningEnabled == true` — and is torn down the
     /// instant either flips, so the VAD never sees stale audio.
     var bargeInVAD = PaceBargeInVAD()
+    var ossCommandSpeechClient: LocalServerTTSClient?
     var bargeInAudioLevelCancellable: AnyCancellable?
     var bargeInGatePropertyCancellable: AnyCancellable?
 

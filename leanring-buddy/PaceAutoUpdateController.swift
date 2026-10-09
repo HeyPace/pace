@@ -23,6 +23,12 @@ final class PaceAutoUpdateController: NSObject {
 
     private let updaterController: SPUStandardUpdaterController
 
+    func checkForUpdatesManually() -> Bool {
+        guard updaterController.updater.canCheckForUpdates else { return false }
+        updaterController.checkForUpdates(nil)
+        return true
+    }
+
     override init() {
         // startingUpdater: true → automatic background check kicks off
         // as soon as the controller is constructed, with the cadence

@@ -131,6 +131,39 @@ struct PaceMCPClientIntegrationTests {
         #expect(!catalog.contains("\"name\":\"analyze\""))
     }
 
+    @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func sdkTimeoutClosesTheProducerWithoutReplayingTheCall() async throws {
+        let configuration = PaceMCPServerConfiguration(
+            command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3", args: [PaceMCPFixture.fixtureScriptPath]
+        )
+        let client = PaceMCPStdioClient(
+            serverConfigurations: ["playwright": configuration], requestTimeoutInSeconds: 0.5)
+        let identity = PaceMCPToolCall(serverName: "playwright", toolName: "session_identity", arguments: [:])
+        let firstProducer = try await client.callTool(identity)
+        do {
+            _ = try await client.callTool(
+                .init(serverName: "playwright", toolName: "sleep", arguments: ["seconds": .number(5)]))
+            Issue.record("Expected the slow SDK request to time out")
+        } catch PaceMCPClientError.requestTimedOut {}
+        let newProducer = try await client.callTool(identity)
+        #expect(firstProducer != newProducer)
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["PACE_OSS_BROWSER_INTEGRATION"] == "1"))
+    func installedPlaywrightPublishesRealBrowserSchemas() async throws {
+        let configuration = PaceMCPServerConfiguration(
+            command: "/opt/homebrew/bin/npx",
+            args: ["-y", "@playwright/mcp@0.0.83", "--browser", "chrome", "--isolated"]
+        )
+        let client = PaceMCPStdioClient(
+            serverConfigurations: ["playwright": configuration], requestTimeoutInSeconds: 60)
+        let catalog = try await client.playwrightToolCatalog()
+        for name in ["browser_navigate", "browser_snapshot", "browser_click", "browser_type", "browser_fill_form"] {
+            #expect(catalog.contains("\"name\":\"" + name + "\""))
+        }
+        #expect(!catalog.contains("browser_run_code"))
+    }
+
     @Test func starterConfigurationSeedsAppleMCPServer() throws {
         let starterData = try #require(PaceMCPServerRegistry.starterConfigurationJSON.data(using: .utf8))
         let decodedRoot = try JSONDecoder().decode(

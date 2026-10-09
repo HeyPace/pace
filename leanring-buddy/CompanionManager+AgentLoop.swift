@@ -205,6 +205,7 @@ extension CompanionManager {
         self.pendingIntentClarification = nil
         cancelActiveTurnTasks()
         ttsClient.stopPlayback()
+        ossCommandSpeechClient?.stopPlayback()
         streamingSentenceTTSPipeline.resetForNewTurn()
         clearLastSpokenReplyState()
         responseOverlayManager.finishStreaming()
@@ -1201,6 +1202,11 @@ extension CompanionManager {
             return
         }
         guard isActiveTurn(turnLease) else { return }
+
+        if let utilityCommand = PaceUtilityCommand.parse(transcript) {
+            await handleUtilityCommand(utilityCommand, transcript: transcript, turnLease: turnLease)
+            return
+        }
 
         if PaceCodexSessionRequest.needsDirectoryClarification(transcript) {
             handleImmediateLocalModeResponse(

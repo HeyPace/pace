@@ -23,7 +23,7 @@ import Foundation
 /// Pure, testable view of the server TTS settings read from Info.plist.
 nonisolated struct LocalServerTTSConfiguration: Equatable {
     static let defaultBaseURL = URL(string: "http://127.0.0.1:8880/v1")!
-    static let defaultModelIdentifier = "kokoro"
+    static let defaultModelIdentifier = "mlx-community/Kokoro-82M-bf16"
     static let defaultVoiceIdentifier = "af_heart"
     static let defaultSpeed = 1.0
     // 60s: mlx-audio's first synth after the sidecar boots (Pace now

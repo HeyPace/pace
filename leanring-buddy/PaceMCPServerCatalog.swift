@@ -50,11 +50,21 @@ struct PaceMCPServerCatalogEntry: Equatable, Identifiable {
     var id: String { slug }
 }
 
-/// Reasonable starter catalog. Six servers, matches the PRD list.
+/// Optional OSS and hosted integrations installed through the existing settings cards.
 /// Keep this in sync with `mcp-servers.example.json` so users editing
 /// the file by hand see the same canonical commands.
 enum PaceMCPServerCatalog {
     static let bundledCatalog: [PaceMCPServerCatalogEntry] = [
+        PaceMCPServerCatalogEntry(
+            slug: "playwright",
+            displayName: "Playwright browser",
+            description: "Open-source browser navigation, page reading, and form control.",
+            setupNote: "Uses installed Chrome in a separate session. Requires Node 18+. Starts only when requested.",
+            setupDocsURL: URL(string: "https://github.com/microsoft/playwright-mcp"),
+            command: "npx",
+            arguments: ["-y", "@playwright/mcp@0.0.83", "--browser", "chrome", "--isolated"],
+            environment: [:]
+        ),
         PaceMCPServerCatalogEntry(
             slug: "peekaboo",
             displayName: "Peekaboo computer use",

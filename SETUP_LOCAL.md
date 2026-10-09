@@ -289,3 +289,7 @@ If acceptance rate falls below ~0.5 (LM Studio logs it as `acc_rate=…`), specu
 **Notes says Apple Events are not authorized:** open System Settings → Privacy & Security → Automation, then enable Pace controlling Notes. If Pace does not appear there after a denial, run `tccutil reset AppleEvents com.pace.app`, restart Pace, and try the note action again so macOS can show the permission prompt.
 
 **Preferred browser:** say "remember my preferred browser is Safari" to store a local preference. Future `open_url` tool calls will use that browser when it is installed. Say "forget my preferred browser" to clear it.
+
+## Small local speech model
+
+Run `python3 scripts/setup-whisperkit.py` to provision pinned WhisperKit base.en and tokenizer assets under `~/Library/Application Support/Pace/Models/WhisperKit`. Recognition stays local and does not download at runtime. The small model recognises English; Pace uses on-device Apple Speech when the model is absent. Explicit `read aloud using Kokoro <text>` starts the existing localhost mlx-audio sidecar on demand.

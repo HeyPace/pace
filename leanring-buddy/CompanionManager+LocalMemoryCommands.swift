@@ -562,6 +562,19 @@ extension CompanionManager {
                     "Peekaboo is unavailable: \(error.localizedDescription). Do not claim desktop control succeeded."
             }
         }
+        if configuredServerNames.contains("playwright") {
+            do {
+                let tools = try await actionExecutor.mcpClient.playwrightToolCatalog()
+                computerUseContext += """
+
+                    Use the local playwright MCP server for browser navigation, page reading, and forms. It owns a separate browser session, not the user's work-profile tabs. Use browser_navigate, then browser_snapshot and its current element refs. Act, then verify the resulting page. Never replay a completed submission. Do not claim access to another browser's signed-in state. Its exact tool schemas follow:
+                    \(tools)
+                    """
+            } catch {
+                computerUseContext +=
+                    "\nPlaywright is unavailable: \(error.localizedDescription). Report this browser blocker."
+            }
+        }
         return """
             \(userPrompt)
 
