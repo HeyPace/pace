@@ -357,6 +357,17 @@ extension PaceActionExecutor {
             )
         }
 
+        if mcpToolCall.serverName == "peekaboo",
+            !PaceUserPreferencesStore.bool(for: .useLocalVLMForScreenContext),
+            !(mcpToolCall.toolName == "app" && mcpToolCall.arguments["action"] == .string("list"))
+        {
+            return PaceActionExecutionObservation(
+                toolName: toolObservationName,
+                summary:
+                    "Could not use Peekaboo screen control: Read My Screen is off. Enable it in Pace settings before inspecting or controlling app windows."
+            )
+        }
+
         // Hosted-MCP detection: when this MCP server routes through a
         // hosted gateway (e.g. Composio), the menu-bar capsule should
         // tint amber for the duration of the call to match Direct API

@@ -260,6 +260,28 @@ nonisolated struct PaceMCPStdioClient {
         serverConfigurationsProvider().keys.sorted()
     }
 
+    func peekabooToolCatalog() async throws -> String {
+        guard let configuration = serverConfigurationsProvider()["peekaboo"] else { return "" }
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let response = try PaceMCPPersistentSessions.shared.request(
+                        serverName: "peekaboo", configuration: configuration,
+                        method: "tools/list", parameters: [:], timeout: requestTimeoutInSeconds
+                    )
+                    let tools = (response["result"] as? [String: Any])?["tools"] as? [[String: Any]] ?? []
+                    let allowedNames: Set<String> = [
+                        "app", "window", "see", "click", "type", "press", "scroll", "set_value", "select_text",
+                        "action", "menu",
+                    ]
+                    let allowedTools = tools.filter { allowedNames.contains($0["name"] as? String ?? "") }
+                    let data = try JSONSerialization.data(withJSONObject: allowedTools, options: [.sortedKeys])
+                    continuation.resume(returning: String(decoding: data, as: UTF8.self))
+                } catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
     func callTool(_ toolCall: PaceMCPToolCall) async throws -> String {
         let serverConfigurations = serverConfigurationsProvider()
         guard let serverConfiguration = serverConfigurations[toolCall.serverName] else {
@@ -319,6 +341,24 @@ private func runSynchronousToolCall(
     serverConfiguration: PaceMCPServerConfiguration,
     timeoutInSeconds: TimeInterval
 ) throws -> String {
+    if toolCall.serverName == "peekaboo" {
+        let response = try PaceMCPPersistentSessions.shared.request(
+            serverName: toolCall.serverName, configuration: serverConfiguration,
+            method: "tools/call",
+            parameters: ["name": toolCall.toolName, "arguments": toolCall.arguments.mapValues(\.jsonObject)],
+            timeout: timeoutInSeconds
+        )
+        let summary = summarizeMCPToolCallResponse(response)
+        guard let result = response["result"] as? [String: Any] else { return summary }
+        var sections = [summary]
+        for field in ["structuredContent", "_meta"] {
+            if let value = result[field], JSONSerialization.isValidJSONObject(value) {
+                let data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
+                sections.append("Tool \(field):\n" + String(decoding: data, as: UTF8.self))
+            }
+        }
+        return sections.joined(separator: "\n")
+    }
     let process = Process()
     process.executableURL = try executableURL(for: serverConfiguration.command)
     process.arguments = serverConfiguration.args
@@ -403,6 +443,118 @@ private func runSynchronousToolCall(
     return summarizeMCPToolCallResponse(response)
 }
 
+// Peekaboo snapshots belong to the server process that observed them. Keep
+// that process alive across observations/actions; never retry a failed mutation.
+private final class PaceMCPPersistentSessions: @unchecked Sendable {
+    static let shared = PaceMCPPersistentSessions()
+    private let lock = NSLock()
+    private var sessions: [String: PaceMCPPersistentSession] = [:]
+
+    private init() {
+        atexit { PaceMCPPersistentSessions.shared.closeAll() }
+    }
+
+    private func closeAll() {
+        lock.lock()
+        defer { lock.unlock() }
+        for session in sessions.values { session.close() }
+        sessions.removeAll()
+    }
+
+    func request(
+        serverName: String, configuration: PaceMCPServerConfiguration,
+        method: String, parameters: [String: Any], timeout: TimeInterval
+    ) throws -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        if let previous = sessions[serverName], previous.configuration != configuration || !previous.process.isRunning {
+            previous.close()
+            sessions.removeValue(forKey: serverName)
+        }
+        if sessions[serverName] == nil {
+            sessions[serverName] = try PaceMCPPersistentSession(configuration: configuration, timeout: timeout)
+        }
+        guard let session = sessions[serverName] else {
+            throw PaceMCPClientError.launchFailed("MCP session unavailable")
+        }
+        do { return try session.request(method: method, parameters: parameters, timeout: timeout) } catch {
+            session.close()
+            sessions.removeValue(forKey: serverName)
+            throw error
+        }
+    }
+}
+
+private final class PaceMCPPersistentSession {
+    let configuration: PaceMCPServerConfiguration
+    let process = Process()
+    private let stdinHandle: FileHandle
+    private let stdoutReader: PaceMCPLineReader
+    private let stderrHandle: FileHandle
+    private var requestID = 1
+
+    init(configuration: PaceMCPServerConfiguration, timeout: TimeInterval) throws {
+        self.configuration = configuration
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        stdinHandle = stdinPipe.fileHandleForWriting
+        stdoutReader = PaceMCPLineReader(fileHandle: stdoutPipe.fileHandleForReading)
+        // Drain stderr rather than letting a full pipe stall JSON-RPC.
+        guard let nullHandle = FileHandle(forWritingAtPath: "/dev/null") else {
+            throw PaceMCPClientError.launchFailed("Could not open stderr sink")
+        }
+        stderrHandle = nullHandle
+        process.executableURL = try executableURL(for: configuration.command)
+        process.arguments = configuration.args
+        var runtimeEnvironment = ProcessInfo.processInfo.environment
+        runtimeEnvironment["PATH"] =
+            (runtimeEnvironment["PATH"] ?? "") + ":/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        process.environment = PaceMCPClientEnvironmentBuilder.buildSpawnEnvironment(
+            baseEnvironment: runtimeEnvironment,
+            serverConfigurationEnvironment: configuration.env, serverSlug: "peekaboo",
+            secretLookup: { _, _ in nil }
+        )
+        if let directory = configuration.workingDirectory {
+            process.currentDirectoryURL = URL(fileURLWithPath: (directory as NSString).expandingTildeInPath)
+        }
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrHandle
+        do {
+            try process.run()
+            _ = try request(
+                method: "initialize",
+                parameters: [
+                    "protocolVersion": "2025-03-26", "capabilities": [:],
+                    "clientInfo": ["name": "Pace", "version": "1.0"],
+                ], timeout: timeout)
+            try sendJSONRPCMessage(["jsonrpc": "2.0", "method": "notifications/initialized"], to: stdinHandle)
+        } catch {
+            close()
+            throw error
+        }
+    }
+
+    deinit { close() }
+
+    func request(method: String, parameters: [String: Any], timeout: TimeInterval) throws -> [String: Any] {
+        let currentID = requestID
+        requestID += 1
+        try sendJSONRPCMessage(
+            [
+                "jsonrpc": "2.0", "id": currentID, "method": method, "params": parameters,
+            ], to: stdinHandle)
+        return try readJSONRPCResponse(id: currentID, from: stdoutReader, timeoutInSeconds: timeout)
+    }
+
+    func close() {
+        stdoutReader.stop()
+        try? stdinHandle.close()
+        try? stderrHandle.close()
+        if process.isRunning { process.terminate() }
+    }
+}
+
 private func executableURL(for command: String) throws -> URL {
     let expandedCommand = NSString(string: command).expandingTildeInPath
     if expandedCommand.contains("/") {
@@ -412,7 +564,9 @@ private func executableURL(for command: String) throws -> URL {
         return URL(fileURLWithPath: expandedCommand)
     }
 
-    let pathCandidates = (ProcessInfo.processInfo.environment["PATH"] ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+    let pathCandidates =
+        ((ProcessInfo.processInfo.environment["PATH"] ?? "")
+        + ":/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
         .split(separator: ":")
         .map(String.init)
 

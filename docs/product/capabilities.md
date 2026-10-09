@@ -9,7 +9,7 @@ I ask it" reference.
 
 ## Tools (the action catalog)
 
-The 29 local tools live in `PaceToolRegistry.localTools` and are surfaced,
+The local tools live in `PaceToolRegistry.localTools` and are surfaced,
 auto-generated, in **Command Center → Use Pace → Automations** (every tool has a name, an
 example utterance, and a risk badge). Startup validation refuses to launch if
 any tool lacks an example utterance, so the Skills tab can never go stale.
@@ -23,9 +23,7 @@ Grouped:
 - **Text editing** — dictate into the focused field, voice-edit selected text ("make this more concise")
 - **Utility** — start a timer, download a file to ~/Downloads, record/run a saved flow, call an MCP tool
 
-Multi-action commands ride in a single planner response (the v10 envelope's
-`payload.calls`), not across multiple turns — see
-[conversation-model.md](conversation-model.md) for why.
+Multi-action commands use the v10 envelope’s `payload.calls`. Codex computer-use turns can observe, act, and re-plan across steps until completion.
 
 ## Capability classes (beyond tools)
 
@@ -96,7 +94,7 @@ calendar pre-meeting nudges, watch-mode observation nudges, the weekday morning
 brief. Every one flows through `PaceRestraintGate` (stays silent during a
 call / when you're actively typing).
 
-**External integrations (MCP)** — anything a configured Model Context Protocol
+**External integrations (MCP)** — Peekaboo provides optional OSS Mac observation and app-scoped computer control through the existing MCP settings catalog. Its own macOS permissions and Pace’s Read My Screen setting gate screen control. Beyond that, anything a configured Model Context Protocol
 server exposes. Configured via `~/.config/pace/mcp-servers.json` or the one-tap
 catalog in Settings → MCP (filesystem, fetch, applescript, composio — github/slack/linear route through composio).
 
@@ -123,12 +121,10 @@ planner-grounded skills, and installed macOS Shortcuts. Each entry discloses
 its execution mode. “Run
 automation &lt;name&gt;” remains an exact model-free command, while ordinary requests
 such as “help me plan my day” or “what does tomorrow look like?” are matched
-locally using exact authored aliases and Nomic/Apple sentence embeddings;
-token overlap never authorizes execution. Automatic execution requires one candidate above both a confidence
-threshold and winner margin; ambiguity falls through without running a catalog
-entry unless the on-device Apple language model resolves it confidently or asks
-the user to clarify. “Create an automation …” and “teach a skill …” share a
-privacy-pinned local authoring ladder: fixed typed calls first, a bounded Pace
+locally using exact authored aliases. Semantic similarity no longer authorizes
+implicit execution: uncertain requests fall through to the selected planner.
+Duplicate exact phrases ask which routine the user meant. “Create an automation …” and “teach a skill …” share a
+selected, consented planner authoring ladder: fixed typed calls first, a bounded Pace
 Program for simple weekday/hour/frontmost-app branches or literal repetition
 second, and a planner-grounded skill when the workflow needs live contextual
 interpretation. Every program branch validates before persistence; runs flatten

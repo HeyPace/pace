@@ -35,6 +35,22 @@ nonisolated enum PaceScreenCaptureKind: String, Sendable {
 nonisolated struct PaceCodexSessionRequest: Equatable, Sendable {
     let directory: String
 
+    static func needsDirectoryClarification(_ transcript: String) -> Bool {
+        let normalized = transcript.lowercased()
+        guard normalized.contains("codex"),
+            normalized.range(of: #"\b(start|open|launch)\b"#, options: .regularExpression) != nil
+        else { return false }
+        // A current path or named folder gives the planner something to resolve.
+        // Old session observations alone must not silently choose a directory.
+        if normalized.contains("/"), normalized.contains("~") { return false }
+        if normalized.range(of: #"(?:^|\s)/[^\s]+"#, options: .regularExpression) != nil { return false }
+        for reference in ["folder", "directory", "project", "repo", "here", "there", "same"] {
+            if normalized.contains(reference) { return false }
+        }
+        let folderReference = #"\b(?:in|at|from|inside)\s+(?!warp\b|a\s+warp\b|the\s+warp\b)[\w]"#
+        return normalized.range(of: folderReference, options: .regularExpression) == nil
+    }
+
     func resolvedDirectory() -> URL? {
         let expandedDirectory = (directory as NSString).expandingTildeInPath
         guard expandedDirectory.hasPrefix("/"), !expandedDirectory.contains("{{") else { return nil }

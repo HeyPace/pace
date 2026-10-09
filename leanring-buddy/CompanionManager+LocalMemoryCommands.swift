@@ -190,6 +190,7 @@ extension CompanionManager {
         let scoreDescription: String
         switch match {
         case .unique(let uniqueEntry, let evidence, let score):
+            guard evidence.permitsImplicitExecution else { return false }
             matchingEntry = uniqueEntry
             evidenceDescription = String(describing: evidence)
             scoreDescription = String(format: "%.3f", score)
@@ -206,28 +207,9 @@ extension CompanionManager {
                 )
                 return true
             }
-            let resolution = await PaceAutomationIntentResolver.resolve(
-                transcript: transcript,
-                ambiguousEntries: ambiguousEntries,
-                catalog: discoveredCatalog.catalog
-            )
-            guard !Task.isCancelled else { return false }
-            switch resolution {
-            case .run(let resolvedEntry):
-                matchingEntry = resolvedEntry
-                evidenceDescription = "localLanguageModel"
-                scoreDescription = "resolved"
-            case .needsClarification:
-                let choices = ambiguousEntries.prefix(3).map(\.name).joined(separator: ", ")
-                handleImmediateLocalModeResponse(
-                    transcript: transcript,
-                    spokenText: "which automation did you mean: \(choices)?",
-                    shouldRecordConversationTurn: false
-                )
-                return true
-            case .noMatch, .unavailable:
-                return false
-            }
+            // Similarity is a suggestion, not permission to run an unrelated routine.
+            // Keep uncertain requests in the selected planner's general task path.
+            return false
 
         case .noMatch:
             return false
@@ -508,6 +490,15 @@ extension CompanionManager {
         return "your shortcuts are \(spokenShortcutNames)."
     }
 
+    func publishCommandFeedback(transcript: String, spokenText: String) async {
+        recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
+        responseOverlayManager.showOverlayAndBeginStreaming()
+        responseOverlayManager.updateStreamingText(spokenText)
+        currentTurnHUDState = .done(spokenText)
+        await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
+        responseOverlayManager.finishStreaming()
+    }
+
     func handleImmediateLocalModeResponse(
         transcript: String,
         spokenText: String,
@@ -541,7 +532,7 @@ extension CompanionManager {
         )
     }
 
-    func appendConfiguredMCPContext(to userPrompt: String) -> String {
+    func appendConfiguredMCPContext(to userPrompt: String) async -> String {
         let configuredServerNames =
             PaceMCPServerRegistry
             .loadConfiguredServers()
@@ -552,9 +543,29 @@ extension CompanionManager {
             return userPrompt
         }
 
+        var computerUseContext = ""
+        if configuredServerNames.contains("peekaboo") {
+            do {
+                let tools = try await actionExecutor.mcpClient.peekabooToolCatalog()
+                let screenAccessInstruction =
+                    useLocalVLMForScreenContext
+                    ? "Screen context is enabled; observe before UI actions."
+                    : "Read My Screen is off. Only read-only app inventory is available; do not inspect windows, capture, or control UI."
+                computerUseContext = """
+                    Use the local peekaboo MCP server for computer-use tasks. Its available tools and exact input schemas follow:
+                    \(tools)
+                    \(screenAccessInstruction)
+                    First use app/window inventory to identify the intended app and window. Observe with see; retain its producer-bound snapshot and element IDs for actions. Re-observe after actions. Never invent an element or replay a completed mutation. Call through MCP.call with server=peekaboo and the tool name and arguments from these schemas. Permission failures are blockers, not success. Do not use analyze or another AI backend; the selected Pace planner supplies reasoning.
+                    """
+            } catch {
+                computerUseContext =
+                    "Peekaboo is unavailable: \(error.localizedDescription). Do not claim desktop control succeeded."
+            }
+        }
         return """
             \(userPrompt)
 
+            \(computerUseContext)
             Configured MCP servers:
             \(configuredServerNames.map { "- \($0)" }.joined(separator: "\n"))
 

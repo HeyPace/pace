@@ -56,6 +56,17 @@ struct PaceMCPServerCatalogEntry: Equatable, Identifiable {
 enum PaceMCPServerCatalog {
     static let bundledCatalog: [PaceMCPServerCatalogEntry] = [
         PaceMCPServerCatalogEntry(
+            slug: "peekaboo",
+            displayName: "Peekaboo computer use",
+            description: "Open-source Mac observation and app-scoped UI control. Codex plans; Peekaboo acts.",
+            setupNote:
+                "Requires Node 22+, and Peekaboo's macOS Screen Recording and Accessibility permissions. No separate AI provider is needed.",
+            setupDocsURL: URL(string: "https://github.com/openclaw/Peekaboo/blob/main/docs/MCP.md"),
+            command: "npx",
+            arguments: ["-y", "@steipete/peekaboo@4.9.0", "mcp"],
+            environment: [:]
+        ),
+        PaceMCPServerCatalogEntry(
             slug: "filesystem",
             displayName: "Filesystem",
             description: "Read and write files inside a folder you pick.",

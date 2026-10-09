@@ -23,7 +23,12 @@ executor; Codex turns do not depend on the local VLM. See
 Local typed dogfood on 2026-10-09 verified Hacker News in the vaultwealth.com
 Chrome profile, natural-language creation and invocation of a four-app work
 routine, Codex-backed research with a source, and the Codex-in-Warp launch request.
-The Warp terminal UI was not inspectable through the available CUA tool.
+Text dogfood on 2026-10-10 also verified native screenshot/recording controls,
+folder clarification followed by a correctly targeted Codex launch, visible
+muted-session status replies, and running-app inventory through the optional
+Peekaboo OSS MCP backend. Peekaboo uses persistent producer-bound sessions and
+the selected Pace planner. Implicit routine execution requires exact taught
+phrases. The Warp terminal UI was not inspectable through the available CUA tool.
 Microphone, screen-recording, and Accessibility permission-dependent workflows
 remain unverified on hardware. This source work is not a release.
 

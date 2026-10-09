@@ -732,6 +732,21 @@ nonisolated enum PaceFastActionCommandParser {
             )
         }
 
+        let screenshotPhrases = [
+            "screenshot", "take screenshot", "take a screenshot", "capture screen", "capture the screen",
+            "take screen capture", "screenshot a region", "capture a region", "capture region",
+            "screenshot region", "select an area to screenshot", "screenshot selection",
+        ]
+        let screenRecordingPhrases = ["start screen recording", "record my screen", "record the screen"]
+        if screenshotPhrases.contains(normalizedTranscript) || screenRecordingPhrases.contains(normalizedTranscript) {
+            let kind: PaceScreenCaptureKind =
+                screenRecordingPhrases.contains(normalizedTranscript) ? .recording : .screenshot
+            return PaceFastActionParseResult(
+                spokenText: "opening \(kind.rawValue) controls.",
+                executionPlan: .serial(actions: [.screenCapture(kind)])
+            )
+        }
+
         if let keyPress = parseKeyPressCommand(from: normalizedTranscript) {
             return PaceFastActionParseResult(
                 spokenText: keyPress.spokenText,
@@ -862,18 +877,6 @@ nonisolated enum PaceFastActionCommandParser {
                 keyName: "q",
                 modifiers: [.control, .command],
                 spokenText: "locking."
-            )
-        case "screenshot", "take a screenshot", "capture screen", "capture the screen", "take screen capture":
-            return FastKeyPressCommand(
-                keyName: "3",
-                modifiers: [.command, .shift],
-                spokenText: "screenshot taken."
-            )
-        case "screenshot a region", "capture a region", "capture region", "screenshot region", "select an area to screenshot", "screenshot selection":
-            return FastKeyPressCommand(
-                keyName: "4",
-                modifiers: [.command, .shift],
-                spokenText: "select the area."
             )
         case "hide window", "hide this app", "hide app", "hide the app", "command h", "cmd h", "press command h":
             return FastKeyPressCommand(

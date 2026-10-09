@@ -9,6 +9,11 @@ import Testing
 @testable import Pace
 
 struct PaceAutomationDefinitionTests {
+    @Test func onlyAnAuthoredInvocationCanAuthorizeImplicitExecution() {
+        #expect(PaceAutomationNaturalLanguageEvidence.exactInvocationPhrase.permitsImplicitExecution)
+        #expect(!PaceAutomationNaturalLanguageEvidence.semantic.permitsImplicitExecution)
+    }
+
     @Test func bundledDefinitionsValidateAndCompileFromSourceTree() throws {
         let validationIssues = PaceAutomationDefinitionLibrary.validateBundledDefinitions(
             bundle: .main,

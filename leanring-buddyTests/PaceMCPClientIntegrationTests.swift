@@ -46,6 +46,7 @@ private enum PaceMCPFixture {
     }
 }
 
+@Suite(.serialized)
 struct PaceMCPClientIntegrationTests {
     @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
     func echoToolCallRoundTripsTextThroughFixtureServer() async throws {
@@ -87,6 +88,47 @@ struct PaceMCPClientIntegrationTests {
         } catch {
             Issue.record("Expected PaceMCPClientError, got \(error)")
         }
+    }
+
+    @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func peekabooDiscoveryAndActionsKeepTheSameProducerProcess() async throws {
+        let configuration = PaceMCPServerConfiguration(
+            command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3",
+            args: [PaceMCPFixture.fixtureScriptPath]
+        )
+        let client = PaceMCPStdioClient(serverConfigurations: ["peekaboo": configuration])
+        let catalog = try await client.peekabooToolCatalog()
+        #expect(catalog.contains("inputSchema"))
+        #expect(catalog.contains("app"))
+        #expect(!catalog.contains("analyze"))
+        let identityRequest = PaceMCPToolCall(serverName: "peekaboo", toolName: "session_identity", arguments: [:])
+        let firstProducer = try await client.callTool(identityRequest)
+        let secondProducer = try await client.callTool(identityRequest)
+        #expect(firstProducer == secondProducer)
+        #expect(Int(firstProducer) != nil)
+        let evidence = try await client.callTool(
+            .init(
+                serverName: "peekaboo", toolName: "echo", arguments: ["text": .string("tool summary")]
+            ))
+        #expect(evidence.contains("structured evidence"))
+        #expect(evidence.contains("producer-bound-fixture"))
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["PACE_PEEKABOO_INTEGRATION"] == "1"))
+    func installedPeekabooPublishesItsRealComputerUseSchemas() async throws {
+        let configuration = PaceMCPServerConfiguration(
+            command: "/opt/homebrew/bin/npx",
+            args: ["-y", "@steipete/peekaboo@4.9.0", "mcp"]
+        )
+        let client = PaceMCPStdioClient(
+            serverConfigurations: ["peekaboo": configuration], requestTimeoutInSeconds: 60
+        )
+        let catalog = try await client.peekabooToolCatalog()
+        for toolName in ["see", "click", "type", "press", "app", "window"] {
+            #expect(catalog.contains("\"name\":\"" + toolName + "\""))
+        }
+        #expect(catalog.contains("inputSchema"))
+        #expect(!catalog.contains("\"name\":\"analyze\""))
     }
 
     @Test func starterConfigurationSeedsAppleMCPServer() throws {

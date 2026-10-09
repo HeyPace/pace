@@ -79,6 +79,15 @@ struct PaceDesktopRequestsTests {
         #expect(PaceCodexSessionRequest(directory: "/unlikely-nonexistent-pace-folder").resolvedDirectory() == nil)
     }
 
+    @Test func folderlessCodexRequestsClarifyInsteadOfReusingOldDirectories() {
+        #expect(PaceCodexSessionRequest.needsDirectoryClarification("Start Codex in Warp."))
+        #expect(PaceCodexSessionRequest.needsDirectoryClarification("Open a Codex session"))
+        #expect(!PaceCodexSessionRequest.needsDirectoryClarification("Start Codex in Warp in /tmp"))
+        #expect(!PaceCodexSessionRequest.needsDirectoryClarification("Start Codex in ~/Desktop/fleet/pace"))
+        #expect(!PaceCodexSessionRequest.needsDirectoryClarification("Start Codex in the Pace project folder"))
+        #expect(!PaceCodexSessionRequest.needsDirectoryClarification("Open Hacker News"))
+    }
+
     @Test func foregroundCodexDoesNotInheritToolsOrRequireGitRepository() {
         let arguments = PaceLocalCLIPlannerClient.codexArguments(modelIdentifier: nil, isResearchTurn: false)
         #expect(arguments.contains("--skip-git-repo-check"))

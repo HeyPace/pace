@@ -1202,6 +1202,14 @@ extension CompanionManager {
         }
         guard isActiveTurn(turnLease) else { return }
 
+        if PaceCodexSessionRequest.needsDirectoryClarification(transcript) {
+            handleImmediateLocalModeResponse(
+                transcript: transcript,
+                spokenText: "Which folder should I start Codex in? Give a folder name or an absolute or ~/ path."
+            )
+            return
+        }
+
         if let flowCommand = PaceFlowCommandParser.parse(transcript) {
             print("🔁 Flow voice command: \(flowCommand)")
             handleFlowCommand(flowCommand, transcript: transcript)
@@ -1828,7 +1836,7 @@ extension CompanionManager {
                             )
                         PaceLatencyBudget.shared.mark(.vlmComplete)
                         let userPromptForPlanner = await appendLocalRetrievalContext(
-                            to: appendConfiguredMCPContext(to: screenContextPrompt),
+                            to: await appendConfiguredMCPContext(to: screenContextPrompt),
                             query: transcript,
                             route: intentPrediction.route,
                             isFirstPlannerStep: isFirstStep
@@ -2577,7 +2585,7 @@ extension CompanionManager {
                 prewarmedContext: prewarmedContext
             )
             let userPromptForPlanner = await self.appendLocalRetrievalContext(
-                to: self.appendConfiguredMCPContext(to: screenContextPrompt),
+                to: await self.appendConfiguredMCPContext(to: screenContextPrompt),
                 query: transcript,
                 route: route,
                 isFirstPlannerStep: true
@@ -2790,19 +2798,22 @@ extension CompanionManager {
             scheduler.addTask(task)
             if !scheduler.isEnabled { scheduler.setEnabled(true) }
             Task {
-                try? await ttsClient.speakText("Scheduled. I'll \(prompt) every 30 minutes.")
+                await publishCommandFeedback(
+                    transcript: transcript, spokenText: "Scheduled. I'll \(prompt) every 30 minutes.")
                 voiceState = .idle
             }
         case .list:
             if scheduler.tasks.isEmpty {
                 Task {
-                    try? await ttsClient.speakText("No recurring tasks scheduled.")
+                    await publishCommandFeedback(transcript: transcript, spokenText: "No recurring tasks scheduled.")
                     voiceState = .idle
                 }
             } else {
                 let names = scheduler.tasks.map(\.displayName).joined(separator: ", ")
                 Task {
-                    try? await ttsClient.speakText("You have \(scheduler.tasks.count) recurring tasks: \(names).")
+                    await publishCommandFeedback(
+                        transcript: transcript,
+                        spokenText: "You have \(scheduler.tasks.count) recurring tasks: \(names).")
                     voiceState = .idle
                 }
             }
@@ -2811,19 +2822,19 @@ extension CompanionManager {
                 scheduler.removeTask(id: taskToRemove.id)
             }
             Task {
-                try? await ttsClient.speakText("Removed.")
+                await publishCommandFeedback(transcript: transcript, spokenText: "Removed.")
                 voiceState = .idle
             }
         case .enable:
             scheduler.setEnabled(true)
             Task {
-                try? await ttsClient.speakText("Scheduling enabled.")
+                await publishCommandFeedback(transcript: transcript, spokenText: "Scheduling enabled.")
                 voiceState = .idle
             }
         case .disable:
             scheduler.setEnabled(false)
             Task {
-                try? await ttsClient.speakText("Scheduling disabled.")
+                await publishCommandFeedback(transcript: transcript, spokenText: "Scheduling disabled.")
                 voiceState = .idle
             }
         }
@@ -2835,21 +2846,24 @@ extension CompanionManager {
         case .run(let prompt, let displayName):
             let id = runner.enqueue(prompt: prompt, displayName: displayName)
             Task {
-                try? await ttsClient.speakText("Running that in the background. I'll let you know when it's done.")
+                await publishCommandFeedback(
+                    transcript: transcript,
+                    spokenText: "Running that in the background. I'll let you know when it's done.")
                 voiceState = .idle
             }
             print("🔄 Background agent \(id) enqueued: \(displayName)")
         case .list:
             if runner.tasks.isEmpty {
                 Task {
-                    try? await ttsClient.speakText("No background tasks.")
+                    await publishCommandFeedback(transcript: transcript, spokenText: "No background tasks.")
                     voiceState = .idle
                 }
             } else {
                 let running = runner.tasks.filter { $0.state == .running }.count
                 let completed = runner.tasks.filter { $0.state == .completed }.count
                 Task {
-                    try? await ttsClient.speakText("\(running) running, \(completed) completed.")
+                    await publishCommandFeedback(
+                        transcript: transcript, spokenText: "\(running) running, \(completed) completed.")
                     voiceState = .idle
                 }
             }
@@ -2858,7 +2872,7 @@ extension CompanionManager {
                 runner.cancel(taskId: taskToCancel.id)
             }
             Task {
-                try? await ttsClient.speakText("Cancelled.")
+                await publishCommandFeedback(transcript: transcript, spokenText: "Cancelled.")
                 voiceState = .idle
             }
         }
@@ -2887,7 +2901,7 @@ extension CompanionManager {
                     } else {
                         failureMessage = "Meeting recording did not start."
                     }
-                    try? await ttsClient.speakText(failureMessage)
+                    await publishCommandFeedback(transcript: transcript, spokenText: failureMessage)
                     voiceState = .idle
                     return
                 }
@@ -2895,11 +2909,15 @@ extension CompanionManager {
                 // explicit profile AFTER start.
                 if let namedProfile {
                     controller.selectedProfileSlug = namedProfile.slug
-                    try? await ttsClient.speakText(
-                        "Recording your \(namedProfile.name) — I'll write \(namedProfile.name)-style notes when you stop."
+                    await publishCommandFeedback(
+                        transcript: transcript,
+                        spokenText:
+                            "Recording your \(namedProfile.name) — I'll write \(namedProfile.name)-style notes when you stop."
                     )
                 } else {
-                    try? await ttsClient.speakText("Meeting mode on. Recording — I'll generate notes when you stop.")
+                    await publishCommandFeedback(
+                        transcript: transcript,
+                        spokenText: "Meeting mode on. Recording — I'll generate notes when you stop.")
                 }
                 voiceState = .idle
             }
@@ -2913,16 +2931,17 @@ extension CompanionManager {
                         notes.synthesisFailed
                         ? "Meeting stopped. Notes synthesis failed, but the transcript is saved."
                         : "Meeting stopped. \(notes.summary)"
-                    try? await ttsClient.speakText(brief)
+                    await publishCommandFeedback(transcript: transcript, spokenText: brief)
                 } else {
-                    try? await ttsClient.speakText("Meeting stopped. No speech detected.")
+                    await publishCommandFeedback(
+                        transcript: transcript, spokenText: "Meeting stopped. No speech detected.")
                 }
                 voiceState = .idle
             }
         case .status:
             let status = controller.state == .active ? "active" : "inactive"
             Task {
-                try? await ttsClient.speakText("Meeting mode is \(status).")
+                await publishCommandFeedback(transcript: transcript, spokenText: "Meeting mode is \(status).")
                 voiceState = .idle
             }
         }
@@ -2935,13 +2954,13 @@ extension CompanionManager {
             let programs = PaceUserProgramStore().listValidPrograms()
             if skills.isEmpty && programs.isEmpty {
                 Task {
-                    try? await ttsClient.speakText("No skills installed.")
+                    await publishCommandFeedback(transcript: transcript, spokenText: "No skills installed.")
                     voiceState = .idle
                 }
             } else {
                 let names = (programs.map(\.name) + skills.map(\.name)).joined(separator: ", ")
                 Task {
-                    try? await ttsClient.speakText("Available skills: \(names).")
+                    await publishCommandFeedback(transcript: transcript, spokenText: "Available skills: \(names).")
                     voiceState = .idle
                 }
             }
@@ -2971,7 +2990,8 @@ extension CompanionManager {
                         failureReason: "missing preference: \(requiredPreferenceKey)"
                     )
                     Task {
-                        try? await ttsClient.speakText("i need \(requiredPreferenceKey) set first.")
+                        await publishCommandFeedback(
+                            transcript: transcript, spokenText: "i need \(requiredPreferenceKey) set first.")
                         voiceState = .idle
                     }
                 case .ready:
@@ -2988,13 +3008,13 @@ extension CompanionManager {
                         stepsPlanned: skill.steps.count
                     )
                     let prompt = PaceSkillLoader.toPlannerPrompt(skill)
-                    Task { try? await ttsClient.speakText("Running the \(skill.name) skill.") }
-                    // Route through the normal planner pipeline.
+                    // The planner owns the progress and final response for this run.
                     sendTranscriptToPlannerWithScreenshot(transcript: prompt)
                 }
             } else {
                 Task {
-                    try? await ttsClient.speakText("I couldn't find a skill called \(name).")
+                    await publishCommandFeedback(
+                        transcript: transcript, spokenText: "I couldn't find a skill called \(name).")
                     voiceState = .idle
                 }
             }
@@ -3004,12 +3024,13 @@ extension CompanionManager {
             let skills = PaceSkillLoader.loadAllSkills()
             if skills.contains(where: { $0.slug == slug || $0.name.lowercased() == name.lowercased() }) {
                 Task {
-                    try? await ttsClient.speakText("The \(name) skill is available.")
+                    await publishCommandFeedback(transcript: transcript, spokenText: "The \(name) skill is available.")
                     voiceState = .idle
                 }
             } else {
                 Task {
-                    try? await ttsClient.speakText("No skill called \(name) was found.")
+                    await publishCommandFeedback(
+                        transcript: transcript, spokenText: "No skill called \(name) was found.")
                     voiceState = .idle
                 }
             }
