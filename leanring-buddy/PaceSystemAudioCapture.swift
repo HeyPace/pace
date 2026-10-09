@@ -130,7 +130,9 @@ final class PaceMeetingModeController: ObservableObject {
         do {
             // Start mic capture first — a failure here is recoverable
             // (the system track can still record).
-            try await newRecorder.startMicCapture()
+            try await newRecorder.startMicCapture { [weak self] in
+                self?.lifecycleGeneration == thisStartGeneration
+            }
         } catch {
             // Mic permission denied or engine failure — continue with
             // system-only capture. The recorder's mic track will be
