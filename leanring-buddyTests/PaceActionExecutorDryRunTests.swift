@@ -10,6 +10,24 @@ import Testing
 
 @MainActor
 struct PaceActionExecutorDryRunTests {
+    @Test func missingAccessibilityBlocksInputAndReturnsActionableObservations() async {
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true,
+            accessibilityPermissionCheck: { false }
+        )
+        let observations = await executor.executeActionPlan(
+            .serial(actions: [.type("must not be typed"), .pressKey(name: "return", modifiers: [])]),
+            screenCaptures: []
+        )
+
+        #expect(observations.count == 2)
+        #expect(observations.allSatisfy { $0.summary.contains("Could not control") })
+        #expect(observations.allSatisfy { $0.summary.contains("Accessibility") })
+        #expect(observations.allSatisfy { $0.summary.contains("No input was sent") })
+        #expect(!PaceActionExecutor.requiresAccessibility(.openApplication("Chrome")))
+        #expect(!PaceActionExecutor.requiresAccessibility(.codexSession(.init(directory: "/tmp"))))
+    }
+
     @Test func cancelledPlanDoesNotDispatchActions() async {
         let executor = PaceActionExecutor(actionsAreEnabledOverride: false)
         let actionPlan = PaceActionExecutionPlan.serial(actions: [

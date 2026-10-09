@@ -713,6 +713,7 @@ final class PaceActionExecutor {
     /// Read from Info.plist at construction so a release build with the
     /// flag set false is guaranteed not to execute anything.
     let actionsAreEnabled: Bool
+    let accessibilityPermissionCheck: () -> Bool
 
     /// Delay between consecutive actions when a single planner response
     /// chains several (e.g. click then type). Gives the focused app
@@ -759,9 +760,11 @@ final class PaceActionExecutor {
     init(
         actionsAreEnabledOverride: Bool? = nil,
         mcpClient: PaceMCPStdioClient = PaceMCPStdioClient(),
-        timerScheduler: PaceTimerScheduler? = nil
+        timerScheduler: PaceTimerScheduler? = nil,
+        accessibilityPermissionCheck: @escaping () -> Bool = { AXIsProcessTrusted() }
     ) {
         self.mcpClient = mcpClient
+        self.accessibilityPermissionCheck = accessibilityPermissionCheck
         // Default-construct on the MainActor init body — the
         // @MainActor-isolated initializer can't be the default arg of
         // another @MainActor init in Swift 6 concurrency checking.

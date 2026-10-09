@@ -136,6 +136,15 @@ extension PaceActionExecutor {
         _ action: PaceParsedAction,
         screenCaptures: [CompanionScreenCapture]
     ) async -> PaceActionExecutionObservation? {
+        // Input posting can silently do nothing without Accessibility access.
+        // Return a real observation so the agent does not treat that as success.
+        if actionsAreEnabled, Self.requiresAccessibility(action), !accessibilityPermissionCheck() {
+            return PaceActionExecutionObservation(
+                toolName: action.auditOperationName,
+                summary:
+                    "Could not control the app: Pace needs Accessibility permission in System Settings → Privacy & Security → Accessibility. No input was sent."
+            )
+        }
         switch action {
         case .click(let location):
             await clickAtScreenshotLocation(location, screenCaptures: screenCaptures, clickCount: 1)
@@ -219,5 +228,15 @@ extension PaceActionExecutor {
         }
 
         return nil
+    }
+
+    static func requiresAccessibility(_ action: PaceParsedAction) -> Bool {
+        switch action {
+        case .click, .doubleClick, .clickCandidates, .type, .setTextValue,
+            .editSelectedText, .undoLastMutation, .pressKey, .snapWindow, .scroll:
+            return true
+        default:
+            return false
+        }
     }
 }
