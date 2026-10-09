@@ -45,6 +45,9 @@ nonisolated enum PaceLocalToolKind: String, CaseIterable {
     case scroll
     case openApp
     case openURL
+    case screenCapture
+    case meeting
+    case codexSession
     case music
     case volume
     case brightness
@@ -203,7 +206,7 @@ nonisolated enum PaceToolRegistry {
             canonicalName: "open_app",
             aliases: ["open_application"],
             schemaExample: #"{"tool":"open_app","app":"Safari"}"#,
-            description: "open a local Mac app by display name.",
+            description: "open a local Mac app by display name. For Chrome, optional profile is a directory (Default or Profile N), or work to use the saved work profile.",
             riskLevel: .appOrSystemMutation,
             executionSummary: "Launches or activates an app with NSWorkspace.",
             observationSummary: "No observation unless the app cannot be resolved.",
@@ -214,11 +217,44 @@ nonisolated enum PaceToolRegistry {
             canonicalName: "open_url",
             aliases: ["open_website", "website"],
             schemaExample: #"{"tool":"open_url","url":"https://example.com"}"#,
-            description: "open a website or URL.",
+            description: "open a website or URL. Optional browser selects Chrome/Safari/etc.; profile selects a Chrome directory (Default or Profile N), or work for the saved work profile.",
             riskLevel: .appOrSystemMutation,
             executionSummary: "Opens a URL with NSWorkspace.",
             observationSummary: "Reports invalid URLs and opened URLs.",
             exampleUtterance: "open Safari to anthropic.com"
+        ),
+        PaceLocalToolDefinition(
+            kind: .screenCapture,
+            canonicalName: "screen_capture",
+            aliases: [],
+            schemaExample: #"{"tool":"screen_capture","mode":"screenshot"}"#,
+            description: "open native macOS screenshot or screen-recording controls. mode is screenshot or recording; the user chooses the region and presses Capture/Record. Never claim recording already started.",
+            riskLevel: .appOrSystemMutation,
+            executionSummary: "Opens macOS capture controls without automatically capturing.",
+            observationSummary: "Reports that the controls opened, not that recording began.",
+            exampleUtterance: "open screen recording controls"
+        ),
+        PaceLocalToolDefinition(
+            kind: .codexSession,
+            canonicalName: "codex_session",
+            aliases: [],
+            schemaExample: #"{"tool":"codex_session","directory":"~/projects/my-app"}"#,
+            description: "open an interactive Codex session in Warp in an existing folder. directory is a concrete absolute or ~/ path; ask for the folder when unknown. Does not execute a model-generated shell command or bypass Codex trust/approval prompts.",
+            riskLevel: .appOrSystemMutation,
+            executionSummary: "Creates a Warp tab config with a fixed Codex executable and opens it.",
+            observationSummary: "Reports launch requested or a missing folder/tool; sign-in and trust remain in Warp.",
+            exampleUtterance: "start Codex in ~/projects/my-app"
+        ),
+        PaceLocalToolDefinition(
+            kind: .meeting,
+            canonicalName: "meeting",
+            aliases: [],
+            schemaExample: #"{"tool":"meeting","action":"start"}"#,
+            description: "start, stop, or check status of local meeting audio recording. Ask screen or meeting audio when the user says only start recording. Optional profile names a meeting note profile.",
+            riskLevel: .appOrSystemMutation,
+            executionSummary: "Controls the local meeting recording pipeline.",
+            observationSummary: "Reports actual active, stopped, processing, or failed state.",
+            exampleUtterance: "start meeting recording"
         ),
         PaceLocalToolDefinition(
             kind: .music,
@@ -574,8 +610,14 @@ nonisolated enum PaceToolRegistry {
             return definition(forToolName: "scroll")
         case .openApplication:
             return definition(forToolName: "open_app")
-        case .openURL:
+        case .openURL, .openBrowser:
             return definition(forToolName: "open_url")
+        case .screenCapture:
+            return definition(forToolName: "screen_capture")
+        case .meeting:
+            return definition(forToolName: "meeting")
+        case .codexSession:
+            return definition(forToolName: "codex_session")
         case .controlMusic:
             return definition(forToolName: "music")
         case .adjustVolume:

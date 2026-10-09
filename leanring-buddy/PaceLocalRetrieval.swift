@@ -1275,6 +1275,7 @@ final class PaceLocalRetriever: PaceRetriever {
     private static func preferenceDocuments() -> [PaceRetrievalDocument] {
         let preferencePairs: [(String, String?)] = [
             ("Preferred browser", PaceLocalMemoryStore.string(for: .preferredBrowser)),
+            ("Chrome work profile directory", PaceLocalMemoryStore.string(for: .preferredChromeProfile)),
             ("Preferred notes app", PaceLocalMemoryStore.string(for: .preferredNotesApp)),
             ("Default reminder list", PaceLocalMemoryStore.string(for: .defaultReminderList)),
         ]

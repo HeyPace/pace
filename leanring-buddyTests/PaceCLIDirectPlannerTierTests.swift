@@ -43,7 +43,7 @@ struct PaceCLIDirectPlannerTierTests {
     }
 
     @Test
-    func factoryFallsBackToLocalWithReasonWhenConsentedButSoakNotElapsed() {
+    func factoryFallsBackWhenDirectSpawnIsUnavailable() {
         // Consent accepted but the 24-hour soak has not elapsed yet — the
         // very-first-selection case. Must still fall back to local (fail
         // safe) rather than sending a turn off-device early.
@@ -52,7 +52,7 @@ struct PaceCLIDirectPlannerTierTests {
             canRunDirectSpawnTurn: false
         )
         if case .fallBackToLocal(let reason) = decision {
-            #expect(reason.contains("soak"))
+            #expect(reason.contains("unavailable"))
         } else {
             Issue.record("expected fallBackToLocal when soak not elapsed, got \(decision)")
         }
@@ -179,19 +179,20 @@ struct PaceCLIDirectPlannerTierTests {
     }
 
     @Test
-    func directSpawnSoakGateEnforced24Hours() {
+    func foregroundConsentWorksImmediatelyWhileScheduledTasksWait() {
         withClearedAndRestoredDirectSpawnState {
             PaceCloudBridgeConsent.acceptDirectSpawnConsent()
             let firstUse = Date(timeIntervalSinceReferenceDate: 1_000_000)
             PaceCloudBridgeConsent.markDirectSpawnFirstUsedIfUnset(now: firstUse)
 
-            // 23 hours later — still gated.
+            #expect(PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: firstUse))
+            // Only unattended scheduled tasks wait for the soak.
             let twentyThreeHoursLater = firstUse.addingTimeInterval(23 * 60 * 60)
-            #expect(PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: twentyThreeHoursLater) == false)
+            #expect(PaceCloudBridgeConsent.canRunScheduledDirectSpawnTurn(now: twentyThreeHoursLater) == false)
 
             // 25 hours later — allowed.
             let twentyFiveHoursLater = firstUse.addingTimeInterval(25 * 60 * 60)
-            #expect(PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: twentyFiveHoursLater) == true)
+            #expect(PaceCloudBridgeConsent.canRunScheduledDirectSpawnTurn(now: twentyFiveHoursLater) == true)
         }
     }
 

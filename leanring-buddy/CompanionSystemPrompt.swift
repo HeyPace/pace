@@ -318,7 +318,7 @@ enum CompanionSystemPrompt {
     per shape you may add "color" (red, blue, green, yellow, orange) and "label" (≤60 chars). "draw a red circle around X" → one ellipse object whose box is centered on X's coordinates, with "color":"red". "highlight X" → one rect object around X. NEVER answer a draw/circle/highlight request with intent dictate or edit, and NEVER just say you'll draw without emitting the Draw.annotation action.
 
     supported typed action names (payload.name) include:
-    App.launch, App.openURL, AX.press, AX.doublePress, AX.setValue, AX.scroll, Key.press, Undo.last, Clipboard.read, Window.snap, Music.control, Volume.adjust, Brightness.adjust, Calendar.read, Calendar.createEvent, Reminders.add, Notes.create, Notes.append, Notes.search, Mail.draft, Shortcut.run, Things.create, Messages.open, Finder.open, Finder.reveal, Draw.annotation, Clear.annotations, MCP.call.
+    App.launch, App.openURL, AX.press, AX.doublePress, AX.setValue, AX.scroll, Key.press, Undo.last, Clipboard.read, Window.snap, Music.control, Volume.adjust, Brightness.adjust, Calendar.read, Calendar.createEvent, Reminders.add, Notes.create, Notes.append, Notes.search, Mail.draft, Shortcut.run, Things.create, Messages.open, Finder.open, Finder.reveal, Draw.annotation, Clear.annotations, Screen.capture, meeting, Codex.session, MCP.call.
 
     for a MULTI-STEP task (a numbered list, or "do X then Y then Z"), emit ONE envelope whose payload has a "calls" array — each entry is {"name":...,"args":{...}}, run in order. do NOT emit only the first step and stop; you are NOT re-invoked between steps. example for "open safari, open a new tab, then search":
     {"spokenText":"opening safari and searching.","intent":"action","payload":{"calls":[
@@ -351,6 +351,10 @@ enum CompanionSystemPrompt {
 
     available tools:
     \(PaceToolRegistry.plannerToolListText)
+
+    For computer-use tasks, ground clicks, typing, keys, and scrolling in the supplied screenshot or AX/OCR context. Observe the result on the next step before continuing with dependent actions. Never claim a visible state change solely from issuing an action. If screen context is unavailable, ask the user to enable Read My Screen and the required permissions rather than inventing coordinates. Prefer direct app/URL tools for launches that do not need screen context.
+
+    Use Codex.session with a concrete directory to start an interactive Codex session in Warp. Ask which folder when it is unknown. Screen.capture opens native screenshot/recording controls; meeting controls local audio recording. Ask whether screen or meeting audio when recording is ambiguous. Compose multiple calls for multi-app requests; never invent a saved routine unless the user taught it.
     \(CompanionSystemPrompt.dynamicPluginSection())
 
     external MCP tools:
@@ -364,7 +368,7 @@ enum CompanionSystemPrompt {
     - if the user asks to create, make, add, or save a note, use {"tool":"notes","action":"create","title":"...","body":"..."} with the user's requested text in body. do not use open_app Notes for note creation.
     - if the user asks to add text to an existing note, use {"tool":"notes","action":"append","title":"...","body":"..."}. if they ask to find notes, use {"tool":"notes","action":"search","query":"..."}.
     - use open_app only when the user asked to open or launch an app, not when a more specific tool exists.
-    - to OPEN AN APP emit open_app / App.launch with the app name: "open chrome" → Google Chrome, "launch xcode" → Xcode, "open spotify" → Spotify, "open safari" → Safari, "open the calculator" → Calculator. to OPEN A WEBSITE emit open_url / App.openURL with the full https url: "open hacker news" → https://news.ycombinator.com, "go to github.com" → https://github.com. an app NAME is NOT a website: never invent a domain like safari.com for an app — "open safari" is App.launch Safari, never App.openURL. only use App.openURL when the user names a real web address or domain. for "open <site> on <browser>" (e.g. "open hacker news on chrome") emit open_url for the site — the browser opens it. opening an app or site NEVER requires seeing it on screen first and is NEVER a "can't see it" refusal.
+    - to OPEN AN APP emit open_app / App.launch with the app name: "open chrome" → Google Chrome, "launch xcode" → Xcode, "open spotify" → Spotify, "open safari" → Safari, "open the calculator" → Calculator. to OPEN A WEBSITE emit open_url / App.openURL with the full https url: "open hacker news" → https://news.ycombinator.com, "go to github.com" → https://github.com. an app NAME is NOT a website: never invent a domain like safari.com for an app — "open safari" is App.launch Safari, never App.openURL. only use App.openURL when the user names a real web address or domain. for "open <site> on <browser>" (e.g. "open hacker news on chrome") emit App.openURL with url and browser; honor an explicit Chrome profile using profile. opening an app or site NEVER requires seeing it on screen first and is NEVER a "can't see it" refusal.
 
     legacy tags are still accepted:
     - [CLICK:x,y]               left-click at screenshot pixel (x,y). add :screenN for non-cursor screens.

@@ -308,7 +308,7 @@ enum BuddyPlannerClientFactory {
     }
 
     /// Pure decision for whether the `.cliDirect` tier may spawn the CLI
-    /// this launch, given consent + soak state. Extracted so the
+    /// this launch, given foreground consent state. Extracted so the
     /// privacy-critical gate can be unit-tested without device/Keychain
     /// state. `.spawnCLI` means the factory builds `PaceLocalCLIPlannerClient`;
     /// `.fallBackToLocal` carries a human-readable reason for the log.
@@ -325,7 +325,7 @@ enum BuddyPlannerClientFactory {
             return .fallBackToLocal(reason: "direct-spawn consent not accepted")
         }
         guard canRunDirectSpawnTurn else {
-            return .fallBackToLocal(reason: "direct-spawn 24-hour soak has not elapsed")
+            return .fallBackToLocal(reason: "direct-spawn is unavailable")
         }
         return .spawnCLI
     }
@@ -351,20 +351,17 @@ enum BuddyPlannerClientFactory {
         hasAcceptedDirectSpawnConsent: Bool,
         canRunDirectSpawnTurn: Bool
     ) -> CronTaskBrainDecision {
-        switch cliDirectDispatchDecision(
-            hasAcceptedDirectSpawnConsent: hasAcceptedDirectSpawnConsent,
-            canRunDirectSpawnTurn: canRunDirectSpawnTurn
-        ) {
-        case .spawnCLI:
-            return .useCodexDirectSpawn
-        case .fallBackToLocal(let reason):
-            return .useDefaultPlanner(reason: reason)
+        guard hasAcceptedDirectSpawnConsent else {
+            return .useDefaultPlanner(reason: "direct-spawn consent not accepted")
         }
+        guard canRunDirectSpawnTurn else {
+            return .useDefaultPlanner(reason: "direct-spawn 24-hour soak has not elapsed")
+        }
+        return .useCodexDirectSpawn
     }
 
     /// Constructs the direct-spawn planner (`PaceLocalCLIPlannerClient`)
-    /// when the user has accepted the DIRECT-SPAWN consent AND the 24-hour
-    /// soak has elapsed. Falls back to local (with a logged reason)
+    /// when the user has accepted the DIRECT-SPAWN consent. Falls back to local (with a logged reason)
     /// otherwise so the tier picker never strands the user without a
     /// working planner. The SAME `CompanionSystemPrompt` flows through the
     /// returned client via the normal `generateResponseStreaming` call in

@@ -9,7 +9,7 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `leanring_buddyApp.swift` | ~340 | Menu bar app entry point. Uses `@NSApplicationDelegateAdaptor` with `CompanionAppDelegate` which validates the local tool registry at startup, warms LM Studio models, creates the notch/panel managers, starts `CompanionManager`, launches versioned onboarding when needed, handles `pace://` deeplinks, and optionally installs runtime smoke hooks. Pace has no Dock icon; its resizable Command Center opens only on request. |
 | `PaceDeepLinkParser.swift` | ~77 | Pure parser for the `pace://` URL scheme (listen, chat, watch, panel). Reject-on-ambiguity rules, percent-decoding via URLComponents, and a hard 500-char chat-text cap because deeplinks are an external input surface. |
 | `CompanionManager.swift` | ~1260 | Class declaration and stored properties only — the god-class shell after Phase A decomposition. |
-| `CompanionManager+AgentLoop.swift` | ~3040 | AI response pipeline (plan-act-observe loop, fast paths, clarification, planner dispatch), including shared completed-transcript routing, generation-leased routing cancellation, the fixed → program → skill privacy-pinned authoring ladder, and conservative natural catalog selection before generic planning. |
+| `CompanionManager+AgentLoop.swift` | ~3260 | AI response pipeline (plan-act-observe loop, fast paths, clarification, planner dispatch), including shared completed-transcript routing, generation-leased routing cancellation, the fixed → program → skill selected-planner authoring ladder, and conservative natural catalog selection before generic planning. |
 | `PaceTurnLease.swift` | ~30 | Pure generation registry used to reject cancelled or superseded routing results before they can install response work or mutate the active turn. |
 | `CompanionManager+PrivateBindings.swift` | ~680 | Permission polling, LM Studio reachability, barge-in VAD, wake-word, shortcut bindings. |
 | `CompanionManager+Lifecycle.swift` | ~935 | `start()`/`stop()`, permission requests, avatar/deeplink/chat entry points, and FIFO typed-turn queue draining between complete voice-agent turns. |
@@ -281,3 +281,8 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `evals/fm-fixtures/*.txt` | — | Plain-text fixtures consumed by eval-fm.sh + eval-planners.py + diag-pace.py. Each declares USER:, ELEMENT: lines, plus optional EXPECT_POINT_ID / EXPECT_CLICK_ID / EXPECT_POINT_ID_ONE_OF / SPOKEN_MUST_CONTAIN / SPOKEN_MUST_NOT_CONTAIN / SPOKEN_MAX_WORDS scoring metadata. See `evals/fm-fixtures/README.md` for the full schema. |
 | `evals/v10-schema-fixtures/*.json` | — | Deterministic v10 planner-response examples labelled schema-valid or schema-invalid. Used by `scripts/eval-v10-schema-fixtures.py` to catch envelope/schema drift before model evals or runtime-default switches. |
 | `evals/fm-fixtures-actions/*.txt` | — | V10 action-quality fixtures (draw / open_app-vs-open_url / multi-step skill). Set `V10_MODE: true`; scored against the DECODED action list via `evals/pace_v10.py`. Cover the three live action-quality failures the typed/free-text fixtures never exercised. See `evals/README.md`. |
+
+| Source | Approx. lines | Purpose |
+| --- | --- | --- |
+| `PaceCLIProcessRunner.swift` | ~160 | Cancellable bounded subprocess stream with UTF-8 framing and private stderr capture. |
+| `PaceDesktopRequests.swift` | ~180 | Typed browser/profile, native capture, meeting control, and folder-specific interactive Codex-in-Warp actions. |

@@ -32,6 +32,9 @@ nonisolated enum PaceAutomationCreationCommandParser {
 
     static func parse(_ transcript: String) -> PaceAutomationCreationCommand? {
         let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedTranscript.lowercased().hasPrefix("when i say ") {
+            return .init(rawDescription: trimmedTranscript)
+        }
         for creationPrefix in creationPrefixes {
             guard let prefixRange = trimmedTranscript.range(
                 of: creationPrefix,
@@ -154,7 +157,7 @@ nonisolated enum PaceBackgroundAgentCommandParser {
 
 // MARK: - Meeting mode
 
-enum PaceMeetingModeCommand: Equatable {
+nonisolated enum PaceMeetingModeCommand: Equatable, Sendable {
     /// Start a meeting. `profileSlug` is the note profile named in the
     /// utterance ("start my one-on-one recording" → "one-on-one"), or
     /// nil for a generic start (normal profile precedence applies).
@@ -175,12 +178,12 @@ nonisolated enum PaceMeetingModeCommandParser {
         let lower = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !lower.isEmpty else { return nil }
 
+        guard !lower.contains("screen"), !lower.contains(" and ") else { return nil }
         let matchedProfileSlug = matchProfileSlug(in: lower, profiles: profiles)
 
         // A meeting command must be clearly about meetings/recording, so
         // generic verbs ("record a memo") don't hijack the planner.
         let hasMeetingContext = lower.contains("meeting")
-            || lower.contains("recording")
             || matchedProfileSlug != nil
 
         let hasStartVerb = ["start", "begin", "enable", "record"].contains { lower.contains($0) }

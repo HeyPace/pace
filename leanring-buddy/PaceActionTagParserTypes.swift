@@ -126,6 +126,10 @@ nonisolated enum PaceParsedAction {
     case scroll(PaceScrollDirection, amountInLines: Int)
     case openApplication(String)
     case openURL(String)
+    case openBrowser(PaceBrowserOpenRequest)
+    case screenCapture(PaceScreenCaptureKind)
+    case meeting(PaceMeetingModeCommand)
+    case codexSession(PaceCodexSessionRequest)
     case controlMusic(PaceMusicCommand)
     case adjustVolume(PaceSystemAdjustment)
     case adjustBrightness(PaceSystemAdjustment)
@@ -170,6 +174,10 @@ nonisolated enum PaceParsedAction {
         case .scroll: return "scroll"
         case .openApplication: return "open_app"
         case .openURL: return "open_url"
+        case .openBrowser: return "open_browser"
+        case .screenCapture: return "screen_capture"
+        case .meeting: return "meeting"
+        case .codexSession: return "codex_session"
         case .controlMusic: return "music"
         case .adjustVolume: return "volume"
         case .adjustBrightness: return "brightness"
@@ -202,6 +210,14 @@ nonisolated enum PaceParsedAction {
             return appName
         case .openURL(let urlString):
             return String(urlString.prefix(120))
+        case .openBrowser(let request):
+            return request.browserName
+        case .screenCapture(let kind):
+            return kind.rawValue
+        case .codexSession(let request):
+            return request.directory
+        case .meeting:
+            return "meeting recording"
         case .runShortcut(let name):
             return name
         case .openMessages(let request):
@@ -286,6 +302,14 @@ nonisolated enum PaceParsedAction {
             return "Open app: \(applicationName)"
         case .openURL(let urlString):
             return "Open URL: \(urlString)"
+        case .openBrowser(let request):
+            return "Open \(request.browserName)\(request.chromeProfile.map { " (\($0) profile)" } ?? "")\(request.url.map { ": \($0)" } ?? "")"
+        case .screenCapture(let kind):
+            return "Open \(kind.rawValue) controls"
+        case .codexSession(let request):
+            return "Start Codex in Warp at \(request.directory)"
+        case .meeting:
+            return "Control meeting audio recording"
         case .controlMusic(let musicCommand):
             return "Control Music: \(musicCommand.rawValue)"
         case .adjustVolume(let adjustment):
@@ -673,6 +697,7 @@ nonisolated enum PaceFastActionCommandParser {
         "spotify": "Spotify",
         "system settings": "System Settings",
         "terminal": "Terminal",
+        "warp": "Warp",
         "visual studio code": "Visual Studio Code",
         "vs code": "Visual Studio Code",
         "vscode": "Visual Studio Code",
@@ -752,7 +777,9 @@ nonisolated enum PaceFastActionCommandParser {
         if let urlString = parseURLCommand(from: normalizedTranscript) {
             return PaceFastActionParseResult(
                 spokenText: "opening \(displayNameForOpenedURL(urlString)).",
-                executionPlan: .serial(actions: [.openURL(urlString)])
+                executionPlan: .serial(actions: [requestedBrowser(in: normalizedTranscript).map {
+                    .openBrowser(.init(browserName: $0, url: urlString, chromeProfile: nil))
+                } ?? .openURL(urlString)])
             )
         }
 
@@ -1113,9 +1140,18 @@ nonisolated enum PaceFastActionCommandParser {
         return nil
     }
 
-    /// Drops a trailing " on/in/using <browser>" so "open hacker news on
-    /// chrome" → "hacker news". Pace opens URLs in the user's preferred
-    /// browser, so the specific browser name is best-effort, not binding.
+    /// Preserve an explicitly named browser while the URL parser strips
+    /// the suffix from the site name.
+    private static func requestedBrowser(in transcript: String) -> String? {
+        let browsers = ["chrome": "Google Chrome", "google chrome": "Google Chrome", "safari": "Safari",
+                        "arc": "Arc", "firefox": "Firefox", "edge": "Microsoft Edge", "brave": "Brave Browser"]
+        for connector in [" on ", " in ", " using "] {
+            guard let range = transcript.range(of: connector, options: .backwards) else { continue }
+            if let browser = browsers[String(transcript[range.upperBound...]).trimmingCharacters(in: .whitespaces)] { return browser }
+        }
+        return nil
+    }
+
     private static func strippingBrowserSuffix(from target: String) -> String {
         let browserNames: Set<String> = [
             "chrome", "google chrome", "safari", "arc", "firefox",

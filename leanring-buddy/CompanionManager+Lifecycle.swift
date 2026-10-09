@@ -531,7 +531,7 @@ extension CompanionManager {
 
             let cronBrainDecision = BuddyPlannerClientFactory.cronTaskBrainDecision(
                 hasAcceptedDirectSpawnConsent: PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
-                canRunDirectSpawnTurn: PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+                canRunDirectSpawnTurn: PaceCloudBridgeConsent.canRunScheduledDirectSpawnTurn(now: Date())
             )
 
             // Pick the brain for this fire. When consent + soak allow it we

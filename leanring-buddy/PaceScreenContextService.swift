@@ -351,14 +351,15 @@ final class PaceScreenContextService {
     func buildUserPromptWithLocalVLMContextIfEnabled(
         transcript: String,
         screenCaptures: [CompanionScreenCapture],
-        prewarmedContext: PaceScreenContextPrewarmedSnapshot? = nil
+        prewarmedContext: PaceScreenContextPrewarmedSnapshot? = nil,
+        allowsLocalVLM: Bool = true
     ) async -> String {
         guard isReadMyScreenEnabled() else {
             print("👁️  VLM skipped — 'Read My Screen' toggle is off")
             return transcript
         }
 
-        if let prewarmedContext,
+        if allowsLocalVLM, let prewarmedContext,
            !prewarmedContext.screenCaptures.isEmpty {
             print("👁️  Pre-warm context supplied by first-step capture path")
             return buildPromptFromEnrichedAnalyses(
@@ -371,7 +372,7 @@ final class PaceScreenContextService {
         // First try: did the PTT-press pre-warm finish? If yes, we
         // consume its result and skip the synchronous VLM + OCR work
         // entirely — perceived VLM latency drops to ~0.
-        if let prewarmedTask = prewarmedScreenContextTask {
+        if allowsLocalVLM, let prewarmedTask = prewarmedScreenContextTask {
             print("👁️  Awaiting pre-warm result…")
             let awaitStartedAt = Date()
             let prewarmed = await prewarmedTask.value
@@ -469,7 +470,7 @@ final class PaceScreenContextService {
                 let axElements = axScreenReaderForLoopBody.readFocusedWindow(
                     scalingToScreenshot: capture
                 )
-                if !axElements.isEmpty {
+                if !axElements.isEmpty || !allowsLocalVLM {
                     let ocrBoxes = (try? await visionOCRClientForLoopBody.recognizeText(
                         in: capture.imageData,
                         screenshotWidthInPixels: capture.screenshotWidthInPixels,

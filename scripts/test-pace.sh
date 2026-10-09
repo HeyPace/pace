@@ -106,7 +106,9 @@ echo
 # The user's interactive Pace.app build keeps its real signing.
 
 RESULT_BUNDLE_PATH="$DERIVED_DATA_PATH/pace-tests.xcresult"
-rm -rf "$RESULT_BUNDLE_PATH"
+if [[ -e "$RESULT_BUNDLE_PATH" ]]; then
+    /usr/bin/trash "$RESULT_BUNDLE_PATH"
+fi
 BUILD_LOG_FILE="$DERIVED_DATA_PATH/last-build.log"
 mkdir -p "$DERIVED_DATA_PATH"
 

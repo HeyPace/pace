@@ -109,7 +109,7 @@ nonisolated enum PaceActionApprovalPolicy {
         case .openMessages(let messageRequest):
             return messageRequest.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         case .click, .doubleClick, .clickCandidates, .type, .setTextValue, .editSelectedText,
-             .undoLastMutation, .pressKey, .readClipboard, .snapWindow, .scroll, .openApplication,
+             .undoLastMutation, .pressKey, .readClipboard, .snapWindow, .scroll, .openApplication, .openBrowser, .screenCapture, .meeting, .codexSession,
              .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
              .drawAnnotation, .clearAnnotations:
@@ -141,7 +141,7 @@ nonisolated enum PaceActionApprovalPolicy {
                 .isEmpty == false
         case .click, .doubleClick, .clickCandidates, .type,
              .undoLastMutation, .pressKey, .readClipboard, .snapWindow, .scroll,
-             .openApplication, .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
+             .openApplication, .openBrowser, .screenCapture, .meeting, .codexSession, .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
              .drawAnnotation, .clearAnnotations:
             return false
@@ -193,7 +193,7 @@ nonisolated enum PaceActionApprovalPolicy {
     private static func canRelyOnVisualOrObservationFeedback(_ action: PaceParsedAction) -> Bool {
         switch action {
         case .click, .doubleClick, .clickCandidates, .type, .setTextValue, .editSelectedText,
-             .undoLastMutation, .pressKey, .readClipboard, .snapWindow, .scroll, .openApplication,
+             .undoLastMutation, .pressKey, .readClipboard, .snapWindow, .scroll, .openApplication, .openBrowser, .screenCapture, .meeting, .codexSession,
              .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
              .clearAnnotations:

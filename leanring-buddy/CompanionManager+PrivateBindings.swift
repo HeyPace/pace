@@ -482,7 +482,9 @@ extension CompanionManager {
             // VLM + OCR run during the user's natural speech time (~2-5s)
             // and the result is awaited by the agent loop's first step —
             // perceived VLM latency drops to ~0 in the common case.
-            screenContextService.prewarmScreenContext(reason: .pushToTalkPress)
+            if useLocalVLMForScreenContext && !(plannerClient is PaceLocalCLIPlannerClient) {
+                screenContextService.prewarmScreenContext(reason: .pushToTalkPress)
+            }
             // Warm the Kokoro TTS sidecar in the same PTT-press dead-time
             // window. The single-space prewarm synthesis runs while the user
             // is still speaking, so the first real sentence after the planner

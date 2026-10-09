@@ -176,7 +176,7 @@ nonisolated enum PaceToolPreflight {
         case .click, .doubleClick, .clickCandidates, .type, .setTextValue, .editSelectedText,
              .undoLastMutation, .pressKey, .snapWindow, .scroll:
             return true
-        case .readClipboard, .openApplication, .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
+        case .readClipboard, .openApplication, .openBrowser, .screenCapture, .meeting, .codexSession, .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .createCalendarEvent, .createReminder, .finder, .createNote, .appendNote,
              .searchNotes, .composeMail, .createThingsToDo, .runShortcut, .openMessages, .downloadFile,
              .startTimer, .recordFlow, .runFlow, .mcp,
@@ -208,7 +208,7 @@ nonisolated enum PaceToolPreflight {
             return true
         case .click, .doubleClick, .clickCandidates, .type, .setTextValue, .editSelectedText,
              .undoLastMutation, .pressKey, .snapWindow, .scroll,
-             .readClipboard, .openApplication, .openURL,
+             .readClipboard, .openApplication, .openBrowser, .screenCapture, .meeting, .codexSession, .openURL,
              .adjustVolume, .adjustBrightness, .listCalendarEvents, .createCalendarEvent,
              .createReminder, .finder, .downloadFile, .startTimer, .recordFlow, .runFlow,
              .drawAnnotation, .clearAnnotations:

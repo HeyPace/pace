@@ -163,6 +163,14 @@ extension PaceActionExecutor {
             return await openApplication(named: applicationName)
         case .openURL(let urlString):
             return await openURL(urlString)
+        case .openBrowser(let request):
+            return await openBrowser(request)
+        case .codexSession(let request):
+            return startCodexSession(request)
+        case .screenCapture(let kind):
+            return openScreenCaptureControls(kind)
+        case .meeting(let command):
+            return await controlMeeting(command)
         case .controlMusic(let musicCommand):
             return await controlMusic(musicCommand)
         case .adjustVolume(let adjustment):

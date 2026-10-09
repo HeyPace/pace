@@ -1,14 +1,31 @@
 # pace — PROJECT STATUS
 
-Last updated: 2026-08-10
+Last updated: 2026-10-09
 
 ## Why/What
 
-**Thesis:** macOS menu-bar voice agent that answers in under ~500 ms time-to-first-spoken-word (TTFSW), fully on-device — no cloud LLM, no API keys, no Worker telemetry. Hold hotkey → speak → Pace reads the screen (optional), plans locally, streams TTS, and optionally executes approved macOS actions.
+**Thesis:** macOS menu-bar voice agent that answers in under ~500 ms time-to-first-spoken-word (TTFSW), local audio, transcription, speech, and storage, with opt-in Codex/cloud planning. Hold hotkey → speak → Pace reads the screen (optional), reasons with the selected backend, streams TTS, and executes approved macOS actions.
 
 **In scope:** Menu-bar/notch UI, push-to-talk, on-device ASR/TTS/VLM/planner, action executor (AX-first clicks), trust surfaces, episodic + thread memory, watch mode, journals, proactive nudges (opt-in), MCP substrate, typed automation catalog, `pace://` deeplinks, App Intents (Siri/Shortcuts), bundled MLX model supply, marketing site (`website/`), eval gates, pace-tuned model export scaffold.
 
 **Out / parked:** Persistent KV planner backend (blocked on TinyGPT oMLX), grammar-constrained v10 as runtime default (eval-gated), cloud bridge as default tier, hosted monitoring, CI-automated live-app AX smokes.
+
+## Current usability work
+
+Codex can plan foreground action and answer turns immediately after consent,
+and author validated reusable automations from natural-language instructions.
+Native tools cover browser/profile selection, capture controls, meeting recording,
+and interactive Codex sessions in a specified folder in Warp. Screen-grounded
+computer use composes screenshots/AX/OCR with Pace's click, type, key, and scroll
+executor; Codex turns do not depend on the local VLM. See
+[architecture](docs/architecture/systems.md#everyday-desktop-actions-and-codex-sessions).
+
+Local typed dogfood on 2026-10-09 verified Hacker News in the vaultwealth.com
+Chrome profile, natural-language creation and invocation of a four-app work
+routine, Codex-backed research with a source, and the Codex-in-Warp launch request.
+The Warp terminal UI was not inspectable through the available CUA tool.
+Microphone, screen-recording, and Accessibility permission-dependent workflows
+remain unverified on hardware. This source work is not a release.
 
 ## Dependencies
 
@@ -32,7 +49,7 @@ Last updated: 2026-08-10
 | Surface | Stack | Commands |
 | --- | --- | --- |
 | macOS app | Swift/SwiftUI, Xcode `leanring-buddy.xcodeproj` | Open in Xcode → Cmd+R (**do not** `xcodebuild` — invalidates TCC) |
-| Tests | XCTest via isolated DerivedData | `bash scripts/test-pace.sh` — **1676 tests passing** |
+| Tests | XCTest via isolated DerivedData | `bash scripts/test-pace.sh` — **1736 passed, 3 hardware skips on 2026-10-09 (CI mode, UTC)** |
 | Local models | MLX, WhisperKit, TTSKit, Apple Speech | Settings → Models; Sparkle manifest in Info.plist |
 | Landing | Astro 5 + Tailwind v4 + Lightning CSS | `cd website && pnpm install && pnpm run dev` (:4321) |
 | Deploy landing | Cloudflare Pages project `pace` | `pnpm run build && pnpm run deploy` |
