@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "fleet.agent-testing.manifest.v1",
+  "id": "pace.desktop.command-contracts",
+  "platform": "desktop",
+  "journey": "non-voice-command-contracts",
+  "candidate": "isolated-swift-tests",
+  "sample": "screening",
+  "workingDirectory": "../..",
+  "runs": { "warm": 1, "cold": 0 },
+  "phases": {
+    "reset": {
+      "command": ["node", "scripts/agent-testing/verify-commands.mjs", "reset"],
+      "timeoutMs": 2000
+    },
+    "workflow": {
+      "command": [
+        "./scripts/test-pace.sh",
+        "PaceDesktopRequestsTests",
+        "PaceDesktopPointingTests",
+        "PaceActionApprovalTests",
+        "PaceScreenRecordingControllerTests"
+      ],
+      "timeoutMs": 600000
+    },
+    "verification": {
+      "command": ["node", "scripts/agent-testing/verify-commands.mjs", "verify"],
+      "timeoutMs": 30000
+    }
+  }
+}
