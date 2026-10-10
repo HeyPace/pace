@@ -142,7 +142,7 @@ extension CompanionManager {
 
         // Typed commands must be able to point even when startup did not
         // create the overlay because voice permissions are still missing.
-        if !isOverlayVisible {
+        if !mascotModeActive && !isOverlayVisible {
             overlayWindowManager.hasShownOverlayBefore = true
             overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
             isOverlayVisible = true
@@ -228,7 +228,7 @@ extension CompanionManager {
         // they clear (next user turn / 30 s auto-fade / explicit clear).
         annotationOverlayController.onActiveAnnotationsPresenceChanged = { [weak self] annotationsArePresent in
             guard let self, self.mascotModeActive else { return }
-            if annotationsArePresent {
+            if annotationsArePresent || detectedElementScreenLocation != nil {
                 overlayWindowManager.isSuppressed = false
                 overlayWindowManager.hasShownOverlayBefore = true
                 overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
@@ -683,10 +683,28 @@ extension CompanionManager {
         }
     }
 
+    func presentDetectedElement(screenLocation: CGPoint, displayFrame: CGRect) {
+        detectedElementDisplayFrame = displayFrame
+        detectedElementScreenLocation = screenLocation
+        // Mascot mode suppresses cursor overlays between turns, but an
+        // explicit pointing request still needs a visible target marker.
+        if !isOverlayVisible || overlayWindowManager.isSuppressed {
+            overlayWindowManager.isSuppressed = false
+            overlayWindowManager.hasShownOverlayBefore = true
+            overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
+            isOverlayVisible = true
+        }
+    }
+
     func clearDetectedElementLocation() {
         detectedElementScreenLocation = nil
         detectedElementDisplayFrame = nil
         detectedElementBubbleText = nil
+        if mascotModeActive && annotationOverlayController.activeAnnotations.isEmpty {
+            overlayWindowManager.hideOverlay()
+            overlayWindowManager.isSuppressed = true
+            isOverlayVisible = false
+        }
     }
 
     func stop() {
