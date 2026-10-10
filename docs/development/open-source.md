@@ -54,7 +54,7 @@ Apache license is bundled separately. Optional MLX Audio/Kokoro provisioning
 is external to the app and retains the upstream model licenses. Downloaded
 model weights have their own licenses, separate from Swift package licenses.
 The copied development harness is attributed in
-[agent-testing README](../../scripts/agent-testing/README.md).
+[agent-testing README](https://github.com/HeyPace/pace/blob/main/scripts/agent-testing/README.md).
 
 Native PDFKit, EventKit, Vision, Spotlight, and NaturalLanguage supply the Mac
 features that do not need another dependency. They are Apple frameworks rather
