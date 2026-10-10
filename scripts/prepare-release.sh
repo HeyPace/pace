@@ -72,9 +72,9 @@ while IFS= read -r framework_path; do
 done < <(find "$OUTPUT_APP/Contents/Frameworks" -maxdepth 2 -name "*.framework" -type d 2>/dev/null)
 
 if [[ "$SIGNING_IDENTITY" == "-" ]]; then
-    codesign --force --deep --sign - "$OUTPUT_APP"
+    codesign --force --deep --entitlements "$PROJECT_DIR/leanring-buddy/leanring-buddy.entitlements" --sign - "$OUTPUT_APP"
 else
-    codesign --force --deep --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$OUTPUT_APP"
+    codesign --force --deep --options runtime --timestamp --entitlements "$PROJECT_DIR/leanring-buddy/leanring-buddy.entitlements" --sign "$SIGNING_IDENTITY" "$OUTPUT_APP"
 fi
 
 codesign --verify --deep --strict --verbose=2 "$OUTPUT_APP"

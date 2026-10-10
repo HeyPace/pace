@@ -576,6 +576,35 @@ extension CompanionManager {
                     "\nPlaywright is unavailable: \(error.localizedDescription). Report this browser blocker."
             }
         }
+        let normalizedRequest = userPrompt.lowercased()
+        let isWorkRequest = ["issue", "project", "assigned", "task", "workload", "integrations", "connected account"]
+            .contains { normalizedRequest.contains($0) }
+        for serverName in configuredServerNames where !["peekaboo", "playwright"].contains(serverName) {
+            let explicitlyRequested = normalizedRequest.contains(serverName.lowercased())
+            let isRelevantWorkServer = isWorkRequest && ["linear", "slack", "composio"].contains(serverName)
+            let isRelevantAppleServer =
+                serverName == "apple"
+                && ["notes", "mail", "calendar", "reminder", "contact"].contains { normalizedRequest.contains($0) }
+            let isRelevantFileServer =
+                serverName == "filesystem"
+                && ["file", "document", "folder"].contains { normalizedRequest.contains($0) }
+            guard explicitlyRequested || isRelevantWorkServer || isRelevantAppleServer || isRelevantFileServer else {
+                continue
+            }
+            do {
+                let tools = try await actionExecutor.mcpClient.toolCatalog(serverName: serverName)
+                guard tools.count <= 100_000 else {
+                    computerUseContext +=
+                        "\nMCP server \(serverName) connected but its catalog is too large for this turn. No schemas were supplied; do not guess tool names. Use a narrower configured integration."
+                    continue
+                }
+                computerUseContext +=
+                    "\nMCP server \(serverName) available tool schemas:\n\(tools)\nUse only these exact names and arguments through MCP.call. Availability is not proof of account access; verify tool results and report authentication/permission failures. Never invent success."
+            } catch {
+                computerUseContext +=
+                    "\nMCP server \(serverName) is unavailable: \(error.localizedDescription). Test Connection in Settings → MCP, complete any provider sign-in, and retry. Do not guess tools or claim access."
+            }
+        }
         return """
             \(userPrompt)
 

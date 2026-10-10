@@ -7,6 +7,42 @@ import Testing
 @testable import Pace
 
 struct PaceActionApprovalTests {
+    @Test func linearObservationRequiresTheExactOfficialReadOnlyConfiguration() {
+        let plan = PaceActionExecutionPlan.serial(actions: [
+            .mcp(PaceMCPToolCall(serverName: "linear", toolName: "list_issues", arguments: [:]))
+        ])
+        let configuration = PaceMCPServerConfiguration(
+            command: "npx",
+            args: ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp/readonly"]
+        )
+        #expect(PaceActionApprovalPolicy.permitsObservationOnly(plan, configuredServers: ["linear": configuration]))
+        #expect(!PaceActionApprovalPolicy.permitsObservationOnly(plan, configuredServers: [:]))
+        let writeConfiguration = PaceMCPServerConfiguration(
+            command: "npx", args: ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp"])
+        #expect(
+            !PaceActionApprovalPolicy.permitsObservationOnly(plan, configuredServers: ["linear": writeConfiguration]))
+        let alteredConfiguration = PaceMCPServerConfiguration(
+            command: configuration.command, args: configuration.args, env: ["NODE_OPTIONS": "--require custom.js"])
+        #expect(
+            !PaceActionApprovalPolicy.permitsObservationOnly(plan, configuredServers: ["linear": alteredConfiguration]))
+    }
+
+    @Test func structuredInspectionNeedsAnAnswerButMutationAndAnswersDoNot() {
+        let inventory = PaceActionTagParser.parseActions(
+            from:
+                #"{"spokenText":"Inspecting TextEdit.","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","tool":"window","arguments":{"action":"list","app":"TextEdit"}}}}"#
+        )
+        let inspection = PaceParsedAction.mcp(
+            PaceMCPToolCall(serverName: "peekaboo", toolName: "see", arguments: [:]))
+        #expect(PaceActionApprovalPolicy.needsAnswerAfterInspection(inventory.executionPlan))
+        #expect(PaceActionApprovalPolicy.needsAnswerAfterInspection(.serial(actions: [inspection])))
+        #expect(!PaceActionApprovalPolicy.needsAnswerAfterInspection(.serial(actions: [inspection, .type("text")])))
+        let answer = PaceActionTagParser.parseActions(
+            from:
+                #"{"spokenText":"Launch review is Tuesday at 14:00.","intent":"answer"}"#)
+        #expect(!PaceActionApprovalPolicy.needsAnswerAfterInspection(answer.executionPlan))
+    }
+
     @Test func screenExplanationCannotBecomeDictation() {
         let transcript =
             "Read my screen and explain the visible TextEdit checklist. Include the test identifier. Do not click or change anything."

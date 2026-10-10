@@ -5,6 +5,8 @@
 //  Read-only Apple Notes source for local retrieval.
 //
 
+import AppKit
+import Carbon
 import Foundation
 
 struct PaceNoteRetrievalSnapshot: Equatable {
@@ -17,10 +19,12 @@ struct PaceNoteRetrievalSnapshot: Equatable {
         title: String,
         body: String
     ) {
-        self.stableIdentifier = stableIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        self.stableIdentifier =
+            stableIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? Self.fallbackIdentifier(title: title, body: body)
             : stableIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        self.title =
+            title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "Untitled note"
             : title.trimmingCharacters(in: .whitespacesAndNewlines)
         self.body = body
@@ -83,7 +87,7 @@ struct PaceNotesRetrievalConnector {
         )
         let text = [
             "Title: \(noteSnapshot.title)",
-            compactBody.map { "Body: \($0)" }
+            compactBody.map { "Body: \($0)" },
         ]
             .compactMap { $0 }
             .joined(separator: "\n")
@@ -101,7 +105,8 @@ struct PaceNotesRetrievalConnector {
         let recordSeparator = String(Self.recordSeparator)
         let fieldSeparator = String(Self.fieldSeparator)
 
-        return output
+        return
+            output
             .components(separatedBy: recordSeparator)
             .compactMap { rawRecord -> PaceNoteRetrievalSnapshot? in
                 let fields = rawRecord.components(separatedBy: fieldSeparator)
@@ -109,8 +114,10 @@ struct PaceNotesRetrievalConnector {
                 let stableIdentifier = fields[0]
                 let title = fields[1]
                 let body = fields.dropFirst(2).joined(separator: fieldSeparator)
-                guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                guard
+                    !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                else {
                     return nil
                 }
                 return PaceNoteRetrievalSnapshot(
@@ -168,7 +175,8 @@ struct PaceNotesRetrievalConnector {
             with: " ",
             options: .regularExpression
         )
-        return withoutTags
+        return
+            withoutTags
             .replacingOccurrences(of: "&nbsp;", with: " ")
             .replacingOccurrences(of: "&amp;", with: "&")
             .replacingOccurrences(of: "&lt;", with: "<")
@@ -177,7 +185,8 @@ struct PaceNotesRetrievalConnector {
     }
 
     nonisolated private static func compactText(_ text: String, maximumCharacters: Int) -> String? {
-        let compactedText = text
+        let compactedText =
+            text
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
@@ -185,11 +194,19 @@ struct PaceNotesRetrievalConnector {
         guard !compactedText.isEmpty else { return nil }
         guard compactedText.count > maximumCharacters else { return compactedText }
 
-        let endIndex = compactedText.index(
-            compactedText.startIndex,
+        let endIndex =
+            compactedText.index(
+                compactedText.startIndex,
             offsetBy: maximumCharacters,
             limitedBy: compactedText.endIndex
         ) ?? compactedText.endIndex
         return String(compactedText[..<endIndex]).trimmingCharacters(in: .whitespacesAndNewlines) + "..."
+    }
+}
+
+nonisolated enum PaceReadOnlyAutomationPermission {
+    static func isGranted(bundleIdentifier: String) -> Bool {
+        let target = NSAppleEventDescriptor(bundleIdentifier: bundleIdentifier)
+        return AEDeterminePermissionToAutomateTarget(target.aeDesc, typeWildCard, typeWildCard, false) == noErr
     }
 }

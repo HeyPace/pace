@@ -64,7 +64,7 @@ nonisolated enum PaceAutomationCreationCommandParser {
 // MARK: - Cron scheduling
 
 enum PaceCronCommand {
-    case add(prompt: String, displayName: String)
+    case add(task: PaceCronTask)
     case list
     case remove(displayName: String)
     case enable
@@ -74,6 +74,7 @@ enum PaceCronCommand {
 nonisolated enum PaceCronCommandParser {
     static func parse(_ transcript: String) -> PaceCronCommand? {
         let lower = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !lower.hasPrefix("background:"), !lower.hasPrefix("in the background") else { return nil }
 
         // "list my scheduled tasks" / "list cron tasks" / "what are my recurring tasks"
         if lower.contains("list") && (lower.contains("recurring") || lower.contains("scheduled task") || lower.contains("cron")) {
@@ -91,7 +92,9 @@ nonisolated enum PaceCronCommandParser {
         }
 
         // "remove the <name> task" / "cancel the <name> recurring task"
-        if (lower.hasPrefix("remove ") || lower.hasPrefix("cancel ")) && lower.contains("task") {
+        if (lower.hasPrefix("remove ") || lower.hasPrefix("cancel ")) && lower.contains("task")
+            && !lower.contains("background")
+        {
             let name = lower
                 .replacingOccurrences(of: "remove the ", with: "")
                 .replacingOccurrences(of: "remove ", with: "")
@@ -108,7 +111,7 @@ nonisolated enum PaceCronCommandParser {
         // "every 30 minutes check my calendar" — delegate to PaceCronScheduler
         if lower.hasPrefix("every ") {
             if let task = PaceCronScheduler.parseVoiceCommand(transcript) {
-                return .add(prompt: task.taskPrompt, displayName: task.displayName)
+                return .add(task: task)
             }
         }
 
@@ -122,6 +125,8 @@ enum PaceBackgroundAgentCommand {
     case run(prompt: String, displayName: String)
     case list
     case cancel(displayName: String)
+    case retry(displayName: String)
+    case result(displayName: String)
 }
 
 nonisolated enum PaceBackgroundAgentCommandParser {
@@ -129,25 +134,39 @@ nonisolated enum PaceBackgroundAgentCommandParser {
         let lower = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
 
         // "list background tasks" / "what's running in the background"
-        if (lower.contains("list") || lower.contains("what")) && lower.contains("background") {
+        if [
+            "list background tasks", "list my background tasks", "list background agents",
+            "what is running in the background", "what's running in the background",
+        ].contains(lower) {
             return .list
         }
 
-        // "cancel the background task" / "stop the background agent"
-        if (lower.contains("cancel") || lower.contains("stop")) && lower.contains("background") {
-            return .cancel(displayName: lower)
+        for (prefix, action) in [
+            ("cancel background task ", "cancel"), ("stop background task ", "cancel"),
+            ("retry background task ", "retry"), ("resume background task ", "retry"),
+            ("show background task ", "result"), ("result of background task ", "result"),
+        ] {
+            if lower.hasPrefix(prefix) {
+                let name = String(lower.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { return nil }
+                switch action {
+                case "cancel": return .cancel(displayName: name)
+                case "retry": return .retry(displayName: name)
+                default: return .result(displayName: name)
+                }
+            }
         }
 
-        // "in the background, draft a reply to..." / "background: do something"
-        if lower.hasPrefix("in the background") || lower.hasPrefix("background:") {
-            let prompt = lower
-                .replacingOccurrences(of: "in the background", with: "")
-                .replacingOccurrences(of: "background:", with: "")
-                .trimmingCharacters(in: CharacterSet(charactersIn: ", :"))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !prompt.isEmpty {
-                let displayName = String(prompt.prefix(40))
-                return .run(prompt: prompt, displayName: displayName)
+        // Preserve capitalization in file names and research terms.
+        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["in the background", "background:"] {
+            if let range = trimmed.range(of: prefix, options: [.anchored, .caseInsensitive]) {
+                let prompt = String(trimmed[range.upperBound...])
+                    .trimmingCharacters(in: CharacterSet(charactersIn: ", :"))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !prompt.isEmpty {
+                    return .run(prompt: prompt, displayName: String(prompt.prefix(40)))
+                }
             }
         }
 

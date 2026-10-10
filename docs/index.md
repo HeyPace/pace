@@ -39,6 +39,8 @@ How Pace is built and why.
     in-process SCStream for two-track meeting capture (vs out-of-process
     CoreAudio tap).
 
+- [Open-source credits](development/open-source.md) — pinned dependencies, optional helpers, and license notices.
+
 ## Product
 
 What Pace does and where it's going.

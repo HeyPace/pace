@@ -86,7 +86,7 @@ enum PaceMCPServerCatalog {
             arguments: [
                 "-y",
                 "@modelcontextprotocol/server-filesystem",
-                NSString(string: "~/Documents").expandingTildeInPath
+                NSString(string: "~/Documents").expandingTildeInPath,
             ],
             environment: [:]
         ),
@@ -111,10 +111,23 @@ enum PaceMCPServerCatalog {
             environment: [:]
         ),
         PaceMCPServerCatalogEntry(
+            slug: "linear",
+            displayName: "Linear (read only)",
+            description: "Find your issues, projects, and work through Linear's official MCP server.",
+            setupNote:
+                "Uses the open-source mcp-remote bridge. Requires Node 18+. Test Connection opens Linear OAuth; approve your workspace. No Composio key is needed.",
+            setupDocsURL: URL(string: "https://linear.app/docs/mcp"),
+            command: "npx",
+            arguments: ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp/readonly"],
+            environment: [:]
+        ),
+        PaceMCPServerCatalogEntry(
             slug: "composio",
             displayName: "Composio",
-            description: "OAuth + 700 SaaS tools (Gmail, Slack, GitHub, Linear, Notion, Calendar, web search). Off-device — routes through Composio's cloud.",
-            setupNote: "Set your COMPOSIO_API_KEY in Settings → MCP → Composio Key. First call to each tool opens an OAuth flow in your browser.",
+            description:
+                "OAuth + 700 SaaS tools (Gmail, Slack, GitHub, Linear, Notion, Calendar, web search). Off-device — routes through Composio's cloud.",
+            setupNote:
+                "Set your COMPOSIO_API_KEY in Settings → MCP → Composio Key. First call to each tool opens an OAuth flow in your browser.",
             setupDocsURL: URL(string: "https://docs.composio.dev/mcp"),
             command: "npx",
             // The empty COMPOSIO_API_KEY sentinel is the marker
@@ -124,7 +137,7 @@ enum PaceMCPServerCatalog {
             // flow writes the key directly to Keychain.
             arguments: ["-y", "@composio/mcp@latest"],
             environment: ["COMPOSIO_API_KEY": ""]
-        )
+        ),
     ]
 
     /// Catalog slugs whose entries were retired (superseded by Composio)
@@ -139,7 +152,7 @@ enum PaceMCPServerCatalog {
     static let supersededBySlug: [String: String] = [
         "github": "composio",
         "slack": "composio",
-        "linear": "composio"
+
     ]
 
     /// Convenience lookup used by the Settings cards to map slug → entry.
@@ -226,7 +239,7 @@ enum PaceMCPCatalogInstaller {
     static func installPayload(for entry: PaceMCPServerCatalogEntry) -> [String: Any] {
         var payload: [String: Any] = [
             "command": entry.command,
-            "args": entry.arguments
+            "args": entry.arguments,
         ]
         if !entry.environment.isEmpty {
             payload["env"] = entry.environment

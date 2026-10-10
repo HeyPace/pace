@@ -33,6 +33,15 @@ permission cancellation remain outside this non-voice acceptance pass. Detailed
 hardware evidence and exclusions are tracked in
 [issue #207](https://github.com/HeyPace/pace/issues/207).
 
+The assistant-ready candidate adds persisted read-only background tasks with
+results, cancellation, and explicit restart retry; recurring schedules coalesce
+missed intervals without overlap. Signed-app acceptance verified delivery,
+restart recovery, sourced research, bounded Markdown/RTF/PDF retrieval, source
+disablement, and screen explanations without edits. Calendar permission and a
+live read through Linear's official read-only MCP endpoint are verified. This
+candidate is installed locally; it is not a new public release. Full OSS notices
+are bundled under About; see the [dependency credits](docs/development/open-source.md).
+
 ## Dependencies
 
 ### External
@@ -268,8 +277,8 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 
 ### MCP & recipes
 
-- MCP stdio bridge with fixture server integration tests; example config for filesystem/fetch/github/applescript.
-- Bundled catalog — 4 one-tap servers (filesystem, fetch, applescript, composio); github/slack/linear now route through the composio OAuth bridge (`PaceMCPServerCatalog.supersededBySlug`) — atomic install into `mcp-servers.json`.
+- Persistent official Swift MCP SDK stdio sessions with fixture integration tests, per-server serialization, real connection tests, and actual tool schemas.
+- Bundled catalog — 7 optional servers (Playwright, Peekaboo, filesystem, fetch, AppleScript, Linear read only, Composio), installed atomically into `mcp-servers.json`. Linear uses its official read-only OAuth endpoint through pinned mcp-remote; Composio remains optional.
 - Recipe library: 5 bundled flows (morning-standup, weekly-review, email-zero, focus-mode, end-of-day); voice install/uninstall.
 
 ### Automations, programs, flows, skills, and tools

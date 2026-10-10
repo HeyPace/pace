@@ -2376,12 +2376,18 @@ extension CompanionManager {
                             break agentStepLoop
                         }
                     }
+                    // Inspection evidence must return to the planner before it can
+                    // answer. Keep mutations single-shot for constrained planners.
+                    let needsInspectionAnswer =
+                        PaceActionApprovalPolicy.needsAnswerAfterInspection(
+                            actionParseResult.executionPlan
+                        ) && !toolObservations.isEmpty
                     let exitLoop =
-                        plannerSignaledDone
+                        (plannerSignaledDone && !needsInspectionAnswer)
                         || actionParseResult.actions.isEmpty
                         || !actionExecutor.actionsAreEnabled
                         || userDeniedActionApproval
-                        || plannerClientForThisTurn.usesStructuredActionOutput
+                        || (plannerClientForThisTurn.usesStructuredActionOutput && !needsInspectionAnswer)
                     if exitLoop {
                         plannerLoopFinished = true
                         if plannerSignaledDone {
@@ -2415,6 +2421,8 @@ extension CompanionManager {
                     guard !Task.isCancelled else { return }
 
                     // Set up the next iteration.
+                    // Intermediate inventories must not overwrite the final answer.
+                    pendingPostActionFeedbackText = nil
                     let toolObservationPromptText = PaceActionExecutionObservation.formatForPlanner(toolObservations)
                     if toolObservationPromptText.isEmpty {
                         currentTurnUserPrompt =
@@ -2858,19 +2866,15 @@ extension CompanionManager {
     func handleCronCommand(_ command: PaceCronCommand, transcript: String) {
         let scheduler = PaceCronScheduler.shared
         switch command {
-        case .add(let prompt, let displayName):
-            let task = PaceCronTask(
-                id: "cron-\(String(UUID().uuidString.prefix(8)))",
-                displayName: displayName,
-                intervalSeconds: 1800,
-                skipWeekends: false,
-                taskPrompt: prompt
-            )
-            scheduler.addTask(task)
+        case .add(let task):
+            let added = scheduler.addTask(task)
             if !scheduler.isEnabled { scheduler.setEnabled(true) }
             Task {
                 await publishCommandFeedback(
-                    transcript: transcript, spokenText: "Scheduled. I'll \(prompt) every 30 minutes.")
+                    transcript: transcript,
+                    spokenText: added
+                        ? "Scheduled: \(task.displayName). Results appear in Tasks. Background runs can research or draft; they do not send messages or change files."
+                        : "That recurring task is already scheduled, or its interval is invalid.")
                 voiceState = .idle
             }
         case .list:
@@ -2889,11 +2893,15 @@ extension CompanionManager {
                 }
             }
         case .remove(let name):
-            if let taskToRemove = scheduler.tasks.first(where: { $0.displayName.contains(name) }) {
-                scheduler.removeTask(id: taskToRemove.id)
+            let matches = scheduler.tasks.filter {
+                $0.displayName.localizedCaseInsensitiveContains(name) || $0.id == name
             }
+            if matches.count == 1 { scheduler.removeTask(id: matches[0].id) }
             Task {
-                await publishCommandFeedback(transcript: transcript, spokenText: "Removed.")
+                await publishCommandFeedback(
+                    transcript: transcript,
+                    spokenText: matches.count == 1
+                        ? "Removed." : "No unique matching task. List scheduled tasks and specify its name.")
                 voiceState = .idle
             }
         case .enable:
@@ -2919,31 +2927,42 @@ extension CompanionManager {
             Task {
                 await publishCommandFeedback(
                     transcript: transcript,
-                    spokenText: "Running that in the background. I'll let you know when it's done.")
+                    spokenText: runner.persistenceError.map { "Background task was not started. " + $0 }
+                        ?? "Running that in the background (\(id)). I'll let you know when it's done.")
                 voiceState = .idle
             }
             print("🔄 Background agent \(id) enqueued: \(displayName)")
         case .list:
-            if runner.tasks.isEmpty {
-                Task {
-                    await publishCommandFeedback(transcript: transcript, spokenText: "No background tasks.")
-                    voiceState = .idle
+            let descriptions = runner.tasks.map { runner.taskDescription($0) }
+            let feedback = descriptions.isEmpty ? "No background tasks." : descriptions.joined(separator: "\n\n")
+            Task {
+                await publishCommandFeedback(
+                    transcript: transcript, spokenText: feedback + (runner.persistenceError.map { "\n\n" + $0 } ?? ""))
+                voiceState = .idle
+            }
+        case .cancel(let name), .retry(let name), .result(let name):
+            let feedback: String
+            if let task = runner.matchingTask(named: name) {
+                switch command {
+                case .cancel:
+                    runner.cancel(taskId: task.id)
+                    feedback =
+                        runner.tasks.first(where: { $0.id == task.id }).map { runner.taskDescription($0) }
+                        ?? "Task unavailable."
+                case .retry:
+                    feedback =
+                        runner.retry(taskId: task.id)
+                        ? "Retrying \(task.displayName) from the beginning."
+                        : runner.persistenceError.map { "Could not restart this task. " + $0 }
+                            ?? "That task is already active or completed."
+                default:
+                    feedback = runner.taskDescription(task)
                 }
             } else {
-                let running = runner.tasks.filter { $0.state == .running }.count
-                let completed = runner.tasks.filter { $0.state == .completed }.count
-                Task {
-                    await publishCommandFeedback(
-                        transcript: transcript, spokenText: "\(running) running, \(completed) completed.")
-                    voiceState = .idle
-                }
-            }
-        case .cancel(let name):
-            if let taskToCancel = runner.tasks.first(where: { $0.displayName.contains(name) }) {
-                runner.cancel(taskId: taskToCancel.id)
+                feedback = "No unique background task matches \(name). Use list background tasks, then its task ID."
             }
             Task {
-                await publishCommandFeedback(transcript: transcript, spokenText: "Cancelled.")
+                await publishCommandFeedback(transcript: transcript, spokenText: feedback)
                 voiceState = .idle
             }
         }

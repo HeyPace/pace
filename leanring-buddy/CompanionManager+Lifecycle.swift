@@ -386,44 +386,108 @@ extension CompanionManager {
         // to preference changes without each needing its own Companion
         // reference.
 
-        // 1. Background agent runner: when a background task fires, it
-        //    runs a headless planner turn and speaks the result when done.
-        PaceBackgroundAgentRunner.shared.executePlannerTurn = { [weak self] prompt in
-            guard let self else { return "Background agent: CompanionManager unavailable." }
-            return await withCheckedContinuation { continuation in
-                Task { @MainActor [weak self] in
-                    guard let self else {
-                        continuation.resume(returning: "Background agent: CompanionManager unavailable.")
-                        return
-                    }
-                    // Run a text-only planner turn (no screen capture).
-                    let systemPrompt = CompanionSystemPrompt.build(
-                        includeAgentMode: false,
-                        threadSummaryInjection: nil,
-                        ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment
-                    )
-                    self.beginHeadlessOffDeviceIndicatorIfNeeded()
-                    defer { self.endHeadlessOffDeviceIndicatorIfNeeded() }
-                    do {
-                        let (text, _) = try await self.plannerClient.generateResponseStreaming(
-                            images: [],
-                            systemPrompt: systemPrompt,
-                            conversationHistory: [],
-                            userPrompt: prompt,
-                            onTextChunk: { _ in }
-                        )
-                        continuation.resume(returning: text)
-                    } catch {
-                        continuation.resume(returning: "Background agent error: \(error.localizedDescription)")
-                    }
-                }
+        // Background tasks produce read-only research or drafts; results stay in Tasks and conversation history.
+        let executeReadOnlyBackgroundTask: (String, Bool) async throws -> String = { [weak self] prompt, isScheduled in
+            guard let self else {
+                throw NSError(
+                    domain: "PaceBackground", code: 1, userInfo: [NSLocalizedDescriptionKey: "Pace is unavailable."])
             }
+            if let reminderMessage = PaceReadOnlyLocalContext.literalReminderMessage(for: prompt) {
+                return reminderMessage
+            }
+            let freshLocalContext = await self.freshReadOnlyLocalContext(for: prompt)
+            try Task.checkCancellation()
+            let groundedPrompt = freshLocalContext.map { "\($0)\n\nUSER REQUEST\n\(prompt)" } ?? prompt
+            let configuration = PaceResearchTierStore.loadConfiguration()
+            let intent = await self.intentClassifier.classify(prompt, conversationHistory: [])
+            try Task.checkCancellation()
+            let isResearch = intent.route == .research
+            let client: any BuddyPlannerClient
+            let forceOffDevice: Bool
+            let systemPrompt: String
+            if isResearch {
+                if isScheduled && !PaceCloudBridgeConsent.canRunScheduledDirectSpawnTurn(now: Date()) {
+                    throw NSError(
+                        domain: "PaceSchedule", code: 3,
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "Scheduled research requires direct-spawn consent and its 24-hour waiting period. No research was performed."
+                        ])
+                }
+                guard configuration.tier == .cliBridge,
+                    configuration.cliBridgeUpstream == .codex,
+                    PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent()
+                else {
+                    throw NSError(
+                        domain: "PaceBackground", code: 2,
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "Background web research requires Codex in Research settings and direct-spawn consent. No research was performed."
+                        ])
+                }
+                client = PaceLocalCLIPlannerClient(
+                    upstream: .codex, modelIdentifier: configuration.cliBridgeModel, isResearchTurn: true)
+                systemPrompt = CompanionSystemPrompt.buildForResearchTurn()
+                forceOffDevice = true
+            } else {
+                if isScheduled {
+                    let decision = BuddyPlannerClientFactory.cronTaskBrainDecision(
+                        hasAcceptedDirectSpawnConsent: PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
+                        canRunDirectSpawnTurn: PaceCloudBridgeConsent.canRunScheduledDirectSpawnTurn(now: Date()))
+                    switch decision {
+                    case .useCodexDirectSpawn:
+                        client = PaceLocalCLIPlannerClient(upstream: .codex, modelIdentifier: "")
+                        forceOffDevice = true
+                    case .useDefaultPlanner:
+                        guard !self.activePlannerTierIsOffDevice else {
+                            throw NSError(
+                                domain: "PaceSchedule", code: 3,
+                                userInfo: [
+                                    NSLocalizedDescriptionKey:
+                                        "Unattended cloud work requires direct-spawn consent and its 24-hour waiting period. This task did not run."
+                                ])
+                        }
+                        client = self.plannerClient
+                        forceOffDevice = false
+                    }
+                } else {
+                    client = self.plannerClient
+                    forceOffDevice = false
+                }
+                systemPrompt =
+                    CompanionSystemPrompt.build(
+                        includeAgentMode: false, threadSummaryInjection: nil, ambientContextInjection: nil)
+                    + "\n\nThis is a read-only background task. Answer from the supplied fresh local context or return the requested draft. State permission, account, disabled-source, and empty-source outcomes precisely. Do not pretend to have read unsupplied data. You cannot execute actions, send messages, or change files."
+            }
+            try Task.checkCancellation()
+            let acquiredIndicator = self.beginHeadlessOffDeviceIndicatorIfNeeded(forceOffDevice: forceOffDevice)
+            defer { if acquiredIndicator { self.endHeadlessOffDeviceIndicatorIfNeeded() } }
+            let (text, _) = try await client.generateResponseStreaming(
+                images: [], systemPrompt: systemPrompt, conversationHistory: [], userPrompt: groundedPrompt,
+                onTextChunk: { _ in }
+            )
+            try Task.checkCancellation()
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw NSError(
+                    domain: "PaceBackground", code: 3,
+                    userInfo: [NSLocalizedDescriptionKey: "The planner returned no result."])
+            }
+            return text
+        }
+        PaceBackgroundAgentRunner.shared.executePlannerTurn = { prompt in
+            try await executeReadOnlyBackgroundTask(prompt, false)
+        }
+        PaceBackgroundAgentRunner.shared.executeScheduledPlannerTurn = { prompt in
+            try await executeReadOnlyBackgroundTask(prompt, true)
         }
         PaceBackgroundAgentRunner.shared.speakResult = { [weak self] result in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                let summary = String(result.prefix(200))
-                try? await self.ttsClient.speakText(summary)
+            guard let self else { return }
+            // Store completion in the conversation even when speech is unavailable.
+            self.recordConversationTurn(userTranscript: "Background task completed", assistantResponse: result)
+            if self.voiceState == .idle {
+                self.responseOverlayManager.showOverlayAndBeginStreaming()
+                self.responseOverlayManager.updateStreamingText(result)
+                self.responseOverlayManager.finishStreaming()
             }
         }
 
@@ -443,8 +507,8 @@ extension CompanionManager {
                         threadSummaryInjection: nil,
                         ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment
                     )
-                    self.beginHeadlessOffDeviceIndicatorIfNeeded()
-                    defer { self.endHeadlessOffDeviceIndicatorIfNeeded() }
+                    let acquiredIndicator = self.beginHeadlessOffDeviceIndicatorIfNeeded()
+                    defer { if acquiredIndicator { self.endHeadlessOffDeviceIndicatorIfNeeded() } }
                     do {
                         let (text, _) = try await self.plannerClient.generateResponseStreaming(
                             images: [],
@@ -470,8 +534,8 @@ extension CompanionManager {
                     }
                     let summaryPrompt =
                         "Summarize the following research results into a concise, readable summary. Keep key findings and actionable items:\n\n\(concatenated)"
-                    self.beginHeadlessOffDeviceIndicatorIfNeeded()
-                    defer { self.endHeadlessOffDeviceIndicatorIfNeeded() }
+                    let acquiredIndicator = self.beginHeadlessOffDeviceIndicatorIfNeeded()
+                    defer { if acquiredIndicator { self.endHeadlessOffDeviceIndicatorIfNeeded() } }
                     do {
                         let (text, _) = try await self.plannerClient.generateResponseStreaming(
                             images: [],
@@ -520,80 +584,42 @@ extension CompanionManager {
             }
         }
 
-        // 2. Cron scheduler: each fire runs a planner turn and speaks
-        //    the result. Enabled by the isCronSchedulerEnabled pref.
-        //
-        //    Scheduled tasks prefer the Codex direct-spawn brain — but a
-        //    cron fire is a BACKGROUND, unattended turn, so it must never
-        //    silently send scheduled-task data off-device. The Codex CLI
-        //    brain is used ONLY when the user has already accepted the
-        //    direct-spawn consent AND the 24-hour soak has elapsed (the
-        //    same gate the `.cliDirect` factory enforces). Otherwise the
-        //    task falls back to the user's currently-configured planner
-        //    (`self.plannerClient`) — the pre-existing behavior.
+        // Recurring runs share the durable, read-only background execution path.
+        PaceCronScheduler.shared.previousRunState = { id in
+            PaceBackgroundAgentRunner.shared.tasks.first(where: { $0.id == id })?.state
+        }
         PaceCronScheduler.shared.executeTaskCallback = { [weak self] task in
-            guard let self else { return }
-            let systemPrompt = CompanionSystemPrompt.build(
-                includeAgentMode: false,
-                threadSummaryInjection: nil,
-                ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment
-            )
-
-            let cronBrainDecision = BuddyPlannerClientFactory.cronTaskBrainDecision(
-                hasAcceptedDirectSpawnConsent: PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
-                canRunDirectSpawnTurn: PaceCloudBridgeConsent.canRunScheduledDirectSpawnTurn(now: Date())
-            )
-
-            // Pick the brain for this fire. When consent + soak allow it we
-            // spawn a fresh Codex CLI client (off-device, so we force the
-            // amber indicator regardless of the active tier — the headless
-            // helper only tints when the ACTIVE tier is off-device, which a
-            // Local-tier user is not). Otherwise we keep the existing
-            // default planner and use the tier-conditional amber helper.
-            let plannerClientForThisTask: any BuddyPlannerClient
-            let mustForceOffDeviceIndicator: Bool
-            switch cronBrainDecision {
-            case .useCodexDirectSpawn:
-                plannerClientForThisTask = PaceLocalCLIPlannerClient(
-                    upstream: .codex,
-                    modelIdentifier: ""
-                )
-                mustForceOffDeviceIndicator = true
-                print("⏰ Cron task routing to Codex direct-spawn brain (consent + soak satisfied)")
-            case .useDefaultPlanner(let reason):
-                plannerClientForThisTask = self.plannerClient
-                mustForceOffDeviceIndicator = false
-                print("⏰ Cron task staying on default planner — \(reason)")
+            guard let self else {
+                throw NSError(
+                    domain: "PaceSchedule", code: 2, userInfo: [NSLocalizedDescriptionKey: "Pace is unavailable."])
             }
-
-            if mustForceOffDeviceIndicator {
-                self.isOffDeviceTurnInFlight = true
-            } else {
-                await self.beginHeadlessOffDeviceIndicatorIfNeeded()
+            let intent = await self.intentClassifier.classify(task.taskPrompt, conversationHistory: [])
+            if intent.route == .research && !PaceCloudBridgeConsent.canRunScheduledDirectSpawnTurn(now: Date()) {
+                throw NSError(
+                    domain: "PaceSchedule", code: 3,
+                    userInfo: [
+                        NSLocalizedDescriptionKey:
+                            "Scheduled research requires direct-spawn consent and its 24-hour waiting period. No research was performed."
+                    ])
             }
-            do {
-                let (text, _) = try await plannerClientForThisTask.generateResponseStreaming(
-                    images: [],
-                    systemPrompt: systemPrompt,
-                    conversationHistory: [],
-                    userPrompt: task.taskPrompt,
-                    onTextChunk: { _ in }
-                )
-                if mustForceOffDeviceIndicator {
-                    self.isOffDeviceTurnInFlight = false
-                } else {
-                    await self.endHeadlessOffDeviceIndicatorIfNeeded()
-                }
-                let summary = String(text.prefix(200))
-                try? await self.ttsClient.speakText(summary)
-            } catch {
-                if mustForceOffDeviceIndicator {
-                    self.isOffDeviceTurnInFlight = false
-                } else {
-                    await self.endHeadlessOffDeviceIndicatorIfNeeded()
-                }
-                try? await self.ttsClient.speakText("Scheduled task failed: \(error.localizedDescription)")
+            guard PaceCronScheduler.shared.isEnabled,
+                let currentTask = PaceCronScheduler.shared.tasks.first(where: { $0.id == task.id }),
+                currentTask.isPaused != true
+            else {
+                throw CancellationError()
             }
+            let runner = PaceBackgroundAgentRunner.shared
+            guard runner.persistenceError == nil else {
+                throw NSError(
+                    domain: "PaceSchedule", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: runner.persistenceError ?? "Task storage is unavailable."])
+            }
+            let backgroundTaskId = runner.enqueue(
+                prompt: task.taskPrompt, displayName: task.displayName, isScheduled: true)
+            if let error = runner.persistenceError {
+                throw NSError(domain: "PaceSchedule", code: 1, userInfo: [NSLocalizedDescriptionKey: error])
+            }
+            return backgroundTaskId
         }
         if PaceUserPreferencesStore.bool(for: .isCronSchedulerEnabled) {
             PaceCronScheduler.shared.setEnabled(true)
@@ -610,7 +636,7 @@ extension CompanionManager {
                 includeAgentMode: false,
                 threadSummaryInjection: nil
             )
-            await self.beginHeadlessOffDeviceIndicatorIfNeeded()
+            let acquiredIndicator = self.beginHeadlessOffDeviceIndicatorIfNeeded()
             do {
                 let (text, _) = try await self.plannerClient.generateResponseStreaming(
                     images: [],
@@ -619,14 +645,14 @@ extension CompanionManager {
                     userPrompt: prompt,
                     onTextChunk: { _ in }
                 )
-                await self.endHeadlessOffDeviceIndicatorIfNeeded()
+                if acquiredIndicator { self.endHeadlessOffDeviceIndicatorIfNeeded() }
                 let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
                     .replacingOccurrences(of: "```", with: "")
                     .replacingOccurrences(of: "bash", with: "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 return cleaned.isEmpty ? nil : cleaned
             } catch {
-                await self.endHeadlessOffDeviceIndicatorIfNeeded()
+                if acquiredIndicator { self.endHeadlessOffDeviceIndicatorIfNeeded() }
                 return nil
             }
         }
@@ -957,10 +983,12 @@ extension CompanionManager {
     /// tint must hold until the LAST one finishes. Known limitation: a
     /// user-spoken off-device turn ending mid-headless-call clears the
     /// flag from its own path; the tint returns on the next begin call.
-    func beginHeadlessOffDeviceIndicatorIfNeeded() {
-        guard activePlannerTierIsOffDevice else { return }
+    @discardableResult
+    func beginHeadlessOffDeviceIndicatorIfNeeded(forceOffDevice: Bool = false) -> Bool {
+        guard forceOffDevice || activePlannerTierIsOffDevice else { return false }
         headlessOffDevicePlannerCallCount += 1
         isOffDeviceTurnInFlight = true
+        return true
     }
 
     func endHeadlessOffDeviceIndicatorIfNeeded() {

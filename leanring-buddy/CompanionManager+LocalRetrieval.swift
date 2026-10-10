@@ -15,6 +15,76 @@ extension CompanionManager {
 
     // MARK: - Local retrieval
 
+    func freshReadOnlyLocalContext(for prompt: String) async -> String? {
+        let sources = PaceReadOnlyLocalContext.requestedSources(for: prompt)
+        guard !sources.isEmpty else { return nil }
+        var documents: [PaceRetrievalDocument] = []
+        var statuses: [PaceRetrievalSourceStatus] = []
+        for source in sources {
+            try? Task.checkCancellation()
+            guard !Task.isCancelled else { return nil }
+            guard localRetriever.isSourceEnabled(source) else {
+                statuses.append(
+                    .skipped(
+                        source: source, displayName: source.displayName,
+                        reason: "Disabled in Pace settings; no data read."))
+                continue
+            }
+            let approvedFileRoots = PaceLocalRetrievalFileRootPreferences.configuredRootURLs()
+            let result: (documents: [PaceRetrievalDocument], status: PaceRetrievalSourceStatus)
+            switch source {
+            case .calendar:
+                result = calendarRetrievalConnector.loadDocuments(
+                    lookbackDays: 0, lookaheadDays: 14, maximumEventCount: 40)
+            case .file:
+                result = await spotlightRetrievalConnector.loadDocumentsAsync()
+            case .notes:
+                guard PaceReadOnlyAutomationPermission.isGranted(bundleIdentifier: "com.apple.Notes") else {
+                    let status = PaceRetrievalSourceStatus.skipped(
+                        source: source, displayName: source.displayName,
+                        reason:
+                            "Notes Automation permission is not granted. No notes read; enable it in Privacy & Security → Automation."
+                    )
+                    localRetriever.replaceDocuments([], forSource: source, status: status)
+                    statuses.append(status)
+                    continue
+                }
+                result = notesRetrievalConnector.loadDocuments()
+            case .mail:
+                guard PaceReadOnlyAutomationPermission.isGranted(bundleIdentifier: "com.apple.mail") else {
+                    let status = PaceRetrievalSourceStatus.skipped(
+                        source: source, displayName: source.displayName,
+                        reason:
+                            "Mail Automation permission is not granted. No mail read; enable it in Privacy & Security → Automation."
+                    )
+                    localRetriever.replaceDocuments([], forSource: source, status: status)
+                    statuses.append(status)
+                    continue
+                }
+                result = mailRetrievalConnector.loadDocuments()
+            default:
+                continue
+            }
+            guard !Task.isCancelled else { return nil }
+            guard localRetriever.isSourceEnabled(source),
+                source != .file || approvedFileRoots == PaceLocalRetrievalFileRootPreferences.configuredRootURLs()
+            else {
+                let status = PaceRetrievalSourceStatus.skipped(
+                    source: source, displayName: source.displayName,
+                    reason: "Source access changed during retrieval; returned data was discarded.")
+                localRetriever.replaceDocuments([], forSource: source, status: status)
+                statuses.append(status)
+                continue
+            }
+            localRetriever.replaceDocuments(result.documents, forSource: source, status: result.status)
+            documents.append(contentsOf: result.documents)
+            statuses.append(result.status)
+        }
+        syncConnectorsIntoUnifiedMemory()
+        refreshLocalRetrievalPublishedState()
+        return PaceReadOnlyLocalContext.contextBlock(documents: documents, statuses: statuses, query: prompt)
+    }
+
     func appendLocalRetrievalContext(
         to userPrompt: String,
         query: String,
@@ -22,13 +92,17 @@ extension CompanionManager {
         isFirstPlannerStep: Bool = true
     ) async -> String {
         guard isFirstPlannerStep else { return userPrompt }
-        guard PaceRetrievalContextPolicy.shouldQueryLocalContext(
-            forTranscript: query,
+        guard
+            PaceRetrievalContextPolicy.shouldQueryLocalContext(
+                forTranscript: query,
             route: route
-        ) else {
+            )
+        else {
             return userPrompt
         }
 
+        let freshContextBlock = await freshReadOnlyLocalContext(for: query)
+        let groundedPrompt = freshContextBlock.map { "\($0)\n\n\(userPrompt)" } ?? userPrompt
         defer {
             // Updates the Settings retrieval status AND debounce-triggers the
             // connector → unified-index resync, so the single recall path below
@@ -46,25 +120,28 @@ extension CompanionManager {
         // Verbatim-window turns are excluded — they already ship to the planner
         // as conversation history, so re-injecting them would duplicate.
         guard PaceUserPreferencesStore.bool(.useUnifiedMemoryRecall, default: true) else {
-            return userPrompt
+            return groundedPrompt
         }
         let verbatimWindowTurnIds = Set(threadMemory.verbatimWindow().map { $0.turnId })
-        guard let memoryContextBlock = await memoryRetriever.assembleContextBlock(
-            forQuery: query,
+        guard
+            let memoryContextBlock = await memoryRetriever.assembleContextBlock(
+                forQuery: query,
             excludingEntryIds: verbatimWindowTurnIds,
             maxEntries: 8,
             now: Date()
-        ) else {
-            return userPrompt
+            )
+        else {
+            return groundedPrompt
         }
-        return "\(memoryContextBlock)\n\nUSER REQUEST\n\(userPrompt)"
+        return "\(memoryContextBlock)\n\nUSER REQUEST\n\(groundedPrompt)"
     }
 
     func localRetrievalSummaryText(
         from sourceStatuses: [PaceRetrievalSourceStatus],
         lastQueryDurationMilliseconds: Int? = nil
     ) -> String {
-        let activeSourceSummaries = sourceStatuses
+        let activeSourceSummaries =
+            sourceStatuses
             .filter { $0.documentCount > 0 }
             .map { "\($0.displayName): \($0.documentCount)" }
 
@@ -91,7 +168,8 @@ extension CompanionManager {
     }
 
     func addLocalRetrievalFileRootURLs(_ rootURLs: [URL]) {
-        let safeNewRootURLs = rootURLs
+        let safeNewRootURLs =
+            rootURLs
             .map { URL(fileURLWithPath: $0.path, isDirectory: true).standardizedFileURL }
             .filter { !PaceSecretPathExclusionPolicy.shouldExclude(localURL: $0) }
 
@@ -105,7 +183,8 @@ extension CompanionManager {
 
     func removeLocalRetrievalFileRootPath(_ rootPath: String) {
         let rootURLToRemove = URL(fileURLWithPath: rootPath, isDirectory: true).standardizedFileURL
-        let remainingRootURLs = PaceLocalRetrievalFileRootPreferences
+        let remainingRootURLs =
+            PaceLocalRetrievalFileRootPreferences
             .userSelectedRootURLs()
             .filter { $0.path != rootURLToRemove.path }
         saveLocalRetrievalUserSelectedFileRootURLs(remainingRootURLs)
@@ -136,6 +215,7 @@ extension CompanionManager {
 
     func setLocalRetrievalSourceEnabled(_ isEnabled: Bool, for source: PaceRetrievalSource) {
         localRetriever.setSourceEnabled(isEnabled, for: source)
+        syncConnectorsIntoUnifiedMemory()
         refreshLocalRetrievalPublishedState()
 
         if source == .appUsageHistory, !isEnabled {
@@ -283,7 +363,8 @@ extension CompanionManager {
         if !force,
            !authorizationStatusChanged,
            let lastCalendarRetrievalRefreshAt,
-           now.timeIntervalSince(lastCalendarRetrievalRefreshAt) < 300 {
+            now.timeIntervalSince(lastCalendarRetrievalRefreshAt) < 300
+        {
             return
         }
 
@@ -325,7 +406,8 @@ extension CompanionManager {
         if !force,
            !authorizationStatusChanged,
            let lastRemindersRetrievalRefreshAt,
-           now.timeIntervalSince(lastRemindersRetrievalRefreshAt) < 300 {
+            now.timeIntervalSince(lastRemindersRetrievalRefreshAt) < 300
+        {
             return
         }
 
@@ -373,7 +455,8 @@ extension CompanionManager {
         if !force,
            !authorizationStatusChanged,
            let lastContactsRetrievalRefreshAt,
-           now.timeIntervalSince(lastContactsRetrievalRefreshAt) < 300 {
+            now.timeIntervalSince(lastContactsRetrievalRefreshAt) < 300
+        {
             return
         }
 
@@ -403,7 +486,8 @@ extension CompanionManager {
         let now = Date()
         if !force,
            let lastNotesRetrievalRefreshAt,
-           now.timeIntervalSince(lastNotesRetrievalRefreshAt) < 300 {
+            now.timeIntervalSince(lastNotesRetrievalRefreshAt) < 300
+        {
             return
         }
 
@@ -433,7 +517,8 @@ extension CompanionManager {
         let now = Date()
         if !force,
            let lastMailRetrievalRefreshAt,
-           now.timeIntervalSince(lastMailRetrievalRefreshAt) < 300 {
+            now.timeIntervalSince(lastMailRetrievalRefreshAt) < 300
+        {
             return
         }
 
@@ -463,7 +548,8 @@ extension CompanionManager {
         let now = Date()
         if !force,
            let lastFileRetrievalRefreshAt,
-           now.timeIntervalSince(lastFileRetrievalRefreshAt) < 300 {
+            now.timeIntervalSince(lastFileRetrievalRefreshAt) < 300
+        {
             return
         }
 
@@ -471,7 +557,7 @@ extension CompanionManager {
         fileRetrievalRefreshTask?.cancel()
         fileRetrievalRefreshTask = Task { [weak self] in
             guard let self else { return }
-            let result = spotlightRetrievalConnector.loadDocuments()
+            let result = await spotlightRetrievalConnector.loadDocumentsAsync()
             guard !Task.isCancelled else { return }
 
             localRetriever.replaceDocuments(

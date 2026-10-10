@@ -3,14 +3,75 @@
 //  leanring-buddyTests
 //
 
-import Foundation
-import EventKit
+import AppKit
 import Contacts
+import CoreText
+import EventKit
+import Foundation
 import Testing
+
 @testable import Pace
 
 @MainActor
 struct PaceLocalRetrievalTests {
+    @Test func freshReadOnlyContextRetainsFileCitationAndReportsUnavailableSources() {
+        let document = PaceRetrievalDocument(
+            id: "fixture", source: .file, title: "Fixture.md", text: "PACE RETRIEVAL 64 is the identifying sentence.",
+            localURL: URL(fileURLWithPath: "/tmp/pace-fixture/Fixture.md"))
+        let block = PaceReadOnlyLocalContext.contextBlock(
+            documents: [document],
+            statuses: [.skipped(source: .mail, displayName: "Mail", reason: "Automation not granted")],
+            query: "Find my document PACE RETRIEVAL 64"
+        )
+        #expect(block.contains("/tmp/pace-fixture/Fixture.md"))
+        #expect(block.contains("PACE RETRIEVAL 64"))
+        #expect(block.contains("Automation not granted"))
+        #expect(
+            PaceReadOnlyLocalContext.literalReminderMessage(for: "remind me to Call Alice") == "Reminder: Call Alice")
+    }
+
+    @Test func chosenFolderLoadsRealPDFAndRTFText() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "pace-documents-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let text = "PACE RETRIEVAL 64 native document fixture"
+        let attributed = NSAttributedString(string: text)
+        let rtf = try attributed.data(
+            from: NSRange(location: 0, length: attributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+        try rtf.write(to: root.appendingPathComponent("Fixture.rtf"))
+        let pdfURL = root.appendingPathComponent("Fixture.pdf")
+        let consumer = try #require(CGDataConsumer(url: pdfURL as CFURL))
+        var mediaBox = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let context = try #require(CGContext(consumer: consumer, mediaBox: &mediaBox, nil))
+        context.beginPDFPage(nil)
+        context.textPosition = CGPoint(x: 40, y: 700)
+        CTLineDraw(CTLineCreateWithAttributedString(attributed), context)
+        context.endPDFPage()
+        context.closePDF()
+        // Real PDFs commonly exceed the small text-file input budget.
+        let paddedPDF = try FileHandle(forWritingTo: pdfURL)
+        try paddedPDF.seekToEnd()
+        try paddedPDF.write(contentsOf: Data(String(repeating: "% padded fixture\n", count: 5_000).utf8))
+        try paddedPDF.close()
+        #expect(try Data(contentsOf: pdfURL).count > 64_000)
+        let result = PaceFileRetrievalConnector(rootURLs: [root]).loadDocuments()
+        #expect(result.documents.count == 2)
+        #expect(result.documents.allSatisfy { $0.text.contains("PACE RETRIEVAL 64") })
+    }
+
+    @Test func asyncFileRefreshFallsBackInsideChosenFolderWhenSpotlightHasNoResults() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "pace-unindexed-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "UNINDEXED RETRIEVAL 64".write(
+            to: root.appendingPathComponent("Fixture.md"), atomically: true, encoding: .utf8)
+        let connector = PaceSpotlightRetrievalConnector(rootURLs: [root], candidateURLProvider: { _ in [] })
+        let result = await connector.loadDocumentsAsync()
+        #expect(result.documents.count == 1)
+        #expect(result.documents.first?.text == "UNINDEXED RETRIEVAL 64")
+    }
+
     @Test func secretPathExclusionCoversCredentialsAndKeys() async throws {
         #expect(PaceSecretPathExclusionPolicy.shouldExclude(path: "/Users/sarthak/.ssh/id_ed25519"))
         #expect(PaceSecretPathExclusionPolicy.shouldExclude(path: "/Users/sarthak/project/.env"))
@@ -76,7 +137,7 @@ struct PaceLocalRetrievalTests {
                 source: .notes,
                 title: "Launch privacy decision",
                 text: "Priya said the launch privacy line must say local by architecture."
-            )
+            ),
         ])
 
         let matches = store.search(PaceRetrievalQuery(text: "launch privacy"))
@@ -126,7 +187,8 @@ struct PaceLocalRetrievalTests {
         ])
 
         let secondStore = PaceInMemoryRetrievalStore(persistenceURL: persistenceURL)
-        #expect(secondStore.search(PaceRetrievalQuery(text: "Priya launch privacy")).first?.documentId == "history-launch")
+        #expect(
+            secondStore.search(PaceRetrievalQuery(text: "Priya launch privacy")).first?.documentId == "history-launch")
 
         secondStore.reset()
         let thirdStore = PaceInMemoryRetrievalStore(persistenceURL: persistenceURL)
@@ -158,7 +220,7 @@ struct PaceLocalRetrievalTests {
                 source: .notes,
                 title: "Launch notes",
                 text: "Priya launch notes say privacy must stay local."
-            )
+            ),
         ])
 
         retriever.clearDocuments(forSource: .calendar)
@@ -178,7 +240,8 @@ struct PaceLocalRetrievalTests {
         store.upsertDocuments([
             PaceRetrievalDocument(id: "one", source: .paceHistory, title: "One", text: "alpha beta launch privacy one"),
             PaceRetrievalDocument(id: "two", source: .paceHistory, title: "Two", text: "alpha beta launch privacy two"),
-            PaceRetrievalDocument(id: "three", source: .paceHistory, title: "Three", text: "alpha beta launch privacy three"),
+            PaceRetrievalDocument(
+                id: "three", source: .paceHistory, title: "Three", text: "alpha beta launch privacy three"),
         ])
         let retriever = PaceLocalRetriever(
             store: store,
@@ -285,50 +348,60 @@ struct PaceLocalRetrievalTests {
     }
 
     @Test func retrievalContextPolicySkipsGenericAndScreenOnlyTurns() async throws {
-        #expect(!PaceRetrievalContextPolicy.shouldQueryLocalContext(
-            forTranscript: "explain transformers",
+        #expect(
+            !PaceRetrievalContextPolicy.shouldQueryLocalContext(
+                forTranscript: "explain transformers",
             route: .answerDirectly
         ))
-        #expect(!PaceRetrievalContextPolicy.shouldQueryLocalContext(
-            forTranscript: "click the save button",
+        #expect(
+            !PaceRetrievalContextPolicy.shouldQueryLocalContext(
+                forTranscript: "click the save button",
             route: .executeTool
         ))
-        #expect(!PaceRetrievalContextPolicy.shouldQueryLocalContext(
-            forTranscript: "what's on the screen",
+        #expect(
+            !PaceRetrievalContextPolicy.shouldQueryLocalContext(
+                forTranscript: "what's on the screen",
             route: .readScreen
         ))
     }
 
     @Test func retrievalContextPolicyAllowsOffscreenLocalReferences() async throws {
-        #expect(PaceRetrievalContextPolicy.shouldQueryLocalContext(
-            forTranscript: "what did Priya say about launch privacy",
+        #expect(
+            PaceRetrievalContextPolicy.shouldQueryLocalContext(
+                forTranscript: "what did Priya say about launch privacy",
             route: .fullPipeline
         ))
-        #expect(PaceRetrievalContextPolicy.shouldQueryLocalContext(
-            forTranscript: "open the deck I was editing yesterday",
+        #expect(
+            PaceRetrievalContextPolicy.shouldQueryLocalContext(
+                forTranscript: "open the deck I was editing yesterday",
             route: .executeTool
         ))
-        #expect(PaceRetrievalContextPolicy.shouldQueryLocalContext(
-            forTranscript: "make this more direct using my launch notes",
+        #expect(
+            PaceRetrievalContextPolicy.shouldQueryLocalContext(
+                forTranscript: "make this more direct using my launch notes",
             route: .fullPipeline
         ))
-        #expect(PaceRetrievalContextPolicy.shouldQueryLocalContext(
-            forTranscript: "compare this to my latest note",
+        #expect(
+            PaceRetrievalContextPolicy.shouldQueryLocalContext(
+                forTranscript: "compare this to my latest note",
             route: .readScreen
         ))
     }
 
     @Test func retrievalContextPolicyMatchesJournalTimePhrases() async throws {
-        #expect(PaceRetrievalContextPolicy.shouldQueryLocalContext(
-            forTranscript: "what was I doing earlier today",
+        #expect(
+            PaceRetrievalContextPolicy.shouldQueryLocalContext(
+                forTranscript: "what was I doing earlier today",
             route: .answerDirectly
         ))
-        #expect(PaceRetrievalContextPolicy.shouldQueryLocalContext(
-            forTranscript: "what have I been working on",
+        #expect(
+            PaceRetrievalContextPolicy.shouldQueryLocalContext(
+                forTranscript: "what have I been working on",
             route: .fullPipeline
         ))
-        #expect(PaceRetrievalContextPolicy.shouldQueryLocalContext(
-            forTranscript: "how did I spend my time this afternoon",
+        #expect(
+            PaceRetrievalContextPolicy.shouldQueryLocalContext(
+                forTranscript: "how did I spend my time this afternoon",
             route: .fullPipeline
         ))
     }
@@ -462,8 +535,9 @@ struct PaceLocalRetrievalTests {
         )
         #expect(contextBlock?.contains("App usage journal") == true)
         #expect(contextBlock?.contains("Xcode") == true)
-        #expect(PaceRetrievalContextPolicy.shouldQueryLocalContext(
-            forTranscript: "what apps did I use today",
+        #expect(
+            PaceRetrievalContextPolicy.shouldQueryLocalContext(
+                forTranscript: "what apps did I use today",
             route: .answerDirectly
         ))
     }
@@ -653,12 +727,14 @@ struct PaceLocalRetrievalTests {
             userDefaults: userDefaults,
             infoPlistConfigurationString: "/tmp/pace-more,\n/tmp/pace-notes"
         )
-        #expect(configuredRootURLs.map(\.path) == PaceLocalRetrievalFileRootPreferences.rootPaths(
-            for: [
+        #expect(
+            configuredRootURLs.map(\.path)
+                == PaceLocalRetrievalFileRootPreferences.rootPaths(
+                    for: [
                 firstRootURL,
                 secondRootURL,
-                URL(fileURLWithPath: "/tmp/pace-more", isDirectory: true)
-            ]
+                        URL(fileURLWithPath: "/tmp/pace-more", isDirectory: true),
+                    ]
         ))
     }
 
@@ -695,7 +771,7 @@ struct PaceLocalRetrievalTests {
                     duplicateSafeFileURL,
                     unsupportedFileURL,
                     secretFileURL,
-                    outsideFileURL
+                    outsideFileURL,
                 ]
             }
         )
@@ -712,7 +788,7 @@ struct PaceLocalRetrievalTests {
         let connector = PaceSpotlightRetrievalConnector(
             rootURLs: [
                 URL(fileURLWithPath: "/Users/sarthak/.ssh"),
-                URL(fileURLWithPath: "/tmp/pace-missing-\(UUID().uuidString)")
+                URL(fileURLWithPath: "/tmp/pace-missing-\(UUID().uuidString)"),
             ],
             candidateURLProvider: { _ in
                 Issue.record("Spotlight should not run without a safe root")
@@ -868,7 +944,7 @@ struct PaceLocalRetrievalTests {
         let recordSeparator = String(UnicodeScalar(30)!)
         let output = [
             ["id-1", "Launch notes", "Local-only launch line"].joined(separator: fieldSeparator),
-            ["id-2", "Pricing", "Pro tier notes"].joined(separator: fieldSeparator)
+            ["id-2", "Pricing", "Pro tier notes"].joined(separator: fieldSeparator),
         ]
             .joined(separator: recordSeparator)
 
@@ -906,8 +982,10 @@ struct PaceLocalRetrievalTests {
         let fieldSeparator = String(UnicodeScalar(31)!)
         let recordSeparator = String(UnicodeScalar(30)!)
         let output = [
-            ["id-1", "Launch review", "Priya <priya@example.com>", "June 9", "Local-only line"].joined(separator: fieldSeparator),
-            ["id-2", "Pricing", "Alex <alex@example.com>", "June 8", "Pro tier notes"].joined(separator: fieldSeparator)
+            ["id-1", "Launch review", "Priya <priya@example.com>", "June 9", "Local-only line"].joined(
+                separator: fieldSeparator),
+            ["id-2", "Pricing", "Alex <alex@example.com>", "June 8", "Pro tier notes"].joined(
+                separator: fieldSeparator),
         ]
             .joined(separator: recordSeparator)
 

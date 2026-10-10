@@ -10,13 +10,15 @@ import Foundation
 import MCP
 import System
 
-enum PaceMCPClientError: Error, CustomStringConvertible {
+enum PaceMCPClientError: Error, LocalizedError, CustomStringConvertible {
     case serverNotConfigured(String)
     case invalidCommand(String)
     case launchFailed(String)
     case requestTimedOut(String)
     case invalidResponse(String)
     case rpcError(String)
+
+    var errorDescription: String? { description }
 
     var description: String {
         switch self {
@@ -58,7 +60,8 @@ nonisolated enum PaceMCPClientEnvironmentBuilder {
         var resolvedEnvironment = baseEnvironment
         for (envKey, envValue) in serverConfigurationEnvironment {
             if envValue.isEmpty,
-               let storedSecret = secretLookup(serverSlug, envKey) {
+                let storedSecret = secretLookup(serverSlug, envKey)
+            {
                 resolvedEnvironment[envKey] = storedSecret
             } else {
                 resolvedEnvironment[envKey] = envValue
@@ -98,7 +101,8 @@ nonisolated struct PaceMCPServerConfiguration: Decodable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.command = try container.decode(String.self, forKey: .command)
         self.args = try container.decodeIfPresent([String].self, forKey: .args) ?? []
-        self.workingDirectory = try container.decodeIfPresent(String.self, forKey: .workingDirectory)
+        self.workingDirectory =
+            try container.decodeIfPresent(String.self, forKey: .workingDirectory)
             ?? container.decodeIfPresent(String.self, forKey: .cwd)
         self.env = try container.decodeIfPresent([String: String].self, forKey: .env) ?? [:]
     }
@@ -197,7 +201,7 @@ nonisolated enum PaceMCPServerRegistry {
         let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
         return [
             homeDirectory.appendingPathComponent(".config/pace/mcp-servers.json"),
-            homeDirectory.appendingPathComponent(".pace/mcp-servers.json")
+            homeDirectory.appendingPathComponent(".pace/mcp-servers.json"),
         ]
     }
 
@@ -225,7 +229,7 @@ nonisolated enum PaceMCPServerRegistry {
                 print("⚠️ Pace MCP: could not decode \(configurationPath.path)")
                 continue
             }
-            let servers = root.servers ?? root.mcpServers ?? [:]
+            let servers = root.mcpServers ?? root.servers ?? [:]
             if !servers.isEmpty {
                 return servers
             }
@@ -281,8 +285,14 @@ nonisolated struct PaceMCPStdioClient {
             ])
     }
 
-    private func toolCatalog(serverName: String, allowedNames: Set<String>) async throws -> String {
-        guard let configuration = serverConfigurationsProvider()[serverName] else { return "" }
+    func toolCatalog(serverName: String) async throws -> String {
+        try await toolCatalog(serverName: serverName, allowedNames: nil)
+    }
+
+    private func toolCatalog(serverName: String, allowedNames: Set<String>?) async throws -> String {
+        guard let configuration = serverConfigurationsProvider()[serverName] else {
+            throw PaceMCPClientError.serverNotConfigured(serverName)
+        }
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
@@ -291,7 +301,7 @@ nonisolated struct PaceMCPStdioClient {
                         method: "tools/list", parameters: [:], timeout: requestTimeoutInSeconds
                     )
                     let tools = (response["result"] as? [String: Any])?["tools"] as? [[String: Any]] ?? []
-                    let allowedTools = tools.filter { allowedNames.contains($0["name"] as? String ?? "") }
+                    let allowedTools = tools.filter { allowedNames?.contains($0["name"] as? String ?? "") ?? true }
                     let data = try JSONSerialization.data(withJSONObject: allowedTools, options: [.sortedKeys])
                     continuation.resume(returning: String(decoding: data, as: UTF8.self))
                 } catch { continuation.resume(throwing: error) }
@@ -314,7 +324,8 @@ nonisolated struct PaceMCPStdioClient {
         let estimatedInputCharacterCount: Int = {
             guard !toolCall.arguments.isEmpty,
                   let argumentsData = try? JSONEncoder().encode(toolCall.arguments),
-                  let argumentsString = String(data: argumentsData, encoding: .utf8) else {
+                let argumentsString = String(data: argumentsData, encoding: .utf8)
+            else {
                 return 0
             }
             return argumentsString.count
@@ -358,7 +369,7 @@ private func runSynchronousToolCall(
     serverConfiguration: PaceMCPServerConfiguration,
     timeoutInSeconds: TimeInterval
 ) throws -> String {
-    if ["peekaboo", "playwright"].contains(toolCall.serverName) {
+    do {
         let response = try PaceMCPPersistentSessions.shared.request(
             serverName: toolCall.serverName, configuration: serverConfiguration,
             method: "tools/call",
@@ -368,7 +379,10 @@ private func runSynchronousToolCall(
         let summary = summarizeMCPToolCallResponse(response)
         guard let result = response["result"] as? [String: Any] else { return summary }
         var sections = [summary]
-        for field in ["structuredContent", "_meta"] {
+        let evidenceFields =
+            ["peekaboo", "playwright"].contains(toolCall.serverName)
+            ? ["structuredContent", "_meta"] : ["structuredContent"]
+        for field in evidenceFields {
             if let value = result[field], JSONSerialization.isValidJSONObject(value) {
                 let data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
                 sections.append("Tool \(field):\n" + String(decoding: data, as: UTF8.self))
@@ -380,92 +394,6 @@ private func runSynchronousToolCall(
         }
         return observationText
     }
-    let process = Process()
-    process.executableURL = try executableURL(for: serverConfiguration.command)
-    process.arguments = serverConfiguration.args
-
-    if let workingDirectory = serverConfiguration.workingDirectory, !workingDirectory.isEmpty {
-        process.currentDirectoryURL = URL(fileURLWithPath: NSString(string: workingDirectory).expandingTildeInPath)
-    }
-
-    process.environment = PaceMCPClientEnvironmentBuilder.buildSpawnEnvironment(
-        baseEnvironment: ProcessInfo.processInfo.environment,
-        serverConfigurationEnvironment: serverConfiguration.env,
-        serverSlug: toolCall.serverName,
-        secretLookup: { server, key in
-            PaceMCPSecretStore.loadSecret(server: server, key: key)
-        }
-    )
-
-    let stdinPipe = Pipe()
-    let stdoutPipe = Pipe()
-    let stderrPipe = Pipe()
-    process.standardInput = stdinPipe
-    process.standardOutput = stdoutPipe
-    process.standardError = stderrPipe
-
-    do {
-        try process.run()
-    } catch {
-        throw PaceMCPClientError.launchFailed(error.localizedDescription)
-    }
-
-    let stdinHandle = stdinPipe.fileHandleForWriting
-    let stdoutReader = PaceMCPLineReader(fileHandle: stdoutPipe.fileHandleForReading)
-    defer {
-        stdoutReader.stop()
-        try? stdinHandle.close()
-        if process.isRunning {
-            process.terminate()
-            process.waitUntilExit()
-        }
-    }
-
-    try sendJSONRPCMessage(
-        [
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": [
-                "protocolVersion": "2025-03-26",
-                "capabilities": [:],
-                "clientInfo": [
-                    "name": "Pace",
-                    "version": "0.1"
-                ]
-            ]
-        ],
-        to: stdinHandle
-    )
-    _ = try readJSONRPCResponse(id: 1, from: stdoutReader, timeoutInSeconds: timeoutInSeconds)
-
-    try sendJSONRPCMessage(
-        [
-            "jsonrpc": "2.0",
-            "method": "notifications/initialized"
-        ],
-        to: stdinHandle
-    )
-
-    try sendJSONRPCMessage(
-        [
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": [
-                "name": toolCall.toolName,
-                "arguments": toolCall.arguments.mapValues(\.jsonObject)
-            ]
-        ],
-        to: stdinHandle
-    )
-
-    let response = try readJSONRPCResponse(id: 2, from: stdoutReader, timeoutInSeconds: timeoutInSeconds)
-    let summary = summarizeMCPToolCallResponse(response)
-    if (response["result"] as? [String: Any])?["isError"] as? Bool == true {
-        throw PaceMCPClientError.rpcError(summary)
-    }
-    return summary
 }
 
 // Peekaboo snapshots belong to the server process that observed them. Keep
@@ -473,7 +401,7 @@ private func runSynchronousToolCall(
 private final class PaceMCPPersistentSessions: @unchecked Sendable {
     static let shared = PaceMCPPersistentSessions()
     private let lock = NSLock()
-    private var sessions: [String: PaceMCPPersistentSession] = [:]
+    private var slots: [String: PaceMCPPersistentSessionSlot] = [:]
 
     private init() {
         atexit { PaceMCPPersistentSessions.shared.closeAll() }
@@ -481,9 +409,10 @@ private final class PaceMCPPersistentSessions: @unchecked Sendable {
 
     private func closeAll() {
         lock.lock()
-        defer { lock.unlock() }
-        for session in sessions.values { session.close() }
-        sessions.removeAll()
+        let currentSlots = Array(slots.values)
+        slots.removeAll()
+        lock.unlock()
+        for slot in currentSlots { slot.close() }
     }
 
     func request(
@@ -491,23 +420,52 @@ private final class PaceMCPPersistentSessions: @unchecked Sendable {
         method: String, parameters: [String: Any], timeout: TimeInterval
     ) throws -> [String: Any] {
         lock.lock()
+        let slot = slots[serverName] ?? PaceMCPPersistentSessionSlot()
+        slots[serverName] = slot
+        lock.unlock()
+        // An OAuth connection must not block an unrelated desktop server.
+        return try slot.request(
+            serverName: serverName, configuration: configuration,
+            method: method, parameters: parameters, timeout: timeout)
+    }
+}
+
+private final class PaceMCPPersistentSessionSlot: @unchecked Sendable {
+    private let lock = NSLock()
+    private var session: PaceMCPPersistentSession?
+
+    func request(
+        serverName: String, configuration: PaceMCPServerConfiguration,
+        method: String, parameters: [String: Any], timeout: TimeInterval
+    ) throws -> [String: Any] {
+        lock.lock()
         defer { lock.unlock() }
-        if let previous = sessions[serverName], previous.configuration != configuration || !previous.process.isRunning {
+        if let previous = session, previous.configuration != configuration || !previous.process.isRunning {
             previous.close()
-            sessions.removeValue(forKey: serverName)
+            session = nil
         }
-        if sessions[serverName] == nil {
-            sessions[serverName] = try PaceMCPPersistentSession(
-                serverName: serverName, configuration: configuration, timeout: timeout)
-        }
-        guard let session = sessions[serverName] else {
-            throw PaceMCPClientError.launchFailed("MCP session unavailable")
-        }
-        do { return try session.request(method: method, parameters: parameters, timeout: timeout) } catch {
-            session.close()
-            sessions.removeValue(forKey: serverName)
+        do {
+            if session == nil {
+                session = try PaceMCPPersistentSession(
+                    serverName: serverName, configuration: configuration, timeout: timeout)
+            }
+            guard let session else { throw PaceMCPClientError.launchFailed("MCP session unavailable") }
+            return try session.request(method: method, parameters: parameters, timeout: timeout)
+        } catch {
+            session?.close()
+            session = nil
+            if let rpcError = error as? MCPError {
+                throw PaceMCPClientError.rpcError(String(describing: rpcError))
+            }
             throw error
         }
+    }
+
+    func close() {
+        lock.lock()
+        defer { lock.unlock() }
+        session?.close()
+        session = nil
     }
 }
 
@@ -759,7 +717,8 @@ private func extractMCPContentText(from result: [String: Any]) -> String {
         return ""
     }
 
-    return contentArray
+    return
+        contentArray
         .compactMap { contentItem in
             contentItem["text"] as? String
         }

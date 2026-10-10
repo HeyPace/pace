@@ -30,9 +30,10 @@ import Combine
 import Foundation
 
 /// State of a background agent task.
-enum PaceBackgroundAgentState: Equatable {
+enum PaceBackgroundAgentState: Equatable, Codable {
     case queued
     case running
+    case interrupted
     case completed
     case cancelled
     case failed(String)
@@ -40,7 +41,7 @@ enum PaceBackgroundAgentState: Equatable {
 
 /// Priority of a background agent task. Higher priority tasks
 /// jump ahead of lower priority ones in the queue.
-enum PaceBackgroundAgentPriority: Int, Comparable {
+enum PaceBackgroundAgentPriority: Int, Comparable, Codable {
     case low = 0
     case normal = 1
     case high = 2
@@ -51,7 +52,7 @@ enum PaceBackgroundAgentPriority: Int, Comparable {
 }
 
 /// A background agent task. Created by voice command or cron trigger.
-struct PaceBackgroundAgentTask: Identifiable, Equatable {
+struct PaceBackgroundAgentTask: Identifiable, Equatable, Codable {
     let id: String
     let displayName: String
     let prompt: String
@@ -64,6 +65,7 @@ struct PaceBackgroundAgentTask: Identifiable, Equatable {
     /// Human-readable description of the current step, for UI display.
     /// e.g. "Searching Linear...", "Drafting ticket...", "Done".
     var currentStepDescription: String?
+    var isScheduled: Bool? = nil
 
     static func == (lhs: PaceBackgroundAgentTask, rhs: PaceBackgroundAgentTask) -> Bool {
         lhs.id == rhs.id
@@ -71,16 +73,17 @@ struct PaceBackgroundAgentTask: Identifiable, Equatable {
 }
 
 /// Manages background agent tasks. Each task runs as a detached Task
-/// that calls the planner with the task prompt and executes the
-/// resulting tool calls. Progress is published for UI updates.
+/// that produces read-only research, source-grounded answers, or drafts.
+/// Scheduled origin is retained so unattended consent can be rechecked.
 @MainActor
 final class PaceBackgroundAgentRunner: ObservableObject {
-    static let shared = PaceBackgroundAgentRunner()
+    static let shared = PaceBackgroundAgentRunner(storageURL: defaultStorageURL)
 
     @Published private(set) var tasks: [PaceBackgroundAgentTask] = []
 
     /// Callback to execute a planner turn. Set by CompanionManager.
-    var executePlannerTurn: ((String) async -> String)?
+    var executePlannerTurn: ((String) async throws -> String)?
+    var executeScheduledPlannerTurn: ((String) async throws -> String)?
 
     /// Callback to speak a result. Set by CompanionManager.
     var speakResult: ((String) async -> Void)?
@@ -91,8 +94,100 @@ final class PaceBackgroundAgentRunner: ObservableObject {
     private let maxConcurrent = 4
 
     private var runningTasks: [String: Task<Void, Never>] = [:]
+    private var executionIds: [String: UUID] = [:]
+    private let storageURL: URL?
+    @Published private(set) var persistenceError: String?
 
-    private init() {}
+    init(storageURL: URL? = nil) {
+        // Unit tests use an explicit temporary file or a memory-only instance.
+        self.storageURL = storageURL
+        restoreTasks()
+    }
+
+    private static var defaultStorageURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Pace/background-tasks.json")
+    }
+
+    private func restoreTasks() {
+        guard let storageURL, FileManager.default.fileExists(atPath: storageURL.path) else { return }
+        do {
+            tasks = try JSONDecoder().decode([PaceBackgroundAgentTask].self, from: Data(contentsOf: storageURL))
+            for index in tasks.indices where tasks[index].state == .running || tasks[index].state == .queued {
+                // A crashed planner may already have performed an external action.
+                // Never silently replay its prompt after launching again.
+                tasks[index].state = .interrupted
+                tasks[index].currentStepDescription = "Interrupted by restart. Review before retrying."
+            }
+            persistTasks()
+        } catch {
+            persistenceError = "Could not restore background tasks: \(error.localizedDescription)"
+        }
+    }
+
+    private func persistTasks() {
+        guard let storageURL else { return }
+        do {
+            // Preserve an unreadable queue rather than overwriting recoverable data.
+            guard persistenceError == nil else { return }
+            try FileManager.default.createDirectory(
+                at: storageURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONEncoder().encode(tasks).write(to: storageURL, options: .atomic)
+        } catch {
+            persistenceError = "Background tasks could not be saved: \(error.localizedDescription)"
+        }
+    }
+
+    /// Retry starts the original prompt from the beginning; it is not a checkpoint resume.
+    @discardableResult
+    func retry(taskId: String) -> Bool {
+        guard persistenceError == nil else { return false }
+        guard let index = tasks.firstIndex(where: { $0.id == taskId }) else { return false }
+        switch tasks[index].state {
+        case .interrupted, .failed, .cancelled:
+            let previousTask = tasks[index]
+            tasks[index].state = .queued
+            tasks[index].startedAt = nil
+            tasks[index].completedAt = nil
+            tasks[index].resultSummary = nil
+            tasks[index].stepCount = 0
+            tasks[index].currentStepDescription = nil
+            persistTasks()
+            guard persistenceError == nil else {
+                tasks[index] = previousTask
+                return false
+            }
+            startNextQueuedTask()
+            return true
+        default:
+            return false
+        }
+    }
+
+    func matchingTask(named name: String) -> PaceBackgroundAgentTask? {
+        let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedName.isEmpty else { return nil }
+        if let exactId = tasks.first(where: { $0.id.caseInsensitiveCompare(normalizedName) == .orderedSame }) {
+            return exactId
+        }
+        let exactNames = tasks.filter { $0.displayName.caseInsensitiveCompare(normalizedName) == .orderedSame }
+        if !exactNames.isEmpty { return exactNames.count == 1 ? exactNames.first : nil }
+        let matches = tasks.filter { $0.displayName.localizedCaseInsensitiveContains(normalizedName) }
+        return matches.count == 1 ? matches.first : nil
+    }
+
+    func taskDescription(_ task: PaceBackgroundAgentTask) -> String {
+        let status: String
+        switch task.state {
+        case .queued: status = "queued"
+        case .running: status = task.currentStepDescription ?? "running"
+        case .interrupted: status = "interrupted by restart; retry restarts from the beginning"
+        case .completed: status = task.resultSummary ?? "completed"
+        case .cancelled: status = "cancelled"
+        case .failed(let message): status = "failed: \(message)"
+        }
+        return "\(task.displayName) (\(task.id)): \(status)"
+    }
 
     // MARK: - Task lifecycle
 
@@ -101,7 +196,8 @@ final class PaceBackgroundAgentRunner: ObservableObject {
     func enqueue(
         prompt: String,
         displayName: String,
-        priority: PaceBackgroundAgentPriority = .normal
+        priority: PaceBackgroundAgentPriority = .normal,
+        isScheduled: Bool = false
     ) -> String {
         let id = "bg-\(UUID().uuidString.prefix(8))"
         let task = PaceBackgroundAgentTask(
@@ -114,9 +210,11 @@ final class PaceBackgroundAgentRunner: ObservableObject {
             completedAt: nil,
             resultSummary: nil,
             stepCount: 0,
-            currentStepDescription: nil
+            currentStepDescription: nil,
+            isScheduled: isScheduled
         )
         tasks.append(task)
+        persistTasks()
 
         if runningTasks.count < maxConcurrent {
             startNextQueuedTask()
@@ -127,8 +225,11 @@ final class PaceBackgroundAgentRunner: ObservableObject {
 
     /// Cancel a running or queued task.
     func cancel(taskId: String) {
+        guard let task = tasks.first(where: { $0.id == taskId }) else { return }
+        guard task.state == .running || task.state == .queued || task.state == .interrupted else { return }
         runningTasks[taskId]?.cancel()
         runningTasks.removeValue(forKey: taskId)
+        executionIds.removeValue(forKey: taskId)
         updateTask(taskId) { task in
             task.state = .cancelled
             task.completedAt = Date()
@@ -147,6 +248,7 @@ final class PaceBackgroundAgentRunner: ObservableObject {
                 return false
             }
         }
+        persistTasks()
     }
 
     /// Update progress for a running task. Called by the executing
@@ -168,7 +270,7 @@ final class PaceBackgroundAgentRunner: ObservableObject {
     /// where `sorted` with an equal-elements comparator would not
     /// (Swift's sort is not documented as stable).
     private func startNextQueuedTask() {
-        guard runningTasks.count < maxConcurrent else { return }
+        guard runningTasks.count < maxConcurrent, persistenceError == nil else { return }
         var nextTask: PaceBackgroundAgentTask?
         for queuedTask in tasks where queuedTask.state == .queued {
             if let currentBest = nextTask {
@@ -188,17 +290,35 @@ final class PaceBackgroundAgentRunner: ObservableObject {
         tasks[taskIndex].state = .running
         tasks[taskIndex].startedAt = Date()
         tasks[taskIndex].currentStepDescription = "Starting..."
+        persistTasks()
+        guard persistenceError == nil else {
+            tasks[taskIndex].state = .interrupted
+            tasks[taskIndex].currentStepDescription = "Could not save this task; execution did not start."
+            return
+        }
+        let executionId = UUID()
+        executionIds[taskId] = executionId
 
         let prompt = tasks[taskIndex].prompt
 
         runningTasks[taskId] = Task.detached(priority: .background) { [weak self] in
-            await self?.executeTask(taskId: taskId, prompt: prompt)
+            await self?.executeTask(taskId: taskId, executionId: executionId, prompt: prompt)
         }
     }
 
-    private func executeTask(taskId: String, prompt: String) async {
+    private func executeTask(taskId: String, executionId: UUID, prompt: String) async {
+        defer {
+            if executionIds[taskId] == executionId {
+                runningTasks.removeValue(forKey: taskId)
+                executionIds.removeValue(forKey: taskId)
+                startNextQueuedTask()
+            }
+        }
         do {
-            guard let executePlannerTurn else {
+            try Task.checkCancellation()
+            guard executionIds[taskId] == executionId else { return }
+            let isScheduled = tasks.first(where: { $0.id == taskId })?.isScheduled == true
+            guard let executePlannerTurn = isScheduled ? executeScheduledPlannerTurn : executePlannerTurn else {
                 await MainActor.run {
                     self.updateTask(taskId) { task in
                         task.state = .failed("No planner callback set")
@@ -215,10 +335,11 @@ final class PaceBackgroundAgentRunner: ObservableObject {
                 }
             }
 
-            let result = await executePlannerTurn(prompt)
+            let result = try await executePlannerTurn(prompt)
 
             // Check for cancellation before speaking.
             try Task.checkCancellation()
+            guard executionIds[taskId] == executionId else { return }
 
             await MainActor.run {
                 self.updateTask(taskId) { task in
@@ -231,9 +352,12 @@ final class PaceBackgroundAgentRunner: ObservableObject {
 
             // Speak the result through the restraint gate.
             if let speakResult, !result.isEmpty {
-                await speakResult(result)
+                await speakResult(
+                    "\(tasks.first(where: { $0.id == taskId })?.displayName ?? "Background task") completed.\n\n\(result)"
+                )
             }
         } catch is CancellationError {
+            guard executionIds[taskId] == executionId else { return }
             await MainActor.run {
                 self.updateTask(taskId) { task in
                     task.state = .cancelled
@@ -241,24 +365,25 @@ final class PaceBackgroundAgentRunner: ObservableObject {
                 }
             }
         } catch {
+            guard executionIds[taskId] == executionId else { return }
             await MainActor.run {
                 self.updateTask(taskId) { task in
                     task.state = .failed(error.localizedDescription)
                     task.completedAt = Date()
                 }
             }
+            if let speakResult {
+                await speakResult(
+                    "Background task failed: \(error.localizedDescription). Use list background tasks to review it.")
+            }
         }
 
-        await MainActor.run {
-            self.runningTasks.removeValue(forKey: taskId)
-            // Start next queued task if any.
-            self.startNextQueuedTask()
-        }
     }
 
     private func updateTask(_ taskId: String, _ update: (inout PaceBackgroundAgentTask) -> Void) {
         guard let index = tasks.firstIndex(where: { $0.id == taskId }) else { return }
         update(&tasks[index])
+        persistTasks()
     }
 
     /// Whether any background tasks are currently running.
@@ -273,7 +398,7 @@ final class PaceBackgroundAgentRunner: ObservableObject {
             switch task.state {
             case .running: running += 1
             case .queued: queued += 1
-            case .completed, .cancelled, .failed: completed += 1
+            case .completed, .cancelled, .failed, .interrupted: completed += 1
             }
         }
         return (running, queued, completed)

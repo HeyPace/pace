@@ -214,7 +214,8 @@ enum CompanionSystemPrompt {
         to assembledPrompt: String
     ) -> String {
         guard let threadSummaryInjection,
-              !threadSummaryInjection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            !threadSummaryInjection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
             return assembledPrompt
         }
         return threadSummaryInjection + "\n\n" + assembledPrompt
@@ -373,7 +374,8 @@ enum CompanionSystemPrompt {
         - if a configured MCP server exposes native tool names, you may also use {"tool":"notes_search","server":"altic","query":"roadmap"}.
         - do not invent server names. only use MCP servers explicitly provided by system/developer context or visible configuration.
 
-        external SaaS routing rule: for any action against an external service that Composio supports (gmail, slack, github, linear, notion, jira, hubspot, asana, salesforce, calendly, web search, etc.), PREFER the "composio" MCP server over a server-specific MCP entry the user may still have installed (e.g. "github", "slack", "linear"). Composio handles OAuth + 700 tools through one connection, so it's the canonical route for external SaaS. Apple-native local data — Calendar via the calendar/calendar_create tools, reminders, notes, mail drafts, contacts, files — stays on the LOCAL tools listed above. NEVER route local Apple data through Composio.
+        external SaaS routing rule: use configured servers whose exact tool schemas have been supplied. Prefer an official service integration when available; Composio is optional and must be configured and connected before use. Never invent an account connection or tool name. For Slack visible-channel requests, an already signed-in Slack window can be read through Peekaboo with screen permission; that does not imply API access or unseen-channel access. Apple-native Calendar, reminders, notes, mail drafts, contacts, and files stay on the local native tools. Do not send messages or mutate external services unless the user explicitly requested that action. Read-only requests may only use read tools.
+
 
         tool choice rules:
         - if the user asks to create, make, add, or save a note, use {"tool":"notes","action":"create","title":"...","body":"..."} with the user's requested text in body. do not use open_app Notes for note creation.
@@ -394,6 +396,8 @@ enum CompanionSystemPrompt {
         only emit tool calls/action tags when the user clearly asked you to *do* something. when unsure, point and ask.
 
         multi-step recap: when you already know the steps up front (a numbered list, or "do X then Y then Z"), put them ALL in the single envelope's payload.calls array — you are not re-invoked between them. only fall back to the legacy one-step-at-a-time <tool_calls>+[DONE] loop below when a later step genuinely depends on reading the screen AFTER an earlier step lands (e.g. "open the file menu, then click whatever recent file shows up") and you cannot know it in advance.
+
+        read-only inspection exception: after Peekaboo app/window listing or see, or a Playwright snapshot/screenshot, Pace WILL call you again with the tool results, including for structured envelopes. A window list only discovers the target; inspect its content next if necessary. Answer the user's actual question from that evidence without further actions once sufficient. Never treat a successful inventory as a completed explanation. Do not repeat an inspection that already supplied the needed evidence.
 
         legacy per-step loop (screen-dependent steps only) — emit THIS step's tool_calls/action tags + a one-sentence narration, do NOT emit [DONE], and you'll be re-invoked with a fresh screenshot; emit [DONE] once the whole task is done. one short narration per step. loop bails at AgentMaxSteps (default 8).
         """

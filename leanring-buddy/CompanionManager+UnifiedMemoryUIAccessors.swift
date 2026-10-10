@@ -56,22 +56,25 @@ extension CompanionManager {
         var entryIdsAndTextsToEmbed: [(id: String, text: String)] = []
         for source in PaceRetrievalSource.allCases
         where source != .paceHistory && source != .episodicMemory {
-            let documents = localRetriever.documents(forSource: source)
+            let documents = localRetriever.isSourceEnabled(source) ? localRetriever.documents(forSource: source) : []
             let entries: [PaceMemoryEntry] = documents.map { document in
+                let contextText =
+                    (["Title: \(document.title)", document.localURL.map { "Local file: \($0.path)" }, document.text]
+                    .compactMap { $0 }).joined(separator: "\n")
                 let existingEntry = memoryIndex.entry(id: document.id)
-                let textIsUnchanged = existingEntry?.text == document.text
+                let textIsUnchanged = existingEntry?.text == contextText
                 let preservedEmbedding = textIsUnchanged ? existingEntry?.embedding : nil
                 if preservedEmbedding == nil {
-                    entryIdsAndTextsToEmbed.append((id: document.id, text: document.text))
+                    entryIdsAndTextsToEmbed.append((id: document.id, text: contextText))
                 }
                 return PaceMemoryEntry(
                     id: document.id,
                     kind: source == .localPreference ? .preference : .journalEvent,
-                    text: document.text,
+                    text: contextText,
                     structured: nil,
                     source: source,
                     createdAt: existingEntry?.createdAt ?? document.modifiedAt ?? now,
-                    updatedAt: document.modifiedAt ?? now,
+                    updatedAt: document.modifiedAt ?? (textIsUnchanged ? existingEntry?.updatedAt : nil) ?? now,
                     embedding: preservedEmbedding,
                     confidence: nil,
                     topicTags: [],
@@ -89,7 +92,8 @@ extension CompanionManager {
     /// without re-mapping every source on every single write.
     func syncConnectorsIntoUnifiedMemoryIfDue(now: Date = Date()) {
         if let lastSyncAt = lastUnifiedMemoryConnectorSyncAt,
-           now.timeIntervalSince(lastSyncAt) < Self.unifiedMemoryConnectorSyncMinimumInterval {
+            now.timeIntervalSince(lastSyncAt) < Self.unifiedMemoryConnectorSyncMinimumInterval
+        {
             return
         }
         lastUnifiedMemoryConnectorSyncAt = now

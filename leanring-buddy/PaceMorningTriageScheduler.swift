@@ -14,6 +14,7 @@
 //  AppleScript, or live retrieval state.
 //
 
+import AppKit
 import Combine
 import Foundation
 
@@ -47,6 +48,16 @@ final class PaceMorningTriageScheduler: ObservableObject {
     private var hourOfDay: Int = 8
     private var minuteOfHour: Int = 30
     private var scheduledFireTimer: Timer?
+    private var isRunning = false
+    private var isDelivering = false
+    private var wakeObserver: NSObjectProtocol?
+    private let defaults: UserDefaults?
+    private let storageKey: String
+
+    private struct StoredState: Codable {
+        let lastBriefDeliveredAt: Date?
+        let pendingMorningBriefCard: String?
+    }
 
     /// Designated initializer. The two providers are closures so live
     /// callers can wire retriever + connector state, while tests can
@@ -58,6 +69,8 @@ final class PaceMorningTriageScheduler: ObservableObject {
         restraintContextProvider: @escaping (PaceMorningTriageContext) -> PaceRestraintContext,
         currentTimeProvider: @escaping () -> Date = Date.init,
         calendar: Calendar = .current,
+        defaults: UserDefaults? = nil,
+        storageKey: String = "pace.morningTriage.delivery",
         paceHistoryRecorder: ((_ userTranscript: String, _ assistantResponse: String, _ now: Date) -> Void)? = nil
     ) {
         self.retriever = retriever
@@ -66,6 +79,14 @@ final class PaceMorningTriageScheduler: ObservableObject {
         self.restraintContextProvider = restraintContextProvider
         self.currentTimeProvider = currentTimeProvider
         self.calendar = calendar
+        self.defaults = defaults
+        self.storageKey = storageKey
+        if let data = defaults?.data(forKey: storageKey),
+            let state = try? JSONDecoder().decode(StoredState.self, from: data)
+        {
+            lastBriefDeliveredAt = state.lastBriefDeliveredAt
+            pendingMorningBriefCard = state.pendingMorningBriefCard
+        }
         self.paceHistoryRecorder = paceHistoryRecorder
     }
 
@@ -85,11 +106,35 @@ final class PaceMorningTriageScheduler: ObservableObject {
     /// single live timer. Should be called from `CompanionManager.start()`
     /// only when the user-facing toggle is on.
     func start() {
-        armTimerForNextFire()
+        isRunning = true
+        if wakeObserver == nil {
+            wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in await self?.reconcileAfterWake() }
+            }
+        }
+        Task { await reconcileAfterWake() }
     }
 
-    /// Stops the timer and clears any pending brief card.
+    func reconcileAfterWake() async {
+        guard isRunning else { return }
+        let now = currentTimeProvider()
+        let components = calendar.dateComponents([.hour, .minute, .weekday], from: now)
+        let currentMinute = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+        if currentMinute >= hourOfDay * 60 + minuteOfHour,
+            !isWeekend(weekday: components.weekday ?? 1),
+            lastBriefDeliveredAt.map({ !calendar.isDate($0, inSameDayAs: now) }) ?? true
+        {
+            await handleScheduledFire()
+        } else {
+            armTimerForNextFire()
+        }
+    }
+
+    /// Stops future delivery; the readable brief remains until dismissed.
     func stop() {
+        isRunning = false
         scheduledFireTimer?.invalidate()
         scheduledFireTimer = nil
     }
@@ -101,13 +146,16 @@ final class PaceMorningTriageScheduler: ObservableObject {
         let now = currentTimeProvider()
         let inputs = inputsProvider(PaceMorningTriageContext(now: now))
         let briefText = PaceMorningBriefBuilder.build(inputs)
-        try? await ttsClient.speakText(briefText)
+        pendingMorningBriefCard = briefText
+        persistDeliveryState()
         recordPaceHistoryEntry(briefText: briefText, now: now)
+        try? await ttsClient.speakText(briefText)
     }
 
     /// Clears the queued brief card after the user reads or dismisses it.
     func dismissPendingCard() {
         pendingMorningBriefCard = nil
+        persistDeliveryState()
     }
 
     // MARK: - Fire logic (internal — exposed for tests)
@@ -115,6 +163,9 @@ final class PaceMorningTriageScheduler: ObservableObject {
     /// Single fire pass. Public so tests can drive the scheduler with
     /// an injected clock without needing a real Timer.
     func handleScheduledFire() async {
+        guard !isDelivering else { return }
+        isDelivering = true
+        defer { isDelivering = false }
         let now = currentTimeProvider()
 
         // Same-day re-fire suppression. The timer should not re-arm
@@ -139,19 +190,17 @@ final class PaceMorningTriageScheduler: ObservableObject {
         let briefInputs = inputsProvider(PaceMorningTriageContext(now: now))
         let briefText = PaceMorningBriefBuilder.build(briefInputs)
 
+        // Persist the readable result and day claim before awaiting speech. A restart
+        // keeps the brief and cannot repeat delivery while the old speech is in flight.
+        pendingMorningBriefCard = briefText
+        lastBriefDeliveredAt = now
+        persistDeliveryState()
+        recordPaceHistoryEntry(briefText: briefText, now: now)
         switch restraintDecision {
         case .stayQuiet, .queueUntilIdle:
-            // Park the brief on the panel card surface so the user
-            // can play it later. Still mark it delivered for the day
-            // so we don't speak over the same brief if restraint
-            // clears mid-day — the card is sufficient.
-            pendingMorningBriefCard = briefText
-            lastBriefDeliveredAt = now
-            recordPaceHistoryEntry(briefText: briefText, now: now)
+            break
         case .speak:
             try? await ttsClient.speakText(briefText)
-            lastBriefDeliveredAt = now
-            recordPaceHistoryEntry(briefText: briefText, now: now)
         }
 
         armTimerForNextFire()
@@ -164,6 +213,7 @@ final class PaceMorningTriageScheduler: ObservableObject {
     /// are filtered in `handleScheduledFire` so the timer always lands
     /// on a real next slot.
     private func armTimerForNextFire() {
+        guard isRunning else { return }
         scheduledFireTimer?.invalidate()
         let now = currentTimeProvider()
         guard let nextFireDate = nextFireDateAfter(now) else { return }
@@ -173,7 +223,8 @@ final class PaceMorningTriageScheduler: ObservableObject {
             // strictly-future date. If it does, retry in a second.
             scheduledFireTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    await self?.handleScheduledFire()
+                    guard let self, self.isRunning else { return }
+                    await self.handleScheduledFire()
                 }
             }
             return
@@ -183,7 +234,8 @@ final class PaceMorningTriageScheduler: ObservableObject {
             repeats: false
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                await self?.handleScheduledFire()
+                guard let self, self.isRunning else { return }
+                await self.handleScheduledFire()
             }
         }
     }
@@ -216,6 +268,15 @@ final class PaceMorningTriageScheduler: ObservableObject {
             safetyCounter += 1
         }
         return candidate
+    }
+
+    private func persistDeliveryState() {
+        guard
+            let data = try? JSONEncoder().encode(
+                StoredState(
+                    lastBriefDeliveredAt: lastBriefDeliveredAt, pendingMorningBriefCard: pendingMorningBriefCard))
+        else { return }
+        defaults?.set(data, forKey: storageKey)
     }
 
     // MARK: - Helpers

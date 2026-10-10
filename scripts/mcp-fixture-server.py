@@ -55,6 +55,10 @@ def handle_tools_call(message):
                 "_meta": {"snapshot": "producer-bound-fixture"},
             },
         })
+    elif tool_name == "structured_only":
+        respond({"jsonrpc": "2.0", "id": message["id"], "result": {
+            "content": [], "structuredContent": {"assigned_issue": "PACE-42"},
+        }})
     elif tool_name == "session_identity":
         respond({"jsonrpc": "2.0", "id": message["id"], "result": {
             "content": [{"type": "text", "text": str(os.getpid())}],

@@ -6,7 +6,9 @@
 //  contract for Pace's future embedding-backed RAG layer.
 //
 
+import AppKit
 import Foundation
+import PDFKit
 
 nonisolated enum PaceRetrievalSource: String, CaseIterable, Codable, Equatable {
     case file
@@ -92,7 +94,7 @@ nonisolated struct PaceRetrievalDocument: Codable, Equatable {
     }
 }
 
-struct PaceRetrievalQuery: Equatable {
+nonisolated struct PaceRetrievalQuery: Equatable {
     let text: String
     let maximumResultCount: Int
     let maximumSnippetCharacters: Int
@@ -119,7 +121,7 @@ nonisolated struct PaceRetrievalMatch: Equatable {
     let score: Double
 }
 
-struct PaceRetrievalSourceStatus: Equatable {
+nonisolated struct PaceRetrievalSourceStatus: Equatable {
     let source: PaceRetrievalSource
     let displayName: String
     let isEnabled: Bool
@@ -238,7 +240,8 @@ enum PaceLocalRetrievalFileRootPreferences {
 
     private static func normalizedRootURLs(from rootPaths: [String]) -> [URL] {
         var seenPaths = Set<String>()
-        return rootPaths
+        return
+            rootPaths
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .map { NSString(string: $0).expandingTildeInPath }
@@ -249,7 +252,7 @@ enum PaceLocalRetrievalFileRootPreferences {
     }
 }
 
-enum PaceSecretPathExclusionPolicy {
+nonisolated enum PaceSecretPathExclusionPolicy {
     private static let excludedFileNames: Set<String> = [
         ".env",
         ".env.local",
@@ -263,7 +266,7 @@ enum PaceSecretPathExclusionPolicy {
         "credentials",
         "credentials.json",
         "kubeconfig",
-        "config"
+        "config",
     ]
 
     private static let excludedPathComponents: Set<String> = [
@@ -278,7 +281,7 @@ enum PaceSecretPathExclusionPolicy {
         "credentials",
         "node_modules",
         ".git",
-        "DerivedData"
+        "DerivedData",
     ]
 
     private static let excludedExtensions: Set<String> = [
@@ -286,7 +289,7 @@ enum PaceSecretPathExclusionPolicy {
         "pem",
         "p12",
         "pfx",
-        "mobileprovision"
+        "mobileprovision",
     ]
 
     static func shouldExclude(localURL: URL) -> Bool {
@@ -295,7 +298,8 @@ enum PaceSecretPathExclusionPolicy {
 
     static func shouldExclude(path: String) -> Bool {
         let standardizedPath = NSString(string: path).standardizingPath
-        let pathComponents = standardizedPath
+        let pathComponents =
+            standardizedPath
             .split(separator: "/")
             .map { String($0).lowercased() }
         let lowercasePath = standardizedPath.lowercased()
@@ -327,7 +331,7 @@ enum PaceRetrievalContextPolicy {
         "calendar", "contact", "contacts", "deck", "document", "documents",
         "email", "emails", "event", "events", "file", "files", "folder",
         "folders", "mail", "meeting", "meetings", "message", "messages",
-        "note", "notes", "reminder", "reminders", "research"
+        "note", "notes", "reminder", "reminders", "research",
     ]
 
     private static let offscreenReferencePhrases: [String] = [
@@ -339,12 +343,12 @@ enum PaceRetrievalContextPolicy {
         "we discussed", "what apps", "what did", "what have i been",
         "what was", "where is", "which apps", "yesterday",
         "did i research", "i looked into", "i researched", "past research",
-        "what did i research", "what did we research"
+        "what did i research", "what did we research",
     ]
 
     private static let localPreferencePhrases: [String] = [
         "default reminder list", "preferred browser", "preferred notes",
-        "use my browser", "use my default", "use my preferred"
+        "use my browser", "use my default", "use my preferred",
     ]
 
     static func shouldQueryLocalContext(
@@ -556,7 +560,8 @@ final class PaceInMemoryRetrievalStore: PaceRetrievalStore {
             )
         }
 
-        return scoredMatches
+        return
+            scoredMatches
             .sorted {
                 if $0.score == $1.score {
                     return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
@@ -584,8 +589,9 @@ final class PaceInMemoryRetrievalStore: PaceRetrievalStore {
         var chunkNumber = 0
 
         while chunkStartIndex < normalizedText.endIndex {
-            let preferredEndIndex = normalizedText.index(
-                chunkStartIndex,
+            let preferredEndIndex =
+                normalizedText.index(
+                    chunkStartIndex,
                 offsetBy: maximumChunkCharacters,
                 limitedBy: normalizedText.endIndex
             ) ?? normalizedText.endIndex
@@ -613,8 +619,9 @@ final class PaceInMemoryRetrievalStore: PaceRetrievalStore {
             }
 
             guard chunkEndIndex < normalizedText.endIndex else { break }
-            let nextStartIndex = normalizedText.index(
-                chunkEndIndex,
+            let nextStartIndex =
+                normalizedText.index(
+                    chunkEndIndex,
                 offsetBy: -overlapCharacters,
                 limitedBy: normalizedText.startIndex
             ) ?? chunkEndIndex
@@ -703,7 +710,7 @@ final class PaceInMemoryRetrievalStore: PaceRetrievalStore {
     private static let stopWords: Set<String> = [
         "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
         "how", "i", "in", "is", "it", "me", "my", "of", "on", "or", "the",
-        "this", "to", "what", "when", "where", "with", "you"
+        "this", "to", "what", "when", "where", "with", "you",
     ]
 
     private static func snippet(
@@ -722,13 +729,15 @@ final class PaceInMemoryRetrievalStore: PaceRetrievalStore {
 
         let matchStartIndex = firstMatchRange?.lowerBound ?? trimmedText.startIndex
         let halfWindow = max(20, maximumCharacters / 2)
-        let snippetStartIndex = trimmedText.index(
-            matchStartIndex,
+        let snippetStartIndex =
+            trimmedText.index(
+                matchStartIndex,
             offsetBy: -halfWindow,
             limitedBy: trimmedText.startIndex
         ) ?? trimmedText.startIndex
-        let snippetEndIndex = trimmedText.index(
-            snippetStartIndex,
+        let snippetEndIndex =
+            trimmedText.index(
+                snippetStartIndex,
             offsetBy: maximumCharacters,
             limitedBy: trimmedText.endIndex
         ) ?? trimmedText.endIndex
@@ -798,7 +807,8 @@ final class PaceInMemoryRetrievalStore: PaceRetrievalStore {
         guard let persistenceURL,
               let data = try? Data(contentsOf: persistenceURL),
               let persistedState = try? JSONDecoder().decode(PersistedState.self, from: data),
-              persistedState.schemaVersion == 1 else {
+            persistedState.schemaVersion == 1
+        else {
             return
         }
 
@@ -854,13 +864,16 @@ final class PaceLocalRetriever: PaceRetriever {
         appliesPersistedSourcePreferences: Bool = true,
         embeddingClient: PaceTextEmbedding? = nil
     ) {
-        self.store = store ?? PaceInMemoryRetrievalStore(
-            persistenceURL: Self.defaultPersistenceURL()
+        self.store =
+            store
+            ?? PaceInMemoryRetrievalStore(
+                persistenceURL: Self.defaultPersistenceURL()
         )
         self.maximumContextCharacters = maximumContextCharacters
         // Short timeout: re-ranking sits on the turn path, so a cold or
         // missing embedding model must degrade to lexical order quickly.
-        self.embeddingClient = embeddingClient
+        self.embeddingClient =
+            embeddingClient
             ?? LMStudioEmbeddingClient(requestTimeoutInSeconds: 2)
         if appliesPersistedSourcePreferences {
             applyPersistedSourcePreferences()
@@ -944,8 +957,9 @@ final class PaceLocalRetriever: PaceRetriever {
     ) {
         guard isSourceEnabled(.screenWatchHistory) else { return }
         var journal = screenWatchJournal ?? rehydratedScreenWatchJournal(now: now)
-        let changedDocument = journal.record(PaceScreenWatchJournalEntry(
-            recordedAt: now,
+        let changedDocument = journal.record(
+            PaceScreenWatchJournalEntry(
+                recordedAt: now,
             screenLabel: screenLabel,
             categoryDisplayName: categoryDisplayName,
             frontmostApplicationName: frontmostApplicationName,
@@ -1007,8 +1021,9 @@ final class PaceLocalRetriever: PaceRetriever {
     func recordResearchTurn(question: String, answer: String, now: Date = Date()) {
         guard isSourceEnabled(.researchHistory) else { return }
         var journal = researchJournal ?? rehydratedResearchJournal(now: now)
-        let changedDocument = journal.record(PaceResearchJournalEntry(
-            id: "research-\(Int(now.timeIntervalSince1970))-\(abs(question.hashValue))",
+        let changedDocument = journal.record(
+            PaceResearchJournalEntry(
+                id: "research-\(Int(now.timeIntervalSince1970))-\(abs(question.hashValue))",
             recordedAt: now,
             question: question,
             answer: answer
@@ -1165,7 +1180,8 @@ final class PaceLocalRetriever: PaceRetriever {
     private func filterSensitiveEpisodicMatches(
         _ matches: [PaceRetrievalMatch]
     ) -> [PaceRetrievalMatch] {
-        let userInjectsSensitiveTopics = PaceUserPreferencesStore
+        let userInjectsSensitiveTopics =
+            PaceUserPreferencesStore
             .bool(.injectSensitiveEpisodicTopics, default: false)
         guard !userInjectsSensitiveTopics else { return matches }
         let sensitiveScopedEpisodicDocumentIds: Set<String> = Set(
@@ -1195,7 +1211,8 @@ final class PaceLocalRetriever: PaceRetriever {
         guard !normalizedQuery.isEmpty else { return matches }
         return matches.filter { match in
             guard match.source == .paceHistory,
-                  let pastQuestion = Self.pastQuestionSegment(ofPaceHistoryExcerpt: match.excerpt) else {
+                let pastQuestion = Self.pastQuestionSegment(ofPaceHistoryExcerpt: match.excerpt)
+            else {
                 return true
             }
             return Self.normalizedForEchoComparison(pastQuestion) != normalizedQuery
@@ -1216,8 +1233,9 @@ final class PaceLocalRetriever: PaceRetriever {
     }
 
     private static func normalizedForEchoComparison(_ text: String) -> String {
-        String(text.lowercased().unicodeScalars.filter {
-            CharacterSet.alphanumerics.contains($0)
+        String(
+            text.lowercased().unicodeScalars.filter {
+                CharacterSet.alphanumerics.contains($0)
         })
     }
 
@@ -1316,7 +1334,7 @@ final class PaceLocalRetriever: PaceRetriever {
     }
 }
 
-struct PaceFileRetrievalConnector {
+nonisolated struct PaceFileRetrievalConnector {
     let rootURLs: [URL]
     let fileManager: FileManager
     let allowedPathExtensions: Set<String>
@@ -1324,7 +1342,7 @@ struct PaceFileRetrievalConnector {
     init(
         rootURLs: [URL],
         fileManager: FileManager = .default,
-        allowedPathExtensions: Set<String> = ["txt", "md", "markdown", "json"]
+        allowedPathExtensions: Set<String> = ["txt", "md", "markdown", "json", "pdf", "rtf"]
     ) {
         self.rootURLs = rootURLs
         self.fileManager = fileManager
@@ -1338,7 +1356,11 @@ struct PaceFileRetrievalConnector {
         guard !rootURLs.isEmpty else {
             return (
                 [],
-                [.skipped(source: .file, displayName: PaceRetrievalSource.file.displayName, reason: "No file roots configured.")]
+                [
+                    .skipped(
+                        source: .file, displayName: PaceRetrievalSource.file.displayName,
+                        reason: "No file roots configured.")
+                ]
             )
         }
 
@@ -1347,13 +1369,15 @@ struct PaceFileRetrievalConnector {
 
         for rootURL in rootURLs {
             guard !PaceSecretPathExclusionPolicy.shouldExclude(localURL: rootURL) else {
-                statuses.append(.skipped(source: .file, displayName: rootURL.lastPathComponent, reason: "Excluded sensitive path."))
+                statuses.append(
+                    .skipped(source: .file, displayName: rootURL.lastPathComponent, reason: "Excluded sensitive path."))
                 continue
             }
 
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: rootURL.path, isDirectory: &isDirectory) else {
-                statuses.append(.skipped(source: .file, displayName: rootURL.lastPathComponent, reason: "Path does not exist."))
+                statuses.append(
+                    .skipped(source: .file, displayName: rootURL.lastPathComponent, reason: "Path does not exist."))
                 continue
             }
 
@@ -1369,7 +1393,8 @@ struct PaceFileRetrievalConnector {
                 documents.append(document)
             }
 
-            statuses.append(.enabled(source: .file, displayName: rootURL.lastPathComponent, documentCount: documents.count))
+            statuses.append(
+                .enabled(source: .file, displayName: rootURL.lastPathComponent, documentCount: documents.count))
             if documents.count >= maximumDocumentCount {
                 break
             }
@@ -1384,17 +1409,27 @@ struct PaceFileRetrievalConnector {
         maximumBytesPerFile: Int
     ) -> [PaceRetrievalDocument] {
         guard remainingLimit > 0 else { return [] }
-        let resourceKeys: [URLResourceKey] = [.isRegularFileKey, .isHiddenKey, .contentModificationDateKey, .fileSizeKey]
-        guard let enumerator = fileManager.enumerator(
-            at: rootURL,
+        let resourceKeys: [URLResourceKey] = [
+            .isRegularFileKey, .isHiddenKey, .contentModificationDateKey, .fileSizeKey,
+        ]
+        guard
+            let enumerator = fileManager.enumerator(
+                at: rootURL,
             includingPropertiesForKeys: resourceKeys,
             options: [.skipsPackageDescendants, .skipsHiddenFiles]
-        ) else {
+            )
+        else {
             return []
         }
 
         var documents: [PaceRetrievalDocument] = []
+        var visitedEntryCount = 0
         for case let fileURL as URL in enumerator {
+            visitedEntryCount += 1
+            guard visitedEntryCount <= max(200, remainingLimit * 40) else { break }
+            let resolvedPath = fileURL.resolvingSymlinksInPath().standardizedFileURL.path
+            let resolvedRootPath = rootURL.resolvingSymlinksInPath().standardizedFileURL.path
+            guard resolvedPath.hasPrefix(resolvedRootPath + "/") else { continue }
             if PaceSecretPathExclusionPolicy.shouldExclude(localURL: fileURL) {
                 enumerator.skipDescendants()
                 continue
@@ -1414,18 +1449,50 @@ struct PaceFileRetrievalConnector {
         _ fileURL: URL,
         maximumBytesPerFile: Int
     ) -> PaceRetrievalDocument? {
-        guard !PaceSecretPathExclusionPolicy.shouldExclude(localURL: fileURL) else { return nil }
+        guard !PaceSecretPathExclusionPolicy.shouldExclude(localURL: fileURL),
+            !PaceSecretPathExclusionPolicy.shouldExclude(localURL: fileURL.resolvingSymlinksInPath())
+        else { return nil }
         guard allowedPathExtensions.contains(fileURL.pathExtension.lowercased()) else { return nil }
 
-        let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey])
+        let resourceValues = try? fileURL.resourceValues(forKeys: [
+            .isRegularFileKey, .contentModificationDateKey, .fileSizeKey,
+        ])
         guard resourceValues?.isRegularFile == true else { return nil }
-        if let fileSize = resourceValues?.fileSize, fileSize > maximumBytesPerFile {
+        let pathExtension = fileURL.pathExtension.lowercased()
+        let inputByteLimit = ["pdf", "rtf"].contains(pathExtension) ? 5_000_000 : maximumBytesPerFile
+        if let fileSize = resourceValues?.fileSize, fileSize > inputByteLimit {
             return nil
         }
-        guard let text = try? String(contentsOf: fileURL, encoding: .utf8),
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let extractedText: String?
+        switch fileURL.pathExtension.lowercased() {
+        case "pdf":
+            // Text-backed PDFs only; do not invent OCR for image-only pages.
+            if let pdf = PDFDocument(url: fileURL) {
+                var pageTexts: [String] = []
+                var characterCount = 0
+                for pageIndex in 0..<min(pdf.pageCount, 100) {
+                    if let pageText = pdf.page(at: pageIndex)?.string {
+                        pageTexts.append(String(pageText.prefix(max(0, maximumBytesPerFile - characterCount))))
+                        characterCount += pageText.count
+                        if characterCount >= maximumBytesPerFile { break }
+                    }
+                }
+                extractedText = pageTexts.joined(separator: "\n")
+            } else {
+                extractedText = nil
+            }
+        case "rtf":
+            extractedText =
+                (try? NSAttributedString(
+                    url: fileURL, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil
+                ))?.string
+        default:
+            extractedText = try? String(contentsOf: fileURL, encoding: .utf8)
+        }
+        guard let extractedText, !extractedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
+        let text = String(extractedText.prefix(maximumBytesPerFile))
 
         return PaceRetrievalDocument(
             id: "file-\(fileURL.path)",
@@ -1436,5 +1503,71 @@ struct PaceFileRetrievalConnector {
             modifiedAt: resourceValues?.contentModificationDate,
             permissionScope: "file-root"
         )
+    }
+}
+
+nonisolated enum PaceReadOnlyLocalContext {
+    static func requestedSources(for prompt: String) -> [PaceRetrievalSource] {
+        let request = prompt.lowercased()
+        var sources: [PaceRetrievalSource] = []
+        if ["calendar", "my events", "next event", "next meeting", "upcoming meeting"].contains(where: request.contains)
+        {
+            sources.append(.calendar)
+        }
+        if [
+            "my files", "my document", "the document", "my folder", "find file", "find document", "search files",
+            "search documents", "that document", "the file", "read file",
+        ]
+        .contains(where: request.contains) {
+            sources.append(.file)
+        }
+        if ["my notes", "my note", "the note", "search notes", "find note"].contains(where: request.contains) {
+            sources.append(.notes)
+        }
+        if ["my mail", "my email", "my inbox", "latest email", "last email", "recent email", "unread email"].contains(
+            where: request.contains)
+        {
+            sources.append(.mail)
+        }
+        return sources
+    }
+
+    @MainActor static func contextBlock(
+        documents: [PaceRetrievalDocument], statuses: [PaceRetrievalSourceStatus], query: String
+    ) -> String {
+        let store = PaceInMemoryRetrievalStore()
+        store.upsertDocuments(documents)
+        let matches = store.search(.init(text: query, maximumResultCount: 8, maximumSnippetCharacters: 1_200))
+        let selectedIds = Set(matches.map(\.documentId))
+        let selectedDocuments = documents.filter { selectedIds.contains($0.id) }
+        // Calendar questions such as "what is next" need chronological facts
+        // even when their wording has no overlap with an event's title.
+        let calendarDocuments = documents.filter { $0.source == .calendar }.prefix(8)
+        let contextDocuments = Array(calendarDocuments) + selectedDocuments.filter { $0.source != .calendar }
+        let statusLines = statuses.map { status in
+            "\(status.displayName): " + (status.lastError ?? "Read succeeded; \(status.documentCount) documents found.")
+        }
+        let excerpts = contextDocuments.prefix(8).map { document in
+            ([
+                "Source: \(document.source.displayName); Title: \(document.title)",
+                document.localURL.map { "Local file: \($0.path)" }, String(document.text.prefix(1_200)),
+            ].compactMap { $0 }).joined(separator: "\n")
+        }
+        return
+            ([
+                "FRESH READ-ONLY LOCAL CONTEXT", statusLines.joined(separator: "\n"),
+                excerpts.joined(separator: "\n\n"),
+                "Use only these facts. Unavailable or disabled sources were not read. An empty permitted source is not evidence about an unavailable account. Never substitute invented events, mail, notes, or files.",
+            ]).joined(separator: "\n\n")
+    }
+
+    static func literalReminderMessage(for prompt: String) -> String? {
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["remind me to ", "remind me that ", "remind me "]
+        where trimmedPrompt.lowercased().hasPrefix(prefix) {
+            let message = String(trimmedPrompt.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            return message.isEmpty ? nil : "Reminder: \(message)"
+        }
+        return nil
     }
 }

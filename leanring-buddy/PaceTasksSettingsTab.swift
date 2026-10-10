@@ -2,19 +2,18 @@
 //  PaceTasksSettingsTab.swift
 //  leanring-buddy
 //
-//  Settings → Tasks tab content. Lists the recurring scheduled tasks the
-//  user created by voice ("every 30 minutes check my calendar"), showing
-//  each task's humanized interval, weekend-skip note, and when it last
-//  ran, with a per-task delete button. Read-only otherwise: scheduled
-//  tasks are created through the voice command parser in
-//  `PaceCronScheduler.parseVoiceCommand`, not this surface.
-//
+//  Settings → Tasks: typed schedule creation, cadence controls, and durable
+//  background results with explicit cancellation and reviewed retry.
 
 import SwiftUI
 
 struct PaceTasksSettingsTab: View {
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject private var cronScheduler = PaceCronScheduler.shared
+    @ObservedObject private var backgroundRunner = PaceBackgroundAgentRunner.shared
+    @State private var newTaskCommand = ""
+    @State private var creationFeedback: String?
+    @State private var taskToRetry: PaceBackgroundAgentTask?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -22,16 +21,107 @@ struct PaceTasksSettingsTab: View {
                 Text("Scheduled tasks")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
-                Text("Recurring things Pace runs for you on a timer. Create one by voice — for example, \"every morning at 9, summarize my calendar\" or \"every 2 hours remind me to stand up\".")
-                    .font(.system(size: 12))
-                    .foregroundColor(DS.Colors.textTertiary)
+                Text(
+                    "Recurring things Pace runs for you on a timer. Type a command below or in Conversation — for example, \"every morning at 9, summarize my calendar\" or \"every 2 hours remind me to stand up\"."
+                )
+                .font(.system(size: 12))
+                .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             Divider()
                 .background(DS.Colors.borderSubtle)
 
+            paceSettingsToggleRow(
+                title: "Enable scheduling",
+                subtitle: "Runs while Pace is open. Missed intervals become one run after wake or restart.",
+                isOn: Binding(get: { cronScheduler.isEnabled }, set: { cronScheduler.setEnabled($0) }))
+            if let persistenceError = cronScheduler.persistenceError {
+                Text(persistenceError).font(.system(size: 12)).foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            TextField("Every 2 hours remind me to stand up", text: $newTaskCommand)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { addTaskFromCommand() }
+            paceSettingsButton("Add task", systemName: "plus") { addTaskFromCommand() }
+            if let creationFeedback {
+                Text(creationFeedback).font(.system(size: 12)).foregroundColor(DS.Colors.textSecondary)
+            }
+            Text(
+                "Background runs read-only summaries, research, or drafts. They do not send messages or change files. Review interrupted runs before retrying."
+            )
+            .font(.system(size: 12)).foregroundColor(DS.Colors.textTertiary).fixedSize(
+                horizontal: false, vertical: true)
             scheduledTasksSection
+            Divider().background(DS.Colors.borderSubtle)
+            backgroundTasksSection
+        }
+        .alert(
+            "Restart this task?",
+            isPresented: Binding(get: { taskToRetry != nil }, set: { if !$0 { taskToRetry = nil } })
+        ) {
+            Button("Cancel", role: .cancel) { taskToRetry = nil }
+            Button("Restart") {
+                if let taskToRetry, !backgroundRunner.retry(taskId: taskToRetry.id) {
+                    creationFeedback =
+                        backgroundRunner.persistenceError ?? "This task cannot be restarted in its current state."
+                }
+                taskToRetry = nil
+            }
+        } message: {
+            Text(
+                "Retry starts the original prompt from the beginning. Review its prior result first; this does not resume from a checkpoint."
+            )
+        }
+    }
+
+    private func addTaskFromCommand() {
+        guard let task = PaceCronScheduler.parseVoiceCommand(newTaskCommand) else {
+            creationFeedback = "Use ‘every 2 hours …’ or ‘every morning at 9 …’ with a positive interval."
+            return
+        }
+        guard cronScheduler.addTask(task) else {
+            creationFeedback = cronScheduler.persistenceError ?? "That task is already scheduled."
+            return
+        }
+        cronScheduler.setEnabled(true)
+        creationFeedback = "Scheduled: \(task.displayName)"
+        newTaskCommand = ""
+    }
+
+    private var backgroundTasksSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Background results").font(.system(size: 13, weight: .semibold)).foregroundColor(
+                DS.Colors.textSecondary)
+            if let persistenceError = backgroundRunner.persistenceError {
+                Text(persistenceError).font(.system(size: 12)).foregroundColor(DS.Colors.textSecondary)
+            }
+            if backgroundRunner.tasks.isEmpty {
+                Text("No background runs yet. Results stay here after restarting Pace.").font(.system(size: 12))
+                    .foregroundColor(DS.Colors.textTertiary)
+            }
+            ForEach(backgroundRunner.tasks.reversed()) { task in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(task.displayName).font(.system(size: 13, weight: .medium)).foregroundColor(
+                        DS.Colors.textPrimary)
+                    Text(backgroundRunner.taskDescription(task)).font(.system(size: 12)).foregroundColor(
+                        DS.Colors.textSecondary
+                    ).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        if task.state == .running || task.state == .queued {
+                            paceSettingsButton("Cancel", systemName: "stop") {
+                                backgroundRunner.cancel(taskId: task.id)
+                            }
+                        }
+                        switch task.state {
+                        case .interrupted, .failed, .cancelled:
+                            paceSettingsButton("Review and retry", systemName: "arrow.clockwise") { taskToRetry = task }
+                        default: EmptyView()
+                        }
+                    }
+                }.padding(.vertical, 8)
+                Divider().background(DS.Colors.borderSubtle)
+            }
         }
     }
 
@@ -42,9 +132,11 @@ struct PaceTasksSettingsTab: View {
                 .foregroundColor(DS.Colors.textSecondary)
 
             if cronScheduler.tasks.isEmpty {
-                Text("No scheduled tasks yet. Say something like \"every morning at 9, summarize my calendar\" and it'll show up here.")
-                    .font(.system(size: 12))
-                    .foregroundColor(DS.Colors.textTertiary)
+                Text(
+                    "No scheduled tasks yet. Type something like \"every morning at 9, summarize my calendar\" and it'll show up here."
+                )
+                .font(.system(size: 12))
+                .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.vertical, 6)
             } else {
@@ -74,12 +166,29 @@ struct PaceTasksSettingsTab: View {
                             .foregroundColor(DS.Colors.textTertiary)
                     }
                 }
+                if task.isPaused == true {
+                    Text("Paused").font(.system(size: 11, weight: .medium)).foregroundColor(DS.Colors.textSecondary)
+                } else if let nextRunAt = task.nextRunAt {
+                    Text("Next run: \(nextRunAt.formatted(date: .abbreviated, time: .shortened))").font(
+                        .system(size: 11)
+                    ).foregroundColor(DS.Colors.textTertiary)
+                }
+                if let lastError = task.lastError {
+                    Text(lastError).font(.system(size: 11)).foregroundColor(DS.Colors.textSecondary).fixedSize(
+                        horizontal: false, vertical: true)
+                }
                 Text(Self.lastRunDescription(for: task.lastRunAt))
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
             }
             Spacer(minLength: 0)
-            paceSettingsButton("Delete", systemName: "trash") {
+            paceSettingsButton(
+                task.isPaused == true ? "Enable" : "Pause future runs",
+                systemName: task.isPaused == true ? "play" : "pause"
+            ) {
+                cronScheduler.setTaskPaused(id: task.id, paused: task.isPaused != true)
+            }
+            paceSettingsButton("Delete schedule", systemName: "trash") {
                 cronScheduler.removeTask(id: task.id)
             }
         }
@@ -95,6 +204,7 @@ struct PaceTasksSettingsTab: View {
     /// "Every 30 minutes", "Every 2 hours", or "Daily". Pure so it can
     /// be unit-tested without a scheduler or a view.
     static func humanizedInterval(_ intervalSeconds: TimeInterval) -> String {
+        guard PaceCronScheduler.isValidInterval(intervalSeconds) else { return "Invalid interval" }
         let totalSeconds = Int(intervalSeconds.rounded())
         guard totalSeconds > 0 else { return "Every moment" }
 
@@ -141,6 +251,6 @@ struct PaceTasksSettingsTab: View {
             for: lastRunAt,
             relativeTo: Date()
         )
-        return "Last ran \(relativeDescription)"
+        return "Last started \(relativeDescription)"
     }
 }

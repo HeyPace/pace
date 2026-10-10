@@ -81,6 +81,7 @@ final class PaceMorningTriageSchedulerTests: XCTestCase {
         inputs: PaceMorningBriefInputs? = nil,
         restraintDecision: PaceRestraintDecision = .speak,
         tts: RecordingTTSClient,
+        defaults: UserDefaults? = nil,
         paceHistoryRecorder: ((String, String, Date) -> Void)? = nil
     ) -> PaceMorningTriageScheduler {
         let resolvedInputs = inputs ?? PaceMorningBriefInputs(now: currentTime)
@@ -142,6 +143,7 @@ final class PaceMorningTriageSchedulerTests: XCTestCase {
             },
             currentTimeProvider: { currentTime },
             calendar: calendarPST(),
+            defaults: defaults,
             paceHistoryRecorder: paceHistoryRecorder
         )
     }
@@ -169,7 +171,7 @@ final class PaceMorningTriageSchedulerTests: XCTestCase {
         XCTAssertTrue(tts.spokenTexts.first?.contains("good morning") == true)
         XCTAssertTrue(tts.spokenTexts.first?.contains("two unread messages waiting") == true)
         XCTAssertNotNil(scheduler.lastBriefDeliveredAt)
-        XCTAssertNil(scheduler.pendingMorningBriefCard)
+        XCTAssertNotNil(scheduler.pendingMorningBriefCard)
     }
 
     // MARK: - Weekend skip
@@ -286,7 +288,7 @@ final class PaceMorningTriageSchedulerTests: XCTestCase {
         XCTAssertEqual(tts.spokenTexts.count, 1)
         // Preview should NOT queue a card — it's a synchronous user-
         // initiated speak action.
-        XCTAssertNil(scheduler.pendingMorningBriefCard)
+        XCTAssertNotNil(scheduler.pendingMorningBriefCard)
     }
 
     // MARK: - paceHistory recording
@@ -325,4 +327,39 @@ final class PaceMorningTriageSchedulerTests: XCTestCase {
         // 2 = Monday in Calendar's weekday numbering.
         XCTAssertEqual(weekdayComponent, 2)
     }
+    func testRestartRetainsReadableBriefAndSuppressesSameDayRedelivery() async throws {
+        let suite = "pace.morning.test.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let now = weekdayMorningDate(hour: 10)
+        let firstTTS = RecordingTTSClient()
+        let first = makeScheduler(currentTime: now, tts: firstTTS, defaults: defaults)
+        await first.handleScheduledFire()
+        XCTAssertNotNil(first.pendingMorningBriefCard)
+        let restoredTTS = RecordingTTSClient()
+        let restored = makeScheduler(currentTime: now, tts: restoredTTS, defaults: defaults)
+        XCTAssertEqual(restored.pendingMorningBriefCard, first.pendingMorningBriefCard)
+        await restored.handleScheduledFire()
+        XCTAssertTrue(restoredTTS.spokenTexts.isEmpty)
+        restored.dismissPendingCard()
+        let dismissed = makeScheduler(currentTime: now, tts: RecordingTTSClient(), defaults: defaults)
+        XCTAssertNil(dismissed.pendingMorningBriefCard)
+        XCTAssertEqual(dismissed.lastBriefDeliveredAt, now)
+    }
+
+    func testStartAfterMorningCatchesUpOnceAndStoppedWakeDoesNothing() async {
+        let now = weekdayMorningDate(hour: 12)
+        let tts = RecordingTTSClient()
+        let scheduler = makeScheduler(currentTime: now, tts: tts)
+        scheduler.start()
+        await scheduler.reconcileAfterWake()
+        await scheduler.reconcileAfterWake()
+        XCTAssertEqual(tts.spokenTexts.count, 1)
+        XCTAssertNotNil(scheduler.pendingMorningBriefCard)
+        scheduler.stop()
+        let stopped = makeScheduler(currentTime: now, tts: tts)
+        await stopped.reconcileAfterWake()
+        XCTAssertEqual(tts.spokenTexts.count, 1)
+    }
+
 }
