@@ -374,7 +374,8 @@ extension PaceActionExecutor {
         }
 
         if mcpToolCall.serverName == "peekaboo",
-            !PaceUserPreferencesStore.bool(for: .useLocalVLMForScreenContext),
+            !PaceUserPreferencesStore.boolWithInfoPlistSeed(
+                .useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext"),
             !(mcpToolCall.toolName == "app" && mcpToolCall.arguments["action"] == .string("list"))
         {
             return PaceActionExecutionObservation(

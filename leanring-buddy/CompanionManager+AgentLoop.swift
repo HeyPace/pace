@@ -1620,6 +1620,7 @@ extension CompanionManager {
         // headless CLI gets a research-shaped prompt instead of
         // Pace's agent-mode tool docs.
         let isResearchTurn: Bool = (researchTurnPlannerOverride != nil)
+        let requiresObservationOnly = PaceActionApprovalPolicy.requestsObservationOnly(transcript)
 
         guard isActiveTurn(turnLease) else { return }
         currentResponseTask = Task {
@@ -1926,6 +1927,7 @@ extension CompanionManager {
                                         Task { @MainActor [weak self] in
                                             guard let self,
                                                 self.actionExecutor.actionsAreEnabled,
+                                                !requiresObservationOnly,
                                                 !self.requiresActionApproval
                                             else {
                                                 return
@@ -1942,6 +1944,7 @@ extension CompanionManager {
                                         Task { @MainActor [weak self] in
                                             guard let self,
                                                 self.actionExecutor.actionsAreEnabled,
+                                                !requiresObservationOnly,
                                                 !self.requiresActionApproval
                                             else {
                                                 return
@@ -1983,6 +1986,16 @@ extension CompanionManager {
                     //    Each pass strips its own tag class so the final
                     //    `spokenText` is clean enough to play via TTS.
                     let rawActionParseResult = PaceActionTagParser.parseActions(from: fullResponseText)
+                    if requiresObservationOnly,
+                        !PaceActionApprovalPolicy.permitsObservationOnly(rawActionParseResult.executionPlan)
+                    {
+                        throw NSError(
+                            domain: "PaceActionScope", code: 1,
+                            userInfo: [
+                                NSLocalizedDescriptionKey:
+                                    "Stopped an unexpected action plan: you requested observation only. No changes were made."
+                            ])
+                    }
                     // Tuition-mode draw_annotation / clear_annotations
                     // are handled here, before the executor sees the
                     // plan: they're overlay-only side effects with no
