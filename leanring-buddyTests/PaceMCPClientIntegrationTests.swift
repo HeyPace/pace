@@ -62,13 +62,19 @@ struct PaceMCPClientIntegrationTests {
     }
 
     @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
-    func toolResultWithIsErrorIsSummarizedAsErrorObservation() async throws {
-        let fixtureClient = PaceMCPFixture.makeFixtureClient()
-        let observationText = try await fixtureClient.callTool(
-            PaceMCPToolCall(serverName: "fixture", toolName: "fail", arguments: [:])
+    func toolResultWithIsErrorCannotBeReportedAsSuccessfulAction() async throws {
+        let configuration = PaceMCPServerConfiguration(
+            command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3", args: [PaceMCPFixture.fixtureScriptPath]
         )
-        #expect(observationText.hasPrefix("MCP tool reported an error:"))
-        #expect(observationText.contains("intentional fixture failure"))
+        for serverName in ["fixture", "peekaboo"] {
+            let client = PaceMCPStdioClient(serverConfigurations: [serverName: configuration])
+            do {
+                _ = try await client.callTool(.init(serverName: serverName, toolName: "fail", arguments: [:]))
+                Issue.record("Expected the \(serverName) transport to reject isError=true")
+            } catch PaceMCPClientError.rpcError(let message) {
+                #expect(message.contains("intentional fixture failure"))
+            }
+        }
     }
 
     @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))

@@ -524,6 +524,17 @@ struct PaceLocalRetrievalTests {
         #expect(restored.paceText.isEmpty)
     }
 
+    @Test func longSnapshotTokensCannotTrapChunkingInTheSameOverlap() {
+        let document = PaceRetrievalDocument(
+            id: "snapshot", source: .paceHistory, title: "Snapshot",
+            text: "UI state captured. Tool metadata: " + String(repeating: "x", count: 3_000) + " finished"
+        )
+        let chunks = PaceInMemoryRetrievalStore.makeDocumentChunksForTesting(document)
+        #expect(chunks.count > 1)
+        #expect(chunks.count < 10)
+        #expect(chunks.last?.hasSuffix("finished") == true)
+    }
+
     private final class StubEmbedder: PaceTextEmbedding {
         /// Maps each text to a vector; unknown texts embed to the zero axis.
         let vectorsByText: [String: [Float]]

@@ -57,6 +57,17 @@ nonisolated struct PaceActionExecutionObservation {
     static func formatForUserFeedback(_ observations: [PaceActionExecutionObservation]) -> String? {
         let userVisibleSummaries = observations
             .map(\.summary)
+            .map { summary in
+                // Producer metadata belongs to the planner, not speech or
+                // conversation indexing (snapshots can be very large).
+                var narration = String(summary.prefix(600))
+                for marker in ["\nTool structuredContent:", "\nTool _meta:"] {
+                    if let metadataRange = narration.range(of: marker) {
+                        narration = String(narration[..<metadataRange.lowerBound])
+                    }
+                }
+                return narration
+            }
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 

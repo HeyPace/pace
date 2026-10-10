@@ -129,6 +129,19 @@ struct PaceActionExecutorDryRunTests {
         #expect(multiActionFeedback == "Opened app: Notes, plus 1 more action result.")
     }
 
+    @Test func snapshotMetadataIsExcludedFromConversationFeedback() {
+        let observation = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.see",
+            summary: "UI state captured\nTool structuredContent:\n" + String(repeating: "snapshot", count: 100_000)
+        )
+        #expect(PaceActionExecutionObservation.formatForUserFeedback([observation]) == "UI state captured")
+        #expect(PaceActionExecutionObservation.formatForPlanner([observation]).contains("Tool structuredContent:"))
+        let verboseObservation = PaceActionExecutionObservation(
+            toolName: "mcp", summary: String(repeating: "x", count: 10_000)
+        )
+        #expect(PaceActionExecutionObservation.formatForUserFeedback([verboseObservation])?.count == 600)
+    }
+
     @Test func mailtoDraftURLCarriesRecipientsAndSubjectWithoutBody() async throws {
         let mailtoURL = PaceActionExecutor.mailtoDraftURL(
             subject: "Project status & launch",

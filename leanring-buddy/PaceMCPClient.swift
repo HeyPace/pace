@@ -374,7 +374,11 @@ private func runSynchronousToolCall(
                 sections.append("Tool \(field):\n" + String(decoding: data, as: UTF8.self))
             }
         }
-        return sections.joined(separator: "\n")
+        let observationText = sections.joined(separator: "\n")
+        if result["isError"] as? Bool == true {
+            throw PaceMCPClientError.rpcError(observationText)
+        }
+        return observationText
     }
     let process = Process()
     process.executableURL = try executableURL(for: serverConfiguration.command)
@@ -457,7 +461,11 @@ private func runSynchronousToolCall(
     )
 
     let response = try readJSONRPCResponse(id: 2, from: stdoutReader, timeoutInSeconds: timeoutInSeconds)
-    return summarizeMCPToolCallResponse(response)
+    let summary = summarizeMCPToolCallResponse(response)
+    if (response["result"] as? [String: Any])?["isError"] as? Bool == true {
+        throw PaceMCPClientError.rpcError(summary)
+    }
+    return summary
 }
 
 // Peekaboo snapshots belong to the server process that observed them. Keep

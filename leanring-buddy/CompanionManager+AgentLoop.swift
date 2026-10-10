@@ -1638,6 +1638,7 @@ extension CompanionManager {
                     + physicalSceneContext
             }
             var pendingPostActionFeedbackText: String?
+            var plannerLoopFinished = false
             var turnFullResponseText: String = ""
             // The most recent step's cleaned spoken text. Research turns
             // journal ONE entry per turn using this final answer (see the
@@ -2344,6 +2345,7 @@ extension CompanionManager {
                         || userDeniedActionApproval
                         || plannerClientForThisTurn.usesStructuredActionOutput
                     if exitLoop {
+                        plannerLoopFinished = true
                         if plannerSignaledDone {
                             print("✅ Agent loop: planner signaled [DONE] at step \(stepIndex)")
                         } else if plannerClientForThisTurn.usesStructuredActionOutput {
@@ -2398,8 +2400,11 @@ extension CompanionManager {
                     voiceState = .processing
                 }
 
-                if stepIndex >= maxAgentStepCount {
+                if !plannerLoopFinished, stepIndex >= maxAgentStepCount {
                     print("⚠️ Agent loop: hit max steps (\(maxAgentStepCount)) without [DONE] — stopping")
+                    pendingPostActionFeedbackText =
+                        "Stopped after \(maxAgentStepCount) steps before verifying the full request. Please check the current result before continuing."
+                    currentTurnHUDState = .failed("Step limit reached; request not verified")
                 }
 
                 if let pendingPostActionFeedbackText,

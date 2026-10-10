@@ -618,12 +618,13 @@ final class PaceInMemoryRetrievalStore: PaceRetrievalStore {
                 offsetBy: -overlapCharacters,
                 limitedBy: normalizedText.startIndex
             ) ?? chunkEndIndex
+            let previousChunkStartIndex = chunkStartIndex
             chunkStartIndex = nearestWordBoundary(
                 in: normalizedText,
                 from: nextStartIndex,
-                lowerBound: normalizedText.startIndex
+                lowerBound: previousChunkStartIndex
             )
-            if chunkStartIndex <= normalizedText.startIndex, chunkNumber > 0 {
+            if chunkStartIndex <= previousChunkStartIndex {
                 chunkStartIndex = chunkEndIndex
             }
         }
