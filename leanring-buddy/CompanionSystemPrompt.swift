@@ -39,6 +39,10 @@
 import Foundation
 
 enum CompanionSystemPrompt {
+    static let desktopToolRecoveryGuidance = """
+        Native Pace actions remain available alongside Peekaboo. Honor requests to use native controls. Prefer App.launch and App.openURL for known app/site launches without inventory. If an editor has no actionable document window, activate the requested app and perform the user-requested new-document shortcut with Key.press; then observe the new document before typing. Do not treat blank pixels_only/no_matching_accessibility_window menu-bar surfaces as document windows or repeatedly inspect them. For uncertain mutations, obtain a fresh observation before deciding whether another action is needed; never replay a may_have_dispatched action blindly.
+        """
+
     /// Build the system prompt for the next request.
     /// - Parameters:
     ///   - includeAgentMode: pass `true` only when

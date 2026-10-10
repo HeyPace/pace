@@ -552,10 +552,11 @@ extension CompanionManager {
                     ? "Screen context is enabled; observe before UI actions."
                     : "Read My Screen is off. Only read-only app inventory is available; do not inspect windows, capture, or control UI."
                 computerUseContext = """
-                    Use the local peekaboo MCP server for computer-use tasks. Its available tools and exact input schemas follow:
+                    Peekaboo provides app-scoped observations and controls alongside native Pace actions. Its available tools and exact input schemas follow:
                     \(tools)
                     \(screenAccessInstruction)
-                    First use app/window inventory to identify the intended app and window. Observe with see; retain its producer-bound snapshot and element IDs for actions. Re-observe after actions. Never invent an element or replay a completed mutation. Call through MCP.call with server=peekaboo and the tool name and arguments from these schemas. Permission failures are blockers, not success. Do not use analyze or another AI backend; the selected Pace planner supplies reasoning.
+                    \(CompanionSystemPrompt.desktopToolRecoveryGuidance)
+                    When an existing window must be inspected, use app/window inventory to identify an actionable app window. Observe with see; retain its producer-bound snapshot and element IDs for actions. Re-observe after actions. Never invent an element or replay a completed mutation. Call through MCP.call with server=peekaboo and the tool name and arguments from these schemas. Permission failures are blockers, not success. Do not use analyze or another AI backend; the selected Pace planner supplies reasoning.
                     """
             } catch {
                 computerUseContext =
