@@ -356,7 +356,10 @@ struct PacePermissionsView: View {
                     .font(DS.Typography.captionStrong)
                     .foregroundStyle(DS.Colors.success)
             } else {
-                Button("Open Settings") {
+                Button(
+                    permissionKind == .calendar && companionManager.shouldRequestCalendarPermission
+                        ? "Grant Access" : "Open Settings"
+                ) {
                     openSettings(for: permissionKind)
                 }
                 .buttonStyle(.bordered)
@@ -405,7 +408,8 @@ struct PacePermissionsView: View {
         case .camera:
             settingsURLString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera"
         case .calendar:
-            settingsURLString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
+            companionManager.requestCalendarPermission()
+            return
         case .reminders:
             settingsURLString = "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders"
         case .contacts:
@@ -430,12 +434,27 @@ struct PaceAboutView: View {
             Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
                 .font(DS.Typography.metadata)
                 .foregroundColor(DS.Colors.textTertiary)
-            Text("A local-first macOS voice agent.")
+            Text("A local-first macOS assistant.")
                 .font(DS.Typography.body)
                 .foregroundColor(DS.Colors.textSecondary)
+            Text(
+                "Built with open-source libraries and integrations, including MCP, Peekaboo, Playwright, MLX, WhisperKit, and Sparkle."
+            )
+            .font(DS.Typography.callout)
+            .foregroundColor(DS.Colors.textTertiary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 440)
+            Button("Open-source credits and licenses") {
+                if let noticesURL = Bundle.main.url(forResource: "OpenSourceNotices", withExtension: "txt") {
+                    NSWorkspace.shared.open(noticesURL)
+                }
+            }
+            .buttonStyle(.bordered)
+            .pointerCursor()
 
             Spacer()
         }
+        .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(DS.Colors.surface)
     }

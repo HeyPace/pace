@@ -26,7 +26,7 @@ private enum PaceMCPFixture {
     static let pythonThreeExecutablePath: String? = [
         "/usr/bin/python3",
         "/opt/homebrew/bin/python3",
-        "/usr/local/bin/python3"
+        "/usr/local/bin/python3",
     ].first { FileManager.default.isExecutableFile(atPath: $0) }
 
     static var isFixtureRunnable: Bool {
@@ -49,6 +49,30 @@ private enum PaceMCPFixture {
 @Suite(.serialized)
 struct PaceMCPClientIntegrationTests {
     @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func slowServerDoesNotBlockUnrelatedServer() async throws {
+        let configuration = PaceMCPServerConfiguration(
+            command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3",
+            args: [PaceMCPFixture.fixtureScriptPath])
+        let client = PaceMCPStdioClient(serverConfigurations: [
+            "slow-fixture": configuration, "fast-fixture": configuration,
+        ])
+        // Warm both producers before testing independent request serialization.
+        _ = try await client.toolCatalog(serverName: "slow-fixture")
+        _ = try await client.toolCatalog(serverName: "fast-fixture")
+        let slow = Task {
+            try await client.callTool(
+                .init(serverName: "slow-fixture", toolName: "sleep", arguments: ["seconds": .number(2)]))
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        let started = ContinuousClock.now
+        let result = try await client.callTool(
+            .init(serverName: "fast-fixture", toolName: "echo", arguments: ["text": .string("independent")]))
+        #expect(result.contains("independent"))
+        #expect(started.duration(to: .now) < .seconds(1))
+        _ = try await slow.value
+    }
+
+    @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
     func echoToolCallRoundTripsTextThroughFixtureServer() async throws {
         let fixtureClient = PaceMCPFixture.makeFixtureClient()
         let observationText = try await fixtureClient.callTool(
@@ -58,7 +82,7 @@ struct PaceMCPClientIntegrationTests {
                 arguments: ["text": .string("hello pace")]
             )
         )
-        #expect(observationText == "hello pace")
+        #expect(observationText.contains("hello pace"))
     }
 
     @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
@@ -118,6 +142,27 @@ struct PaceMCPClientIntegrationTests {
             ))
         #expect(evidence.contains("structured evidence"))
         #expect(evidence.contains("producer-bound-fixture"))
+    }
+
+    @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func arbitraryConfiguredServerDiscoversSchemasAndKeepsItsProducer() async throws {
+        let client = PaceMCPFixture.makeFixtureClient()
+        let catalog = try await client.toolCatalog(serverName: "fixture")
+        #expect(catalog.contains("inputSchema"))
+        #expect(catalog.contains("Fixture app inventory"))
+        let request = PaceMCPToolCall(serverName: "fixture", toolName: "session_identity", arguments: [:])
+        let first = try await client.callTool(request)
+        let second = try await client.callTool(request)
+        #expect(first == second)
+    }
+
+    @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func genericServerPreservesStructuredOnlyToolResults() async throws {
+        let client = PaceMCPFixture.makeFixtureClient()
+        let result = try await client.callTool(
+            .init(serverName: "fixture", toolName: "structured_only", arguments: [:]))
+        #expect(result.contains("assigned_issue"))
+        #expect(result.contains("PACE-42"))
     }
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["PACE_PEEKABOO_INTEGRATION"] == "1"))

@@ -1191,7 +1191,8 @@ final class CompanionManager: ObservableObject {
                     )
                 }
                 return self.buildMorningTriageRestraintContext(forNow: context.now)
-            }
+            },
+            defaults: .standard
         )
         scheduler.setFireTime(
             hourOfDay: morningTriageHourOfDay,

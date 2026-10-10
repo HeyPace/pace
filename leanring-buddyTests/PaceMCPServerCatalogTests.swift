@@ -29,7 +29,8 @@ struct PaceMCPServerCatalogTests {
         let data = try Data(contentsOf: configFileURL)
         let rawDecoded = try JSONSerialization.jsonObject(with: data)
         guard let rootObject = rawDecoded as? [String: Any],
-              let mcpServers = rootObject["mcpServers"] as? [String: [String: Any]] else {
+            let mcpServers = rootObject["mcpServers"] as? [String: [String: Any]]
+        else {
             return [:]
         }
         return mcpServers
@@ -44,7 +45,7 @@ struct PaceMCPServerCatalogTests {
         // `supersededBySlug` so the Settings tab can hint at the
         // migration when a legacy entry is still installed.
         let expectedSlugs: Set<String> = [
-            "filesystem", "fetch", "applescript", "composio", "peekaboo", "playwright"
+            "filesystem", "fetch", "applescript", "composio", "peekaboo", "playwright", "linear",
         ]
         #expect(bundledSlugs == expectedSlugs)
     }
@@ -53,10 +54,16 @@ struct PaceMCPServerCatalogTests {
         // Document the migration map so the Settings hint banner can't
         // accidentally lose a supersede-by entry.
         let supersededSlugs = Set(PaceMCPServerCatalog.supersededBySlug.keys)
-        #expect(supersededSlugs == Set(["github", "slack", "linear"]))
+        #expect(supersededSlugs == Set(["github", "slack"]))
         for replacementSlug in PaceMCPServerCatalog.supersededBySlug.values {
             #expect(replacementSlug == "composio")
         }
+    }
+
+    @Test func linearUsesOfficialReadOnlyOAuthWithoutAnAPIKey() throws {
+        let entry = try #require(PaceMCPServerCatalog.entry(forSlug: "linear"))
+        #expect(entry.arguments == ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp/readonly"])
+        #expect(entry.environment.isEmpty)
     }
 
     @Test func composioEntryUsesEmptyKeySentinelForKeychainSubstitution() {

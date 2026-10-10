@@ -23,6 +23,8 @@ struct PaceMCPSettingsTab: View {
     /// show "Installed ✓" / "Removed" / "Failed: …" after each tap.
     /// Resets to nil on a fresh refresh so stale outcomes don't linger.
     @State private var lastCatalogActionBySlug: [String: String] = [:]
+    @State private var connectionStatusByServer: [String: String] = [:]
+    @State private var testingServerNames: Set<String> = []
     /// In-memory editing state for the Composio API key SecureField.
     /// Never persisted in @State — Save commits it to Keychain via
     /// `PaceMCPSecretStore`; the field clears after save so the SwiftUI
@@ -78,22 +80,42 @@ struct PaceMCPSettingsTab: View {
                         .foregroundColor(DS.Colors.textSecondary)
 
                     if configuredMCPServerNames.isEmpty {
-                        Text("No MCP servers configured yet. Install one from the catalog above, or use Create / Open to seed the file.")
-                            .font(.system(size: 12))
+                        Text(
+                            "No MCP servers configured yet. Install one from the catalog above, or use Create / Open to seed the file."
+                        )
+                        .font(.system(size: 12))
                             .foregroundColor(DS.Colors.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                     } else {
                         ForEach(configuredMCPServerNames, id: \.self) { serverName in
                             HStack(spacing: 8) {
                                 Circle()
-                                    .fill(DS.Colors.success)
+                                    .fill(
+                                        connectionStatusByServer[serverName]?.hasPrefix("Connected") == true
+                                            ? DS.Colors.success : DS.Colors.textTertiary
+                                    )
                                     .frame(width: 7, height: 7)
                                 Text(serverName)
                                     .font(.system(size: 13, weight: .medium))
                                     .foregroundColor(DS.Colors.textPrimary)
                                 Spacer()
+                                paceSettingsButton(
+                                    testingServerNames.contains(serverName) ? "Connecting…" : "Test Connection",
+                                    systemName: "bolt.horizontal.circle"
+                                ) {
+                                    testConnection(serverName: serverName)
+                                }
+                                .disabled(testingServerNames.contains(serverName))
                             }
                             .padding(.vertical, 4)
+                            if let status = connectionStatusByServer[serverName] {
+                                Text(status)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(
+                                        status.hasPrefix("Connected") ? DS.Colors.success : DS.Colors.textSecondary
+                                    )
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                     }
                 }
@@ -115,25 +137,19 @@ struct PaceMCPSettingsTab: View {
             Text("Install a popular server")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
-            Text("One-tap installs for the curated MCP servers Pace ships with. Adds the entry to your local config — never fetches a remote catalog. Composio handles the bulk of external SaaS (Gmail, Slack, GitHub, Linear, Notion, web search) via one OAuth.")
-                .font(.system(size: 11))
+            Text(
+                "One-tap installs for the curated MCP servers Pace ships with. Adds the entry to your local config — never fetches a remote catalog. Use official service connections where available. Composio is an optional hosted integration. Installed means configured; Test Connection checks real tool availability."
+            )
+            .font(.system(size: 11))
                 .foregroundColor(DS.Colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
-
-            // One-time hint: when the user still has a superseded
-            // server installed (github / slack / linear), point them
-            // at Composio. We don't auto-remove their existing setup
-            // — silent removal of a working integration would be
-            // hostile. They migrate when they're ready.
-            if !installedSupersededServerSlugs.isEmpty {
-                supersededByComposioHintBanner
-            }
 
             VStack(spacing: 6) {
                 ForEach(PaceMCPServerCatalog.bundledCatalog) { catalogEntry in
                     mcpCatalogCardRow(entry: catalogEntry)
                     if catalogEntry.slug == "composio"
-                        && configuredMCPServerNames.contains(catalogEntry.slug) {
+                        && configuredMCPServerNames.contains(catalogEntry.slug)
+                    {
                         composioKeyEditorRow
                     }
                 }
@@ -155,12 +171,16 @@ struct PaceMCPSettingsTab: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(DS.Colors.warning)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Composio now handles \(installedSupersededServerSlugs.map { $0.capitalized }.sorted().joined(separator: ", ")) through a single OAuth.")
-                    .font(.system(size: 12, weight: .medium))
+                Text(
+                    "Composio now handles \(installedSupersededServerSlugs.map { $0.capitalized }.sorted().joined(separator: ", ")) through a single OAuth."
+                )
+                .font(.system(size: 12, weight: .medium))
                     .foregroundColor(DS.Colors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("You can remove the server-specific entries below when you've installed Composio and confirmed it works for you.")
-                    .font(.system(size: 11))
+                Text(
+                    "You can remove the server-specific entries below when you've installed Composio and confirmed it works for you."
+                )
+                .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -210,8 +230,10 @@ struct PaceMCPSettingsTab: View {
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("Stored in macOS Keychain; auto-injected into the Composio subprocess at launch. Never written to the mcp-servers.json file or to any log.")
-                .font(.system(size: 11))
+            Text(
+                "Stored in macOS Keychain; auto-injected into the Composio subprocess at launch. Never written to the mcp-servers.json file or to any log."
+            )
+            .font(.system(size: 11))
                 .foregroundColor(DS.Colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -223,7 +245,8 @@ struct PaceMCPSettingsTab: View {
     }
 
     private func saveComposioAPIKey() {
-        let trimmedKey = composioAPIKeyEditingDraft
+        let trimmedKey =
+            composioAPIKeyEditingDraft
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedKey.isEmpty else {
             composioKeyStatusFeedback = "Paste a key before tapping Save."
@@ -341,9 +364,11 @@ struct PaceMCPSettingsTab: View {
             // the JSON. Other servers still use the legacy placeholder
             // flow.
             if entry.slug == "composio" {
-                lastCatalogActionBySlug[entry.slug] = "Installed. Paste your COMPOSIO_API_KEY in the key field below; it'll be auto-injected at launch."
+                lastCatalogActionBySlug[entry.slug] =
+                    "Installed. Paste your COMPOSIO_API_KEY in the key field below; it'll be auto-injected at launch."
             } else {
-                lastCatalogActionBySlug[entry.slug] = "Installed. Edit \(configURL.lastPathComponent) to fill in any required values."
+                lastCatalogActionBySlug[entry.slug] =
+                    "Installed. Use Test Connection below to verify the server and complete any required sign-in."
             }
             refreshMCPServerNames()
             refreshComposioKeyState()
@@ -361,6 +386,29 @@ struct PaceMCPSettingsTab: View {
             refreshComposioKeyState()
         } catch {
             lastCatalogActionBySlug[entry.slug] = "Remove failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func testConnection(serverName: String) {
+        testingServerNames.insert(serverName)
+        connectionStatusByServer[serverName] = "Connecting. Complete any provider sign-in in your browser."
+        Task { @MainActor in
+            defer { testingServerNames.remove(serverName) }
+            do {
+                let client = PaceMCPStdioClient(requestTimeoutInSeconds: 90)
+                let catalog = try await client.toolCatalog(serverName: serverName)
+                guard let data = catalog.data(using: .utf8),
+                    let tools = try JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+                else {
+                    connectionStatusByServer[serverName] = "The server returned an invalid tool catalog."
+                    return
+                }
+                connectionStatusByServer[serverName] =
+                    "Connected · \(tools.count) tools available. Account access is verified when a read succeeds."
+            } catch {
+                connectionStatusByServer[serverName] =
+                    "Unavailable: \(error.localizedDescription). Check the server setup, complete sign-in, then retry."
+            }
         }
     }
 

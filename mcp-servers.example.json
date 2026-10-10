@@ -61,6 +61,14 @@
         "-y",
         "@peakmojo/applescript-mcp"
       ]
+    },
+    "linear": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote@0.14.3",
+        "https://mcp.linear.app/mcp/readonly"
+      ]
     }
   }
 }

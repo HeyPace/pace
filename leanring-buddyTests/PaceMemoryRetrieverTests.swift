@@ -76,6 +76,23 @@ struct PaceMemoryRetrieverTests {
         )
     }
 
+    @Test func disabledSourceIsNeverInjectedEvenFromPersistedUnifiedMemory() async {
+        let index = PaceMemoryIndex()
+        var entry = makeEntry(id: "disabled-note", text: "project secret disabled content", embedding: [1, 0])
+        entry.source = .notes
+        index.upsert(entry)
+        let retriever = PaceMemoryRetriever(
+            memoryIndex: index,
+            embeddingClient: StubEmbeddingClient(vectorToReturnForQuery: [1, 0]),
+            shouldInjectSensitiveTopics: { true },
+            isSourceEnabled: { $0 != .notes }
+        )
+        let block = await retriever.assembleContextBlock(
+            forQuery: "project", excludingEntryIds: [], maxEntries: 8, now: makeFixedDate(2_000)
+        )
+        #expect(block == nil)
+    }
+
     // MARK: - assembleContextBlock
 
     @Test func assembleReturnsBlockContainingHighestCosineEntry() async throws {
@@ -124,8 +141,9 @@ struct PaceMemoryRetrieverTests {
 
     @Test func assembleExcludesSensitiveEntryWhenOptOut() async throws {
         let index = PaceMemoryIndex()
-        index.upsert(makeEntry(
-            id: "sensitive",
+        index.upsert(
+            makeEntry(
+                id: "sensitive",
             kind: .fact,
             text: "user's mom is in the hospital",
             embedding: [1, 0],
@@ -151,8 +169,9 @@ struct PaceMemoryRetrieverTests {
 
     @Test func assembleIncludesSensitiveEntryWhenOptIn() async throws {
         let index = PaceMemoryIndex()
-        index.upsert(makeEntry(
-            id: "sensitive",
+        index.upsert(
+            makeEntry(
+                id: "sensitive",
             kind: .fact,
             text: "user's mom is in the hospital",
             embedding: [1, 0],
@@ -243,8 +262,9 @@ struct PaceMemoryRetrieverTests {
     @Test func assembleLexicalFallbackStillExcludesIdsAndSensitiveEntries() async throws {
         let index = PaceMemoryIndex()
         index.upsert(makeEntry(id: "excluded", text: "shared keyword excluded turn"))
-        index.upsert(makeEntry(
-            id: "sensitive",
+        index.upsert(
+            makeEntry(
+                id: "sensitive",
             kind: .fact,
             text: "shared keyword mom hospital",
             topicTags: ["#health"]
@@ -314,7 +334,8 @@ struct PaceMemoryRetrieverTests {
         )
 
         let unwrappedBlock = try #require(block)
-        let entryLines = unwrappedBlock
+        let entryLines =
+            unwrappedBlock
             .split(separator: "\n", omittingEmptySubsequences: false)
             .filter { $0.hasPrefix("- ") }
         #expect(entryLines.count == 2)
@@ -362,7 +383,7 @@ struct PaceMemoryRetrieverTests {
 
     @Test func formatContextBlockCollapsesConversationTurnNewlines() async throws {
         let entries = [
-            makeEntry(id: "a", kind: .conversationTurn, text: "user: hello\nassistant: hi there"),
+            makeEntry(id: "a", kind: .conversationTurn, text: "user: hello\nassistant: hi there")
         ]
 
         let block = PaceMemoryRetriever.formatContextBlock(from: entries, now: makeFixedDate(2_000))

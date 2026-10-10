@@ -96,20 +96,18 @@ call / when you're actively typing).
 
 **External integrations (MCP)** — Peekaboo provides optional OSS Mac observation and app-scoped computer control through the existing MCP settings catalog. Its own macOS permissions and Pace’s Read My Screen setting gate screen control. Beyond that, anything a configured Model Context Protocol
 server exposes. Configured via `~/.config/pace/mcp-servers.json` or the one-tap
-catalog in Settings → MCP (Peekaboo, Playwright, filesystem, fetch, applescript, composio — github/slack/linear route through composio).
+catalog in Settings → MCP (Peekaboo, Playwright, filesystem, fetch, applescript, composio, and Linear read-only OAuth; custom servers use live tool schemas).
 
 **Automation (all default OFF)** — four opt-in automation surfaces in Settings →
 General → Automation:
 - *Meeting mode* — captures system audio (excluding Pace's own TTS) via SCStream
   so Pace can listen during calls. Voice: "start meeting mode" / "stop meeting
   mode" (`PaceMeetingModeController`).
-- *Cron scheduling* — recurring planner tasks on a timer. Voice: "every 30
-  minutes check my calendar" (`PaceCronScheduler`).
+- *Cron scheduling* — persistent read-only recurring tasks with exact intervals or daily local times, pause/enable controls, next-run status, and results. Missed runs coalesce and active tasks do not overlap. Text or voice: "every 30 minutes check my calendar" (`PaceCronScheduler`).
 - *Dynamic plugins* — user-installed shell-command tools from
   `~/Library/Application Support/Pace/plugins/`, with planner-powered auto-repair
   of failed commands (`PaceDynamicToolRegistry`).
-- *Background agents* — run headless planner turns in the background. Voice: "in
-  the background, draft a reply to..." (`PaceBackgroundAgentRunner`).
+- *Background agents* — persistent read-only summaries, drafts, and cited research. Tasks exposes results, cancellation, and retry from the beginning after interruption. Text or voice: "in the background, draft a reply to..." (`PaceBackgroundAgentRunner`).
 
 **Skills** — `.skill.md` files in `Resources/skills/` define reusable multi-step
 workflows that are parsed into planner prompts. Voice: "run the standup skill"

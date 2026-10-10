@@ -25,15 +25,18 @@ final class PaceMemoryRetriever {
     /// current preference at recall time instead of a value captured at
     /// init.
     private let shouldInjectSensitiveTopics: () -> Bool
+    private let isSourceEnabled: (PaceRetrievalSource) -> Bool
 
     init(
         memoryIndex: PaceMemoryIndex,
         embeddingClient: any PaceTextEmbedding,
-        shouldInjectSensitiveTopics: @escaping () -> Bool
+        shouldInjectSensitiveTopics: @escaping () -> Bool,
+        isSourceEnabled: @escaping (PaceRetrievalSource) -> Bool = PaceRetrievalSourcePreferences.isEnabled
     ) {
         self.memoryIndex = memoryIndex
         self.embeddingClient = embeddingClient
         self.shouldInjectSensitiveTopics = shouldInjectSensitiveTopics
+        self.isSourceEnabled = isSourceEnabled
     }
 
     /// Assembles the recall context block for `query`, or nil when there is
@@ -108,7 +111,8 @@ final class PaceMemoryRetriever {
                 entryById[entry.id] = entry
             }
         }
-        return fusedScoreByEntryId
+        return
+            fusedScoreByEntryId
             .sorted { lhs, rhs in
                 if lhs.value == rhs.value { return lhs.key < rhs.key }
                 return lhs.value > rhs.value
@@ -129,6 +133,7 @@ final class PaceMemoryRetriever {
         let injectSensitiveTopics = shouldInjectSensitiveTopics()
         var survivingEntries: [PaceMemoryEntry] = []
         for candidateEntry in rankedEntries {
+            guard isSourceEnabled(candidateEntry.source) else { continue }
             if excludingEntryIds.contains(candidateEntry.id) {
                 continue
             }
@@ -195,7 +200,8 @@ final class PaceMemoryRetriever {
     /// Collapses newlines and runs of whitespace into single spaces and
     /// caps length — the conversation-turn snippet form.
     private static func singleLineSnippet(_ text: String, maximumCharacterCount: Int) -> String {
-        let collapsed = text
+        let collapsed =
+            text
             .replacingOccurrences(of: "\r\n", with: " / ")
             .replacingOccurrences(of: "\n", with: " / ")
             .replacingOccurrences(of: "\r", with: " / ")
