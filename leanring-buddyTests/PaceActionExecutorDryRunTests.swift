@@ -127,17 +127,26 @@ struct PaceActionExecutorDryRunTests {
 
     @Test func userFeedbackSummarizesToolResults() async throws {
         let feedback = PaceActionExecutionObservation.formatForUserFeedback([
-            PaceActionExecutionObservation(toolName: "notes", summary: "Created note: Idea")
+            PaceActionExecutionObservation(toolName: "notes", summary: "Created note: Idea"),
         ])
 
         #expect(feedback == "Created note: Idea")
 
         let multiActionFeedback = PaceActionExecutionObservation.formatForUserFeedback([
             PaceActionExecutionObservation(toolName: "open_app", summary: "Opened app: Notes"),
-            PaceActionExecutionObservation(toolName: "notes", summary: "Created note: Idea")
+            PaceActionExecutionObservation(toolName: "notes", summary: "Created note: Idea"),
         ])
 
-        #expect(multiActionFeedback == "Opened app: Notes, plus 1 more action result.")
+        #expect(multiActionFeedback == "Opened app: Notes\nCreated note: Idea")
+    }
+
+    @Test func multiActionFeedbackDoesNotHideLaterFailures() {
+        let feedback = PaceActionExecutionObservation.formatForUserFeedback([
+            .init(toolName: "open_app", summary: "Opened app: Linear"),
+            .init(toolName: "open_app", summary: "Could not find app: Missing App"),
+            .init(toolName: "open_url", summary: "Opened https://example.com in Chrome"),
+        ])
+        #expect(feedback == "Opened app: Linear\nCould not find app: Missing App\nOpened https://example.com in Chrome")
     }
 
     @Test func snapshotMetadataIsExcludedFromConversationFeedback() {

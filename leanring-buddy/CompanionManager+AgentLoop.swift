@@ -811,10 +811,6 @@ extension CompanionManager {
     ) {
         let spokenText = fastActionParseResult.spokenText
         currentTurnHUDState = .acting(fastActionParseResult.executionPlan.approvalSummary)
-        if shouldRecordConversationTurn {
-            recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
-        }
-
         responseOverlayManager.showOverlayAndBeginStreaming()
         responseOverlayManager.updateStreamingText(spokenText)
 
@@ -844,6 +840,7 @@ extension CompanionManager {
                 ))
 
             var fastPathDispatchSummaryForDebug = "executed"
+            var completedActionFeedback = "Action requested; its effect has not been verified."
             if actionExecutor.actionsAreEnabled {
                 if requestUserApprovalForActionPlan(
                     fastActionParseResult.executionPlan,
@@ -853,6 +850,7 @@ extension CompanionManager {
                         fastActionParseResult.executionPlan,
                         screenCaptures: []
                     )
+                    guard !Task.isCancelled else { return }
                     fastPathDispatchSummaryForDebug =
                         toolObservations.isEmpty
                         ? "executed — no observations returned"
@@ -876,11 +874,14 @@ extension CompanionManager {
                         PaceActionExecutionObservation
                         .formatForUserFeedback(toolObservations)
                     {
+                        completedActionFeedback = userFeedbackText
                         responseOverlayManager.updateStreamingText(userFeedbackText)
                         await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: userFeedbackText)
                     }
                 } else {
                     fastPathDispatchSummaryForDebug = "denied by user"
+                    completedActionFeedback = "Stopped: approval was denied. The requested actions were not performed."
+                    currentTurnHUDState = .failed("Approval denied")
                     appendActionResult(
                         PaceActionRunRecord(
                             status: .denied,
@@ -891,6 +892,7 @@ extension CompanionManager {
                 }
             } else {
                 fastPathDispatchSummaryForDebug = "EnableActions=false — not executed"
+                completedActionFeedback = "Actions are disabled. No changes were made."
                 appendActionResult(
                     PaceActionRunRecord(
                         status: .skipped,
@@ -899,6 +901,12 @@ extension CompanionManager {
                     ))
                 print("🤖 Fast local action parsed but EnableActions is false")
             }
+
+            guard !Task.isCancelled else { return }
+            if shouldRecordConversationTurn {
+                recordConversationTurn(userTranscript: transcript, assistantResponse: completedActionFeedback)
+            }
+            responseOverlayManager.updateStreamingText(completedActionFeedback)
 
             // Settings → Debug capture: the fast path matched before any
             // planner ran, so this row proves a command stayed local and

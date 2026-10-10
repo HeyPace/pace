@@ -79,7 +79,9 @@ nonisolated struct PaceActionExecutionObservation {
             return firstSummary
         }
 
-        return "\(firstSummary), plus \(userVisibleSummaries.count - 1) more action result\(userVisibleSummaries.count == 2 ? "" : "s")."
+        // Every result matters: hiding later outcomes can conceal a failed
+        // app launch or mutation behind the first successful action.
+        return userVisibleSummaries.joined(separator: "\n")
     }
 }
 

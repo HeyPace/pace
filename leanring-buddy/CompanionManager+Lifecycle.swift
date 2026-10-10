@@ -813,14 +813,11 @@ extension CompanionManager {
         if !previouslyHadSpeechRecognition && hasSpeechRecognitionPermission {
             PaceAnalytics.trackPermissionGranted(permission: "speech_recognition")
         }
-        // Screen content permission: we used to trust a sticky UserDefaults
-        // cache, which lied when TCC was reset (post-install or tccutil reset).
-        // Trust the same flag macOS does — Screen Recording — as the source of
-        // truth, since SCShareableContent silently fails the same way when
-        // that grant is missing. The persisted "we picked once" bit only
-        // gates the onboarding picker prompt, not the permission state.
-        let cachedScreenContentPick = UserDefaults.standard.bool(forKey: "hasScreenContentPermission")
-        hasScreenContentPermission = hasScreenRecordingPermission && cachedScreenContentPick
+        // Screen content uses the same live macOS grant as Screen Recording.
+        // A legacy onboarding capture flag is not another permission: requiring
+        // it reports blocked setup even when actual screen actions already work.
+        // Read My Screen separately controls whether a turn may use this access.
+        hasScreenContentPermission = hasScreenRecordingPermission
 
         if !previouslyHadAll && allPermissionsGranted {
             PaceAnalytics.trackAllPermissionsGranted()
