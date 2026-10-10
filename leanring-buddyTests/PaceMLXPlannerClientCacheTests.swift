@@ -2,20 +2,7 @@
 //  PaceMLXPlannerClientCacheTests.swift
 //  leanring-buddyTests
 //
-//  Lever #1 — KV-cache reuse via persistent ChatSession.
-//
-//  The actual cache reuse can only be tested end-to-end against
-//  a loaded model (multi-GB download, not CI-friendly). What we
-//  CAN unit-test in isolation is the BOOKKEEPING — the static
-//  helpers that decide whether the next turn is a continuation
-//  of the cached state.
-//
-//  The session-cache lookup is internal to the production code so
-//  this file exercises the public API: invalidate + immediate
-//  re-check that the state cleared. Cache hits / misses are
-//  exercised by integration runs against a live model (gated on
-//  PACE_RUN_MLX_EVAL).
-//
+//  Local planner runtime and Hugging Face asset-cache checks.
 
 import Foundation
 import Testing
@@ -25,15 +12,29 @@ import Testing
 @MainActor
 struct PaceMLXPlannerClientCacheTests {
 
-    @Test func invalidateSessionCacheIsIdempotent() async throws {
-        // Calling invalidate multiple times in a row should not
-        // crash or throw — even when there's nothing to clear.
-        // The log line only prints on the first non-empty clear,
-        // so the second + third calls should be silent no-ops.
-        PaceMLXPlannerClient.invalidateSessionCache(reason: "test - first call")
-        PaceMLXPlannerClient.invalidateSessionCache(reason: "test - second call")
-        PaceMLXPlannerClient.invalidateSessionCache(reason: "test - third call")
-        // No crash == success.
+    @Test func localModelHonorsSystemAndHistoryWithoutLeakingPreviousRequestWhenEnabled() async throws {
+        guard ProcessInfo.processInfo.environment["PACE_RUN_LOCAL_NOTES"] == "1" else { return }
+        let planner = PaceMLXPlannerClient(
+            modelIdentifier: PaceBundledModelsSettings.plannerModelIdentifier(),
+            requestsStructuredActionOutput: false
+        )
+        let firstResult = try await planner.generateResponseStreaming(
+            images: [],
+            systemPrompt: "Return ONLY a JSON object containing the saved code under the key code.",
+            conversationHistory: [("Save this code: cobalt", "The saved code is cobalt.")],
+            userPrompt: "Return the saved code.",
+            onTextChunk: { _ in }
+        )
+        let firstObject = try JSONSerialization.jsonObject(with: Data(firstResult.text.utf8)) as? [String: String]
+        #expect(firstObject?["code"] == "cobalt")
+        let secondResult = try await planner.generateResponseStreaming(
+            images: [],
+            systemPrompt: "Reply with exactly the word cedar. No other text.",
+            conversationHistory: [],
+            userPrompt: "What is the saved code?",
+            onTextChunk: { _ in }
+        )
+        #expect(secondResult.text.trimmingCharacters(in: .whitespacesAndNewlines) == "cedar")
     }
 
     @Test func runtimeAvailabilityFlagMatchesCanImport() async throws {

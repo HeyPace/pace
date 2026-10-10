@@ -290,10 +290,6 @@ extension CompanionManager {
         // idle-while-running reset starts fresh rather than resurrecting
         // the conversation the idle gate just decided to drop.
         persistThreadMemorySnapshot()
-        // Lever #1 — drop the bundled-MLX session cache when the
-        // idle gate clears the conversation, so the next turn
-        // doesn't continue from the prior session's KV state.
-        PaceMLXPlannerClient.invalidateSessionCache(reason: "thread idle reset")
         let causeDisplayName: String
         switch sessionEndCause {
         case .idleTimeout:
@@ -317,11 +313,6 @@ extension CompanionManager {
         // "Until I reset" — an explicit reset wipes the on-disk copy too,
         // so the conversation does not come back on the next launch.
         threadMemoryStore.clear()
-        // Lever #1 — also drop the bundled-MLX KV cache so the next
-        // turn rebuilds from the new (empty) conversation state.
-        // Without this, the MLX session would still carry the prior
-        // turns' KV state, defeating the user's explicit reset.
-        PaceMLXPlannerClient.invalidateSessionCache(reason: "user reset thread memory")
         localRetriever.recordPaceHistory(
             userTranscript: "session ended (cause: userReset)",
             assistantResponse: "session \(endingSessionId) ended",

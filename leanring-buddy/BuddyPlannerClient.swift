@@ -461,7 +461,8 @@ enum BuddyPlannerClientFactory {
         // keep LM Studio's larger model by leaving the toggle off.
         if PaceBundledModelsSettings.isUsingMLXInProcessPlanner() {
             let mlxPlanner = PaceMLXPlannerClient(
-                modelIdentifier: PaceBundledModelsSettings.plannerModelIdentifier()
+                modelIdentifier: PaceBundledModelsSettings.plannerModelIdentifier(),
+                requestsStructuredActionOutput: requestsStructuredActionOutput
             )
             print("🧠 Planner: using \(mlxPlanner.displayName) [bundled MLX]")
             return mlxPlanner

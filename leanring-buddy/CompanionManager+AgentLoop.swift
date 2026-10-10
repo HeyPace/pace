@@ -1095,7 +1095,7 @@ extension CompanionManager {
         plannerClient.resetForNewTurn()
         PaceMeetingModeController.shared.localRetriever = localRetriever
         PaceMeetingModeController.shared.plannerClient =
-            BuddyPlannerClientFactory.makeLocalOnlyPlannerForPrivacyPinnedFeatures()
+            BuddyPlannerClientFactory.makeLocalOnlyTextPlannerForPrivacyPinnedFeatures()
 
         if let deterministicAnswer = PaceDeterministicAnswerParser.parse(transcript: transcript) {
             print("🧮 Deterministic answer: \(deterministicAnswer.routingDetail)")
@@ -2911,7 +2911,7 @@ extension CompanionManager {
         // transcripts never ride the active tier — a Direct API / CLI
         // bridge selection must not send the whole meeting off-device.
         controller.localRetriever = localRetriever
-        controller.plannerClient = BuddyPlannerClientFactory.makeLocalOnlyPlannerForPrivacyPinnedFeatures()
+        controller.plannerClient = BuddyPlannerClientFactory.makeLocalOnlyTextPlannerForPrivacyPinnedFeatures()
         switch command {
         case .start(let profileSlug):
             PaceUserPreferencesStore.setBool(true, for: .isMeetingModeEnabled)

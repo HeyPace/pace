@@ -95,6 +95,28 @@ struct PaceMeetingNotesBuilderTests {
     you: We decided to use the new API design.
     """
 
+    @Test func localMLXModelSynthesizesMeetingNotesWhenExplicitlyEnabled() async throws {
+        guard ProcessInfo.processInfo.environment["PACE_RUN_LOCAL_NOTES"] == "1" else { return }
+        let planner = PaceMLXPlannerClient(
+            modelIdentifier: PaceBundledModelsSettings.plannerModelIdentifier(),
+            requestsStructuredActionOutput: false
+        )
+        let notes = await PaceMeetingNotesBuilder.build(
+            transcript: sampleTranscript,
+            turns: makeTurns(),
+            meetingID: meetingID,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            title: "Synthetic standup",
+            planner: planner
+        )
+        #expect(!notes.synthesisFailed)
+        #expect(!notes.summary.isEmpty)
+        #expect(notes.summary != sampleTranscript)
+        #expect(notes.actionItems.contains { $0.text.lowercased().contains("review") })
+        #expect(notes.decisions.contains { $0.lowercased().contains("api") })
+    }
+
     @Test func wellFormedJSONProducesPopulatedNotes() async throws {
         let cannedJSON = """
         {
