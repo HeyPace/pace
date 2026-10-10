@@ -2104,8 +2104,7 @@ extension CompanionManager {
                     {
                         // Peekaboo AX targets are global desktop points, independent
                         // of whether the local VLM captured any screenshots.
-                        detectedElementDisplayFrame = target.displayFrame
-                        detectedElementScreenLocation = target.location
+                        presentDetectedElement(screenLocation: target.location, displayFrame: target.displayFrame)
                         PaceAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
                     } else if !parseResult.usesDesktopCoordinates,
                         let pointCoordinate = parseResult.coordinate,
@@ -2122,8 +2121,8 @@ extension CompanionManager {
                                 on: targetScreenCapture
                             )
 
-                        detectedElementDisplayFrame = targetScreenCapture.displayFrame
-                        detectedElementScreenLocation = globalLocation
+                        presentDetectedElement(
+                            screenLocation: globalLocation, displayFrame: targetScreenCapture.displayFrame)
                         PaceAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
                         print(
                             "🎯 Step \(stepIndex) pointing: (\(Int(pointCoordinate.x)), \(Int(pointCoordinate.y))) → \"\(parseResult.elementLabel ?? "element")\""
@@ -2497,7 +2496,13 @@ extension CompanionManager {
                 // docs/prds/trust-and-failures.md. The cloud bridge
                 // gets its own kind so the user knows which CLI to
                 // inspect; everything else maps onto plannerOffline.
-                if plannerClient is CloudBridgePlannerClient {
+                if (error as NSError).domain == "PaceActionScope" {
+                    speakPlainLanguageFailure(
+                        PaceFailureNarrator.kindForPlannerPipelineError(error as NSError),
+                        context: "planner-catch-action-scope",
+                        respondingToUserTranscript: transcript
+                    )
+                } else if plannerClient is CloudBridgePlannerClient {
                     speakPlainLanguageFailure(
                         .cloudBridgeUpstreamError(
                             provider: cloudBridgeUpstream.displayLabel

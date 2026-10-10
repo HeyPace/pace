@@ -13,6 +13,18 @@ import XCTest
 
 final class PaceFailureNarratorTests: XCTestCase {
 
+    func testObservationOnlyGuardDoesNotSuggestCLISignIn() {
+        let error = NSError(domain: "PaceActionScope", code: 1)
+        let kind = PaceFailureNarrator.kindForPlannerPipelineError(error)
+        XCTAssertEqual(kind, .observationOnlyViolation)
+        let narration = PaceFailureNarrator.compose(kind)
+        XCTAssertTrue(narration.spokenText.contains("observation only"))
+        XCTAssertTrue(narration.spokenText.contains("blocked action was not run"))
+        XCTAssertFalse(narration.spokenText.contains("signed in"))
+        XCTAssertNil(narration.suggestion)
+        XCTAssertEqual(kind.stableLogIdentifier, "observationOnlyViolation")
+    }
+
     // MARK: - plannerOffline
 
     func testPlannerOfflineSuggestsOpeningSettings() {

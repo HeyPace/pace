@@ -407,27 +407,26 @@ struct BlueCursorView: View {
             } else {
                 self.cursorOpacity = 1.0
             }
+            navigateToDetectedElementIfPresent()
         }
         .onDisappear {
             timer?.invalidate()
             navigationAnimationTimer?.invalidate()
         }
-        .onChange(of: companionManager.detectedElementScreenLocation) { _, newLocation in
-            // When a UI element location is detected, navigate the buddy to
-            // that position so it points at the element.
-            guard let screenLocation = newLocation,
-                  let displayFrame = companionManager.detectedElementDisplayFrame else {
-                return
-            }
-
-            // Only navigate if the target is on THIS screen
-            guard screenFrame.contains(CGPoint(x: displayFrame.midX, y: displayFrame.midY))
-                  || displayFrame == screenFrame else {
-                return
-            }
-
-            startNavigatingToElement(screenLocation: screenLocation)
+        .onChange(of: companionManager.detectedElementScreenLocation) { _, _ in
+            navigateToDetectedElementIfPresent()
         }
+    }
+
+    private func navigateToDetectedElementIfPresent() {
+        guard let screenLocation = companionManager.detectedElementScreenLocation,
+            let displayFrame = companionManager.detectedElementDisplayFrame,
+            screenFrame.contains(CGPoint(x: displayFrame.midX, y: displayFrame.midY))
+                || displayFrame == screenFrame
+        else {
+            return
+        }
+        startNavigatingToElement(screenLocation: screenLocation)
     }
 
     /// Whether the buddy triangle should be visible on this screen.
