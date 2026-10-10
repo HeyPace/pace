@@ -87,7 +87,7 @@ final class PaceMainWindowManager {
             defer: false
         )
         newWindow.title = "Pace Command Center"
-        newWindow.titlebarAppearsTransparent = true
+        newWindow.titlebarAppearsTransparent = false
         newWindow.isMovableByWindowBackground = true
         newWindow.contentMinSize = minimumContentSize
         newWindow.contentViewController = hostingController

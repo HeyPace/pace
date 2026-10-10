@@ -10,13 +10,15 @@ import Foundation
 import MCP
 import System
 
-enum PaceMCPClientError: Error, CustomStringConvertible {
+enum PaceMCPClientError: Error, LocalizedError, CustomStringConvertible {
     case serverNotConfigured(String)
     case invalidCommand(String)
     case launchFailed(String)
     case requestTimedOut(String)
     case invalidResponse(String)
     case rpcError(String)
+
+    var errorDescription: String? { description }
 
     var description: String {
         switch self {

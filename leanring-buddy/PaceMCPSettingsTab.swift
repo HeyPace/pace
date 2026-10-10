@@ -403,7 +403,7 @@ struct PaceMCPSettingsTab: View {
                     return
                 }
                 connectionStatusByServer[serverName] =
-                    "Connected · \(tools.count) tools available. Account access is verified when a read succeeds."
+                    "Connected · \(tools.count) \(tools.count == 1 ? "tool" : "tools") available. Account access is verified when a read succeeds."
             } catch {
                 connectionStatusByServer[serverName] =
                     "Unavailable: \(error.localizedDescription). Check the server setup, complete sign-in, then retry."

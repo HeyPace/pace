@@ -48,6 +48,21 @@ private enum PaceMCPFixture {
 
 @Suite(.serialized)
 struct PaceMCPClientIntegrationTests {
+    @Test
+    func missingExecutableReportsActionableLocalizedFailure() async {
+        let missingCommand = "/tmp/pace-missing-server-\(UUID())"
+        let client = PaceMCPStdioClient(serverConfigurations: [
+            "missing-fixture": .init(command: missingCommand)
+        ])
+        do {
+            _ = try await client.toolCatalog(serverName: "missing-fixture")
+            Issue.record("Missing executable must fail")
+        } catch {
+            #expect(error.localizedDescription.contains("not executable"))
+            #expect(error.localizedDescription.contains(missingCommand))
+        }
+    }
+
     @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
     func slowServerDoesNotBlockUnrelatedServer() async throws {
         let configuration = PaceMCPServerConfiguration(
