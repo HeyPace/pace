@@ -28,7 +28,9 @@ nonisolated enum PaceScreenCaptureKind: String, Sendable {
     case recording
 
     var arguments: [String] {
-        ["-i", "-U", "-J", self == .recording ? "video" : "selection", "-p"]
+        // -p restores the last capture mode and can override -J, opening
+        // recording controls for a screenshot request after a recording.
+        ["-i", "-U", "-J", self == .recording ? "video" : "selection"]
     }
 }
 

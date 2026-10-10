@@ -51,6 +51,11 @@ struct PaceDesktopRequestsTests {
         #expect(PaceMeetingModeCommandParser.parse("start recording") == nil)
     }
 
+    @Test func explicitCaptureModesDoNotRestoreThePreviousMode() {
+        #expect(PaceScreenCaptureKind.screenshot.arguments == ["-i", "-U", "-J", "selection"])
+        #expect(PaceScreenCaptureKind.recording.arguments == ["-i", "-U", "-J", "video"])
+    }
+
     @Test func workProfileUsesSavedDirectoryAndExplicitBrowserIsHonored() {
         #expect(PaceBrowserOpenRequest.profileDirectory(for: "work", savedProfile: "Profile 1") == "Profile 1")
         #expect(PaceBrowserOpenRequest.profileDirectory(for: "Profile 2", savedProfile: "Profile 1") == "Profile 2")

@@ -314,7 +314,7 @@ extension CompanionManager {
                         spokenText: "running \(definition.name).",
                         executionPlan: executionPlan
                     ),
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
             } catch {
                 print("⚠️ Typed automation compilation failed for \(identifier): \(error)")
@@ -361,7 +361,7 @@ extension CompanionManager {
                             spokenText: "running \(program.name).",
                             executionPlan: executionPlan
                         ),
-                        shouldRecordConversationTurn: false
+                        shouldRecordConversationTurn: true
                     )
                 case .noActionsMatched:
                     handleImmediateLocalModeResponse(
@@ -411,7 +411,7 @@ extension CompanionManager {
             handleFastLocalActionPath(
                 transcript: transcript,
                 fastActionParseResult: PaceShortcutCommandParser.fastActionParseResult(for: name),
-                shouldRecordConversationTurn: false
+                shouldRecordConversationTurn: true
             )
         }
     }
@@ -463,7 +463,7 @@ extension CompanionManager {
                 fastActionParseResult: PaceShortcutCommandParser.fastActionParseResult(
                     for: installedShortcutDisplayName
                 ),
-                shouldRecordConversationTurn: false
+                shouldRecordConversationTurn: true
             )
         }
     }
