@@ -2080,7 +2080,22 @@ extension CompanionManager {
                         return screenCaptures.first(where: { $0.isCursorScreen })
                     }()
 
-                    if let pointCoordinate = parseResult.coordinate,
+                    if parseResult.usesDesktopCoordinates,
+                        let pointCoordinate = parseResult.coordinate,
+                        let primaryScreen = NSScreen.screens.first,
+                        let target = PaceTagParsers.desktopPointingTarget(
+                            coordinate: pointCoordinate,
+                            primaryScreenHeight: primaryScreen.frame.height,
+                            displayFrames: NSScreen.screens.map(\.frame)
+                        )
+                    {
+                        // Peekaboo AX targets are global desktop points, independent
+                        // of whether the local VLM captured any screenshots.
+                        detectedElementDisplayFrame = target.displayFrame
+                        detectedElementScreenLocation = target.location
+                        PaceAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
+                    } else if !parseResult.usesDesktopCoordinates,
+                        let pointCoordinate = parseResult.coordinate,
                         let targetScreenCapture
                     {
                         // Same screenshot-pixel → AppKit-global helper
@@ -2094,8 +2109,8 @@ extension CompanionManager {
                                 on: targetScreenCapture
                             )
 
-                        detectedElementScreenLocation = globalLocation
                         detectedElementDisplayFrame = targetScreenCapture.displayFrame
+                        detectedElementScreenLocation = globalLocation
                         PaceAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
                         print(
                             "🎯 Step \(stepIndex) pointing: (\(Int(pointCoordinate.x)), \(Int(pointCoordinate.y))) → \"\(parseResult.elementLabel ?? "element")\""

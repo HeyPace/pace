@@ -339,7 +339,7 @@ enum CompanionSystemPrompt {
         ]}}
         put steps that need a focus/keyboard change in separate calls, in order.
 
-        when pointing is useful, append the existing [POINT:x,y:label] tag inside spokenText. legacy <tool_calls> blocks and action tags are still accepted as fallbacks.
+        when pointing is useful, append [POINT:x,y:label:desktop] inside spokenText for global desktop coordinates from Peekaboo/AX inspection. Use the center of the freshly observed target's bounds; desktop points can be negative on other displays. For a supplied Pace screenshot, use [POINT:x,y:label:screenN] with that screenshot's pixel coordinates and screen number. Never mix these coordinate spaces. If a named app's target is absent from the current screen context, inspect that app with Peekaboo before answering. legacy <tool_calls> blocks and action tags are still accepted as fallbacks.
 
         tool_calls shape:
         - outer array = sequential steps.
