@@ -209,6 +209,13 @@ struct PaceIntentClassifierTests {
         #expect(clarification?.options == ["Selected text", "Focused field"])
     }
 
+    @Test func editConstraintsDoNotHijackOtherCommands() {
+        #expect(PaceIntentClarifier.clarification(for: "Open the fixture and scroll down. Do not edit it.") == nil)
+        #expect(PaceIntentClarifier.clarification(for: "Don't edit it") == nil)
+        #expect(PaceIntentClarifier.clarification(for: "Explain what rewrite that means") == nil)
+        #expect(PaceIntentClarifier.clarification(for: "Please rewrite that") != nil)
+    }
+
     @Test func ambiguousDestructiveCommandsAskForClarification() async throws {
         let clarification = PaceIntentClarifier.clarification(for: "delete that")
 
