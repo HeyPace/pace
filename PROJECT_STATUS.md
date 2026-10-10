@@ -20,30 +20,24 @@ computer use composes screenshots/AX/OCR with Pace's click, type, key, and scrol
 executor; Codex turns do not depend on the local VLM. See
 [architecture](docs/architecture/systems.md#everyday-desktop-actions-and-codex-sessions).
 
-Local typed dogfood on 2026-10-09 verified Hacker News in the vaultwealth.com
-Chrome profile, natural-language creation and invocation of a four-app work
-routine, Codex-backed research with a source, and the Codex-in-Warp launch request.
-Text dogfood on 2026-10-10 also verified native screenshot/recording controls,
-folder clarification followed by a correctly targeted Codex launch, visible
-muted-session status replies, and running-app inventory through the optional
-Peekaboo OSS MCP backend. Peekaboo uses persistent producer-bound sessions and
-the selected Pace planner. Implicit routine execution requires exact taught
-phrases. The Warp terminal UI was not inspectable through the available CUA tool.
-The test build reports Accessibility and Screen Recording granted. WhisperKit
-base.en transcribed a real generated clip; Kokoro generated and played speech;
-Silero accepted speech and rejected silence; Sparkle displayed its update dialog
-without installing. Playwright navigation and a subsequent snapshot ran through
-Pace approvals using the official Swift MCP SDK. Microphone access is still not
-recognised by the test build despite the System Settings toggle. Live meeting
-capture, completed screen recording, and Peekaboo window actions remain unverified.
-A microphone permission/device-binding stall was reproduced and the permission
-request moved ahead of audio-engine creation. This source work is not a release.
+Pace 0.3.20 is the text-first personal release. Native dogfood verified the
+vaultwealth.com Hacker News profile, a persisted four-app work routine, sourced
+Codex research, screenshots, command-driven screen recording, meeting notes from
+a synthetic speech fixture, TextEdit input and scrolling, and screen explanation
+without document changes. Visible pointing now reveals the existing cursor
+overlay in mascot mode and restores suppression when pointing ends. Codex-in-Warp
+started in the requested directory, manually confirmed by the owner because CUA
+cannot inspect Warp. The signed app recognizes Accessibility, Screen Recording,
+and Microphone grants. Voice accuracy, hotkey acceptance, and pending microphone
+permission cancellation remain outside this non-voice acceptance pass. Detailed
+hardware evidence and exclusions are tracked in
+[issue #207](https://github.com/HeyPace/pace/issues/207).
 
 ## Dependencies
 
 ### External
 
-- **Platform:** current 0.3.19 preview targets macOS 26, Apple Silicon recommended, Xcode 26+, ~12–25 GB RAM with models loaded.
+- **Platform:** current 0.3.20 release targets macOS 26, Apple Silicon recommended, Xcode 26+, ~12–25 GB RAM with models loaded.
 - **On-device models (default vs opt-in):** planner default is Apple Foundation Models (Apple Intelligence Macs) or LM Studio Qwen3-30B-A3B; the bundled in-process **MLX Qwen3-4B planner, Qwen3-VL-4B VLM, and TTSKit Qwen3 TTS are opt-in** (Settings → Models, default OFF). ASR auto-prefers installed WhisperKit base.en, otherwise on-device Apple Speech. TTS uses the configured backend; explicit Kokoro commands start the existing mlx-audio sidecar on demand.
 - **Optional cloud:** Direct API BYO-key (Keychain); CLI bridge; Apple Foundation Models tier.
 - **Legacy path:** LM Studio optional OpenAI-compatible localhost — `./scripts/setup-local.sh`.
