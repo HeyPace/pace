@@ -72,7 +72,10 @@ nonisolated enum PaceActionApprovalPolicy {
                     .contains(where: normalizedTranscript.contains))
     }
 
-    static func permitsObservationOnly(_ actionExecutionPlan: PaceActionExecutionPlan) -> Bool {
+    static func permitsObservationOnly(
+        _ actionExecutionPlan: PaceActionExecutionPlan,
+        configuredServers: [String: PaceMCPServerConfiguration] = PaceMCPServerRegistry.loadConfiguredServers()
+    ) -> Bool {
         actionExecutionPlan.flattenedActions.allSatisfy { action in
             if case .mcp(let toolCall) = action {
                 switch toolCall.serverName {
@@ -82,6 +85,14 @@ nonisolated enum PaceActionApprovalPolicy {
                             && toolCall.arguments["action"] == .string("list"))
                 case "playwright":
                     return ["browser_snapshot", "browser_take_screenshot"].contains(toolCall.toolName)
+                case "linear":
+                    // The official endpoint exposes read tools only. Custom commands,
+                    // extra bridge arguments, and write endpoints must fail closed.
+                    return configuredServers["linear"]
+                        == PaceMCPServerConfiguration(
+                            command: "npx",
+                            args: ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp/readonly"]
+                        )
                 default:
                     return false
                 }

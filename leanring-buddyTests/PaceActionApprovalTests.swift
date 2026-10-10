@@ -7,6 +7,26 @@ import Testing
 @testable import Pace
 
 struct PaceActionApprovalTests {
+    @Test func linearObservationRequiresTheExactOfficialReadOnlyConfiguration() {
+        let plan = PaceActionExecutionPlan.serial(actions: [
+            .mcp(PaceMCPToolCall(serverName: "linear", toolName: "list_issues", arguments: [:]))
+        ])
+        let configuration = PaceMCPServerConfiguration(
+            command: "npx",
+            args: ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp/readonly"]
+        )
+        #expect(PaceActionApprovalPolicy.permitsObservationOnly(plan, configuredServers: ["linear": configuration]))
+        #expect(!PaceActionApprovalPolicy.permitsObservationOnly(plan, configuredServers: [:]))
+        let writeConfiguration = PaceMCPServerConfiguration(
+            command: "npx", args: ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp"])
+        #expect(
+            !PaceActionApprovalPolicy.permitsObservationOnly(plan, configuredServers: ["linear": writeConfiguration]))
+        let alteredConfiguration = PaceMCPServerConfiguration(
+            command: configuration.command, args: configuration.args, env: ["NODE_OPTIONS": "--require custom.js"])
+        #expect(
+            !PaceActionApprovalPolicy.permitsObservationOnly(plan, configuredServers: ["linear": alteredConfiguration]))
+    }
+
     @Test func structuredInspectionNeedsAnAnswerButMutationAndAnswersDoNot() {
         let inventory = PaceActionTagParser.parseActions(
             from:
