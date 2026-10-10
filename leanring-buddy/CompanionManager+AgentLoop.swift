@@ -2497,7 +2497,13 @@ extension CompanionManager {
                 // docs/prds/trust-and-failures.md. The cloud bridge
                 // gets its own kind so the user knows which CLI to
                 // inspect; everything else maps onto plannerOffline.
-                if plannerClient is CloudBridgePlannerClient {
+                if (error as NSError).domain == "PaceActionScope" {
+                    speakPlainLanguageFailure(
+                        PaceFailureNarrator.kindForPlannerPipelineError(error as NSError),
+                        context: "planner-catch-action-scope",
+                        respondingToUserTranscript: transcript
+                    )
+                } else if plannerClient is CloudBridgePlannerClient {
                     speakPlainLanguageFailure(
                         .cloudBridgeUpstreamError(
                             provider: cloudBridgeUpstream.displayLabel

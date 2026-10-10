@@ -63,6 +63,7 @@ nonisolated enum PaceFailureKind: Equatable {
     /// for `.local`, Apple FM unavailable for `.appleFoundationModels`,
     /// or Direct API / cloud bridge endpoint refused the request.
     case plannerOffline
+    case observationOnlyViolation
 
     /// An auto-execute action needed a permission Pace doesn't have.
     /// The popup approval path already shows the preflight issue; this
@@ -100,6 +101,8 @@ nonisolated enum PaceFailureKind: Equatable {
     /// visibility.
     var stableLogIdentifier: String {
         switch self {
+        case .observationOnlyViolation:
+            return "observationOnlyViolation"
         case .plannerOffline:
             return "plannerOffline"
         case .missingPermission(let permission):
@@ -135,6 +138,9 @@ nonisolated struct PaceFailureNarration: Equatable {
 
 nonisolated enum PaceFailureNarrator {
     static func kindForPlannerPipelineError(_ error: NSError) -> PaceFailureKind {
+        if error.domain == "PaceActionScope", error.code == 1 {
+            return .observationOnlyViolation
+        }
         if error.domain == "com.apple.ScreenCaptureKit.SCStreamErrorDomain",
             error.code == -3801
         {
@@ -147,6 +153,13 @@ nonisolated enum PaceFailureNarrator {
     /// model call, no global state.
     static func compose(_ kind: PaceFailureKind) -> PaceFailureNarration {
         switch kind {
+        case .observationOnlyViolation:
+            return PaceFailureNarration(
+                spokenText:
+                    "Stopped an unexpected action plan because you requested observation only. The blocked action was not run.",
+                suggestion: nil
+            )
+
         case .plannerOffline:
             return PaceFailureNarration(
                 spokenText: "I can't reach the local planner right now — open Settings and switch to a different tier?",
