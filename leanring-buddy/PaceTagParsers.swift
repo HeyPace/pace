@@ -35,6 +35,7 @@ struct PointingParseResult: Equatable {
     /// Which screen the coordinate refers to (1-based), or `nil` to
     /// default to the cursor screen.
     let screenNumber: Int?
+    var usesDesktopCoordinates: Bool = false
 }
 
 enum PaceTagParsers {
@@ -122,7 +123,9 @@ enum PaceTagParsers {
     /// removed) plus the optional coordinate / label / screen number.
     nonisolated static func parsePointingCoordinates(from responseText: String) -> PointingParseResult {
         // Match [POINT:none] or [POINT:123,456:label] or [POINT:123,456:label:screen2]
-        let pattern = #"\[POINT:(?:none|(\d+)\s*,\s*(\d+)(?::([^\]:\s][^\]:]*?))?(?::screen(\d+))?)\]\s*$"#
+        let pattern =
+            #"\[POINT:(?:none|(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)"#
+            + #"(?::([^\]:\s][^\]:]*?))?(?::(?:screen(\d+)|(desktop)))?)\]\s*$"#
 
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
               let match = regex.firstMatch(
@@ -174,7 +177,20 @@ enum PaceTagParsers {
             spokenText: spokenText,
             coordinate: CGPoint(x: x, y: y),
             elementLabel: elementLabel,
-            screenNumber: screenNumber
+            screenNumber: screenNumber,
+            usesDesktopCoordinates: match.range(at: 5).location != NSNotFound
         )
+    }
+
+    nonisolated static func desktopPointingTarget(
+        coordinate: CGPoint,
+        primaryScreenHeight: CGFloat,
+        displayFrames: [CGRect]
+    ) -> (location: CGPoint, displayFrame: CGRect)? {
+        let location = CGPoint(x: coordinate.x, y: primaryScreenHeight - coordinate.y)
+        guard let displayFrame = displayFrames.first(where: { $0.contains(location) }) else {
+            return nil
+        }
+        return (location, displayFrame)
     }
 }

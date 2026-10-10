@@ -7,9 +7,70 @@
 //  chains, multi-tag order preservation, and the no-tag passthrough.
 //
 
+import CoreGraphics
 import Foundation
 import Testing
 @testable import Pace
+
+struct PaceDesktopPointingTests {
+    @Test func desktopPointPreservesSignedFractionalCoordinatesAndStripsTag() {
+        let result = PaceTagParsers.parsePointingCoordinates(
+            from: "here’s bold. [POINT:-140.5,128.25:bold button:desktop]"
+        )
+        #expect(result.spokenText == "here’s bold.")
+        #expect(result.coordinate == CGPoint(x: -140.5, y: 128.25))
+        #expect(result.elementLabel == "bold button")
+        #expect(result.screenNumber == nil)
+        #expect(result.usesDesktopCoordinates)
+    }
+
+    @Test func screenshotPointRetainsItsCoordinateSpace() {
+        let result = PaceTagParsers.parsePointingCoordinates(
+            from: "here’s bold. [POINT:153,85:bold button:screen2]"
+        )
+        #expect(result.coordinate == CGPoint(x: 153, y: 85))
+        #expect(result.screenNumber == 2)
+        #expect(!result.usesDesktopCoordinates)
+    }
+
+    @Test func optOutRemainsSafe() {
+        let result = PaceTagParsers.parsePointingCoordinates(from: "no target. [POINT:none]")
+        #expect(result.spokenText == "no target.")
+        #expect(result.coordinate == nil)
+        #expect(!result.usesDesktopCoordinates)
+    }
+
+    @Test func desktopTargetUsesSecondaryDisplayWithoutScreenshotScaling() {
+        let secondaryDisplayFrame = CGRect(x: 1728, y: 0, width: 1920, height: 1080)
+        let target = PaceTagParsers.desktopPointingTarget(
+            coordinate: CGPoint(x: 1960, y: 128),
+            primaryScreenHeight: 1117,
+            displayFrames: [CGRect(x: 0, y: 0, width: 1728, height: 1117), secondaryDisplayFrame]
+        )
+        #expect(target?.location == CGPoint(x: 1960, y: 989))
+        #expect(target?.displayFrame == secondaryDisplayFrame)
+    }
+
+    @Test func desktopTargetSupportsDisplaysAboveAndLeftOfPrimary() {
+        let displayFrame = CGRect(x: -1920, y: 1117, width: 1920, height: 1080)
+        let target = PaceTagParsers.desktopPointingTarget(
+            coordinate: CGPoint(x: -140.5, y: -128.25),
+            primaryScreenHeight: 1117,
+            displayFrames: [displayFrame]
+        )
+        #expect(target?.location == CGPoint(x: -140.5, y: 1245.25))
+        #expect(target?.displayFrame == displayFrame)
+    }
+
+    @Test func desktopTargetRejectsCoordinatesOutsideConnectedDisplays() {
+        #expect(
+            PaceTagParsers.desktopPointingTarget(
+                coordinate: CGPoint(x: 9000, y: 128),
+                primaryScreenHeight: 1117,
+                displayFrames: [CGRect(x: 0, y: 0, width: 1728, height: 1117)]
+            ) == nil)
+    }
+}
 
 @MainActor
 struct PaceActionTagParserTests {
