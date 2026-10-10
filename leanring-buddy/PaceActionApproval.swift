@@ -49,6 +49,14 @@ nonisolated struct PaceActionApprovalRequest: Equatable {
 }
 
 nonisolated enum PaceActionApprovalPolicy {
+    static func needsAnswerAfterInspection(_ actionExecutionPlan: PaceActionExecutionPlan) -> Bool {
+        !actionExecutionPlan.flattenedActions.isEmpty
+            && actionExecutionPlan.flattenedActions.allSatisfy { action in
+                guard case .mcp = action else { return false }
+                return permitsObservationOnly(.serial(actions: [action]))
+            }
+    }
+
     static func requestsObservationOnly(_ transcript: String) -> Bool {
         let normalizedTranscript = transcript.lowercased()
             .replacingOccurrences(of: "’", with: "'")

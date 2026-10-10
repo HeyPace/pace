@@ -7,6 +7,22 @@ import Testing
 @testable import Pace
 
 struct PaceActionApprovalTests {
+    @Test func structuredInspectionNeedsAnAnswerButMutationAndAnswersDoNot() {
+        let inventory = PaceActionTagParser.parseActions(
+            from:
+                #"{"spokenText":"Inspecting TextEdit.","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","tool":"window","arguments":{"action":"list","app":"TextEdit"}}}}"#
+        )
+        let inspection = PaceParsedAction.mcp(
+            PaceMCPToolCall(serverName: "peekaboo", toolName: "see", arguments: [:]))
+        #expect(PaceActionApprovalPolicy.needsAnswerAfterInspection(inventory.executionPlan))
+        #expect(PaceActionApprovalPolicy.needsAnswerAfterInspection(.serial(actions: [inspection])))
+        #expect(!PaceActionApprovalPolicy.needsAnswerAfterInspection(.serial(actions: [inspection, .type("text")])))
+        let answer = PaceActionTagParser.parseActions(
+            from:
+                #"{"spokenText":"Launch review is Tuesday at 14:00.","intent":"answer"}"#)
+        #expect(!PaceActionApprovalPolicy.needsAnswerAfterInspection(answer.executionPlan))
+    }
+
     @Test func screenExplanationCannotBecomeDictation() {
         let transcript =
             "Read my screen and explain the visible TextEdit checklist. Include the test identifier. Do not click or change anything."

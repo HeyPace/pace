@@ -2376,12 +2376,18 @@ extension CompanionManager {
                             break agentStepLoop
                         }
                     }
+                    // Inspection evidence must return to the planner before it can
+                    // answer. Keep mutations single-shot for constrained planners.
+                    let needsInspectionAnswer =
+                        PaceActionApprovalPolicy.needsAnswerAfterInspection(
+                            actionParseResult.executionPlan
+                        ) && !toolObservations.isEmpty
                     let exitLoop =
-                        plannerSignaledDone
+                        (plannerSignaledDone && !needsInspectionAnswer)
                         || actionParseResult.actions.isEmpty
                         || !actionExecutor.actionsAreEnabled
                         || userDeniedActionApproval
-                        || plannerClientForThisTurn.usesStructuredActionOutput
+                        || (plannerClientForThisTurn.usesStructuredActionOutput && !needsInspectionAnswer)
                     if exitLoop {
                         plannerLoopFinished = true
                         if plannerSignaledDone {
@@ -2415,6 +2421,8 @@ extension CompanionManager {
                     guard !Task.isCancelled else { return }
 
                     // Set up the next iteration.
+                    // Intermediate inventories must not overwrite the final answer.
+                    pendingPostActionFeedbackText = nil
                     let toolObservationPromptText = PaceActionExecutionObservation.formatForPlanner(toolObservations)
                     if toolObservationPromptText.isEmpty {
                         currentTurnUserPrompt =

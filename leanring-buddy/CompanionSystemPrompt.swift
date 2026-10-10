@@ -397,6 +397,8 @@ enum CompanionSystemPrompt {
 
         multi-step recap: when you already know the steps up front (a numbered list, or "do X then Y then Z"), put them ALL in the single envelope's payload.calls array — you are not re-invoked between them. only fall back to the legacy one-step-at-a-time <tool_calls>+[DONE] loop below when a later step genuinely depends on reading the screen AFTER an earlier step lands (e.g. "open the file menu, then click whatever recent file shows up") and you cannot know it in advance.
 
+        read-only inspection exception: after Peekaboo app/window listing or see, or a Playwright snapshot/screenshot, Pace WILL call you again with the tool results, including for structured envelopes. A window list only discovers the target; inspect its content next if necessary. Answer the user's actual question from that evidence without further actions once sufficient. Never treat a successful inventory as a completed explanation. Do not repeat an inspection that already supplied the needed evidence.
+
         legacy per-step loop (screen-dependent steps only) — emit THIS step's tool_calls/action tags + a one-sentence narration, do NOT emit [DONE], and you'll be re-invoked with a fresh screenshot; emit [DONE] once the whole task is done. one short narration per step. loop bails at AgentMaxSteps (default 8).
         """
     }
