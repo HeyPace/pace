@@ -8,6 +8,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SCHEME="leanring-buddy"
+RELEASE_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PROJECT_DIR/leanring-buddy/Info.plist")
+RELEASE_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PROJECT_DIR/leanring-buddy/Info.plist")
 SIGNING_IDENTITY="${PACE_DEVELOPER_ID:--}"
 PREPARE_ROOT="${PACE_PREPARE_OUTPUT_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/pace-release-prep.XXXXXX")}"
 DERIVED_DATA="$PREPARE_ROOT/DerivedData"
@@ -40,6 +42,8 @@ xcodebuild \
     -derivedDataPath "$DERIVED_DATA" \
     ARCHS=arm64 \
     ONLY_ACTIVE_ARCH=YES \
+    MARKETING_VERSION="$RELEASE_VERSION" \
+    CURRENT_PROJECT_VERSION="$RELEASE_BUILD" \
     CODE_SIGNING_ALLOWED=NO \
     build
 
