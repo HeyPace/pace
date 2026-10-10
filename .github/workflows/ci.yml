@@ -313,6 +313,9 @@ jobs:
       - name: Verify patched HTTP cache behavior
         run: pnpm run test:dependency-security
 
+      - name: Verify command-test outcome checks
+        run: node --test scripts/agent-testing/verify-commands.test.mjs
+
       - name: Check production duplication baseline
         run: pnpm run quality:duplication
 

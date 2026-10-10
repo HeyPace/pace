@@ -237,6 +237,9 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `PaceScreenContextScaler.swift` | ~95 | Maps VLM element coordinates between downsampled-screenshot space and full screenshot/display space, including multi-monitor origin handling. |
 | `PaceFMTurnResponse.swift` | ~110 | `@Generable` typed response envelope for the Apple Foundation Models planner path. |
 | `scripts/test-pace.sh` | ~200 | Runs the unit-test suite TCC-safely: `xcodebuild test` into an isolated `/tmp` DerivedData path with code signing disabled, so the interactive Pace.app's permissions stay untouched. Prints a structured pass/fail summary via xcresulttool. The standard way for agents to run tests. |
+| `scripts/agent-testing/commands.manifest.json` | ~30 | Bounded adapter for the shared agent-testing runner; selects non-voice command unit contracts. |
+| `scripts/agent-testing/verify-commands.mjs` | ~100 | Independent xcresult verifier requiring fresh results and all selected checks without skips or failures; does not claim native acceptance. |
+| `scripts/agent-testing/verify-commands.test.mjs` | ~45 | Fault checks for stale, missing, failed, skipped, duplicated, and inconsistent command-test results. |
 | `scripts/check-swift-format.mjs` | ~120 | Changed-line Swift format ratchet. Compares against the PR/push base, runs the Xcode toolchain's `swift-format`, and fails only diagnostics on changed Swift lines while reporting historical file debt separately. |
 | `scripts/check-unused-code.mjs` | ~50 | Periphery no-regression gate over the isolated test index. Enforces the repository-owned 80-finding review baseline rather than treating dynamically referenced Swift declarations as automatically safe to delete. |
 | `scripts/check-duplication.mjs` | ~60 | jscpd Swift production-clone gate with an exact 1,442-line / 1.7331% no-regression baseline. |
