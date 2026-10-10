@@ -140,9 +140,9 @@ extension CompanionManager {
         streamingSentenceTTSPipeline.setMutedForCurrentTurn(queuedTurn.shouldMuteTTS)
         clearDetectedElementLocation()
 
-        // Transient cursor mode: surface the overlay for the duration of
-        // this turn, mirroring the PTT press path.
-        if !isPaceCursorEnabled && !isOverlayVisible {
+        // Typed commands must be able to point even when startup did not
+        // create the overlay because voice permissions are still missing.
+        if !isOverlayVisible {
             overlayWindowManager.hasShownOverlayBefore = true
             overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
             isOverlayVisible = true
