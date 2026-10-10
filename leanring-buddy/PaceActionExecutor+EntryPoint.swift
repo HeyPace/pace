@@ -161,7 +161,7 @@ extension PaceActionExecutor {
         case .undoLastMutation:
             return undoLastMutation()
         case .pressKey(let keyName, let modifiers):
-            await pressKey(named: keyName, withModifiers: modifiers)
+            return await pressKey(named: keyName, withModifiers: modifiers)
         case .readClipboard:
             return readClipboardText()
         case .snapWindow(let snapWindowRequest):

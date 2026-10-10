@@ -325,26 +325,42 @@ extension PaceActionExecutor {
         return String(currentText[swiftRange])
     }
 
-    func pressKey(named keyName: String, withModifiers modifiers: [PaceKeyboardModifier]) async {
-        print("⌨️  Press \(keyName) with modifiers \(modifiers) (enabled: \(actionsAreEnabled))")
-        guard actionsAreEnabled else { return }
-
-        guard let virtualKeyCode = Self.virtualKeyCode(forKeyName: keyName) else {
-            print("⚠️ PaceActionExecutor: unknown key name \(keyName)")
-            return
+    @discardableResult
+    func pressKey(named keyName: String, withModifiers modifiers: [PaceKeyboardModifier]) async
+        -> PaceActionExecutionObservation
+    {
+        let toolName = "key_press"
+        guard actionsAreEnabled else {
+            return PaceActionExecutionObservation(toolName: toolName, summary: "Would press key: \(keyName)")
+        }
+        guard !Task.isCancelled else {
+            return PaceActionExecutionObservation(
+                toolName: toolName, summary: "Cancelled key press. No input was sent.")
+        }
+        guard let virtualKeyCode = Self.virtualKeyCode(forKeyName: keyName),
+            let keyDownEvent = CGEvent(keyboardEventSource: nil, virtualKey: virtualKeyCode, keyDown: true),
+            let keyUpEvent = CGEvent(keyboardEventSource: nil, virtualKey: virtualKeyCode, keyDown: false)
+        else {
+            return PaceActionExecutionObservation(
+                toolName: toolName, summary: "Could not construct key press: \(keyName). No input was sent.")
         }
 
+        let targetApplicationName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "the focused app"
         let modifierFlags = Self.cgEventFlags(forModifiers: modifiers)
-
-        if let keyDownEvent = CGEvent(keyboardEventSource: nil, virtualKey: virtualKeyCode, keyDown: true) {
-            keyDownEvent.flags = modifierFlags
-            keyDownEvent.post(tap: .cghidEventTap)
-        }
+        keyDownEvent.flags = modifierFlags
+        keyUpEvent.flags = modifierFlags
+        keyDownEvent.post(tap: .cghidEventTap)
         try? await Task.sleep(nanoseconds: 15_000_000)
-        if let keyUpEvent = CGEvent(keyboardEventSource: nil, virtualKey: virtualKeyCode, keyDown: false) {
-            keyUpEvent.flags = modifierFlags
-            keyUpEvent.post(tap: .cghidEventTap)
-        }
+        // Release even if cancellation arrives after key-down.
+        keyUpEvent.post(tap: .cghidEventTap)
+        // Give window-creating shortcuts a chance to reach the window server
+        // before the next action captures the app.
+        try? await Task.sleep(nanoseconds: 250_000_000)
+        return PaceActionExecutionObservation(
+            toolName: toolName,
+            summary:
+                "Sent key \(keyName) with modifiers \(modifiers) to \(targetApplicationName). The resulting UI change is unverified; obtain a fresh observation before repeating this shortcut. If observation fails, retry the observation rather than replaying the key press."
+        )
     }
 
     func callMCPTool(_ mcpToolCall: PaceMCPToolCall) async -> PaceActionExecutionObservation {

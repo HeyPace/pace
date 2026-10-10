@@ -28,6 +28,17 @@ struct PaceActionExecutorDryRunTests {
         #expect(!PaceActionExecutor.requiresAccessibility(.codexSession(.init(directory: "/tmp"))))
     }
 
+    @Test func dryRunKeyPressReportsThatNoInputWasSent() async {
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: false)
+        let observations = await executor.executeActionPlan(
+            .serial(actions: [.pressKey(name: "n", modifiers: [.command])]),
+            screenCaptures: []
+        )
+        #expect(observations.count == 1)
+        #expect(observations.first?.toolName == "key_press")
+        #expect(observations.first?.summary == "Would press key: n")
+    }
+
     @Test func cancelledPlanDoesNotDispatchActions() async {
         let executor = PaceActionExecutor(actionsAreEnabledOverride: false)
         let actionPlan = PaceActionExecutionPlan.serial(actions: [
