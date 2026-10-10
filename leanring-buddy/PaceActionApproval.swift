@@ -49,6 +49,39 @@ nonisolated struct PaceActionApprovalRequest: Equatable {
 }
 
 nonisolated enum PaceActionApprovalPolicy {
+    static func requestsObservationOnly(_ transcript: String) -> Bool {
+        let normalizedTranscript = transcript.lowercased()
+            .replacingOccurrences(of: "’", with: "'")
+        return [
+            "do not change anything", "don't change anything",
+            "do not click or change anything", "don't click or change anything",
+            "do not take any actions", "don't take any actions",
+        ].contains(where: normalizedTranscript.contains)
+            || normalizedTranscript.hasPrefix("read-only ")
+            || normalizedTranscript.hasPrefix("read only ")
+            || (normalizedTranscript.contains("point")
+                && ["without clicking", "do not click", "don't click"]
+                    .contains(where: normalizedTranscript.contains))
+    }
+
+    static func permitsObservationOnly(_ actionExecutionPlan: PaceActionExecutionPlan) -> Bool {
+        actionExecutionPlan.flattenedActions.allSatisfy { action in
+            if case .mcp(let toolCall) = action {
+                switch toolCall.serverName {
+                case "peekaboo":
+                    return toolCall.toolName == "see"
+                        || (["app", "window"].contains(toolCall.toolName)
+                            && toolCall.arguments["action"] == .string("list"))
+                case "playwright":
+                    return ["browser_snapshot", "browser_take_screenshot"].contains(toolCall.toolName)
+                default:
+                    return false
+                }
+            }
+            return PaceToolRegistry.definition(for: action)?.riskLevel == .readOnly
+        }
+    }
+
     static func requiresExplicitApproval(
         for actionExecutionPlan: PaceActionExecutionPlan,
         preflightIssues: [PaceToolPreflightIssue] = []

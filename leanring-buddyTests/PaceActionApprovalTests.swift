@@ -7,6 +7,39 @@ import Testing
 @testable import Pace
 
 struct PaceActionApprovalTests {
+    @Test func screenExplanationCannotBecomeDictation() {
+        let transcript =
+            "Read my screen and explain the visible TextEdit checklist. Include the test identifier. Do not click or change anything."
+        let plannerResponse =
+            #"{"intent":"dictate","payload":{"text":"read my screen and explain the visible textedit checklist"},"spokenText":"reading your screen now."}"#
+        let parsedResponse = PaceActionTagParser.parseActions(from: plannerResponse)
+
+        #expect(PaceActionApprovalPolicy.requestsObservationOnly(transcript))
+        #expect(!PaceActionApprovalPolicy.permitsObservationOnly(parsedResponse.executionPlan))
+    }
+
+    @Test func observationOnlyAllowsInspectionButRejectsMixedMutationPlans() {
+        let inspectScreen = PaceParsedAction.mcp(
+            PaceMCPToolCall(serverName: "peekaboo", toolName: "see", arguments: [:]))
+        #expect(PaceActionApprovalPolicy.permitsObservationOnly(.serial(actions: [inspectScreen])))
+        #expect(
+            !PaceActionApprovalPolicy.permitsObservationOnly(
+                .serial(actions: [inspectScreen, .type("unexpected text")])))
+        #expect(
+            !PaceActionApprovalPolicy.permitsObservationOnly(
+                .serial(actions: [
+                    .mcp(PaceMCPToolCall(serverName: "peekaboo", toolName: "click", arguments: [:]))
+                ])))
+    }
+
+    @Test func pointingWithoutClickingRequiresObservationOnly() {
+        #expect(PaceActionApprovalPolicy.requestsObservationOnly("Point at the File menu without clicking."))
+        #expect(PaceActionApprovalPolicy.requestsObservationOnly("Read my screen. Do not take any actions."))
+        #expect(!PaceActionApprovalPolicy.requestsObservationOnly("Click the File menu."))
+        #expect(!PaceActionApprovalPolicy.requestsObservationOnly("Type this checklist in TextEdit."))
+        #expect(!PaceActionApprovalPolicy.requestsObservationOnly("Type the words read only in TextEdit."))
+    }
+
     @Test func approvalRequestRequiresEnabledPreferenceAndNonEmptySummary() async throws {
         let summary = "1: [system mutation] Open app Safari"
 
