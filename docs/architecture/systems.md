@@ -110,7 +110,10 @@ screenshot controls, screen-recording controls, meeting-audio controls, and
 `codex_session` calls. These are general tools, not bundled work-startup presets.
 Chrome's saved work-profile directory is used for `profile: "work"` and ordinary
 Chrome opens. Native screen capture still requires the user to choose a region
-and press Capture/Record; meeting observations report the recorder's actual state.
+and press Capture/Record. Each launch preserves the native destination settings,
+selects the requested mode through the native toolbar using Accessibility, and
+confirms its Capture/Record label before reporting success. Immediate launch
+failures are surfaced. Meeting observations report the recorder's actual state.
 
 `codex_session` validates an existing absolute or tilde-expanded directory,
 resolves the installed Codex executable, writes a uniquely named Warp Tab Config,

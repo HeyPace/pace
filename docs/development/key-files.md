@@ -287,5 +287,5 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | Source | Approx. lines | Purpose |
 | --- | --- | --- |
 | `PaceCLIProcessRunner.swift` | ~160 | Cancellable bounded subprocess stream with UTF-8 framing and private stderr capture. |
-| `PaceDesktopRequests.swift` | ~225 | Typed browser/profile, native capture, meeting control, and folder-specific interactive Codex-in-Warp actions. |
+| `PaceDesktopRequests.swift` | ~300 | Typed browser/profile, native capture, meeting control, and folder-specific interactive Codex-in-Warp actions. |
 | `scripts/setup-whisperkit.py` | ~47 | Standard-library provisioner for pinned WhisperKit base.en assets and local tokenizer under Application Support. |

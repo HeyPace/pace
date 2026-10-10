@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import CryptoKit
 import Foundation
 
@@ -28,9 +29,9 @@ nonisolated enum PaceScreenCaptureKind: String, Sendable {
     case recording
 
     var arguments: [String] {
-        // -p restores the last capture mode and can override -J, opening
-        // recording controls for a screenshot request after a recording.
-        ["-i", "-U", "-J", self == .recording ? "video" : "selection"]
+        // Keep the native save destination; confirm the requested mode in
+        // the toolbar because macOS can restore its previous image/video mode.
+        ["-i", "-U", "-J", self == .recording ? "video" : "selection", "-p"]
     }
 }
 
@@ -193,7 +194,7 @@ extension PaceActionExecutor {
         )
     }
 
-    func openScreenCaptureControls(_ kind: PaceScreenCaptureKind) -> PaceActionExecutionObservation {
+    func openScreenCaptureControls(_ kind: PaceScreenCaptureKind) async -> PaceActionExecutionObservation {
         guard actionsAreEnabled else {
             return .init(toolName: "screen_capture", summary: "Would open \(kind.rawValue) controls.")
         }
@@ -208,11 +209,59 @@ extension PaceActionExecutor {
                 toolName: "screen_capture",
                 summary: "Failed to open screen capture controls: \(error.localizedDescription)")
         }
+        // Invalid arguments or a launch failure exit immediately; do not turn
+        // a successful Process.run into a false claim that controls opened.
+        try? await Task.sleep(for: .milliseconds(250))
+        if !process.isRunning, process.terminationStatus != 0 {
+            return .init(
+                toolName: "screen_capture",
+                summary: "Failed to open screen capture controls (exit \(process.terminationStatus)).")
+        }
+        guard await Self.selectNativeCaptureMode(kind) else {
+            return .init(
+                toolName: "screen_capture",
+                summary: "Could not confirm \(kind.rawValue) controls. "
+                    + "The native toolbar may be open; choose the requested capture mode before continuing.")
+        }
         return .init(
             toolName: "screen_capture",
             summary: kind == .recording
                 ? "Opened screen recording controls. Choose the area and press Record; use the stop button in the menu bar to finish."
                 : "Opened screenshot controls. Choose the area and press Capture.")
+    }
+
+    private static func selectNativeCaptureMode(_ kind: PaceScreenCaptureKind) async -> Bool {
+        let expectedButtonTitle = kind == .recording ? "Record" : "Capture"
+        let modeButtonIdentifier = kind == .recording ? "rectangle.dashed.badge.record" : "rectangle.dashed"
+        for _ in 0..<8 {
+            guard !Task.isCancelled else { return false }
+            if let application = NSWorkspace.shared.runningApplications.first(where: {
+                $0.bundleIdentifier == "com.apple.screencaptureui"
+            }) {
+                let applicationElement = AXUIElementCreateApplication(application.processIdentifier)
+                var pendingElements = [applicationElement]
+                var inspectedElementCount = 0
+                var modeButton: AXUIElement?
+                while !pendingElements.isEmpty, inspectedElementCount < 64 {
+                    let element = pendingElements.removeFirst()
+                    inspectedElementCount += 1
+                    if stringAttribute(kAXRoleAttribute as CFString, of: element) == kAXButtonRole {
+                        let title = stringAttribute(kAXTitleAttribute as CFString, of: element)
+                        let description = stringAttribute(kAXDescriptionAttribute as CFString, of: element)
+                        if title == expectedButtonTitle || description == expectedButtonTitle { return true }
+                        if stringAttribute(kAXIdentifierAttribute as CFString, of: element) == modeButtonIdentifier {
+                            modeButton = element
+                        }
+                    }
+                    pendingElements.append(contentsOf: children(of: element))
+                }
+                // macOS can retain its previous video/image state even with -J.
+                // Select the app-scoped toolbar mode, then observe its action label.
+                if let modeButton { _ = AXUIElementPerformAction(modeButton, kAXPressAction as CFString) }
+            }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        return false
     }
 
     func controlMeeting(_ command: PaceMeetingModeCommand) async -> PaceActionExecutionObservation {

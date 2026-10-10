@@ -177,7 +177,7 @@ extension PaceActionExecutor {
         case .codexSession(let request):
             return startCodexSession(request)
         case .screenCapture(let kind):
-            return openScreenCaptureControls(kind)
+            return await openScreenCaptureControls(kind)
         case .meeting(let command):
             return await controlMeeting(command)
         case .controlMusic(let musicCommand):
@@ -233,7 +233,7 @@ extension PaceActionExecutor {
     static func requiresAccessibility(_ action: PaceParsedAction) -> Bool {
         switch action {
         case .click, .doubleClick, .clickCandidates, .type, .setTextValue,
-            .editSelectedText, .undoLastMutation, .pressKey, .snapWindow, .scroll:
+            .editSelectedText, .undoLastMutation, .pressKey, .snapWindow, .scroll, .screenCapture:
             return true
         default:
             return false
