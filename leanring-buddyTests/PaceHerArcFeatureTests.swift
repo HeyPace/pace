@@ -378,6 +378,12 @@ final class PaceProactiveQueueDrainTests: XCTestCase {
 }
 
 final class PaceAlwaysListeningCommandParserTests: XCTestCase {
+    func testPlainStopListeningStopsCaptureWithoutPlanner() {
+        XCTAssertEqual(PaceAlwaysListeningCommandParser.parse("stop listening"), .stop)
+        XCTAssertEqual(PaceAlwaysListeningCommandParser.parse("Pace, stop listening."), .stop)
+        XCTAssertNil(PaceAlwaysListeningCommandParser.parse("explain how to stop listening"))
+    }
+
     func testStartAndStopCommandsParse() {
         XCTAssertEqual(PaceAlwaysListeningCommandParser.parse("turn on always listening"), .start)
         XCTAssertEqual(PaceAlwaysListeningCommandParser.parse("pace stop always listening"), .stop)

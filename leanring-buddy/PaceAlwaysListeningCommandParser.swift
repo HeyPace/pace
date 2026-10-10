@@ -20,6 +20,11 @@ nonisolated enum PaceAlwaysListeningCommandParser {
             .lowercased()
         guard !normalizedTranscript.isEmpty else { return nil }
 
+        let directStopCommand = normalizedTranscript.trimmingCharacters(in: .punctuationCharacters)
+        if ["stop listening", "pace stop listening", "pace, stop listening"].contains(directStopCommand) {
+            return .stop
+        }
+
         let stopPhrases = [
             "pace stop listening always",
             "pace stop always listening",

@@ -441,6 +441,23 @@ struct PaceConversationsView: View {
             .keyboardShortcut(.return, modifiers: [.command])
             .disabled(isDraftEmpty)
             .accessibilityLabel("Send message")
+
+            if companionManager.voiceState != .idle {
+                Button {
+                    companionManager.cancelCurrentTurnFromPanel()
+                } label: {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(DS.Colors.textSecondary)
+                        .frame(width: 34, height: 34)
+                }
+                .buttonStyle(.plain)
+                .paceControlHoverHighlight(cornerRadius: 17)
+                .pointerCursor()
+                .keyboardShortcut(.escape, modifiers: [.command])
+                .accessibilityLabel("Stop current request")
+                .help("Stop after the current completed action")
+            }
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 14)
