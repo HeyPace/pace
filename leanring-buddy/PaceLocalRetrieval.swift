@@ -1083,7 +1083,9 @@ final class PaceLocalRetriever: PaceRetriever {
     ) {
         let trimmedTranscript = userTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedResponse = assistantResponse.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTranscript.isEmpty, !trimmedResponse.isEmpty else { return }
+        // Tool-only steps have no narration; final follow-up answers have
+        // no additional user message. Preserve both sides across reloads.
+        guard !trimmedTranscript.isEmpty || !trimmedResponse.isEmpty else { return }
 
         let document = PaceRetrievalDocument(
             id: "pace-history-\(Int(now.timeIntervalSince1970))-\(abs(trimmedTranscript.hashValue))",

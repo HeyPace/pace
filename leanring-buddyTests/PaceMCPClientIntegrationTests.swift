@@ -116,9 +116,10 @@ struct PaceMCPClientIntegrationTests {
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["PACE_PEEKABOO_INTEGRATION"] == "1"))
     func installedPeekabooPublishesItsRealComputerUseSchemas() async throws {
+        let entry = try #require(PaceMCPServerCatalog.entry(forSlug: "peekaboo"))
         let configuration = PaceMCPServerConfiguration(
             command: "/opt/homebrew/bin/npx",
-            args: ["-y", "@steipete/peekaboo@4.9.0", "mcp"]
+            args: entry.arguments
         )
         let client = PaceMCPStdioClient(
             serverConfigurations: ["peekaboo": configuration], requestTimeoutInSeconds: 60

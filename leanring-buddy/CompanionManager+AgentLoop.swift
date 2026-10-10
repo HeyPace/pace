@@ -2099,8 +2099,14 @@ extension CompanionManager {
                     //    gets the real transcript; later steps record the
                     //    continuation placeholder so the planner sees its
                     //    own previous narration via assistant turns.
+                    // Final answers belong in chat; the internal step marker
+                    // hides its paired assistant row as well as the user row.
+                    let recordedUserTranscript =
+                        isFirstStep
+                        ? transcript
+                        : (plannerProvidedFinalFeedback ? "" : "(agent step \(stepIndex))")
                     recordConversationTurn(
-                        userTranscript: isFirstStep ? transcript : "(agent step \(stepIndex))",
+                        userTranscript: recordedUserTranscript,
                         assistantResponse: spokenText
                     )
                     // Track the latest step's spoken text so a research turn
@@ -2372,13 +2378,21 @@ extension CompanionManager {
                     let toolObservationPromptText = PaceActionExecutionObservation.formatForPlanner(toolObservations)
                     if toolObservationPromptText.isEmpty {
                         currentTurnUserPrompt =
-                            "continue the task. look at the current screen, then either emit the next step's action tags or emit [DONE] if the task is complete."
+                            """
+                            original request:
+                            \(transcript)
+
+                            continue this request. look at the current screen, then emit the next step's action tags. only emit [DONE] with a user-facing answer when the entire request is complete. if blocked, explain what remains unfinished.
+                            """
                     } else {
                         currentTurnUserPrompt = """
+                            original request:
+                            \(transcript)
+
                             tool results:
                             \(toolObservationPromptText)
 
-                            continue the task. use the tool results and current screen, then either emit the next step's tool calls/action tags or emit [DONE] if the task is complete.
+                            continue this request. use the tool results and current screen, then emit the next step's tool calls/action tags. a successful tool call alone does not complete the request. only emit [DONE] with a user-facing answer when the entire request is complete. if blocked, explain what remains unfinished.
                             """
                     }
                     voiceState = .processing
@@ -2392,6 +2406,8 @@ extension CompanionManager {
                     !pendingPostActionFeedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                     !Task.isCancelled
                 {
+                    recordConversationTurn(userTranscript: "", assistantResponse: pendingPostActionFeedbackText)
+                    noteLastSpokenReply(pendingPostActionFeedbackText)
                     responseOverlayManager.updateStreamingText(pendingPostActionFeedbackText)
                     await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: pendingPostActionFeedbackText)
                     voiceState = .responding
