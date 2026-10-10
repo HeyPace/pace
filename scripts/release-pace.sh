@@ -191,7 +191,7 @@ echo
 
 # ── Build Release ──────────────────────────────────────────────────────────
 
-rm -rf "$BUILD_DIR"
+if [ -e "$BUILD_DIR" ]; then /usr/bin/trash "$BUILD_DIR"; fi
 mkdir -p "$BUILD_DIR" "$RELEASES_DIR"
 
 echo "📦 Building Pace.app (Release)..."
@@ -259,7 +259,7 @@ package_path=""
 
     dmg_name="Pace-${next_version}.dmg"
     dmg_path="${RELEASES_DIR}/${dmg_name}"
-    rm -f "$dmg_path"
+    if [ -e "$dmg_path" ]; then /usr/bin/trash "$dmg_path"; fi
     package_name="$dmg_name"
     package_path="$dmg_path"
 
@@ -315,7 +315,7 @@ echo "🏷  Publishing GitHub Release $tag..."
 # Use hand-written release notes from docs/release-notes/<version>.md when
 # present (so the GitHub release + Sparkle changelog show a real "what's new"
 # instead of a generic string); otherwise fall back to the generic note.
-notes_file="${PROJECT_DIR}/docs/release-notes/${next_version}.md"
+notes_file="${PACE_RELEASE_NOTES_FILE:-${PROJECT_DIR}/docs/release-notes/${next_version}.md}"
 if [ -f "$notes_file" ]; then
     echo "   using release notes from ${notes_file}"
     release_notes_args=(--notes-file "$notes_file")
