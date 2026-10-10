@@ -2237,6 +2237,9 @@ extension CompanionManager {
                                 }
                             } else {
                                 userDeniedActionApproval = true
+                                pendingPostActionFeedbackText =
+                                    "Stopped because the next action was denied. Earlier actions may have completed; the full request remains unverified."
+                                currentTurnHUDState = .failed("Action denied; request not verified")
                                 appendActionResult(
                                     PaceActionRunRecord(
                                         status: .denied,
