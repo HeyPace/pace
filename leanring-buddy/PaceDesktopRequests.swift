@@ -27,6 +27,19 @@ nonisolated struct PaceBrowserOpenRequest: Equatable, Sendable {
 nonisolated enum PaceScreenCaptureKind: String, Sendable {
     case screenshot
     case recording
+    case startRecording = "start_recording"
+    case stopRecording = "stop_recording"
+    case recordingStatus = "recording_status"
+
+    var actionDescription: String {
+        switch self {
+        case .screenshot: return "Open screenshot controls"
+        case .recording: return "Open screen recording controls"
+        case .startRecording: return "Start screen recording of the main display"
+        case .stopRecording: return "Stop and save Pace's screen recording"
+        case .recordingStatus: return "Check Pace's screen recording status"
+        }
+    }
 
     var arguments: [String] {
         // Keep the native save destination; confirm the requested mode in

@@ -113,7 +113,12 @@ Chrome opens. Native screen capture still requires the user to choose a region
 and press Capture/Record. Each launch preserves the native destination settings,
 selects the requested mode through the native toolbar using Accessibility, and
 confirms its Capture/Record label before reporting success. Immediate launch
-failures are surfaced. Meeting observations report the recorder's actual state.
+failures are surfaced. `start_recording`, `stop_recording`, and `recording_status`
+use `PaceScreenRecordingController` to record the main display with the native
+`screencapture` utility, save locally under `Pace/screen-recordings`, and validate
+the movie's duration and video track before reporting a successful stop. It stops
+only its owned process; shutdown requests normal recording completion.
+Meeting observations report the recorder's actual state.
 
 `codex_session` validates an existing absolute or tilde-expanded directory,
 resolves the installed Codex executable, writes a uniquely named Warp Tab Config,
@@ -135,7 +140,7 @@ Research and Read My Screen off skip automatic screen capture entirely.
 
 Peekaboo 4.9.0 is the optional OSS Mac automation backend, installed through the existing MCP catalog with a pinned npm package. It needs Node 22+ and its own OS permissions; Pace does not provision another AI provider. The catalog explicitly starts `mcp serve --allow-foreground` so app launches and foreground UI work, with that capability disclosed on the install card and individual actions still gated by Pace approval. Existing background-only installs need removal and reinstallation from the catalog; Pace does not silently expand their configuration. Pace discovers its actual tool schemas and supplies them to the selected planner. Peekaboo observations/actions reuse one serialized MCP process because its snapshot IDs belong to that producer; changing configuration or a transport failure closes the session. Failed mutations are never replayed automatically. App exit closes owned persistent sessions. Read My Screen gates Peekaboo window inspection/control, while read-only app inventory remains available.
 
-Text commands use the same task routing and typed execution pipeline as final voice transcripts. Implicit reusable-work execution currently requires an exact authored invocation phrase. Semantic similarity and local-model ambiguity resolution no longer authorize a saved routine; uncertain requests fall through to the selected planner. Explicit automation/catalog commands still work. Native screenshot and explicit screen-recording commands open macOS controls and report that state instead of claiming a capture completed.
+Text commands use the same task routing and typed execution pipeline as final voice transcripts. Implicit reusable-work execution currently requires an exact authored invocation phrase. Semantic similarity and local-model ambiguity resolution no longer authorize a saved routine; uncertain requests fall through to the selected planner. Explicit automation/catalog commands still work. Native screenshot commands open macOS controls. Explicit start/stop/status screen-recording commands use the owned recording lifecycle; opening selection controls remains a separate action.
 
 Playwright MCP 0.0.83 supplies browser navigation, snapshots, and element actions in a separate isolated Chrome session. Its persistent producer preserves browser state across tool calls. Both Playwright and Peekaboo use the official Swift MCP SDK, pinned to revision `a0ae212ebf6eab5f754c3129608bc5557637e605` for its upstream transport concurrency fix on the current Swift compiler. Other configured servers keep their existing transport.
 

@@ -231,10 +231,15 @@ nonisolated enum PaceToolRegistry {
             aliases: [],
             schemaExample: #"{"tool":"screen_capture","mode":"screenshot"}"#,
             description:
-                "open native macOS screenshot or screen-recording controls. mode is screenshot or recording; the user chooses the region and presses Capture/Record. Never claim recording already started.",
+                """
+                mode screenshot or recording opens native region/window controls for user selection.
+                start_recording starts recording the main display immediately; stop_recording stops and saves
+                Pace's recording; recording_status reports its state. Use recording controls for a specific
+                region/window. Never confuse opening controls with starting recording.
+                """,
             riskLevel: .appOrSystemMutation,
-            executionSummary: "Opens macOS capture controls without automatically capturing.",
-            observationSummary: "Reports that the controls opened, not that recording began.",
+            executionSummary: "Opens native controls or records the main display locally.",
+            observationSummary: "Reports controls, recording state, and the validated movie path.",
             exampleUtterance: "open screen recording controls"
         ),
         PaceLocalToolDefinition(

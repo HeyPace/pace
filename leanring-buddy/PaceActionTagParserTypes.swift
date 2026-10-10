@@ -319,7 +319,7 @@ nonisolated enum PaceParsedAction {
             return
                 "Open \(request.browserName)\(request.chromeProfile.map { " (\($0) profile)" } ?? "")\(request.url.map { ": \($0)" } ?? "")"
         case .screenCapture(let kind):
-            return "Open \(kind.rawValue) controls"
+            return kind.actionDescription
         case .codexSession(let request):
             return "Start Codex in Warp at \(request.directory)"
         case .meeting:
@@ -751,12 +751,27 @@ nonisolated enum PaceFastActionCommandParser {
             "screenshot region", "select an area to screenshot", "screenshot selection",
         ]
         let screenRecordingPhrases = ["start screen recording", "record my screen", "record the screen"]
-        if screenshotPhrases.contains(normalizedTranscript) || screenRecordingPhrases.contains(normalizedTranscript) {
-            let kind: PaceScreenCaptureKind =
-                screenRecordingPhrases.contains(normalizedTranscript) ? .recording : .screenshot
+        let stopScreenRecordingPhrases = [
+            "stop screen recording", "stop recording my screen", "stop recording the screen",
+        ]
+        let captureKind: PaceScreenCaptureKind?
+        if screenshotPhrases.contains(normalizedTranscript) {
+            captureKind = .screenshot
+        } else if screenRecordingPhrases.contains(normalizedTranscript) {
+            captureKind = .startRecording
+        } else if stopScreenRecordingPhrases.contains(normalizedTranscript) {
+            captureKind = .stopRecording
+        } else if normalizedTranscript == "screen recording status" {
+            captureKind = .recordingStatus
+        } else if normalizedTranscript == "open screen recording controls" {
+            captureKind = .recording
+        } else {
+            captureKind = nil
+        }
+        if let captureKind {
             return PaceFastActionParseResult(
-                spokenText: "opening \(kind.rawValue) controls.",
-                executionPlan: .serial(actions: [.screenCapture(kind)])
+                spokenText: captureKind == .screenshot ? "opening screenshot controls." : "",
+                executionPlan: .serial(actions: [.screenCapture(captureKind)])
             )
         }
 

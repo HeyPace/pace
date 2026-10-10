@@ -690,6 +690,7 @@ extension CompanionManager {
     }
 
     func stop() {
+        PaceScreenRecordingController.shared.shutdown()
         stopCompanionRuntime()
         appUsageTracker?.stop()
         if isPostureWatchEnabled {

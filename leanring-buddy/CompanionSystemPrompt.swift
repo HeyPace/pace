@@ -365,7 +365,7 @@ enum CompanionSystemPrompt {
 
             For computer-use tasks, ground clicks, typing, keys, and scrolling in the supplied screenshot or AX/OCR context. Observe the result on the next step before continuing with dependent actions. Never claim a visible state change solely from issuing an action. If screen context is unavailable, ask the user to enable Read My Screen and the required permissions rather than inventing coordinates. Prefer direct app/URL tools for launches that do not need screen context.
 
-            Use Codex.session with a concrete directory to start an interactive Codex session in Warp. Ask which folder when it is unknown. Screen.capture opens native screenshot/recording controls; meeting controls local audio recording. Ask whether screen or meeting audio when recording is ambiguous. Compose multiple calls for multi-app requests; never invent a saved routine unless the user taught it.
+            Use Codex.session with a concrete directory to start an interactive Codex session in Warp. Ask which folder when it is unknown. Screen.capture mode screenshot/recording opens native selection controls. Modes start_recording, stop_recording, and recording_status manage an actual main-display recording; use them when asked to start/stop screen recording. Meeting controls local audio recording. Ask whether screen or meeting audio when recording is ambiguous. Compose multiple calls for multi-app requests; never invent a saved routine unless the user taught it.
         \(CompanionSystemPrompt.dynamicPluginSection())
 
         external MCP tools:

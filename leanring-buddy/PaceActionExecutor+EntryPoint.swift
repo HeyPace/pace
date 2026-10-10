@@ -177,7 +177,15 @@ extension PaceActionExecutor {
         case .codexSession(let request):
             return startCodexSession(request)
         case .screenCapture(let kind):
-            return await openScreenCaptureControls(kind)
+            guard actionsAreEnabled else {
+                return .init(toolName: "screen_capture", summary: "Would: \(kind.actionDescription).")
+            }
+            switch kind {
+            case .screenshot, .recording: return await openScreenCaptureControls(kind)
+            case .startRecording: return await PaceScreenRecordingController.shared.start()
+            case .stopRecording: return await PaceScreenRecordingController.shared.stop()
+            case .recordingStatus: return PaceScreenRecordingController.shared.status()
+            }
         case .meeting(let command):
             return await controlMeeting(command)
         case .controlMusic(let musicCommand):

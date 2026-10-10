@@ -53,8 +53,8 @@ struct PaceFastActionExpandedKeyboardTests {
     @Test func screenRecordingIsExplicitAndBareRecordingRemainsAmbiguous() {
         for phrase in ["start screen recording", "record my screen", "record the screen"] {
             let result = PaceFastActionCommandParser.parse(transcript: phrase)
-            guard case .screenCapture(.recording)? = result?.executionPlan.steps.first?.actions.first else {
-                Issue.record("Expected native screen recording controls")
+            guard case .screenCapture(.startRecording)? = result?.executionPlan.steps.first?.actions.first else {
+                Issue.record("Expected actual screen recording start")
                 continue
             }
         }

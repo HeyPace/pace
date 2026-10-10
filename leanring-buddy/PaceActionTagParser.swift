@@ -783,7 +783,9 @@ nonisolated enum PaceActionTagParser {
         case "codex.session":
             if parseCodexSessionArguments(arguments) == nil { issues.append("requires directory path") }
         case "screen.capture":
-            if parseScreenCaptureArguments(arguments) == nil { issues.append("requires mode screenshot or recording") }
+            if parseScreenCaptureArguments(arguments) == nil {
+                issues.append("requires a supported screen capture mode")
+            }
         case "meeting":
             if parseMeetingArguments(arguments) == nil { issues.append("requires action start, stop, or status") }
         case "ax.press", "click", "mouse.click",
@@ -1555,7 +1557,7 @@ nonisolated enum PaceActionTagParser {
             if parseCodexSessionArguments(mergedArguments) == nil { issues.append("requires directory path") }
         case .screenCapture:
             if parseScreenCaptureArguments(mergedArguments) == nil {
-                issues.append("requires mode screenshot or recording")
+                issues.append("requires a supported screen capture mode")
             }
         case .meeting:
             if parseMeetingArguments(mergedArguments) == nil { issues.append("requires action start, stop, or status") }
