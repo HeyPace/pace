@@ -38,84 +38,83 @@ struct PaceMCPSettingsTab: View {
     @State private var composioKeyStatusFeedback: String?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Config file")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(DS.Colors.textSecondary)
-                    Text(PaceMCPServerRegistry.configurationPaths[0].path)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(DS.Colors.textTertiary)
-                        .textSelection(.enabled)
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Config file")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(DS.Colors.textSecondary)
+                Text(PaceMCPServerRegistry.configurationPaths[0].path)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .textSelection(.enabled)
+            }
+
+            HStack(spacing: 10) {
+                paceSettingsButton("Create / Open", systemName: "doc.badge.gearshape") {
+                    createMCPConfigIfNeeded()
+                    openPrimaryMCPConfig()
+                    refreshMCPServerNames()
                 }
-
-                HStack(spacing: 10) {
-                    paceSettingsButton("Create / Open", systemName: "doc.badge.gearshape") {
-                        createMCPConfigIfNeeded()
-                        openPrimaryMCPConfig()
-                        refreshMCPServerNames()
-                    }
-                    paceSettingsButton("Reveal", systemName: "folder") {
-                        createMCPConfigIfNeeded()
-                        NSWorkspace.shared.activateFileViewerSelecting([PaceMCPServerRegistry.configurationPaths[0]])
-                        refreshMCPServerNames()
-                    }
-                    paceSettingsButton("Refresh", systemName: "arrow.clockwise") {
-                        refreshMCPServerNames()
-                    }
+                paceSettingsButton("Reveal", systemName: "folder") {
+                    createMCPConfigIfNeeded()
+                    NSWorkspace.shared.activateFileViewerSelecting([PaceMCPServerRegistry.configurationPaths[0]])
+                    refreshMCPServerNames()
                 }
+                paceSettingsButton("Refresh", systemName: "arrow.clockwise") {
+                    refreshMCPServerNames()
+                }
+            }
 
-                Divider()
-                    .background(DS.Colors.borderSubtle)
+            Divider()
+                .background(DS.Colors.borderSubtle)
 
-                mcpCatalogSection
+            mcpCatalogSection
 
-                Divider()
-                    .background(DS.Colors.borderSubtle)
+            Divider()
+                .background(DS.Colors.borderSubtle)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Configured servers")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(DS.Colors.textSecondary)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Configured servers")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(DS.Colors.textSecondary)
 
-                    if configuredMCPServerNames.isEmpty {
-                        Text(
-                            "No MCP servers configured yet. Install one from the catalog above, or use Create / Open to seed the file."
-                        )
-                        .font(.system(size: 12))
-                            .foregroundColor(DS.Colors.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else {
-                        ForEach(configuredMCPServerNames, id: \.self) { serverName in
-                            HStack(spacing: 8) {
-                                Circle()
-                                    .fill(
-                                        connectionStatusByServer[serverName]?.hasPrefix("Connected") == true
-                                            ? DS.Colors.success : DS.Colors.textTertiary
-                                    )
-                                    .frame(width: 7, height: 7)
-                                Text(serverName)
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(DS.Colors.textPrimary)
-                                Spacer()
-                                paceSettingsButton(
-                                    testingServerNames.contains(serverName) ? "Connecting…" : "Test Connection",
-                                    systemName: "bolt.horizontal.circle"
-                                ) {
-                                    testConnection(serverName: serverName)
-                                }
-                                .disabled(testingServerNames.contains(serverName))
+                if configuredMCPServerNames.isEmpty {
+                    Text(
+                        "No MCP servers configured yet. Install one from the catalog above, or use Create / Open to seed the file."
+                    )
+                    .font(.system(size: 12))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ForEach(configuredMCPServerNames, id: \.self) { serverName in
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(
+                                    connectionStatusByServer[serverName]?.hasPrefix("Connected") == true
+                                        ? DS.Colors.success : DS.Colors.textTertiary
+                                )
+                                .frame(width: 7, height: 7)
+                            Text(serverName)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(DS.Colors.textPrimary)
+                            Spacer()
+                            paceSettingsButton(
+                                testingServerNames.contains(serverName) ? "Connecting…" : "Test Connection",
+                                systemName: "bolt.horizontal.circle"
+                            ) {
+                                testConnection(serverName: serverName)
                             }
-                            .padding(.vertical, 4)
-                            if let status = connectionStatusByServer[serverName] {
-                                Text(status)
-                                    .font(.system(size: 11))
-                                    .foregroundColor(
-                                        status.hasPrefix("Connected") ? DS.Colors.success : DS.Colors.textSecondary
-                                    )
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
+                            .disabled(testingServerNames.contains(serverName))
+                            .accessibilityLabel("Test connection to \(serverName)")
+                        }
+                        .padding(.vertical, 4)
+                        if let status = connectionStatusByServer[serverName] {
+                            Text(status)
+                                .font(.system(size: 11))
+                                .foregroundColor(
+                                    status.hasPrefix("Connected") ? DS.Colors.success : DS.Colors.textSecondary
+                                )
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
@@ -141,8 +140,8 @@ struct PaceMCPSettingsTab: View {
                 "One-tap installs for the curated MCP servers Pace ships with. Adds the entry to your local config — never fetches a remote catalog. Use official service connections where available. Composio is an optional hosted integration. Installed means configured; Test Connection checks real tool availability."
             )
             .font(.system(size: 11))
-                .foregroundColor(DS.Colors.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
+            .foregroundColor(DS.Colors.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
 
             VStack(spacing: 6) {
                 ForEach(PaceMCPServerCatalog.bundledCatalog) { catalogEntry in
@@ -175,14 +174,14 @@ struct PaceMCPSettingsTab: View {
                     "Composio now handles \(installedSupersededServerSlugs.map { $0.capitalized }.sorted().joined(separator: ", ")) through a single OAuth."
                 )
                 .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
+                .foregroundColor(DS.Colors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
                 Text(
                     "You can remove the server-specific entries below when you've installed Composio and confirmed it works for you."
                 )
                 .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                .foregroundColor(DS.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
@@ -234,8 +233,8 @@ struct PaceMCPSettingsTab: View {
                 "Stored in macOS Keychain; auto-injected into the Composio subprocess at launch. Never written to the mcp-servers.json file or to any log."
             )
             .font(.system(size: 11))
-                .foregroundColor(DS.Colors.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
+            .foregroundColor(DS.Colors.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(10)
         .background(

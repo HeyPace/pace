@@ -49,6 +49,12 @@ struct PaceLocalRetrievalTests {
         CTLineDraw(CTLineCreateWithAttributedString(attributed), context)
         context.endPDFPage()
         context.closePDF()
+        // Real PDFs commonly exceed the small text-file input budget.
+        let paddedPDF = try FileHandle(forWritingTo: pdfURL)
+        try paddedPDF.seekToEnd()
+        try paddedPDF.write(contentsOf: Data(String(repeating: "% padded fixture\n", count: 5_000).utf8))
+        try paddedPDF.close()
+        #expect(try Data(contentsOf: pdfURL).count > 64_000)
         let result = PaceFileRetrievalConnector(rootURLs: [root]).loadDocuments()
         #expect(result.documents.count == 2)
         #expect(result.documents.allSatisfy { $0.text.contains("PACE RETRIEVAL 64") })
