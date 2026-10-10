@@ -16,6 +16,39 @@ import Testing
 @Suite(.serialized)
 struct PaceCLIDirectPlannerTierTests {
 
+    @Test @MainActor
+    func codexPreparesAnEditorWithoutDocumentWindowsWhenExplicitlyEnabled() async throws {
+        guard ProcessInfo.processInfo.environment["PACE_RUN_CODEX_DESKTOP_EVAL"] == "1" else { return }
+        let planner = PaceLocalCLIPlannerClient(upstream: .codex, modelIdentifier: nil)
+        let result = try await planner.generateResponseStreaming(
+            images: [],
+            systemPrompt: CompanionSystemPrompt.build(includeAgentMode: true, usesIterativeComputerUse: true),
+            conversationHistory: [],
+            userPrompt: """
+                \(CompanionSystemPrompt.desktopToolRecoveryGuidance)
+                Peekaboo window inventory: TextEdit is running. Its only listed surfaces are blank pixels_only windows with no_matching_accessibility_window, all 30 pixels high. No document window exists.
+                User request: Create a new unsaved TextEdit document using native App.launch and Key.press cmd+n, then type Pace desktop test after observing the new document. Do not modify existing files.
+                Return the next preparation actions. Do not execute tools yourself.
+                """,
+            onTextChunk: { _ in }
+        )
+        let actions = PaceActionTagParser.parseActions(from: result.text).executionPlan.flattenedActions
+        #expect(
+            actions.contains { action in
+                switch action {
+                case .openApplication, .pressKey: return true
+                default: return false
+                }
+            }, "The planner must prepare a document rather than repeatedly inspect menu-bar surfaces: \(result.text)")
+        #expect(
+            !actions.contains { action in
+                switch action {
+                case .type, .setTextValue: return true
+                default: return false
+                }
+            }, "Typing must wait for an observation of the new document")
+    }
+
     // MARK: - Factory dispatch decision (pure gate)
 
     @Test
@@ -43,7 +76,7 @@ struct PaceCLIDirectPlannerTierTests {
     }
 
     @Test
-    func factoryFallsBackToLocalWithReasonWhenConsentedButSoakNotElapsed() {
+    func factoryFallsBackWhenDirectSpawnIsUnavailable() {
         // Consent accepted but the 24-hour soak has not elapsed yet — the
         // very-first-selection case. Must still fall back to local (fail
         // safe) rather than sending a turn off-device early.
@@ -52,7 +85,7 @@ struct PaceCLIDirectPlannerTierTests {
             canRunDirectSpawnTurn: false
         )
         if case .fallBackToLocal(let reason) = decision {
-            #expect(reason.contains("soak"))
+            #expect(reason.contains("unavailable"))
         } else {
             Issue.record("expected fallBackToLocal when soak not elapsed, got \(decision)")
         }
@@ -179,19 +212,20 @@ struct PaceCLIDirectPlannerTierTests {
     }
 
     @Test
-    func directSpawnSoakGateEnforced24Hours() {
+    func foregroundConsentWorksImmediatelyWhileScheduledTasksWait() {
         withClearedAndRestoredDirectSpawnState {
             PaceCloudBridgeConsent.acceptDirectSpawnConsent()
             let firstUse = Date(timeIntervalSinceReferenceDate: 1_000_000)
             PaceCloudBridgeConsent.markDirectSpawnFirstUsedIfUnset(now: firstUse)
 
-            // 23 hours later — still gated.
+            #expect(PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: firstUse))
+            // Only unattended scheduled tasks wait for the soak.
             let twentyThreeHoursLater = firstUse.addingTimeInterval(23 * 60 * 60)
-            #expect(PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: twentyThreeHoursLater) == false)
+            #expect(PaceCloudBridgeConsent.canRunScheduledDirectSpawnTurn(now: twentyThreeHoursLater) == false)
 
             // 25 hours later — allowed.
             let twentyFiveHoursLater = firstUse.addingTimeInterval(25 * 60 * 60)
-            #expect(PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: twentyFiveHoursLater) == true)
+            #expect(PaceCloudBridgeConsent.canRunScheduledDirectSpawnTurn(now: twentyFiveHoursLater) == true)
         }
     }
 

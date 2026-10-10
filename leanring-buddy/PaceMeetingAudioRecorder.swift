@@ -18,6 +18,7 @@ import Foundation
 
 /// Errors thrown by the meeting audio recorder's mic capture setup.
 nonisolated enum PaceMeetingAudioRecorderError: Error {
+    case microphonePermissionDenied
     case cannotCreateTargetAudioFormat
     case cannotCreateSampleRateConverter
 }
@@ -96,7 +97,15 @@ final class PaceMeetingAudioRecorder {
     /// buffers in the hardware format; they are resampled to the
     /// recorder's target sample rate (16 kHz mono) before writing so
     /// the WAV header and the actual PCM data agree.
-    func startMicCapture() async throws {
+    func startMicCapture(shouldContinue: @MainActor () -> Bool = { true }) async throws {
+        // Request permission before inputNode binds the device: its implicit
+        // permission request can block the main actor waiting for the prompt.
+        let microphoneGranted = await AVCaptureDevice.requestAccess(for: .audio)
+        guard microphoneGranted else {
+            throw PaceMeetingAudioRecorderError.microphonePermissionDenied
+        }
+        try Task.checkCancellation()
+        guard shouldContinue() else { throw CancellationError() }
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)

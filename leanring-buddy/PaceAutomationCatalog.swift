@@ -207,6 +207,8 @@ nonisolated struct PaceAutomationCatalog: Equatable, Sendable {
 nonisolated enum PaceAutomationNaturalLanguageEvidence: Equatable, Sendable {
     case exactInvocationPhrase
     case semantic
+
+    var permitsImplicitExecution: Bool { self == .exactInvocationPhrase }
 }
 
 nonisolated enum PaceAutomationNaturalLanguageMatch: Equatable, Sendable {

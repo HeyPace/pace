@@ -136,6 +136,15 @@ extension PaceActionExecutor {
         _ action: PaceParsedAction,
         screenCaptures: [CompanionScreenCapture]
     ) async -> PaceActionExecutionObservation? {
+        // Input posting can silently do nothing without Accessibility access.
+        // Return a real observation so the agent does not treat that as success.
+        if actionsAreEnabled, Self.requiresAccessibility(action), !accessibilityPermissionCheck() {
+            return PaceActionExecutionObservation(
+                toolName: action.auditOperationName,
+                summary:
+                    "Could not control the app: Pace needs Accessibility permission in System Settings → Privacy & Security → Accessibility. No input was sent."
+            )
+        }
         switch action {
         case .click(let location):
             await clickAtScreenshotLocation(location, screenCaptures: screenCaptures, clickCount: 1)
@@ -152,7 +161,7 @@ extension PaceActionExecutor {
         case .undoLastMutation:
             return undoLastMutation()
         case .pressKey(let keyName, let modifiers):
-            await pressKey(named: keyName, withModifiers: modifiers)
+            return await pressKey(named: keyName, withModifiers: modifiers)
         case .readClipboard:
             return readClipboardText()
         case .snapWindow(let snapWindowRequest):
@@ -163,6 +172,22 @@ extension PaceActionExecutor {
             return await openApplication(named: applicationName)
         case .openURL(let urlString):
             return await openURL(urlString)
+        case .openBrowser(let request):
+            return await openBrowser(request)
+        case .codexSession(let request):
+            return startCodexSession(request)
+        case .screenCapture(let kind):
+            guard actionsAreEnabled else {
+                return .init(toolName: "screen_capture", summary: "Would: \(kind.actionDescription).")
+            }
+            switch kind {
+            case .screenshot, .recording: return await openScreenCaptureControls(kind)
+            case .startRecording: return await PaceScreenRecordingController.shared.start()
+            case .stopRecording: return await PaceScreenRecordingController.shared.stop()
+            case .recordingStatus: return PaceScreenRecordingController.shared.status()
+            }
+        case .meeting(let command):
+            return await controlMeeting(command)
         case .controlMusic(let musicCommand):
             return await controlMusic(musicCommand)
         case .adjustVolume(let adjustment):
@@ -211,5 +236,15 @@ extension PaceActionExecutor {
         }
 
         return nil
+    }
+
+    static func requiresAccessibility(_ action: PaceParsedAction) -> Bool {
+        switch action {
+        case .click, .doubleClick, .clickCandidates, .type, .setTextValue,
+            .editSelectedText, .undoLastMutation, .pressKey, .snapWindow, .scroll, .screenCapture:
+            return true
+        default:
+            return false
+        }
     }
 }

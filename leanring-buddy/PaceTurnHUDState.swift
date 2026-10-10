@@ -312,17 +312,24 @@ enum PaceIntentClarifier {
             "rewrite it", "rewrite that", "rewrite this",
             "fix it", "fix that", "fix this",
             "change it", "change that", "change this",
-            "make it better", "clean it up", "polish it"
+            "make it better", "clean it up", "polish it",
         ]
 
-        guard editPhrases.contains(where: normalizedTranscript.contains) else {
+        let requestPrefixes = ["", "please ", "can you ", "could you ", "would you ", "pace ", "hey pace "]
+        guard
+            requestPrefixes.contains(where: { requestPrefix in
+                editPhrases.contains { editPhrase in
+                    normalizedTranscript.hasPrefix(requestPrefix + editPhrase)
+                }
+            })
+        else {
             return false
         }
 
         let explicitTargets = [
             "selected text", "selection", "highlighted text",
             "focused field", "current field", "text field",
-            "whole field", "draft", "email", "note"
+            "whole field", "draft", "email", "note",
         ]
         return !explicitTargets.contains(where: normalizedTranscript.contains)
     }

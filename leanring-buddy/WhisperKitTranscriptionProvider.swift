@@ -2,7 +2,7 @@
 //  WhisperKitTranscriptionProvider.swift
 //  leanring-buddy
 //
-//  WhisperKit (large-v3-turbo on ANE) streaming ASR behind
+//  WhisperKit (base.en on ANE) streaming ASR behind
 //  BuddyTranscriptionProvider. Qualified 2026-06-08: ~1s warm load,
 //  ~9x realtime, transcribes "Pace" correctly without phrase biasing —
 //  which is why contextualPhrases is accepted but unused for now.
@@ -35,20 +35,20 @@ struct WhisperKitTranscriptionProviderError: LocalizedError {
 final class WhisperKitTranscriptionProvider: BuddyTranscriptionProvider {
     static let isRuntimeAvailable = true
 
-    /// Model placed by the WhisperKit qualification spike. `download: false`
+    /// Small English model provisioned by setup-whisperkit.py. `download: false`
     /// keeps Pace zero-network even on a misconfigured machine — a missing
     /// model is a thrown error, never a silent download.
-    nonisolated static let modelName = "openai_whisper-large-v3-v20240930_turbo"
+    nonisolated static let modelName = "openai_whisper-base.en"
     nonisolated static var modelFolderURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/huggingface/models/argmaxinc/whisperkit-coreml")
+            .appendingPathComponent("Library/Application Support/Pace/Models/WhisperKit")
             .appendingPathComponent(modelName)
     }
 
     let displayName = "WhisperKit"
     let requiresSpeechRecognitionPermission = false
 
-    // One pipeline per app lifetime (1.5 GB of CoreML assets); concurrent
+    // One pipeline per app lifetime (~146 MB of CoreML assets); concurrent
     // first-callers await the same load.
     private static let runtime = WhisperKitRuntimeCache()
 
@@ -88,7 +88,7 @@ private struct WhisperKitBox: @unchecked Sendable {
     let pipeline: WhisperKit
 }
 
-/// Serializes WhisperKit construction so the 1.5 GB model loads exactly once.
+/// Serializes WhisperKit construction so the model loads exactly once.
 ///
 /// Intentionally a `nonisolated` class rather than an `actor`: keeping the
 /// cache nonisolated and boxing the result means the `WhisperKit` value never
@@ -108,7 +108,8 @@ private final class WhisperKitRuntimeCache: @unchecked Sendable {
                 let folder = WhisperKitTranscriptionProvider.modelFolderURL
                 guard FileManager.default.fileExists(atPath: folder.path) else {
                     throw WhisperKitTranscriptionProviderError(
-                        message: "WhisperKit model not found at \(folder.path). Run the model install step (see pace-model-manifest)."
+                        message:
+                            "WhisperKit model not found at \(folder.path). Run python3 scripts/setup-whisperkit.py."
                     )
                 }
                 let config = WhisperKitConfig(
@@ -244,6 +245,7 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
 
     private func transcribe(_ audio: [Float]) async throws -> String {
         guard !audio.isEmpty else { return "" }
+        guard try PaceSileroSpeechDetector.containsSpeech(in: audio) else { return "" }
         var options = DecodingOptions()
         options.language = "en"          // Pace doctrine: English-only v1
         options.temperature = 0

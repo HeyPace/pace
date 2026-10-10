@@ -57,6 +57,17 @@ nonisolated struct PaceActionExecutionObservation {
     static func formatForUserFeedback(_ observations: [PaceActionExecutionObservation]) -> String? {
         let userVisibleSummaries = observations
             .map(\.summary)
+            .map { summary in
+                // Producer metadata belongs to the planner, not speech or
+                // conversation indexing (snapshots can be very large).
+                var narration = String(summary.prefix(600))
+                for marker in ["\nTool structuredContent:", "\nTool _meta:"] {
+                    if let metadataRange = narration.range(of: marker) {
+                        narration = String(narration[..<metadataRange.lowerBound])
+                    }
+                }
+                return narration
+            }
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
@@ -68,7 +79,9 @@ nonisolated struct PaceActionExecutionObservation {
             return firstSummary
         }
 
-        return "\(firstSummary), plus \(userVisibleSummaries.count - 1) more action result\(userVisibleSummaries.count == 2 ? "" : "s")."
+        // Every result matters: hiding later outcomes can conceal a failed
+        // app launch or mutation behind the first successful action.
+        return userVisibleSummaries.joined(separator: "\n")
     }
 }
 
@@ -126,6 +139,10 @@ nonisolated enum PaceParsedAction {
     case scroll(PaceScrollDirection, amountInLines: Int)
     case openApplication(String)
     case openURL(String)
+    case openBrowser(PaceBrowserOpenRequest)
+    case screenCapture(PaceScreenCaptureKind)
+    case meeting(PaceMeetingModeCommand)
+    case codexSession(PaceCodexSessionRequest)
     case controlMusic(PaceMusicCommand)
     case adjustVolume(PaceSystemAdjustment)
     case adjustBrightness(PaceSystemAdjustment)
@@ -170,6 +187,10 @@ nonisolated enum PaceParsedAction {
         case .scroll: return "scroll"
         case .openApplication: return "open_app"
         case .openURL: return "open_url"
+        case .openBrowser: return "open_browser"
+        case .screenCapture: return "screen_capture"
+        case .meeting: return "meeting"
+        case .codexSession: return "codex_session"
         case .controlMusic: return "music"
         case .adjustVolume: return "volume"
         case .adjustBrightness: return "brightness"
@@ -202,6 +223,14 @@ nonisolated enum PaceParsedAction {
             return appName
         case .openURL(let urlString):
             return String(urlString.prefix(120))
+        case .openBrowser(let request):
+            return request.browserName
+        case .screenCapture(let kind):
+            return kind.rawValue
+        case .codexSession(let request):
+            return request.directory
+        case .meeting:
+            return "meeting recording"
         case .runShortcut(let name):
             return name
         case .openMessages(let request):
@@ -286,6 +315,15 @@ nonisolated enum PaceParsedAction {
             return "Open app: \(applicationName)"
         case .openURL(let urlString):
             return "Open URL: \(urlString)"
+        case .openBrowser(let request):
+            return
+                "Open \(request.browserName)\(request.chromeProfile.map { " (\($0) profile)" } ?? "")\(request.url.map { ": \($0)" } ?? "")"
+        case .screenCapture(let kind):
+            return kind.actionDescription
+        case .codexSession(let request):
+            return "Start Codex in Warp at \(request.directory)"
+        case .meeting:
+            return "Control meeting audio recording"
         case .controlMusic(let musicCommand):
             return "Control Music: \(musicCommand.rawValue)"
         case .adjustVolume(let adjustment):
@@ -673,6 +711,7 @@ nonisolated enum PaceFastActionCommandParser {
         "spotify": "Spotify",
         "system settings": "System Settings",
         "terminal": "Terminal",
+        "warp": "Warp",
         "visual studio code": "Visual Studio Code",
         "vs code": "Visual Studio Code",
         "vscode": "Visual Studio Code",
@@ -703,6 +742,36 @@ nonisolated enum PaceFastActionCommandParser {
             return PaceFastActionParseResult(
                 spokenText: "editing selection.",
                 executionPlan: .serial(actions: [.editSelectedText(voiceEditRequest)])
+            )
+        }
+
+        let screenshotPhrases = [
+            "screenshot", "take screenshot", "take a screenshot", "capture screen", "capture the screen",
+            "take screen capture", "screenshot a region", "capture a region", "capture region",
+            "screenshot region", "select an area to screenshot", "screenshot selection",
+        ]
+        let screenRecordingPhrases = ["start screen recording", "record my screen", "record the screen"]
+        let stopScreenRecordingPhrases = [
+            "stop screen recording", "stop recording my screen", "stop recording the screen",
+        ]
+        let captureKind: PaceScreenCaptureKind?
+        if screenshotPhrases.contains(normalizedTranscript) {
+            captureKind = .screenshot
+        } else if screenRecordingPhrases.contains(normalizedTranscript) {
+            captureKind = .startRecording
+        } else if stopScreenRecordingPhrases.contains(normalizedTranscript) {
+            captureKind = .stopRecording
+        } else if normalizedTranscript == "screen recording status" {
+            captureKind = .recordingStatus
+        } else if normalizedTranscript == "open screen recording controls" {
+            captureKind = .recording
+        } else {
+            captureKind = nil
+        }
+        if let captureKind {
+            return PaceFastActionParseResult(
+                spokenText: captureKind == .screenshot ? "opening screenshot controls." : "",
+                executionPlan: .serial(actions: [.screenCapture(captureKind)])
             )
         }
 
@@ -752,7 +821,11 @@ nonisolated enum PaceFastActionCommandParser {
         if let urlString = parseURLCommand(from: normalizedTranscript) {
             return PaceFastActionParseResult(
                 spokenText: "opening \(displayNameForOpenedURL(urlString)).",
-                executionPlan: .serial(actions: [.openURL(urlString)])
+                executionPlan: .serial(actions: [
+                    requestedBrowser(in: normalizedTranscript).map {
+                        .openBrowser(.init(browserName: $0, url: urlString, chromeProfile: nil))
+                    } ?? .openURL(urlString)
+                ])
             )
         }
 
@@ -832,18 +905,6 @@ nonisolated enum PaceFastActionCommandParser {
                 keyName: "q",
                 modifiers: [.control, .command],
                 spokenText: "locking."
-            )
-        case "screenshot", "take a screenshot", "capture screen", "capture the screen", "take screen capture":
-            return FastKeyPressCommand(
-                keyName: "3",
-                modifiers: [.command, .shift],
-                spokenText: "screenshot taken."
-            )
-        case "screenshot a region", "capture a region", "capture region", "screenshot region", "select an area to screenshot", "screenshot selection":
-            return FastKeyPressCommand(
-                keyName: "4",
-                modifiers: [.command, .shift],
-                spokenText: "select the area."
             )
         case "hide window", "hide this app", "hide app", "hide the app", "command h", "cmd h", "press command h":
             return FastKeyPressCommand(
@@ -1113,9 +1174,22 @@ nonisolated enum PaceFastActionCommandParser {
         return nil
     }
 
-    /// Drops a trailing " on/in/using <browser>" so "open hacker news on
-    /// chrome" → "hacker news". Pace opens URLs in the user's preferred
-    /// browser, so the specific browser name is best-effort, not binding.
+    /// Preserve an explicitly named browser while the URL parser strips
+    /// the suffix from the site name.
+    private static func requestedBrowser(in transcript: String) -> String? {
+        let browsers = [
+            "chrome": "Google Chrome", "google chrome": "Google Chrome", "safari": "Safari",
+            "arc": "Arc", "firefox": "Firefox", "edge": "Microsoft Edge", "brave": "Brave Browser",
+        ]
+        for connector in [" on ", " in ", " using "] {
+            guard let range = transcript.range(of: connector, options: .backwards) else { continue }
+            if let browser = browsers[String(transcript[range.upperBound...]).trimmingCharacters(in: .whitespaces)] {
+                return browser
+            }
+        }
+        return nil
+    }
+
     private static func strippingBrowserSuffix(from target: String) -> String {
         let browserNames: Set<String> = [
             "chrome", "google chrome", "safari", "arc", "firefox",

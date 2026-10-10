@@ -502,6 +502,39 @@ struct PaceLocalRetrievalTests {
         #expect(contextBlock?.contains("can't see") != true)
     }
 
+    @Test func assistantOnlyCompletionIsPersistedForChatReload() async throws {
+        let store = PaceInMemoryRetrievalStore()
+        let retriever = PaceLocalRetriever(store: store, appliesPersistedSourcePreferences: false)
+        retriever.recordPaceHistory(userTranscript: "", assistantResponse: "Created the test document.")
+
+        let document = try #require(store.documents(withSource: .paceHistory).first)
+        let restored = PaceLocalChatHistoryReader.splitUserAndPace(document.text)
+        #expect(restored.userText.isEmpty)
+        #expect(restored.paceText == "Created the test document.")
+    }
+
+    @Test func toolOnlyRequestIsPersistedBeforeItsFinalAnswer() async throws {
+        let store = PaceInMemoryRetrievalStore()
+        let retriever = PaceLocalRetriever(store: store, appliesPersistedSourcePreferences: false)
+        retriever.recordPaceHistory(userTranscript: "Open a test document", assistantResponse: "")
+
+        let document = try #require(store.documents(withSource: .paceHistory).first)
+        let restored = PaceLocalChatHistoryReader.splitUserAndPace(document.text)
+        #expect(restored.userText == "Open a test document")
+        #expect(restored.paceText.isEmpty)
+    }
+
+    @Test func longSnapshotTokensCannotTrapChunkingInTheSameOverlap() {
+        let document = PaceRetrievalDocument(
+            id: "snapshot", source: .paceHistory, title: "Snapshot",
+            text: "UI state captured. Tool metadata: " + String(repeating: "x", count: 3_000) + " finished"
+        )
+        let chunks = PaceInMemoryRetrievalStore.makeDocumentChunksForTesting(document)
+        #expect(chunks.count > 1)
+        #expect(chunks.count < 10)
+        #expect(chunks.last?.hasSuffix("finished") == true)
+    }
+
     private final class StubEmbedder: PaceTextEmbedding {
         /// Maps each text to a vector; unknown texts embed to the zero axis.
         let vectorsByText: [String: [Float]]

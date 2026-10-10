@@ -14,6 +14,8 @@
 		BB00CC072F6500070039DA55 /* MLXEmbedders in Frameworks */ = {isa = PBXBuildFile; productRef = BB00CC042F6500040039DA55 /* MLXEmbedders */; };
 		BB00CC092F6500090039DA55 /* MLXVLM in Frameworks */ = {isa = PBXBuildFile; productRef = BB00CC082F6500080039DA55 /* MLXVLM */; };
 		BB00CC0B2F65000B0039DA55 /* TTSKit in Frameworks */ = {isa = PBXBuildFile; productRef = BB00CC0A2F65000A0039DA55 /* TTSKit */; };
+		CC00DD000000000000000003 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = CC00DD000000000000000002 /* MCP */; };
+		CC00EE000000000000000003 /* SileroVAD in Frameworks */ = {isa = PBXBuildFile; productRef = CC00EE000000000000000002 /* SileroVAD */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -97,6 +99,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				2DD12CCA2FC82FE8009F8723 /* WhisperKit in Frameworks */,
+				CC00EE000000000000000003 /* SileroVAD in Frameworks */,
+				CC00DD000000000000000003 /* MCP in Frameworks */,
 				AA00BB032F6500030039DA55 /* Sparkle in Frameworks */,
 				BB00CC052F6500050039DA55 /* MLXLLM in Frameworks */,
 				BB00CC062F6500060039DA55 /* MLXLMCommon in Frameworks */,
@@ -134,8 +138,8 @@
 			isa = PBXGroup;
 			children = (
 				28F22CC12F56440300A0FC59 /* leanring-buddy */,
-				C0A000012FD0000100000001 /* PaceShared */,
 				C0A000032FD0000100000003 /* PacePad */,
+				C0A000012FD0000100000001 /* PaceShared */,
 				28F22CCF2F56440300A0FC59 /* leanring-buddyTests */,
 				28F22CD92F56440300A0FC59 /* leanring-buddyUITests */,
 				28F22CC02F56440300A0FC59 /* Products */,
@@ -176,6 +180,8 @@
 			packageProductDependencies = (
 				AA00BB022F6500020039DA55 /* Sparkle */,
 				AA00BB082F6500080039DA55 /* WhisperKit */,
+				CC00EE000000000000000002 /* SileroVAD */,
+				CC00DD000000000000000002 /* MCP */,
 				BB00CC022F6500020039DA55 /* MLXLLM */,
 				BB00CC032F6500030039DA55 /* MLXLMCommon */,
 				BB00CC042F6500040039DA55 /* MLXEmbedders */,
@@ -293,6 +299,8 @@
 			packageReferences = (
 				AA00BB012F6500010039DA55 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				AA00BB072F6500070039DA55 /* XCRemoteSwiftPackageReference "WhisperKit" */,
+				CC00EE000000000000000001 /* XCRemoteSwiftPackageReference "silero-vad-swift" */,
+				CC00DD000000000000000001 /* XCRemoteSwiftPackageReference "swift-sdk" */,
 				BB00CC012F6500010039DA55 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -811,6 +819,22 @@
 				minimumVersion = 2.29.1;
 			};
 		};
+		CC00DD000000000000000001 /* XCRemoteSwiftPackageReference "swift-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/modelcontextprotocol/swift-sdk";
+			requirement = {
+				kind = revision;
+				revision = a0ae212ebf6eab5f754c3129608bc5557637e605;
+			};
+		};
+		CC00EE000000000000000001 /* XCRemoteSwiftPackageReference "silero-vad-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/paean-ai/silero-vad-swift";
+			requirement = {
+				kind = exactVersion;
+				version = 1.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -848,6 +872,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = AA00BB072F6500070039DA55 /* XCRemoteSwiftPackageReference "WhisperKit" */;
 			productName = TTSKit;
+		};
+		CC00DD000000000000000002 /* MCP */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC00DD000000000000000001 /* XCRemoteSwiftPackageReference "swift-sdk" */;
+			productName = MCP;
+		};
+		CC00EE000000000000000002 /* SileroVAD */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC00EE000000000000000001 /* XCRemoteSwiftPackageReference "silero-vad-swift" */;
+			productName = SileroVAD;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

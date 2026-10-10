@@ -584,10 +584,30 @@ nonisolated enum PaceActionTagParser {
         switch normalizedActionName {
         case "app.launch", "app.open", "open.app":
             let applicationName = firstStringValue(for: ["name", "app"], in: arguments)
-            return applicationName.map { .openApplication($0) }
+            guard let applicationName else { return nil }
+            if let profile = firstStringValue(for: ["profile"], in: arguments) {
+                return .openBrowser(.init(browserName: applicationName, url: nil, chromeProfile: profile))
+            }
+            return .openApplication(applicationName)
         case "app.openurl", "open.url", "url.open":
             let urlString = firstStringValue(for: ["url", "text"], in: arguments)
-            return urlString.map { .openURL($0) }
+            guard let urlString else { return nil }
+            if let browser = firstStringValue(for: ["browser"], in: arguments) {
+                return .openBrowser(
+                    .init(
+                        browserName: browser, url: urlString,
+                        chromeProfile: firstStringValue(for: ["profile"], in: arguments)))
+            }
+            if let profile = firstStringValue(for: ["profile"], in: arguments) {
+                return .openBrowser(.init(browserName: "Google Chrome", url: urlString, chromeProfile: profile))
+            }
+            return .openURL(urlString)
+        case "codex.session":
+            return parseCodexSessionArguments(arguments)
+        case "screen.capture":
+            return parseScreenCaptureArguments(arguments)
+        case "meeting":
+            return parseMeetingArguments(arguments)
         case "ax.press", "click", "mouse.click":
             if let clickCandidateSet = parseClickCandidateSet(fromParameterizedArguments: arguments, clickCount: 1) {
                 return .clickCandidates(clickCandidateSet)
@@ -760,6 +780,14 @@ nonisolated enum PaceActionTagParser {
             if !hasNonEmptyString(for: ["url", "text"], in: arguments) {
                 issues.append("requires url")
             }
+        case "codex.session":
+            if parseCodexSessionArguments(arguments) == nil { issues.append("requires directory path") }
+        case "screen.capture":
+            if parseScreenCaptureArguments(arguments) == nil {
+                issues.append("requires a supported screen capture mode")
+            }
+        case "meeting":
+            if parseMeetingArguments(arguments) == nil { issues.append("requires action start, stop, or status") }
         case "ax.press", "click", "mouse.click",
              "ax.doublepress", "double.click", "mouse.doubleclick":
             if screenshotPixelLocation(from: arguments) == nil
@@ -1268,9 +1296,27 @@ nonisolated enum PaceActionTagParser {
                 .joined(separator: ":")
             )
         case .openApp:
+            if let profile = firstStringValue(for: ["profile"], in: mergeMCPArguments(from: toolCall)) {
+                return .openBrowser(
+                    .init(browserName: toolCall.app ?? toolCall.name ?? "", url: nil, chromeProfile: profile))
+            }
             return parseOpenApplicationPayload(toolCall.app ?? toolCall.name ?? "")
         case .openURL:
+            let arguments = mergeMCPArguments(from: toolCall)
+            let profile = firstStringValue(for: ["profile"], in: arguments)
+            if let browser = firstStringValue(for: ["browser"], in: arguments)
+                ?? (profile == nil ? nil : "Google Chrome")
+            {
+                return .openBrowser(
+                    .init(browserName: browser, url: toolCall.url ?? toolCall.text, chromeProfile: profile))
+            }
             return parseOpenURLPayload(toolCall.url ?? toolCall.text ?? "")
+        case .codexSession:
+            return parseCodexSessionArguments(mergeMCPArguments(from: toolCall))
+        case .screenCapture:
+            return parseScreenCaptureArguments(mergeMCPArguments(from: toolCall))
+        case .meeting:
+            return parseMeetingArguments(mergeMCPArguments(from: toolCall))
         case .music:
             return parseMusicPayload(toolCall.command ?? "")
         case .volume:
@@ -1507,11 +1553,42 @@ nonisolated enum PaceActionTagParser {
             if parseDrawAnnotationRequest(from: mergedArguments) == nil {
                 issues.append("requires at least one valid shape")
             }
+        case .codexSession:
+            if parseCodexSessionArguments(mergedArguments) == nil { issues.append("requires directory path") }
+        case .screenCapture:
+            if parseScreenCaptureArguments(mergedArguments) == nil {
+                issues.append("requires a supported screen capture mode")
+            }
+        case .meeting:
+            if parseMeetingArguments(mergedArguments) == nil { issues.append("requires action start, stop, or status") }
         case .clearAnnotations:
             break
         }
 
         return issues
+    }
+
+    private static func parseCodexSessionArguments(_ arguments: [String: PaceMCPJSONValue]) -> PaceParsedAction? {
+        guard let directory = firstStringValue(for: ["directory", "path"], in: arguments),
+            directory.hasPrefix("/") || directory.hasPrefix("~/")
+        else { return nil }
+        return .codexSession(.init(directory: directory))
+    }
+
+    private static func parseScreenCaptureArguments(_ arguments: [String: PaceMCPJSONValue]) -> PaceParsedAction? {
+        guard let rawMode = firstStringValue(for: ["mode"], in: arguments),
+            let kind = PaceScreenCaptureKind(rawValue: rawMode.lowercased())
+        else { return nil }
+        return .screenCapture(kind)
+    }
+
+    private static func parseMeetingArguments(_ arguments: [String: PaceMCPJSONValue]) -> PaceParsedAction? {
+        switch firstStringValue(for: ["action"], in: arguments)?.lowercased() {
+        case "start": return .meeting(.start(profileSlug: firstStringValue(for: ["profile"], in: arguments)))
+        case "stop": return .meeting(.stop)
+        case "status": return .meeting(.status)
+        default: return nil
+        }
     }
 
     private static func hasNonEmptyString(

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>AgentMaxSteps</key>
-	<string>8</string>
+	<string>16</string>
 	<key>AlwaysRunLocalVLMRegardlessOfTranscript</key>
 	<string>false</string>
 	<key>BundledMLXEmbedderModelIdentifier</key>

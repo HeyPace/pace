@@ -50,11 +50,32 @@ struct PaceMCPServerCatalogEntry: Equatable, Identifiable {
     var id: String { slug }
 }
 
-/// Reasonable starter catalog. Six servers, matches the PRD list.
+/// Optional OSS and hosted integrations installed through the existing settings cards.
 /// Keep this in sync with `mcp-servers.example.json` so users editing
 /// the file by hand see the same canonical commands.
 enum PaceMCPServerCatalog {
     static let bundledCatalog: [PaceMCPServerCatalogEntry] = [
+        PaceMCPServerCatalogEntry(
+            slug: "playwright",
+            displayName: "Playwright browser",
+            description: "Open-source browser navigation, page reading, and form control.",
+            setupNote: "Uses installed Chrome in a separate session. Requires Node 18+. Starts only when requested.",
+            setupDocsURL: URL(string: "https://github.com/microsoft/playwright-mcp"),
+            command: "npx",
+            arguments: ["-y", "@playwright/mcp@0.0.83", "--browser", "chrome", "--isolated"],
+            environment: [:]
+        ),
+        PaceMCPServerCatalogEntry(
+            slug: "peekaboo",
+            displayName: "Peekaboo computer use",
+            description: "Open-source Mac observation and app-scoped UI control. Codex plans; Peekaboo acts.",
+            setupNote:
+                "Enables foreground Mac control through Pace approvals. Requires Node 22+ and Peekaboo's Screen Recording and Accessibility permissions. No separate AI provider is needed.",
+            setupDocsURL: URL(string: "https://github.com/openclaw/Peekaboo/blob/main/docs/MCP.md"),
+            command: "npx",
+            arguments: ["-y", "@steipete/peekaboo@4.9.0", "mcp", "serve", "--allow-foreground"],
+            environment: [:]
+        ),
         PaceMCPServerCatalogEntry(
             slug: "filesystem",
             displayName: "Filesystem",

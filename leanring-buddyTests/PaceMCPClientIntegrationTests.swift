@@ -46,6 +46,7 @@ private enum PaceMCPFixture {
     }
 }
 
+@Suite(.serialized)
 struct PaceMCPClientIntegrationTests {
     @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
     func echoToolCallRoundTripsTextThroughFixtureServer() async throws {
@@ -61,13 +62,19 @@ struct PaceMCPClientIntegrationTests {
     }
 
     @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
-    func toolResultWithIsErrorIsSummarizedAsErrorObservation() async throws {
-        let fixtureClient = PaceMCPFixture.makeFixtureClient()
-        let observationText = try await fixtureClient.callTool(
-            PaceMCPToolCall(serverName: "fixture", toolName: "fail", arguments: [:])
+    func toolResultWithIsErrorCannotBeReportedAsSuccessfulAction() async throws {
+        let configuration = PaceMCPServerConfiguration(
+            command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3", args: [PaceMCPFixture.fixtureScriptPath]
         )
-        #expect(observationText.hasPrefix("MCP tool reported an error:"))
-        #expect(observationText.contains("intentional fixture failure"))
+        for serverName in ["fixture", "peekaboo"] {
+            let client = PaceMCPStdioClient(serverConfigurations: [serverName: configuration])
+            do {
+                _ = try await client.callTool(.init(serverName: serverName, toolName: "fail", arguments: [:]))
+                Issue.record("Expected the \(serverName) transport to reject isError=true")
+            } catch PaceMCPClientError.rpcError(let message) {
+                #expect(message.contains("intentional fixture failure"))
+            }
+        }
     }
 
     @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
@@ -87,6 +94,81 @@ struct PaceMCPClientIntegrationTests {
         } catch {
             Issue.record("Expected PaceMCPClientError, got \(error)")
         }
+    }
+
+    @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func peekabooDiscoveryAndActionsKeepTheSameProducerProcess() async throws {
+        let configuration = PaceMCPServerConfiguration(
+            command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3",
+            args: [PaceMCPFixture.fixtureScriptPath]
+        )
+        let client = PaceMCPStdioClient(serverConfigurations: ["peekaboo": configuration])
+        let catalog = try await client.peekabooToolCatalog()
+        #expect(catalog.contains("inputSchema"))
+        #expect(catalog.contains("app"))
+        #expect(!catalog.contains("analyze"))
+        let identityRequest = PaceMCPToolCall(serverName: "peekaboo", toolName: "session_identity", arguments: [:])
+        let firstProducer = try await client.callTool(identityRequest)
+        let secondProducer = try await client.callTool(identityRequest)
+        #expect(firstProducer == secondProducer)
+        #expect(Int(firstProducer) != nil)
+        let evidence = try await client.callTool(
+            .init(
+                serverName: "peekaboo", toolName: "echo", arguments: ["text": .string("tool summary")]
+            ))
+        #expect(evidence.contains("structured evidence"))
+        #expect(evidence.contains("producer-bound-fixture"))
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["PACE_PEEKABOO_INTEGRATION"] == "1"))
+    func installedPeekabooPublishesItsRealComputerUseSchemas() async throws {
+        let entry = try #require(PaceMCPServerCatalog.entry(forSlug: "peekaboo"))
+        let configuration = PaceMCPServerConfiguration(
+            command: "/opt/homebrew/bin/npx",
+            args: entry.arguments
+        )
+        let client = PaceMCPStdioClient(
+            serverConfigurations: ["peekaboo": configuration], requestTimeoutInSeconds: 60
+        )
+        let catalog = try await client.peekabooToolCatalog()
+        for toolName in ["see", "click", "type", "press", "app", "window"] {
+            #expect(catalog.contains("\"name\":\"" + toolName + "\""))
+        }
+        #expect(catalog.contains("inputSchema"))
+        #expect(!catalog.contains("\"name\":\"analyze\""))
+    }
+
+    @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func sdkTimeoutClosesTheProducerWithoutReplayingTheCall() async throws {
+        let configuration = PaceMCPServerConfiguration(
+            command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3", args: [PaceMCPFixture.fixtureScriptPath]
+        )
+        let client = PaceMCPStdioClient(
+            serverConfigurations: ["playwright": configuration], requestTimeoutInSeconds: 0.5)
+        let identity = PaceMCPToolCall(serverName: "playwright", toolName: "session_identity", arguments: [:])
+        let firstProducer = try await client.callTool(identity)
+        do {
+            _ = try await client.callTool(
+                .init(serverName: "playwright", toolName: "sleep", arguments: ["seconds": .number(5)]))
+            Issue.record("Expected the slow SDK request to time out")
+        } catch PaceMCPClientError.requestTimedOut {}
+        let newProducer = try await client.callTool(identity)
+        #expect(firstProducer != newProducer)
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["PACE_OSS_BROWSER_INTEGRATION"] == "1"))
+    func installedPlaywrightPublishesRealBrowserSchemas() async throws {
+        let configuration = PaceMCPServerConfiguration(
+            command: "/opt/homebrew/bin/npx",
+            args: ["-y", "@playwright/mcp@0.0.83", "--browser", "chrome", "--isolated"]
+        )
+        let client = PaceMCPStdioClient(
+            serverConfigurations: ["playwright": configuration], requestTimeoutInSeconds: 60)
+        let catalog = try await client.playwrightToolCatalog()
+        for name in ["browser_navigate", "browser_snapshot", "browser_click", "browser_type", "browser_fill_form"] {
+            #expect(catalog.contains("\"name\":\"" + name + "\""))
+        }
+        #expect(!catalog.contains("browser_run_code"))
     }
 
     @Test func starterConfigurationSeedsAppleMCPServer() throws {

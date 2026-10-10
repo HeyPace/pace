@@ -19,6 +19,7 @@ SETUP_LOCAL.md's "verify your MCP setup" recipe.
 """
 
 import json
+import os
 import sys
 import time
 
@@ -50,8 +51,14 @@ def handle_tools_call(message):
             "id": message["id"],
             "result": {
                 "content": [{"type": "text", "text": arguments.get("text", "")}],
+                "structuredContent": {"fixture_value": "structured evidence"},
+                "_meta": {"snapshot": "producer-bound-fixture"},
             },
         })
+    elif tool_name == "session_identity":
+        respond({"jsonrpc": "2.0", "id": message["id"], "result": {
+            "content": [{"type": "text", "text": str(os.getpid())}],
+        }})
     elif tool_name == "fail":
         respond({
             "jsonrpc": "2.0",
@@ -95,6 +102,13 @@ def main():
         method = message.get("method", "")
         if method == "initialize":
             handle_initialize(message)
+        elif method == "tools/list":
+            respond({"jsonrpc": "2.0", "id": message["id"], "result": {"tools": [
+                {"name": "app", "description": "Fixture app inventory", "inputSchema": {
+                    "type": "object", "properties": {"action": {"type": "string"}},
+                }},
+                {"name": "analyze", "description": "Must not be offered to the planner", "inputSchema": {"type": "object"}},
+            ]}})
         elif method == "tools/call":
             handle_tools_call(message)
         else:

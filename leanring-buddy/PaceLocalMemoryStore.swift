@@ -11,6 +11,7 @@ import Foundation
 
 nonisolated enum PaceLocalMemoryKey: String, Equatable {
     case preferredBrowser
+    case preferredChromeProfile
     case preferredNotesApp
     case defaultReminderList
     /// Music playlist name the user wants Pace to start during a
@@ -40,6 +41,7 @@ nonisolated enum PaceLocalMemoryStore {
     static var summaryText: String {
         let storedPairs = [
             ("Browser", string(for: .preferredBrowser)),
+            ("Chrome work profile", string(for: .preferredChromeProfile)),
             ("Notes", string(for: .preferredNotesApp)),
             ("Reminders", string(for: .defaultReminderList)),
         ].compactMap { label, value in
@@ -63,6 +65,14 @@ nonisolated enum PaceLocalMemoryCommandParser {
     static func parse(_ transcript: String) -> PaceLocalMemoryCommand? {
         let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowercaseTranscript = trimmedTranscript.lowercased()
+
+        if let chromeProfile = valueAfterAnyPrefix(
+            in: trimmedTranscript,
+            prefixes: ["my chrome work profile is ", "remember my chrome work profile is "],
+            suffixes: []
+        ) {
+            return .set(.preferredChromeProfile, chromeProfile)
+        }
 
         if lowercaseTranscript.contains("forget preferred browser")
             || lowercaseTranscript.contains("forget my preferred browser") {

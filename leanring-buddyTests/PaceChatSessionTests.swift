@@ -359,6 +359,21 @@ struct PaceChatSessionTests {
 
     // MARK: - Local history reader text parsing
 
+    @Test func finalAgentAnswerRemainsVisibleWithoutAnotherUserMessage() async throws {
+        let session = makeSession(
+            historySource: FakeHistorySource(),
+            submitter: FakeTranscriptSubmitter()
+        )
+        session.appendCompletedTurn(userTranscript: "Open a test document", assistantResponse: "")
+        session.appendCompletedTurn(userTranscript: "(agent step 2)", assistantResponse: "Intermediate tool result")
+        session.appendCompletedTurn(userTranscript: "", assistantResponse: "Created the test document.")
+
+        #expect(session.userFacingMessages.map(\.body) == ["Open a test document", "Created the test document."])
+        let restored = PaceLocalChatHistoryReader.splitUserAndPace("User: \nPace: Created the test document.")
+        #expect(restored.userText.isEmpty)
+        #expect(restored.paceText == "Created the test document.")
+    }
+
     @Test func localHistoryReaderSplitsUserAndPaceFromDocumentText() async throws {
         let (userText, paceText) = PaceLocalChatHistoryReader.splitUserAndPace(
             "User: hi there\nPace: hi back"

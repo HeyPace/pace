@@ -94,6 +94,16 @@ extension CompanionManager {
         )
         isChatModeMutedForCurrentTurn = false
 
+        // A permission prompt can suspend meeting startup. Its stop command
+        // must cancel that lifecycle rather than queue behind the pending start.
+        if PaceMeetingModeController.shared.state == .starting,
+            PaceMeetingModeCommandParser.parse(transcript) == .stop
+        {
+            isChatModeMutedForCurrentTurn = queuedTurn.shouldMuteTTS
+            handleMeetingModeCommand(.stop, transcript: transcript)
+            return
+        }
+
         if voiceState != .idle {
             let queuePosition = chatTurnQueue.enqueue(queuedTurn)
             queuedChatTurnCount = chatTurnQueue.count
@@ -531,7 +541,7 @@ extension CompanionManager {
 
             let cronBrainDecision = BuddyPlannerClientFactory.cronTaskBrainDecision(
                 hasAcceptedDirectSpawnConsent: PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
-                canRunDirectSpawnTurn: PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+                canRunDirectSpawnTurn: PaceCloudBridgeConsent.canRunScheduledDirectSpawnTurn(now: Date())
             )
 
             // Pick the brain for this fire. When consent + soak allow it we
@@ -680,6 +690,7 @@ extension CompanionManager {
     }
 
     func stop() {
+        PaceScreenRecordingController.shared.shutdown()
         stopCompanionRuntime()
         appUsageTracker?.stop()
         if isPostureWatchEnabled {
@@ -803,14 +814,11 @@ extension CompanionManager {
         if !previouslyHadSpeechRecognition && hasSpeechRecognitionPermission {
             PaceAnalytics.trackPermissionGranted(permission: "speech_recognition")
         }
-        // Screen content permission: we used to trust a sticky UserDefaults
-        // cache, which lied when TCC was reset (post-install or tccutil reset).
-        // Trust the same flag macOS does — Screen Recording — as the source of
-        // truth, since SCShareableContent silently fails the same way when
-        // that grant is missing. The persisted "we picked once" bit only
-        // gates the onboarding picker prompt, not the permission state.
-        let cachedScreenContentPick = UserDefaults.standard.bool(forKey: "hasScreenContentPermission")
-        hasScreenContentPermission = hasScreenRecordingPermission && cachedScreenContentPick
+        // Screen content uses the same live macOS grant as Screen Recording.
+        // A legacy onboarding capture flag is not another permission: requiring
+        // it reports blocked setup even when actual screen actions already work.
+        // Read My Screen separately controls whether a turn may use this access.
+        hasScreenContentPermission = hasScreenRecordingPermission
 
         if !previouslyHadAll && allPermissionsGranted {
             PaceAnalytics.trackAllPermissionsGranted()

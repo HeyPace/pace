@@ -190,6 +190,7 @@ extension CompanionManager {
         let scoreDescription: String
         switch match {
         case .unique(let uniqueEntry, let evidence, let score):
+            guard evidence.permitsImplicitExecution else { return false }
             matchingEntry = uniqueEntry
             evidenceDescription = String(describing: evidence)
             scoreDescription = String(format: "%.3f", score)
@@ -206,28 +207,9 @@ extension CompanionManager {
                 )
                 return true
             }
-            let resolution = await PaceAutomationIntentResolver.resolve(
-                transcript: transcript,
-                ambiguousEntries: ambiguousEntries,
-                catalog: discoveredCatalog.catalog
-            )
-            guard !Task.isCancelled else { return false }
-            switch resolution {
-            case .run(let resolvedEntry):
-                matchingEntry = resolvedEntry
-                evidenceDescription = "localLanguageModel"
-                scoreDescription = "resolved"
-            case .needsClarification:
-                let choices = ambiguousEntries.prefix(3).map(\.name).joined(separator: ", ")
-                handleImmediateLocalModeResponse(
-                    transcript: transcript,
-                    spokenText: "which automation did you mean: \(choices)?",
-                    shouldRecordConversationTurn: false
-                )
-                return true
-            case .noMatch, .unavailable:
-                return false
-            }
+            // Similarity is a suggestion, not permission to run an unrelated routine.
+            // Keep uncertain requests in the selected planner's general task path.
+            return false
 
         case .noMatch:
             return false
@@ -332,7 +314,7 @@ extension CompanionManager {
                         spokenText: "running \(definition.name).",
                         executionPlan: executionPlan
                     ),
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
             } catch {
                 print("⚠️ Typed automation compilation failed for \(identifier): \(error)")
@@ -379,7 +361,7 @@ extension CompanionManager {
                             spokenText: "running \(program.name).",
                             executionPlan: executionPlan
                         ),
-                        shouldRecordConversationTurn: false
+                        shouldRecordConversationTurn: true
                     )
                 case .noActionsMatched:
                     handleImmediateLocalModeResponse(
@@ -429,7 +411,7 @@ extension CompanionManager {
             handleFastLocalActionPath(
                 transcript: transcript,
                 fastActionParseResult: PaceShortcutCommandParser.fastActionParseResult(for: name),
-                shouldRecordConversationTurn: false
+                shouldRecordConversationTurn: true
             )
         }
     }
@@ -481,7 +463,7 @@ extension CompanionManager {
                 fastActionParseResult: PaceShortcutCommandParser.fastActionParseResult(
                     for: installedShortcutDisplayName
                 ),
-                shouldRecordConversationTurn: false
+                shouldRecordConversationTurn: true
             )
         }
     }
@@ -506,6 +488,15 @@ extension CompanionManager {
             return "your shortcuts are \(spokenShortcutNames), and \(remainingShortcutCount) more."
         }
         return "your shortcuts are \(spokenShortcutNames)."
+    }
+
+    func publishCommandFeedback(transcript: String, spokenText: String) async {
+        recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
+        responseOverlayManager.showOverlayAndBeginStreaming()
+        responseOverlayManager.updateStreamingText(spokenText)
+        currentTurnHUDState = .done(spokenText)
+        await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
+        responseOverlayManager.finishStreaming()
     }
 
     func handleImmediateLocalModeResponse(
@@ -541,7 +532,7 @@ extension CompanionManager {
         )
     }
 
-    func appendConfiguredMCPContext(to userPrompt: String) -> String {
+    func appendConfiguredMCPContext(to userPrompt: String) async -> String {
         let configuredServerNames =
             PaceMCPServerRegistry
             .loadConfiguredServers()
@@ -552,9 +543,43 @@ extension CompanionManager {
             return userPrompt
         }
 
+        var computerUseContext = ""
+        if configuredServerNames.contains("peekaboo") {
+            do {
+                let tools = try await actionExecutor.mcpClient.peekabooToolCatalog()
+                let screenAccessInstruction =
+                    useLocalVLMForScreenContext
+                    ? "Screen context is enabled; observe before UI actions."
+                    : "Read My Screen is off. Only read-only app inventory is available; do not inspect windows, capture, or control UI."
+                computerUseContext = """
+                    Peekaboo provides app-scoped observations and controls alongside native Pace actions. Its available tools and exact input schemas follow:
+                    \(tools)
+                    \(screenAccessInstruction)
+                    \(CompanionSystemPrompt.desktopToolRecoveryGuidance)
+                    When an existing window must be inspected, use app/window inventory to identify an actionable app window. Observe with see; retain its producer-bound snapshot and element IDs for actions. Re-observe after actions. Never invent an element or replay a completed mutation. Call through MCP.call with server=peekaboo and the tool name and arguments from these schemas. Permission failures are blockers, not success. Do not use analyze or another AI backend; the selected Pace planner supplies reasoning.
+                    """
+            } catch {
+                computerUseContext =
+                    "Peekaboo is unavailable: \(error.localizedDescription). Do not claim desktop control succeeded."
+            }
+        }
+        if configuredServerNames.contains("playwright") {
+            do {
+                let tools = try await actionExecutor.mcpClient.playwrightToolCatalog()
+                computerUseContext += """
+
+                    Use the local playwright MCP server for browser navigation, page reading, and forms. It owns a separate browser session, not the user's work-profile tabs. Use browser_navigate, then browser_snapshot and its current element refs. Act, then verify the resulting page. Never replay a completed submission. Do not claim access to another browser's signed-in state. Its exact tool schemas follow:
+                    \(tools)
+                    """
+            } catch {
+                computerUseContext +=
+                    "\nPlaywright is unavailable: \(error.localizedDescription). Report this browser blocker."
+            }
+        }
         return """
             \(userPrompt)
 
+            \(computerUseContext)
             Configured MCP servers:
             \(configuredServerNames.map { "- \($0)" }.joined(separator: "\n"))
 

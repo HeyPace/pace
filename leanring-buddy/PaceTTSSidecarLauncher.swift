@@ -30,13 +30,13 @@ enum PaceTTSSidecarLauncher {
 
     /// Probes the configured base URL with a short HEAD-equivalent
     /// request, then spawns the sidecar if nothing is listening.
-    static func startIfNotRunning() {
+    static func startIfNotRunning(force: Bool = false) {
         let configuredTTSProvider =
             AppBundleConfiguration
             .stringValue(forKey: "TTSProvider")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        guard configuredTTSProvider == "localserver" else {
+        guard force || configuredTTSProvider == "localserver" else {
             return
         }
 
@@ -70,6 +70,18 @@ enum PaceTTSSidecarLauncher {
             // /tmp/.../Pace.app find their launcher this way).
             await Self.spawnSidecar(portNumber: portNumber)
         }
+    }
+
+    static func ensureReadyForCommand() async throws {
+        startIfNotRunning(force: true)
+        let baseURL = LocalServerTTSConfiguration.fromBundle().baseURL
+        let modelsURL = baseURL.appendingPathComponent("models")
+        for _ in 0..<90 {
+            try Task.checkCancellation()
+            if await isSidecarReachable(modelsURL: modelsURL) { return }
+            try await Task.sleep(for: .seconds(1))
+        }
+        throw URLError(.cannotConnectToHost)
     }
 
     /// Writes the LaunchAgent plist (or rewrites it when the script path
@@ -194,7 +206,7 @@ enum PaceTTSSidecarLauncher {
         else {
             return false
         }
-        return (200..<500).contains(httpResponse.statusCode)
+        return (200..<300).contains(httpResponse.statusCode)
     }
 
     private static func spawnSidecar(portNumber: Int) async {

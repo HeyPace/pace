@@ -48,10 +48,9 @@ struct PaceMeetingModeControllerTests {
     /// The meeting mode preference key exists.
     @Test
     func meetingModePreferenceKeyExists() {
-        // Verify the preference key is in the enum by reading it.
-        let value = PaceUserPreferencesStore.bool(.isMeetingModeEnabled, default: false)
-        // Default should be false.
-        #expect(value == false)
+        // A hardware smoke may have enabled recording in the debug app.
+        // Verify the key without assuming the owner's persisted preference.
+        #expect(PaceUserPreferenceKey(rawValue: "isMeetingModeEnabled") == .isMeetingModeEnabled)
     }
 
     /// The cron scheduler preference key exists.

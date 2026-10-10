@@ -10,6 +10,35 @@ import Testing
 
 @MainActor
 struct PaceActionExecutorDryRunTests {
+    @Test func missingAccessibilityBlocksInputAndReturnsActionableObservations() async {
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true,
+            accessibilityPermissionCheck: { false }
+        )
+        let observations = await executor.executeActionPlan(
+            .serial(actions: [.type("must not be typed"), .pressKey(name: "return", modifiers: [])]),
+            screenCaptures: []
+        )
+
+        #expect(observations.count == 2)
+        #expect(observations.allSatisfy { $0.summary.contains("Could not control") })
+        #expect(observations.allSatisfy { $0.summary.contains("Accessibility") })
+        #expect(observations.allSatisfy { $0.summary.contains("No input was sent") })
+        #expect(!PaceActionExecutor.requiresAccessibility(.openApplication("Chrome")))
+        #expect(!PaceActionExecutor.requiresAccessibility(.codexSession(.init(directory: "/tmp"))))
+    }
+
+    @Test func dryRunKeyPressReportsThatNoInputWasSent() async {
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: false)
+        let observations = await executor.executeActionPlan(
+            .serial(actions: [.pressKey(name: "n", modifiers: [.command])]),
+            screenCaptures: []
+        )
+        #expect(observations.count == 1)
+        #expect(observations.first?.toolName == "key_press")
+        #expect(observations.first?.summary == "Would press key: n")
+    }
+
     @Test func cancelledPlanDoesNotDispatchActions() async {
         let executor = PaceActionExecutor(actionsAreEnabledOverride: false)
         let actionPlan = PaceActionExecutionPlan.serial(actions: [
@@ -98,17 +127,39 @@ struct PaceActionExecutorDryRunTests {
 
     @Test func userFeedbackSummarizesToolResults() async throws {
         let feedback = PaceActionExecutionObservation.formatForUserFeedback([
-            PaceActionExecutionObservation(toolName: "notes", summary: "Created note: Idea")
+            PaceActionExecutionObservation(toolName: "notes", summary: "Created note: Idea"),
         ])
 
         #expect(feedback == "Created note: Idea")
 
         let multiActionFeedback = PaceActionExecutionObservation.formatForUserFeedback([
             PaceActionExecutionObservation(toolName: "open_app", summary: "Opened app: Notes"),
-            PaceActionExecutionObservation(toolName: "notes", summary: "Created note: Idea")
+            PaceActionExecutionObservation(toolName: "notes", summary: "Created note: Idea"),
         ])
 
-        #expect(multiActionFeedback == "Opened app: Notes, plus 1 more action result.")
+        #expect(multiActionFeedback == "Opened app: Notes\nCreated note: Idea")
+    }
+
+    @Test func multiActionFeedbackDoesNotHideLaterFailures() {
+        let feedback = PaceActionExecutionObservation.formatForUserFeedback([
+            .init(toolName: "open_app", summary: "Opened app: Linear"),
+            .init(toolName: "open_app", summary: "Could not find app: Missing App"),
+            .init(toolName: "open_url", summary: "Opened https://example.com in Chrome"),
+        ])
+        #expect(feedback == "Opened app: Linear\nCould not find app: Missing App\nOpened https://example.com in Chrome")
+    }
+
+    @Test func snapshotMetadataIsExcludedFromConversationFeedback() {
+        let observation = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.see",
+            summary: "UI state captured\nTool structuredContent:\n" + String(repeating: "snapshot", count: 100_000)
+        )
+        #expect(PaceActionExecutionObservation.formatForUserFeedback([observation]) == "UI state captured")
+        #expect(PaceActionExecutionObservation.formatForPlanner([observation]).contains("Tool structuredContent:"))
+        let verboseObservation = PaceActionExecutionObservation(
+            toolName: "mcp", summary: String(repeating: "x", count: 10_000)
+        )
+        #expect(PaceActionExecutionObservation.formatForUserFeedback([verboseObservation])?.count == 600)
     }
 
     @Test func mailtoDraftURLCarriesRecipientsAndSubjectWithoutBody() async throws {

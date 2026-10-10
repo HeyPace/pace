@@ -29,6 +29,9 @@
     {"kind": "recordFlow", "tool": "record_flow", "aliases": ["record_this", "remember_flow"], "risk": "inputInjection", "exampleUtterance": "record this as my standup setup", "schemaExample": {"tool": "record_flow", "name": "morning standup setup"}},
     {"kind": "runFlow", "tool": "run_flow", "aliases": ["play_flow", "do_flow"], "risk": "inputInjection", "exampleUtterance": "run my standup setup flow", "schemaExample": {"tool": "run_flow", "name": "morning standup setup"}},
     {"kind": "drawAnnotation", "tool": "draw_annotation", "aliases": ["annotate", "draw"], "risk": "readOnly", "exampleUtterance": "draw a circle around the save button and explain it", "schemaExample": {"tool": "draw_annotation", "shapes": [{"kind": "rect", "x": 100, "y": 80, "width": 200, "height": 60, "color": "red", "label": "start here"}], "screen": 1}},
-    {"kind": "clearAnnotations", "tool": "clear_annotations", "aliases": ["clear_drawing", "wipe_annotations"], "risk": "readOnly", "exampleUtterance": "clear the annotations", "schemaExample": {"tool": "clear_annotations"}}
+    {"kind": "clearAnnotations", "tool": "clear_annotations", "aliases": ["clear_drawing", "wipe_annotations"], "risk": "readOnly", "exampleUtterance": "clear the annotations", "schemaExample": {"tool": "clear_annotations"}},
+    {"kind": "screenCapture", "tool": "screen_capture", "aliases": [], "risk": "appOrSystemMutation", "exampleUtterance": "open screen recording controls", "schemaExample": {"tool": "screen_capture", "mode": "screenshot"}},
+    {"kind": "meeting", "tool": "meeting", "aliases": [], "risk": "appOrSystemMutation", "exampleUtterance": "start meeting recording", "schemaExample": {"tool": "meeting", "action": "start"}},
+    {"kind": "codexSession", "tool": "codex_session", "aliases": [], "risk": "appOrSystemMutation", "exampleUtterance": "start Codex in ~/projects/my-app", "schemaExample": {"tool": "codex_session", "directory": "~/projects/my-app"}}
   ]
 }

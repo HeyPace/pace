@@ -29,7 +29,7 @@ struct PaceFastActionExpandedKeyboardTests {
         }
     }
 
-    @Test func screenshotPhrasesShortCircuitToCommandShift3() async throws {
+    @Test func screenshotPhrasesOpenNativeControls() async throws {
         let phrases = [
             "screenshot", "take a screenshot",
             "capture screen", "capture the screen",
@@ -37,13 +37,28 @@ struct PaceFastActionExpandedKeyboardTests {
         for phrase in phrases {
             let result = PaceFastActionCommandParser.parse(transcript: phrase)
             #expect(result != nil, "Expected fast-path match for: \(phrase)")
-            #expect(result?.spokenText == "screenshot taken.")
+            #expect(result?.spokenText == "opening screenshot controls.")
+            guard case .screenCapture(.screenshot)? = result?.executionPlan.steps.first?.actions.first else {
+                Issue.record("Expected native screenshot controls")
+                continue
+            }
         }
     }
 
-    @Test func regionScreenshotPhrasesShortCircuitToCommandShift4() async throws {
+    @Test func regionScreenshotPhrasesOpenNativeControls() async throws {
         let result = PaceFastActionCommandParser.parse(transcript: "capture region")
-        #expect(result?.spokenText == "select the area.")
+        #expect(result?.spokenText == "opening screenshot controls.")
+    }
+
+    @Test func screenRecordingIsExplicitAndBareRecordingRemainsAmbiguous() {
+        for phrase in ["start screen recording", "record my screen", "record the screen"] {
+            let result = PaceFastActionCommandParser.parse(transcript: phrase)
+            guard case .screenCapture(.startRecording)? = result?.executionPlan.steps.first?.actions.first else {
+                Issue.record("Expected actual screen recording start")
+                continue
+            }
+        }
+        #expect(PaceFastActionCommandParser.parse(transcript: "start recording") == nil)
     }
 
     @Test func hideAppPhrasesShortCircuitToCommandH() async throws {
@@ -101,7 +116,7 @@ struct PaceFastActionExpandedKeyboardTests {
         )
         #expect(
             PaceFastActionCommandParser.parse(transcript: "hey pace screenshot")?.spokenText
-                == "screenshot taken."
+                == "opening screenshot controls."
         )
     }
 
@@ -109,7 +124,8 @@ struct PaceFastActionExpandedKeyboardTests {
         // Apple Speech sometimes adds trailing periods; the parser
         // strips them during normalization.
         #expect(PaceFastActionCommandParser.parse(transcript: "lock.")?.spokenText == "locking.")
-        #expect(PaceFastActionCommandParser.parse(transcript: "screenshot!")?.spokenText == "screenshot taken.")
+        #expect(
+            PaceFastActionCommandParser.parse(transcript: "screenshot!")?.spokenText == "opening screenshot controls.")
     }
 
     @Test func unrelatedPhrasesDoNotMatchKeyboardShortcuts() async throws {

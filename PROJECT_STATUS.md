@@ -1,21 +1,50 @@
 # pace — PROJECT STATUS
 
-Last updated: 2026-08-10
+Last updated: 2026-10-10
 
 ## Why/What
 
-**Thesis:** macOS menu-bar voice agent that answers in under ~500 ms time-to-first-spoken-word (TTFSW), fully on-device — no cloud LLM, no API keys, no Worker telemetry. Hold hotkey → speak → Pace reads the screen (optional), plans locally, streams TTS, and optionally executes approved macOS actions.
+**Thesis:** macOS menu-bar voice agent that answers in under ~500 ms time-to-first-spoken-word (TTFSW), local audio, transcription, speech, and storage, with opt-in Codex/cloud planning. Hold hotkey → speak → Pace reads the screen (optional), reasons with the selected backend, streams TTS, and executes approved macOS actions.
 
 **In scope:** Menu-bar/notch UI, push-to-talk, on-device ASR/TTS/VLM/planner, action executor (AX-first clicks), trust surfaces, episodic + thread memory, watch mode, journals, proactive nudges (opt-in), MCP substrate, typed automation catalog, `pace://` deeplinks, App Intents (Siri/Shortcuts), bundled MLX model supply, marketing site (`website/`), eval gates, pace-tuned model export scaffold.
 
 **Out / parked:** Persistent KV planner backend (blocked on TinyGPT oMLX), grammar-constrained v10 as runtime default (eval-gated), cloud bridge as default tier, hosted monitoring, CI-automated live-app AX smokes.
+
+## Current usability work
+
+Codex can plan foreground action and answer turns immediately after consent,
+and author validated reusable automations from natural-language instructions.
+Native tools cover browser/profile selection, capture controls, meeting recording,
+and interactive Codex sessions in a specified folder in Warp. Screen-grounded
+computer use composes screenshots/AX/OCR with Pace's click, type, key, and scroll
+executor; Codex turns do not depend on the local VLM. See
+[architecture](docs/architecture/systems.md#everyday-desktop-actions-and-codex-sessions).
+
+Local typed dogfood on 2026-10-09 verified Hacker News in the vaultwealth.com
+Chrome profile, natural-language creation and invocation of a four-app work
+routine, Codex-backed research with a source, and the Codex-in-Warp launch request.
+Text dogfood on 2026-10-10 also verified native screenshot/recording controls,
+folder clarification followed by a correctly targeted Codex launch, visible
+muted-session status replies, and running-app inventory through the optional
+Peekaboo OSS MCP backend. Peekaboo uses persistent producer-bound sessions and
+the selected Pace planner. Implicit routine execution requires exact taught
+phrases. The Warp terminal UI was not inspectable through the available CUA tool.
+The test build reports Accessibility and Screen Recording granted. WhisperKit
+base.en transcribed a real generated clip; Kokoro generated and played speech;
+Silero accepted speech and rejected silence; Sparkle displayed its update dialog
+without installing. Playwright navigation and a subsequent snapshot ran through
+Pace approvals using the official Swift MCP SDK. Microphone access is still not
+recognised by the test build despite the System Settings toggle. Live meeting
+capture, completed screen recording, and Peekaboo window actions remain unverified.
+A microphone permission/device-binding stall was reproduced and the permission
+request moved ahead of audio-engine creation. This source work is not a release.
 
 ## Dependencies
 
 ### External
 
 - **Platform:** current 0.3.19 preview targets macOS 26, Apple Silicon recommended, Xcode 26+, ~12–25 GB RAM with models loaded.
-- **On-device models (default vs opt-in):** planner default is Apple Foundation Models (Apple Intelligence Macs) or LM Studio Qwen3-30B-A3B; the bundled in-process **MLX Qwen3-4B planner, Qwen3-VL-4B VLM, and TTSKit Qwen3 TTS are opt-in** (Settings → Models, default OFF). ASR default Apple Speech; WhisperKit Large opt-in. TTS default Kokoro-82M via the mlx-audio sidecar → AVSpeechSynthesizer fallback.
+- **On-device models (default vs opt-in):** planner default is Apple Foundation Models (Apple Intelligence Macs) or LM Studio Qwen3-30B-A3B; the bundled in-process **MLX Qwen3-4B planner, Qwen3-VL-4B VLM, and TTSKit Qwen3 TTS are opt-in** (Settings → Models, default OFF). ASR auto-prefers installed WhisperKit base.en, otherwise on-device Apple Speech. TTS uses the configured backend; explicit Kokoro commands start the existing mlx-audio sidecar on demand.
 - **Optional cloud:** Direct API BYO-key (Keychain); CLI bridge; Apple Foundation Models tier.
 - **Legacy path:** LM Studio optional OpenAI-compatible localhost — `./scripts/setup-local.sh`.
 - **Landing deploy:** Cloudflare Pages project `pace`.
@@ -32,7 +61,7 @@ Last updated: 2026-08-10
 | Surface | Stack | Commands |
 | --- | --- | --- |
 | macOS app | Swift/SwiftUI, Xcode `leanring-buddy.xcodeproj` | Open in Xcode → Cmd+R (**do not** `xcodebuild` — invalidates TCC) |
-| Tests | XCTest via isolated DerivedData | `bash scripts/test-pace.sh` — **1676 tests passing** |
+| Tests | XCTest via isolated DerivedData | `bash scripts/test-pace.sh` — **1737 passed, 3 hardware skips on 2026-10-10 (CI mode, UTC)** |
 | Local models | MLX, WhisperKit, TTSKit, Apple Speech | Settings → Models; Sparkle manifest in Info.plist |
 | Landing | Astro 5 + Tailwind v4 + Lightning CSS | `cd website && pnpm install && pnpm run dev` (:4321) |
 | Deploy landing | Cloudflare Pages project `pace` | `pnpm run build && pnpm run deploy` |

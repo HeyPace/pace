@@ -6,11 +6,11 @@
 
 ## What Pace is
 
-Pace is a macOS menu-bar voice agent. It lives entirely in the menu-bar/notch surface (no dock icon, no main window). Hold a hotkey (`ctrl+option`), speak, and Pace transcribes on-device, optionally reads the screen with a local VLM, plans with a local reasoner, streams TTS, and (with `EnableActions=true`) executes approved macOS actions. **Fully on-device** — no cloud LLM, no cloud STT, no cloud TTS, no cloud telemetry. Every byte stays on the user's Mac. That privacy posture is the product's headline differentiator and the architecture is built to protect it.
+Pace is a macOS menu-bar voice agent. It lives entirely in the menu-bar/notch surface (no dock icon, no main window). Hold a hotkey (`ctrl+option`), speak, and Pace transcribes on-device, optionally reads the screen with a local VLM, plans with the selected reasoner, streams TTS, and (with `EnableActions=true`) executes approved macOS actions. Audio, transcription, speech, and storage remain on-device. Planning can use an explicitly selected and consented Codex/cloud backend; off-device turns must be disclosed and audited. The owner prioritizes a usable agent over requiring local planning.
 
 ## Critical constraints (read first)
 
-- **On-device moat is inviolable.** No cloud LLM/STT/TTS/telemetry call paths. The one scoped exception is the approval-gated `download_file` tool (fetch-only, sends nothing). Any non-local planner tier (CLI bridge, Direct API, CLI direct-spawn) tints the capsule amber, writes an audit-log entry, and fails loud. See `docs/architecture/systems.md`.
+- **Cloud planning is opt-in.** Use the selected consented planner for general reasoning and reusable-work authoring. Keep local audio/STT/TTS/storage and privacy-pinned meeting-note synthesis local. Any off-device planner tier (CLI bridge, Direct API, CLI direct-spawn) tints the capsule amber, writes an audit-log entry, and fails loud. Screen context requires Read My Screen. See `docs/architecture/systems.md`.
 - **Do NOT run `xcodebuild` from the terminal** for routine dev — it invalidates TCC (screen recording, accessibility, mic) permissions. Build and run from Xcode (Cmd+R). The isolated-DerivedData test script (`scripts/test-pace.sh`) is the only terminal build path that avoids touching the interactive app's TCC grants.
 - **Do NOT rename the project directory or scheme** — the `leanring` typo is intentional/legacy.
 - **Do NOT fix the known non-blocking warnings** (Swift 6 concurrency, deprecated `onChange` in `OverlayWindow.swift`).

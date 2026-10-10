@@ -56,7 +56,8 @@ extension CompanionManager {
     }
 
     func prewarmTextOnlyPlannerInBackgroundIfNeeded() {
-        guard PaceBundledModelsSettings.isUsingMLXInProcessPlanner(),
+        guard !activePlannerTierIsOffDevice,
+            PaceBundledModelsSettings.isUsingMLXInProcessPlanner(),
             textOnlyPlannerWarmupTask == nil
         else {
             return
@@ -204,6 +205,7 @@ extension CompanionManager {
         self.pendingIntentClarification = nil
         cancelActiveTurnTasks()
         ttsClient.stopPlayback()
+        ossCommandSpeechClient?.stopPlayback()
         streamingSentenceTTSPipeline.resetForNewTurn()
         clearLastSpokenReplyState()
         responseOverlayManager.finishStreaming()
@@ -511,14 +513,17 @@ extension CompanionManager {
         currentResponseTask = Task { [weak self] in
             guard let self else { return }
             voiceState = .processing
+            let usesOffDeviceTextPlanner = activePlannerTierIsOffDevice
+            isOffDeviceTurnInFlight = usesOffDeviceTextPlanner
+            defer { isOffDeviceTurnInFlight = false }
 
             do {
-                if let textOnlyPlannerWarmupTask {
+                if !usesOffDeviceTextPlanner, let textOnlyPlannerWarmupTask {
                     currentTurnHUDState = .understanding("finishing local model setup")
                     await textOnlyPlannerWarmupTask.value
                     guard !Task.isCancelled else { return }
                 }
-                let plannerForTextOnlyTurn = textOnlyPlannerClient
+                let plannerForTextOnlyTurn = usesOffDeviceTextPlanner ? plannerClient : textOnlyPlannerClient
                 plannerForTextOnlyTurn.resetForNewTurn()
                 print("🧠 Text-only planner: using \(plannerForTextOnlyTurn.displayName)")
 
@@ -567,10 +572,10 @@ extension CompanionManager {
                 // CLI or a larger LM Studio model) before speaking.
                 // This catches cases where complexity estimation missed
                 // a query that the local model can't handle well.
-                let qualityVerdict = await responseQualityChecker.check(
-                    query: transcript,
-                    response: spokenText
-                )
+                let qualityVerdict: PaceResponseQualityVerdict =
+                    usesOffDeviceTextPlanner
+                    ? .adequate
+                    : await responseQualityChecker.check(query: transcript, response: spokenText)
                 var qualityReRouted = false
                 var qualityReRoutePlannerDisplayName: String?
                 if case .inadequate(let reason) = qualityVerdict {
@@ -693,10 +698,10 @@ extension CompanionManager {
             } catch {
                 guard !Task.isCancelled else { return }
                 print("⚠️ Text-only planner fast path failed: \(error.localizedDescription)")
-                responseOverlayManager.updateStreamingText("i hit a local planner issue.")
+                responseOverlayManager.updateStreamingText("Planner failed: \(error.localizedDescription)")
                 responseOverlayManager.finishStreaming()
                 voiceState = .idle
-                currentTurnHUDState = .failed("Local planner issue")
+                currentTurnHUDState = .failed("Planner issue")
             }
         }
     }
@@ -806,10 +811,6 @@ extension CompanionManager {
     ) {
         let spokenText = fastActionParseResult.spokenText
         currentTurnHUDState = .acting(fastActionParseResult.executionPlan.approvalSummary)
-        if shouldRecordConversationTurn {
-            recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
-        }
-
         responseOverlayManager.showOverlayAndBeginStreaming()
         responseOverlayManager.updateStreamingText(spokenText)
 
@@ -839,6 +840,7 @@ extension CompanionManager {
                 ))
 
             var fastPathDispatchSummaryForDebug = "executed"
+            var completedActionFeedback = "Action requested; its effect has not been verified."
             if actionExecutor.actionsAreEnabled {
                 if requestUserApprovalForActionPlan(
                     fastActionParseResult.executionPlan,
@@ -848,6 +850,7 @@ extension CompanionManager {
                         fastActionParseResult.executionPlan,
                         screenCaptures: []
                     )
+                    guard !Task.isCancelled else { return }
                     fastPathDispatchSummaryForDebug =
                         toolObservations.isEmpty
                         ? "executed — no observations returned"
@@ -871,11 +874,14 @@ extension CompanionManager {
                         PaceActionExecutionObservation
                         .formatForUserFeedback(toolObservations)
                     {
+                        completedActionFeedback = userFeedbackText
                         responseOverlayManager.updateStreamingText(userFeedbackText)
                         await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: userFeedbackText)
                     }
                 } else {
                     fastPathDispatchSummaryForDebug = "denied by user"
+                    completedActionFeedback = "Stopped: approval was denied. The requested actions were not performed."
+                    currentTurnHUDState = .failed("Approval denied")
                     appendActionResult(
                         PaceActionRunRecord(
                             status: .denied,
@@ -886,6 +892,7 @@ extension CompanionManager {
                 }
             } else {
                 fastPathDispatchSummaryForDebug = "EnableActions=false — not executed"
+                completedActionFeedback = "Actions are disabled. No changes were made."
                 appendActionResult(
                     PaceActionRunRecord(
                         status: .skipped,
@@ -894,6 +901,12 @@ extension CompanionManager {
                     ))
                 print("🤖 Fast local action parsed but EnableActions is false")
             }
+
+            guard !Task.isCancelled else { return }
+            if shouldRecordConversationTurn {
+                recordConversationTurn(userTranscript: transcript, assistantResponse: completedActionFeedback)
+            }
+            responseOverlayManager.updateStreamingText(completedActionFeedback)
 
             // Settings → Debug capture: the fast path matched before any
             // planner ran, so this row proves a command stayed local and
@@ -1088,6 +1101,9 @@ extension CompanionManager {
         // and bust the 4K context window. Stateless conformers (LocalPlanner)
         // no-op.
         plannerClient.resetForNewTurn()
+        PaceMeetingModeController.shared.localRetriever = localRetriever
+        PaceMeetingModeController.shared.plannerClient =
+            BuddyPlannerClientFactory.makeLocalOnlyTextPlannerForPrivacyPinnedFeatures()
 
         if let deterministicAnswer = PaceDeterministicAnswerParser.parse(transcript: transcript) {
             print("🧮 Deterministic answer: \(deterministicAnswer.routingDetail)")
@@ -1194,6 +1210,19 @@ extension CompanionManager {
             return
         }
         guard isActiveTurn(turnLease) else { return }
+
+        if let utilityCommand = PaceUtilityCommand.parse(transcript) {
+            await handleUtilityCommand(utilityCommand, transcript: transcript, turnLease: turnLease)
+            return
+        }
+
+        if PaceCodexSessionRequest.needsDirectoryClarification(transcript) {
+            handleImmediateLocalModeResponse(
+                transcript: transcript,
+                spokenText: "Which folder should I start Codex in? Give a folder name or an absolute or ~/ path."
+            )
+            return
+        }
 
         if let flowCommand = PaceFlowCommandParser.parse(transcript) {
             print("🔁 Flow voice command: \(flowCommand)")
@@ -1345,7 +1374,8 @@ extension CompanionManager {
                 if let directSpawnUpstream {
                     researchTurnPlannerOverride = PaceLocalCLIPlannerClient(
                         upstream: directSpawnUpstream,
-                        modelIdentifier: loadedResearchConfiguration.cliBridgeModel
+                        modelIdentifier: loadedResearchConfiguration.cliBridgeModel,
+                        isResearchTurn: true
                     )
                     print(
                         "🔬 Routing research turn to local CLI (\(directSpawnUpstream.displayLabel)/\(loadedResearchConfiguration.cliBridgeModel))"
@@ -1616,6 +1646,7 @@ extension CompanionManager {
                     + physicalSceneContext
             }
             var pendingPostActionFeedbackText: String?
+            var plannerLoopFinished = false
             var turnFullResponseText: String = ""
             // The most recent step's cleaned spoken text. Research turns
             // journal ONE entry per turn using this final answer (see the
@@ -1640,7 +1671,10 @@ extension CompanionManager {
                     let screenCaptureStartedAt = Date()
                     var prewarmedContextForStep: PaceScreenContextPrewarmedSnapshot?
                     let screenCaptures: [CompanionScreenCapture]
-                    if isFirstStep,
+                    if isResearchTurn || !useLocalVLMForScreenContext {
+                        screenCaptures = []
+                    } else if isFirstStep,
+                        !(plannerClientForThisTurn is PaceLocalCLIPlannerClient),
                         screenContextService.hasInFlightPrewarmedTask
                     {
                         print("👁️  Awaiting pre-warm capture for first agent step…")
@@ -1705,7 +1739,8 @@ extension CompanionManager {
                             includeAgentMode: isAgentModeEnabled,
                             isTuitionModeEnabled: isTuitionModeEnabled,
                             threadSummaryInjection: threadSummaryInjectionForTurn,
-                            ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment
+                            ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment,
+                            usesIterativeComputerUse: plannerClientForThisTurn is PaceLocalCLIPlannerClient
                         )
                     }
                     // Mark this turn as off-device for the amber-tint
@@ -1750,6 +1785,8 @@ extension CompanionManager {
                     )
                     let useSpeculativeRace =
                         isFirstStep
+                        && !isResearchTurn
+                        && !activePlannerTierIsOffDevice
                         && thermalAllowsSpeculativeRace
                         && speculativeRaceShouldFire(
                             intent: intentPrediction.intent,
@@ -1809,11 +1846,12 @@ extension CompanionManager {
                             await screenContextService.buildUserPromptWithLocalVLMContextIfEnabled(
                                 transcript: currentTurnUserPrompt,
                                 screenCaptures: screenCaptures,
-                                prewarmedContext: prewarmedContextForStep
+                                prewarmedContext: prewarmedContextForStep,
+                                allowsLocalVLM: !(plannerClientForThisTurn is PaceLocalCLIPlannerClient)
                             )
                         PaceLatencyBudget.shared.mark(.vlmComplete)
                         let userPromptForPlanner = await appendLocalRetrievalContext(
-                            to: appendConfiguredMCPContext(to: screenContextPrompt),
+                            to: await appendConfiguredMCPContext(to: screenContextPrompt),
                             query: transcript,
                             route: intentPrediction.route,
                             isFirstPlannerStep: isFirstStep
@@ -1843,7 +1881,8 @@ extension CompanionManager {
                         //    override (research tier swap) when set, else the
                         //    standard `plannerClient` Pace was constructed with.
                         let imagesForPlanner: [(data: Data, label: String)] =
-                            plannerClientForThisTurn.supportsImageInput ? labeledImages : []
+                            plannerClientForThisTurn.supportsImageInput && useLocalVLMForScreenContext
+                            ? labeledImages : []
 
                         let (singlePlannerResponseText, _) =
                             try await plannerClientForThisTurn.generateResponseStreaming(
@@ -2069,8 +2108,14 @@ extension CompanionManager {
                     //    gets the real transcript; later steps record the
                     //    continuation placeholder so the planner sees its
                     //    own previous narration via assistant turns.
+                    // Final answers belong in chat; the internal step marker
+                    // hides its paired assistant row as well as the user row.
+                    let recordedUserTranscript =
+                        isFirstStep
+                        ? transcript
+                        : (plannerProvidedFinalFeedback ? "" : "(agent step \(stepIndex))")
                     recordConversationTurn(
-                        userTranscript: isFirstStep ? transcript : "(agent step \(stepIndex))",
+                        userTranscript: recordedUserTranscript,
                         assistantResponse: spokenText
                     )
                     // Track the latest step's spoken text so a research turn
@@ -2200,6 +2245,9 @@ extension CompanionManager {
                                 }
                             } else {
                                 userDeniedActionApproval = true
+                                pendingPostActionFeedbackText =
+                                    "Stopped because the next action was denied. Earlier actions may have completed; the full request remains unverified."
+                                currentTurnHUDState = .failed("Action denied; request not verified")
                                 appendActionResult(
                                     PaceActionRunRecord(
                                         status: .denied,
@@ -2308,6 +2356,7 @@ extension CompanionManager {
                         || userDeniedActionApproval
                         || plannerClientForThisTurn.usesStructuredActionOutput
                     if exitLoop {
+                        plannerLoopFinished = true
                         if plannerSignaledDone {
                             print("✅ Agent loop: planner signaled [DONE] at step \(stepIndex)")
                         } else if plannerClientForThisTurn.usesStructuredActionOutput {
@@ -2342,26 +2391,39 @@ extension CompanionManager {
                     let toolObservationPromptText = PaceActionExecutionObservation.formatForPlanner(toolObservations)
                     if toolObservationPromptText.isEmpty {
                         currentTurnUserPrompt =
-                            "continue the task. look at the current screen, then either emit the next step's action tags or emit [DONE] if the task is complete."
+                            """
+                            original request:
+                            \(transcript)
+
+                            continue this request. look at the current screen, then emit the next step's action tags. only emit [DONE] with a user-facing answer when the entire request is complete. if blocked, explain what remains unfinished.
+                            """
                     } else {
                         currentTurnUserPrompt = """
+                            original request:
+                            \(transcript)
+
                             tool results:
                             \(toolObservationPromptText)
 
-                            continue the task. use the tool results and current screen, then either emit the next step's tool calls/action tags or emit [DONE] if the task is complete.
+                            continue this request. use the tool results and current screen, then emit the next step's tool calls/action tags. a successful tool call alone does not complete the request. only emit [DONE] with a user-facing answer when the entire request is complete. if blocked, explain what remains unfinished.
                             """
                     }
                     voiceState = .processing
                 }
 
-                if stepIndex >= maxAgentStepCount {
+                if !plannerLoopFinished, stepIndex >= maxAgentStepCount {
                     print("⚠️ Agent loop: hit max steps (\(maxAgentStepCount)) without [DONE] — stopping")
+                    pendingPostActionFeedbackText =
+                        "Stopped after \(maxAgentStepCount) steps before verifying the full request. Please check the current result before continuing."
+                    currentTurnHUDState = .failed("Step limit reached; request not verified")
                 }
 
                 if let pendingPostActionFeedbackText,
                     !pendingPostActionFeedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                     !Task.isCancelled
                 {
+                    recordConversationTurn(userTranscript: "", assistantResponse: pendingPostActionFeedbackText)
+                    noteLastSpokenReply(pendingPostActionFeedbackText)
                     responseOverlayManager.updateStreamingText(pendingPostActionFeedbackText)
                     await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: pendingPostActionFeedbackText)
                     voiceState = .responding
@@ -2561,7 +2623,7 @@ extension CompanionManager {
                 prewarmedContext: prewarmedContext
             )
             let userPromptForPlanner = await self.appendLocalRetrievalContext(
-                to: self.appendConfiguredMCPContext(to: screenContextPrompt),
+                to: await self.appendConfiguredMCPContext(to: screenContextPrompt),
                 query: transcript,
                 route: route,
                 isFirstPlannerStep: true
@@ -2774,19 +2836,22 @@ extension CompanionManager {
             scheduler.addTask(task)
             if !scheduler.isEnabled { scheduler.setEnabled(true) }
             Task {
-                try? await ttsClient.speakText("Scheduled. I'll \(prompt) every 30 minutes.")
+                await publishCommandFeedback(
+                    transcript: transcript, spokenText: "Scheduled. I'll \(prompt) every 30 minutes.")
                 voiceState = .idle
             }
         case .list:
             if scheduler.tasks.isEmpty {
                 Task {
-                    try? await ttsClient.speakText("No recurring tasks scheduled.")
+                    await publishCommandFeedback(transcript: transcript, spokenText: "No recurring tasks scheduled.")
                     voiceState = .idle
                 }
             } else {
                 let names = scheduler.tasks.map(\.displayName).joined(separator: ", ")
                 Task {
-                    try? await ttsClient.speakText("You have \(scheduler.tasks.count) recurring tasks: \(names).")
+                    await publishCommandFeedback(
+                        transcript: transcript,
+                        spokenText: "You have \(scheduler.tasks.count) recurring tasks: \(names).")
                     voiceState = .idle
                 }
             }
@@ -2795,19 +2860,19 @@ extension CompanionManager {
                 scheduler.removeTask(id: taskToRemove.id)
             }
             Task {
-                try? await ttsClient.speakText("Removed.")
+                await publishCommandFeedback(transcript: transcript, spokenText: "Removed.")
                 voiceState = .idle
             }
         case .enable:
             scheduler.setEnabled(true)
             Task {
-                try? await ttsClient.speakText("Scheduling enabled.")
+                await publishCommandFeedback(transcript: transcript, spokenText: "Scheduling enabled.")
                 voiceState = .idle
             }
         case .disable:
             scheduler.setEnabled(false)
             Task {
-                try? await ttsClient.speakText("Scheduling disabled.")
+                await publishCommandFeedback(transcript: transcript, spokenText: "Scheduling disabled.")
                 voiceState = .idle
             }
         }
@@ -2819,21 +2884,24 @@ extension CompanionManager {
         case .run(let prompt, let displayName):
             let id = runner.enqueue(prompt: prompt, displayName: displayName)
             Task {
-                try? await ttsClient.speakText("Running that in the background. I'll let you know when it's done.")
+                await publishCommandFeedback(
+                    transcript: transcript,
+                    spokenText: "Running that in the background. I'll let you know when it's done.")
                 voiceState = .idle
             }
             print("🔄 Background agent \(id) enqueued: \(displayName)")
         case .list:
             if runner.tasks.isEmpty {
                 Task {
-                    try? await ttsClient.speakText("No background tasks.")
+                    await publishCommandFeedback(transcript: transcript, spokenText: "No background tasks.")
                     voiceState = .idle
                 }
             } else {
                 let running = runner.tasks.filter { $0.state == .running }.count
                 let completed = runner.tasks.filter { $0.state == .completed }.count
                 Task {
-                    try? await ttsClient.speakText("\(running) running, \(completed) completed.")
+                    await publishCommandFeedback(
+                        transcript: transcript, spokenText: "\(running) running, \(completed) completed.")
                     voiceState = .idle
                 }
             }
@@ -2842,7 +2910,7 @@ extension CompanionManager {
                 runner.cancel(taskId: taskToCancel.id)
             }
             Task {
-                try? await ttsClient.speakText("Cancelled.")
+                await publishCommandFeedback(transcript: transcript, spokenText: "Cancelled.")
                 voiceState = .idle
             }
         }
@@ -2854,7 +2922,7 @@ extension CompanionManager {
         // transcripts never ride the active tier — a Direct API / CLI
         // bridge selection must not send the whole meeting off-device.
         controller.localRetriever = localRetriever
-        controller.plannerClient = BuddyPlannerClientFactory.makeLocalOnlyPlannerForPrivacyPinnedFeatures()
+        controller.plannerClient = BuddyPlannerClientFactory.makeLocalOnlyTextPlannerForPrivacyPinnedFeatures()
         switch command {
         case .start(let profileSlug):
             PaceUserPreferencesStore.setBool(true, for: .isMeetingModeEnabled)
@@ -2864,15 +2932,30 @@ extension CompanionManager {
             let namedProfile = profileSlug.map { PaceMeetingNoteProfileLibrary.profile(forSlug: $0) }
             Task {
                 await controller.start()
+                guard controller.state == .active else {
+                    let failureMessage: String
+                    if case .failed(let reason) = controller.state {
+                        failureMessage = "Meeting recording failed: \(reason)"
+                    } else {
+                        failureMessage = "Meeting recording did not start."
+                    }
+                    await publishCommandFeedback(transcript: transcript, spokenText: failureMessage)
+                    voiceState = .idle
+                    return
+                }
                 // start() clears any stale per-meeting choice, so set the
                 // explicit profile AFTER start.
                 if let namedProfile {
                     controller.selectedProfileSlug = namedProfile.slug
-                    try? await ttsClient.speakText(
-                        "Recording your \(namedProfile.name) — I'll write \(namedProfile.name)-style notes when you stop."
+                    await publishCommandFeedback(
+                        transcript: transcript,
+                        spokenText:
+                            "Recording your \(namedProfile.name) — I'll write \(namedProfile.name)-style notes when you stop."
                     )
                 } else {
-                    try? await ttsClient.speakText("Meeting mode on. Recording — I'll generate notes when you stop.")
+                    await publishCommandFeedback(
+                        transcript: transcript,
+                        spokenText: "Meeting mode on. Recording — I'll generate notes when you stop.")
                 }
                 voiceState = .idle
             }
@@ -2886,16 +2969,17 @@ extension CompanionManager {
                         notes.synthesisFailed
                         ? "Meeting stopped. Notes synthesis failed, but the transcript is saved."
                         : "Meeting stopped. \(notes.summary)"
-                    try? await ttsClient.speakText(brief)
+                    await publishCommandFeedback(transcript: transcript, spokenText: brief)
                 } else {
-                    try? await ttsClient.speakText("Meeting stopped. No speech detected.")
+                    await publishCommandFeedback(
+                        transcript: transcript, spokenText: "Meeting stopped. No speech detected.")
                 }
                 voiceState = .idle
             }
         case .status:
             let status = controller.state == .active ? "active" : "inactive"
             Task {
-                try? await ttsClient.speakText("Meeting mode is \(status).")
+                await publishCommandFeedback(transcript: transcript, spokenText: "Meeting mode is \(status).")
                 voiceState = .idle
             }
         }
@@ -2908,13 +2992,13 @@ extension CompanionManager {
             let programs = PaceUserProgramStore().listValidPrograms()
             if skills.isEmpty && programs.isEmpty {
                 Task {
-                    try? await ttsClient.speakText("No skills installed.")
+                    await publishCommandFeedback(transcript: transcript, spokenText: "No skills installed.")
                     voiceState = .idle
                 }
             } else {
                 let names = (programs.map(\.name) + skills.map(\.name)).joined(separator: ", ")
                 Task {
-                    try? await ttsClient.speakText("Available skills: \(names).")
+                    await publishCommandFeedback(transcript: transcript, spokenText: "Available skills: \(names).")
                     voiceState = .idle
                 }
             }
@@ -2944,7 +3028,8 @@ extension CompanionManager {
                         failureReason: "missing preference: \(requiredPreferenceKey)"
                     )
                     Task {
-                        try? await ttsClient.speakText("i need \(requiredPreferenceKey) set first.")
+                        await publishCommandFeedback(
+                            transcript: transcript, spokenText: "i need \(requiredPreferenceKey) set first.")
                         voiceState = .idle
                     }
                 case .ready:
@@ -2961,13 +3046,13 @@ extension CompanionManager {
                         stepsPlanned: skill.steps.count
                     )
                     let prompt = PaceSkillLoader.toPlannerPrompt(skill)
-                    Task { try? await ttsClient.speakText("Running the \(skill.name) skill.") }
-                    // Route through the normal planner pipeline.
+                    // The planner owns the progress and final response for this run.
                     sendTranscriptToPlannerWithScreenshot(transcript: prompt)
                 }
             } else {
                 Task {
-                    try? await ttsClient.speakText("I couldn't find a skill called \(name).")
+                    await publishCommandFeedback(
+                        transcript: transcript, spokenText: "I couldn't find a skill called \(name).")
                     voiceState = .idle
                 }
             }
@@ -2977,12 +3062,13 @@ extension CompanionManager {
             let skills = PaceSkillLoader.loadAllSkills()
             if skills.contains(where: { $0.slug == slug || $0.name.lowercased() == name.lowercased() }) {
                 Task {
-                    try? await ttsClient.speakText("The \(name) skill is available.")
+                    await publishCommandFeedback(transcript: transcript, spokenText: "The \(name) skill is available.")
                     voiceState = .idle
                 }
             } else {
                 Task {
-                    try? await ttsClient.speakText("No skill called \(name) was found.")
+                    await publishCommandFeedback(
+                        transcript: transcript, spokenText: "No skill called \(name) was found.")
                     voiceState = .idle
                 }
             }
@@ -3011,7 +3097,7 @@ extension CompanionManager {
     }
 
     /// Creates the least-powerful complete reusable representation. Authoring
-    /// can use a privacy-pinned local model, but every persisted deterministic
+    /// uses the selected consented planner; every persisted deterministic
     /// representation must validate before it gains access to the existing
     /// action pipeline.
     func handleCreateReusableWork(
@@ -3019,28 +3105,40 @@ extension CompanionManager {
         transcript: String,
         setupSpokenText: String
     ) {
-        Task { @MainActor in
+        currentResponseTask = Task { @MainActor in
             try? await ttsClient.speakText(setupSpokenText)
 
-            let privacyPinnedLocalPlanner =
-                BuddyPlannerClientFactory
-                .makeLocalOnlyTextPlannerForPrivacyPinnedFeatures()
+            let authoringPlanner =
+                activePlannerTierIsOffDevice
+                ? plannerClient
+                : BuddyPlannerClientFactory.makeLocalOnlyTextPlannerForPrivacyPinnedFeatures()
+            isOffDeviceTurnInFlight = activePlannerTierIsOffDevice
+            currentTurnHUDState = .understanding("creating reusable work")
+            defer { isOffDeviceTurnInFlight = false }
+            authoringPlanner.resetForNewTurn()
 
             var structuredDefinition: PaceAutomationDefinition?
             do {
-                let plannerResult = try await privacyPinnedLocalPlanner.generateResponseStreaming(
+                let plannerResult = try await authoringPlanner.generateResponseStreaming(
                     images: [],
                     systemPrompt: PaceNaturalLanguageAutomationStructurer.systemPrompt,
                     conversationHistory: [],
-                    userPrompt: rawDescription,
+                    userPrompt: rawDescription + "\nSaved preferences: " + PaceLocalMemoryStore.summaryText,
                     onTextChunk: { _ in }
                 )
                 structuredDefinition =
                     PaceNaturalLanguageAutomationStructurer
                     .definition(fromStructuredJSON: plannerResult.text)
             } catch {
-                structuredDefinition = nil
+                guard !Task.isCancelled else { return }
+                handleImmediateLocalModeResponse(
+                    transcript: transcript,
+                    spokenText: "I couldn't create that: \(error.localizedDescription)",
+                    shouldRecordConversationTurn: false
+                )
+                return
             }
+            guard !Task.isCancelled else { return }
 
             if let structuredDefinition {
                 let discoveredCatalog = await discoverAutomationCatalog()
@@ -3089,19 +3187,26 @@ extension CompanionManager {
 
             var structuredProgram: PaceProgramDefinition?
             do {
-                let plannerResult = try await privacyPinnedLocalPlanner.generateResponseStreaming(
+                let plannerResult = try await authoringPlanner.generateResponseStreaming(
                     images: [],
                     systemPrompt: PaceNaturalLanguageProgramStructurer.systemPrompt,
                     conversationHistory: [],
-                    userPrompt: rawDescription,
+                    userPrompt: rawDescription + "\nSaved preferences: " + PaceLocalMemoryStore.summaryText,
                     onTextChunk: { _ in }
                 )
                 structuredProgram =
                     PaceNaturalLanguageProgramStructurer
                     .program(fromStructuredJSON: plannerResult.text)
             } catch {
-                structuredProgram = nil
+                guard !Task.isCancelled else { return }
+                handleImmediateLocalModeResponse(
+                    transcript: transcript,
+                    spokenText: "I couldn't create that: \(error.localizedDescription)",
+                    shouldRecordConversationTurn: false
+                )
+                return
             }
+            guard !Task.isCancelled else { return }
 
             if let structuredProgram {
                 let discoveredCatalog = await discoverAutomationCatalog()
@@ -3150,11 +3255,11 @@ extension CompanionManager {
 
             var fallbackSkill: PaceSkillFile?
             do {
-                let plannerResult = try await privacyPinnedLocalPlanner.generateResponseStreaming(
+                let plannerResult = try await authoringPlanner.generateResponseStreaming(
                     images: [],
                     systemPrompt: PaceSkillLoader.skillStructuringSystemPrompt,
                     conversationHistory: [],
-                    userPrompt: rawDescription,
+                    userPrompt: rawDescription + "\nSaved preferences: " + PaceLocalMemoryStore.summaryText,
                     onTextChunk: { _ in }
                 )
                 fallbackSkill = PaceSkillLoader.skillFromStructuredJSON(
@@ -3162,8 +3267,15 @@ extension CompanionManager {
                     fallbackName: "Custom Skill"
                 )
             } catch {
-                fallbackSkill = nil
+                guard !Task.isCancelled else { return }
+                handleImmediateLocalModeResponse(
+                    transcript: transcript,
+                    spokenText: "I couldn't create that: \(error.localizedDescription)",
+                    shouldRecordConversationTurn: false
+                )
+                return
             }
+            guard !Task.isCancelled else { return }
             if fallbackSkill == nil {
                 fallbackSkill = PaceSkillLoader.structureSkillDeterministically(
                     from: rawDescription
@@ -3201,7 +3313,7 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText:
-                        "saved \(fallbackSkill.name) as a flexible skill. it will use the local planner when it runs.",
+                        "saved \(fallbackSkill.name) as a flexible skill. it will use your selected planner when it runs.",
                     shouldRecordConversationTurn: false
                 )
             } catch {

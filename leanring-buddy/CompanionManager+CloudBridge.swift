@@ -79,7 +79,7 @@ You can turn this off at any time in Settings → Cloud bridge.
     /// sends the turn off your Mac via that provider — so the bridge
     /// consent does NOT auto-grant it (and vice versa). On acceptance we
     /// persist the direct-spawn consent flag AND start the 24-hour soak
-    /// clock so the first real turn is gated exactly like the bridge.
+    /// clock for unattended scheduled tasks; foreground turns work immediately.
     /// Returns true if the user accepted, false if they cancelled.
     /// The alert defaults to Cancel (the second button is the return key
     /// default is avoided by ordering accept first but the modal's cancel
@@ -116,8 +116,8 @@ You can switch back to a local tier at any time in Settings → Planner.
         if userAccepted {
             PaceCloudBridgeConsent.acceptDirectSpawnConsent()
             // Start the 24-hour soak clock now, at consent time — the
-            // first real turn is allowed only once it elapses. Mirrors the
-            // bridge's "restart the soak gate" behavior on first select.
+            // unattended tasks still wait for it; explicitly selected foreground
+            // turns can use the CLI immediately.
             PaceCloudBridgeConsent.markDirectSpawnFirstUsedIfUnset(now: Date())
         }
         return userAccepted

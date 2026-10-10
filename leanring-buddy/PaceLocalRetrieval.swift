@@ -618,12 +618,13 @@ final class PaceInMemoryRetrievalStore: PaceRetrievalStore {
                 offsetBy: -overlapCharacters,
                 limitedBy: normalizedText.startIndex
             ) ?? chunkEndIndex
+            let previousChunkStartIndex = chunkStartIndex
             chunkStartIndex = nearestWordBoundary(
                 in: normalizedText,
                 from: nextStartIndex,
-                lowerBound: normalizedText.startIndex
+                lowerBound: previousChunkStartIndex
             )
-            if chunkStartIndex <= normalizedText.startIndex, chunkNumber > 0 {
+            if chunkStartIndex <= previousChunkStartIndex {
                 chunkStartIndex = chunkEndIndex
             }
         }
@@ -1083,7 +1084,9 @@ final class PaceLocalRetriever: PaceRetriever {
     ) {
         let trimmedTranscript = userTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedResponse = assistantResponse.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTranscript.isEmpty, !trimmedResponse.isEmpty else { return }
+        // Tool-only steps have no narration; final follow-up answers have
+        // no additional user message. Preserve both sides across reloads.
+        guard !trimmedTranscript.isEmpty || !trimmedResponse.isEmpty else { return }
 
         let document = PaceRetrievalDocument(
             id: "pace-history-\(Int(now.timeIntervalSince1970))-\(abs(trimmedTranscript.hashValue))",
@@ -1275,6 +1278,7 @@ final class PaceLocalRetriever: PaceRetriever {
     private static func preferenceDocuments() -> [PaceRetrievalDocument] {
         let preferencePairs: [(String, String?)] = [
             ("Preferred browser", PaceLocalMemoryStore.string(for: .preferredBrowser)),
+            ("Chrome work profile directory", PaceLocalMemoryStore.string(for: .preferredChromeProfile)),
             ("Preferred notes app", PaceLocalMemoryStore.string(for: .preferredNotesApp)),
             ("Default reminder list", PaceLocalMemoryStore.string(for: .defaultReminderList)),
         ]

@@ -3,10 +3,10 @@
 ## Doctrine
 
 1. **Tinygpt's job is to provide Pace the BEST model for each role.** This is a mix of (a) training new specialists where no off-the-shelf model fits — LoRAs, distilled SLMs, fine-tunes; (b) vetting + qualifying external open-source models when they're already good enough — WhisperKit, embedding models, possibly VLMs. Tinygpt is NOT mandated to train everything itself. Sometimes the right call is "this external model passes our eval, ship it as-is." **Pace owns its own model runner at runtime** — embeds MLX-Swift / WhisperKit / CoreML directly, loads bundled artifacts in-process. The current LM Studio development bridge is loopback-only HTTP and is guarded against non-local hosts; the shipping target is in-process model runners. The factory's serve is for development + eval only; Pace ships self-contained, easy to install.
-2. **Steal from anywhere that runs local.** Apple frameworks (WhisperKit, AX, EventKit, MessageUI, Shortcuts CLI, NSWorkspace, Speech, FoundationModels for short answer turns), open-source models (Qwen3, UI-Venus, mxbai-embed, BGE, Whisper, Kokoro, Piper), open-source runtimes (MLX, CoreML, llama.cpp, Outlines), open-source datasets (xLAM, ToolBench, FineWeb). The constraint is local-only, not vendor.
+2. **Steal from anywhere that runs local.** Apple frameworks (WhisperKit, AX, EventKit, MessageUI, Shortcuts CLI, NSWorkspace, Speech, FoundationModels for short answer turns), open-source models (Qwen3, UI-Venus, mxbai-embed, BGE, Whisper, Kokoro, Piper), open-source runtimes (MLX, CoreML, llama.cpp, Outlines), open-source datasets (xLAM, ToolBench, FineWeb). Audio, transcription, speech, and storage stay local; planning may use the explicitly selected consented provider.
 3. Fastest AND most precise. Both required.
 4. **100 ms is the END-TO-END completion budget**. User-stops-talking → action perceived. Total. Today's path is ~500 ms on the lightest action — not good enough. Parallelize aggressively (ASR partials drive planner prefill; planner emits intent; executor dispatches; all overlapped). Never accept a "good enough" win — keep shaving.
-5. All data stays local. No cloud calls, ever. No "fallback to cloud for hard cases."
+5. Local audio, transcription, speech, and storage. Cloud planning only by explicit selection and consent, with visible disclosure and auditing.
 6. English speakers + Mac only. Narrow focus is the speed advantage.
 7. Timelines are bullshit. Ship the next correct thing now.
 
@@ -167,7 +167,7 @@ Perceived ≤ 100 ms is the bar for the lightest cases. Everything heavier shoul
 
 ## Zero-cloud rule
 
-No network egress. Loopback-only HTTP is allowed for local development runtimes such as LM Studio, and `PaceLocalEndpointGuard` refuses planner/VLM endpoints that are not `localhost`, `127.0.0.0/8`, or `::1`. No telemetry "for analytics". Crash logs are local-only or opt-in plain-text. The product positioning is unambiguous and we will not undermine it for a feature shortcut. If a capability requires cloud, we don't ship it.
+Off-device planning is explicitly opt-in and disclosed with the amber capsule and audit log. Transcripts, saved preferences, and permitted screen context may go to the selected provider. Loopback-only HTTP is allowed for local development runtimes such as LM Studio, and `PaceLocalEndpointGuard` refuses planner/VLM endpoints that are not `localhost`, `127.0.0.0/8`, or `::1`. No telemetry "for analytics". Crash logs are local-only or opt-in plain-text. General reasoning and reusable-work authoring use the selected consented planner. Meeting-note synthesis remains privacy-pinned local.
 
 ## What we are NOT doing
 

@@ -40,14 +40,14 @@ struct PointingParseResult: Equatable {
 enum PaceTagParsers {
     // MARK: - Agent-loop tags
 
-    /// Max agent-loop iterations before the loop bails. 8 steps × ~5-8s
-    /// per step keeps wall-clock under ~70s even on a slow local stack.
+    /// Max agent-loop iterations before the loop bails. The bounded default
+    /// allows desktop inspection, mutation recovery, and final verification.
     /// Configurable via Info.plist `AgentMaxSteps`; clamped to [1, 30].
     nonisolated static func readMaxAgentStepCount() -> Int {
         guard let rawValue = AppBundleConfiguration.stringValue(forKey: "AgentMaxSteps"),
               let parsedValue = Int(rawValue),
               parsedValue >= 1 else {
-            return 8
+            return 16
         }
         return min(parsedValue, 30)
     }

@@ -240,22 +240,21 @@ enum PaceCloudBridgeConsent {
         )
     }
 
-    /// The direct-spawn path is usable only once consent is accepted AND
-    /// the same 24-hour soak the bridge uses has elapsed since first use.
-    /// On the very FIRST selection there is no `directSpawnFirstUsedAt`
-    /// yet — this returns false so the first turn falls back to local with
-    /// a logged reason and the soak clock starts ticking (the factory
-    /// calls `markDirectSpawnFirstUsedIfUnset` at consent time).
+    /// An explicitly selected foreground CLI is usable immediately after
+    /// consent. Waiting a day otherwise leaves the picker silently local.
     static func canRunDirectSpawnTurn(now: Date) -> Bool {
+        hasAcceptedDirectSpawnConsent()
+    }
+
+    /// Keep the existing unattended-task soak separate from foreground use.
+    static func canRunScheduledDirectSpawnTurn(now: Date) -> Bool {
         guard hasAcceptedDirectSpawnConsent() else { return false }
         guard let storedTimeInterval = UserDefaults.standard.object(
             forKey: CloudBridgeUserDefaultsKey.directSpawnFirstUsedAt.rawValue
-        ) as? Double else {
-            return false
-        }
+            ) as? Double
+        else { return false }
         let firstUsedAt = Date(timeIntervalSinceReferenceDate: storedTimeInterval)
-        let minimumSoakDurationInSeconds: TimeInterval = 24 * 60 * 60
-        return now.timeIntervalSince(firstUsedAt) >= minimumSoakDurationInSeconds
+        return now.timeIntervalSince(firstUsedAt) >= 24 * 60 * 60
     }
 
     // MARK: Plist helpers

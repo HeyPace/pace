@@ -156,12 +156,12 @@ nonisolated enum PaceLocalCLIStreamJSONParser {
 @MainActor
 final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
     let displayName: String
-    /// CLI's don't currently consume images through our interface — the
-    /// VLM element-map text in `userPrompt` carries the screen content.
-    /// Codex's `-i <file>` could be wired later; out of scope for v1.
-    let supportsImageInput: Bool = false
+    /// Codex can reason over screenshots when Read My Screen is enabled.
+    /// Research turns stay text-only so they do not upload ambient screens.
+    var supportsImageInput: Bool { upstream == .codex && !isResearchTurn }
 
     private let upstream: PaceLocalCLIUpstream
+    private let isResearchTurn: Bool
     /// Optional model override forwarded as `--model <id>`. nil = let
     /// the CLI pick its default.
     private let modelIdentifier: String?
@@ -177,9 +177,11 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
 
     init(
         upstream: PaceLocalCLIUpstream,
-        modelIdentifier: String?
+        modelIdentifier: String?,
+        isResearchTurn: Bool = false
     ) {
         self.upstream = upstream
+        self.isResearchTurn = isResearchTurn
         // Treat an empty / whitespace-only identifier as "no override" so
         // `--model` is only ever forwarded when the user (or a caller like
         // the research lane, whose default is now empty for Codex) actually
@@ -193,7 +195,7 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         self.modelIdentifier = normalizedModelIdentifier
         self.useBareModeForClaude = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] != nil
         let suffix = normalizedModelIdentifier.map { " · \($0)" } ?? ""
-        self.displayName = "Local CLI (\(upstream.displayLabel))\(suffix)"
+        self.displayName = "CLI (\(upstream.displayLabel))\(suffix)"
     }
 
     func resetForNewTurn() {
@@ -214,9 +216,11 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         // dashboard aggregates for the "0 bytes → X KB to <upstream>"
         // headline, so it MUST be recorded on every turn — direct-spawn
         // is off-device and cannot be silent about egress.
-        let estimatedInputCharacterCount = systemPrompt.count
-            + conversationHistory.reduce(0) { $0 + $1.userPlaceholder.count + $1.assistantResponse.count }
-            + userPrompt.count
+        let estimatedInputCharacterCount =
+            systemPrompt.utf8.count
+            + conversationHistory.reduce(0) { $0 + $1.userPlaceholder.utf8.count + $1.assistantResponse.utf8.count }
+            + userPrompt.utf8.count
+            + (supportsImageInput ? images.reduce(0) { $0 + $1.data.count } : 0)
         do {
             let assembledText: String
             switch upstream {
@@ -229,6 +233,7 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
                 )
             case .codex:
                 assembledText = try await spawnCodex(
+                    images: images,
                     systemPrompt: systemPrompt,
                     conversationHistory: conversationHistory,
                     userPrompt: userPrompt,
@@ -344,29 +349,40 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
     // MARK: codex
 
     private func spawnCodex(
+        images: [(data: Data, label: String)],
         systemPrompt: String,
         conversationHistory: [(userPlaceholder: String, assistantResponse: String)],
         userPrompt: String,
         onTextChunk: @MainActor @Sendable (String) -> Void
     ) async throws -> String {
-        // codex doesn't (yet) expose a session-resume flag on
-        // `exec --json`, so every call gets the full system+history
-        // prompt. Mirrors CodeVetter exactly.
+        // Each Pace step supplies its complete history; keep CLI sessions
+        // ephemeral rather than retaining screen context in Codex history.
         let promptForStdin = Self.composeCodexPrompt(
             systemPrompt: systemPrompt,
             conversationHistory: conversationHistory,
             userPrompt: userPrompt
         )
 
-        var arguments: [String] = ["exec", "--json"]
-        if let modelIdentifier {
-            arguments.append(contentsOf: ["--model", modelIdentifier])
+        let workingDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pace-planner-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: workingDirectoryURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: workingDirectoryURL) }
+
+        var arguments = Self.codexArguments(modelIdentifier: modelIdentifier, isResearchTurn: isResearchTurn)
+        if supportsImageInput {
+            for (imageIndex, image) in images.enumerated() {
+                let imageURL = workingDirectoryURL.appendingPathComponent("screen-\(imageIndex).jpg")
+                try image.data.write(to: imageURL, options: .atomic)
+                arguments.append(contentsOf: ["--image", imageURL.path])
+            }
         }
 
         let (assembledOutput, _) = try await runStreamingCLI(
             executable: PaceLocalCLIUpstream.codex.executableName,
             arguments: arguments,
             stdinPayload: promptForStdin,
+            workingDirectoryURL: workingDirectoryURL,
             captureChunk: { line in
                 PaceLocalCLIStreamJSONParser.extractCodexChunk(fromLine: line)
             },
@@ -385,140 +401,77 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
     /// just means the upstream doesn't expose a session id we'd resume.
     ///
     /// `onTextChunk` is the protocol's non-escaping closure; we use
-    /// `withoutActuallyEscaping` to thread it into the detached task
-    /// without violating its lifetime contract — the `await
-    /// task.value` below guarantees the closure is consumed before
-    /// this function returns.
+    /// the async stream to keep callbacks within the caller lifetime
+    /// without violating its lifetime contract. The stream is consumed
+    /// before this function returns.
     private func runStreamingCLI(
         executable: String,
         arguments: [String],
         stdinPayload: String,
+        workingDirectoryURL: URL? = nil,
         captureChunk: @escaping @Sendable (String) -> String,
         captureSessionIdFromLine: @escaping @Sendable (String) -> String?,
         onTextChunk: @MainActor @Sendable (String) -> Void
     ) async throws -> (assembled: String, capturedSessionId: String?) {
-        let resolvedExecutableURL = Self.resolveExecutable(named: executable)
-        let stdinPayloadCopy = stdinPayload
-        let resolvedArguments = arguments
-
-        return try await withoutActuallyEscaping(onTextChunk) { escapingOnTextChunk in
-            // Hop the entire subprocess lifecycle off the MainActor so
-            // FileHandle blocking reads don't pin the UI; bridge the
-            // streamed text fragments back to MainActor for the
-            // caller's chunk handler.
-            try await Task.detached(priority: .userInitiated) {
-                try Self.runStreamingCLIBlocking(
-                    executableURL: resolvedExecutableURL,
-                    executableName: executable,
-                    arguments: resolvedArguments,
-                    stdinPayload: stdinPayloadCopy,
-                    captureChunk: captureChunk,
-                    captureSessionIdFromLine: captureSessionIdFromLine,
-                    onTextChunk: { chunk in
-                        Task { @MainActor in
-                            escapingOnTextChunk(chunk)
-                        }
-                    }
-                )
-            }.value
-        }
-    }
-
-    nonisolated private static func runStreamingCLIBlocking(
-        executableURL: URL,
-        executableName: String,
-        arguments: [String],
-        stdinPayload: String,
-        captureChunk: (String) -> String,
-        captureSessionIdFromLine: (String) -> String?,
-        onTextChunk: @escaping @Sendable (String) -> Void
-    ) throws -> (assembled: String, capturedSessionId: String?) {
-        let process = Process()
-        process.executableURL = executableURL
-        process.arguments = arguments
-
-        let stdinPipe = Pipe()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardInput = stdinPipe
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        do {
-            try process.run()
-        } catch {
+        guard let executableURL = Self.resolveExecutable(named: executable) else {
             throw PaceLocalCLIPlannerError.spawnFailed(
-                executable: executableName,
-                underlying: error.localizedDescription
-            )
+                executable: executable, underlying: "not found on PATH or standard CLI install locations")
         }
-
-        if let stdinBytes = stdinPayload.data(using: .utf8) {
-            do {
-                try stdinPipe.fileHandleForWriting.write(contentsOf: stdinBytes)
-            } catch {
-                process.terminate()
-                throw PaceLocalCLIPlannerError.stdinWriteFailed(
-                    executable: executableName,
-                    underlying: error.localizedDescription
-                )
-            }
+        let directoryURL =
+            workingDirectoryURL
+            ?? FileManager.default.temporaryDirectory
+            .appendingPathComponent("pace-planner-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        defer {
+            if workingDirectoryURL == nil { try? FileManager.default.removeItem(at: directoryURL) }
         }
-        try? stdinPipe.fileHandleForWriting.close()
-
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = Self.executableSearchDirectories().joined(separator: ":")
+        // Claude rejects nested launches based on this inherited marker even
+        // though Pace owns an independent, user-requested conversation.
+        environment.removeValue(forKey: "CLAUDECODE")
         var assembledOutput = ""
         var capturedSessionId: String?
-        var residualLineBuffer = ""
-
-        // Drain stdout line-by-line. FileHandle.availableData blocks
-        // until bytes arrive OR the pipe is closed.
-        while true {
-            let availableBytes = stdoutPipe.fileHandleForReading.availableData
-            if availableBytes.isEmpty { break }
-            guard let chunkText = String(data: availableBytes, encoding: .utf8) else { continue }
-            residualLineBuffer += chunkText
-
-            // Pop completed lines (terminated by \n) and feed each one
-            // through the chunk extractor.
-            while let newlineIndex = residualLineBuffer.firstIndex(of: "\n") {
-                let line = String(residualLineBuffer[..<newlineIndex])
-                residualLineBuffer.removeSubrange(...newlineIndex)
-                let extractedChunk = captureChunk(line)
-                if !extractedChunk.isEmpty {
-                    assembledOutput += extractedChunk
-                    onTextChunk(assembledOutput)
-                }
-                if capturedSessionId == nil {
-                    capturedSessionId = captureSessionIdFromLine(line)
-                }
-            }
-        }
-        // Flush any trailing line that didn't get a final newline.
-        if !residualLineBuffer.isEmpty {
-            let extractedChunk = captureChunk(residualLineBuffer)
-            if !extractedChunk.isEmpty {
-                assembledOutput += extractedChunk
+        let lines = PaceCLIProcessRunner.lines(
+            executableURL: executableURL,
+            arguments: arguments,
+            stdinPayload: stdinPayload,
+            workingDirectoryURL: directoryURL,
+            environment: environment,
+            timeout: isResearchTurn ? 300 : 120
+        )
+        for try await line in lines {
+            try Task.checkCancellation()
+            let chunk = captureChunk(line)
+            if !chunk.isEmpty {
+                assembledOutput += chunk
                 onTextChunk(assembledOutput)
             }
-            if capturedSessionId == nil {
-                capturedSessionId = captureSessionIdFromLine(residualLineBuffer)
-            }
+            if capturedSessionId == nil { capturedSessionId = captureSessionIdFromLine(line) }
         }
-
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            // Cap the stderr excerpt so a misbehaving CLI dumping MB of
-            // logs doesn't bloat the audit log or HUD failure narration.
-            let stderrData = (try? stderrPipe.fileHandleForReading.readToEnd()) ?? Data()
-            let stderrText = String(data: stderrData, encoding: .utf8) ?? ""
-            let stderrExcerpt = String(stderrText.prefix(300))
-            throw PaceLocalCLIPlannerError.nonZeroExit(
-                executable: executableName,
-                status: process.terminationStatus,
-                stderrExcerpt: stderrExcerpt
-            )
+        try Task.checkCancellation()
+        guard !assembledOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw PaceCLIProcessError.emptyResponse
         }
         return (assembledOutput, capturedSessionId)
+    }
+
+    nonisolated static func codexArguments(modelIdentifier: String?, isResearchTurn: Bool) -> [String] {
+        // Pace approves and executes Mac actions. The CLI only plans; do not
+        // inherit a coding workspace, hooks, MCP integrations, or shell tools.
+        var arguments = [
+            "exec", "--json", "--skip-git-repo-check", "--ephemeral",
+            "--ignore-user-config", "--sandbox", "read-only",
+            "--disable", "shell_tool", "--disable", "hooks",
+            "--disable", "apps", "--disable", "browser_use",
+            "--disable", "computer_use", "--disable", "multi_agent",
+            "--config", "web_search=\"\(isResearchTurn ? "live" : "disabled")\"",
+        ]
+        if let modelIdentifier, !modelIdentifier.isEmpty {
+            arguments.append(contentsOf: ["--model", modelIdentifier])
+        }
+        return arguments
     }
 
     // MARK: Prompt composition
@@ -564,40 +517,35 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
     /// Falls back to /opt/homebrew/bin/<exec> for the common Homebrew
     /// install location when PATH is empty (LaunchAgents sometimes hit
     /// that case).
-    nonisolated private static func resolveExecutable(named executableName: String) -> URL {
-        let pathSearch = ProcessInfo.processInfo.environment["PATH"]
-            ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
-        for directoryPath in pathSearch.split(separator: ":") {
-            let candidatePath = "\(directoryPath)/\(executableName)"
-            if FileManager.default.isExecutableFile(atPath: candidatePath) {
-                return URL(fileURLWithPath: candidatePath)
-            }
+    nonisolated static func executableSearchDirectories(
+        path: String? = ProcessInfo.processInfo.environment["PATH"],
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [String] {
+        let standardDirectories = [
+            homeDirectory.appendingPathComponent(".local/bin").path,
+            "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin",
+        ]
+        var directories: [String] = []
+        for directory in (path ?? "").split(separator: ":").map(String.init) + standardDirectories {
+            if directory.hasPrefix("/"), !directories.contains(directory) { directories.append(directory) }
         }
-        // Last-resort fallback: let `Process.run` fail loudly with
-        // "spawnFailed" so the caller can surface the "is `claude` on
-        // PATH?" message.
-        return URL(fileURLWithPath: "/opt/homebrew/bin/\(executableName)")
+        return directories
     }
 
-    // MARK: - Preflight
-
-    /// True iff the given upstream's binary is resolvable on PATH. Used by
-    /// Settings → Planner to surface a plain-language "needs `codex` on
-    /// PATH" hint before the tier is used, so a missing binary never turns
-    /// into a silent hang mid-turn. Same PATH walk as `resolveExecutable`,
-    /// but returns a boolean instead of a last-resort fallback URL.
-    nonisolated static func isUpstreamBinaryOnPath(
-        _ upstream: PaceLocalCLIUpstream
-    ) -> Bool {
-        let pathSearch = ProcessInfo.processInfo.environment["PATH"]
-            ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
-        for directoryPath in pathSearch.split(separator: ":") {
-            let candidatePath = "\(directoryPath)/\(upstream.executableName)"
-            if FileManager.default.isExecutableFile(atPath: candidatePath) {
-                return true
-            }
+    nonisolated static func resolveExecutable(named executableName: String) -> URL? {
+        for directory in executableSearchDirectories() {
+            let candidateURL = URL(fileURLWithPath: directory).appendingPathComponent(executableName)
+            if FileManager.default.isExecutableFile(atPath: candidateURL.path) { return candidateURL }
         }
-        return false
+        if executableName == "codex" {
+            let bundledCLI = URL(fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex")
+            if FileManager.default.isExecutableFile(atPath: bundledCLI.path) { return bundledCLI }
+        }
+        return nil
+    }
+
+    nonisolated static func isUpstreamBinaryOnPath(_ upstream: PaceLocalCLIUpstream) -> Bool {
+        resolveExecutable(named: upstream.executableName) != nil
     }
 
     /// The plain-language message shown when the chosen upstream binary is

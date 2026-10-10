@@ -94,6 +94,16 @@ extension PaceActionExecutor {
         let trimmedApplicationName = applicationName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedApplicationName.isEmpty else { return nil }
 
+        let knownBundleIdentifiers = [
+            "chrome": "com.google.Chrome", "googlechrome": "com.google.Chrome",
+            "warp": "dev.warp.Warp-Stable", "linear": "com.linear", "slack": "com.tinyspeck.slackmacgap",
+        ]
+        if let bundleIdentifier = knownBundleIdentifiers[normalizeApplicationName(trimmedApplicationName)],
+            let applicationURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
+        {
+            return applicationURL
+        }
+
         if trimmedApplicationName.contains("."),
            let bundleURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: trimmedApplicationName) {
             return bundleURL

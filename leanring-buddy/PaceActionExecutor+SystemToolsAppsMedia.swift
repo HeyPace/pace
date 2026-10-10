@@ -34,6 +34,13 @@ extension PaceActionExecutor {
             )
         }
 
+        if ["chrome", "googlechrome", "comgooglechrome"].contains(
+            Self.normalizeApplicationName(trimmedApplicationName)),
+            PaceLocalMemoryStore.string(for: .preferredChromeProfile) != nil
+        {
+            return await openBrowser(.init(browserName: "Google Chrome", url: nil, chromeProfile: "work"))
+        }
+
         guard let applicationURL = Self.findApplicationURL(named: trimmedApplicationName) else {
             print("⚠️ PaceActionExecutor: could not find app named \(trimmedApplicationName)")
             return PaceActionExecutionObservation(
@@ -258,30 +265,8 @@ extension PaceActionExecutor {
             )
         }
 
-        if let preferredBrowser = PaceLocalMemoryStore.string(for: .preferredBrowser),
-           let browserURL = Self.findApplicationURL(named: preferredBrowser) {
-            let openErrorDescription: String? = await withCheckedContinuation { continuation in
-                let configuration = NSWorkspace.OpenConfiguration()
-                NSWorkspace.shared.open(
-                    [url],
-                    withApplicationAt: browserURL,
-                    configuration: configuration
-                ) { _, error in
-                    continuation.resume(returning: error?.localizedDescription)
-                }
-            }
-
-            if let openErrorDescription {
-                return PaceActionExecutionObservation(
-                    toolName: "open_url",
-                    summary: "Failed to open URL in \(preferredBrowser): \(openErrorDescription)"
-                )
-            }
-
-            return PaceActionExecutionObservation(
-                toolName: "open_url",
-                summary: "Opened URL in \(preferredBrowser): \(url.absoluteString)"
-            )
+        if let preferredBrowser = PaceLocalMemoryStore.string(for: .preferredBrowser) {
+            return await openBrowser(.init(browserName: preferredBrowser, url: url.absoluteString, chromeProfile: nil))
         }
 
         let didOpen = NSWorkspace.shared.open(url)

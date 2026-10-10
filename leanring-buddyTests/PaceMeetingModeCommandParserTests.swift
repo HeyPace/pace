@@ -56,7 +56,7 @@ struct PaceMeetingModeCommandParserTests {
 
     @Test func genericStartsCarryNoProfile() {
         #expect(parse("start meeting mode") == .start(profileSlug: nil))
-        #expect(parse("start recording") == .start(profileSlug: nil))
+        #expect(parse("start recording") == nil)
         #expect(parse("meeting mode") == .start(profileSlug: nil))
         #expect(parse("start the meeting") == .start(profileSlug: nil))
     }
