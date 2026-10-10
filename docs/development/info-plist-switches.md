@@ -40,7 +40,7 @@ loopback-only; it never uses the selected cloud conversational tier. See
 | `LocalPlannerBaseURL` | `http://127.0.0.1:1234/v1` | OpenAI-compatible root for the local reasoner. The numeric loopback avoids an IPv6-to-IPv4 retry delay. Remote/LAN hosts are refused. |
 | `LocalPlannerModelIdentifier` | `qwen/qwen3.5-4b` | Must match the model name loaded in LM Studio for the planner role. The default is the same fast multimodal model used for fallback vision; Gemma 3 12B and Qwen 30B remain optional quality-over-memory choices. |
 | `EnableActions` | `true` | `false` → parse action tags but do not execute local macOS actions. Keep `Approve Risky Actions` on when this is true. |
-| `AgentMaxSteps` | `8` | Per-task ceiling for the plan-act-observe loop. `1` disables multi-step (loop exits after first response). |
+| `AgentMaxSteps` | `16` | Per-task ceiling for the plan-act-observe loop. `1` disables multi-step (loop exits after first response). |
 | `TTSProvider` | `apple` | `apple` uses `AVSpeechSynthesizer` with no sidecar. `localServer` opts into the Kokoro loopback service with automatic per-utterance Apple fallback. |
 | `LocalTTSServerBaseURL` | `http://127.0.0.1:8880/v1` | Loopback-only OpenAI-compatible TTS root (mlx-audio / kokoro-fastapi). Used only when `TTSProvider=localServer`. |
 | `LocalTTSServerModel` | `mlx-community/Kokoro-82M-bf16` | Model identifier the sidecar expects (`kokoro` for kokoro-fastapi). |
