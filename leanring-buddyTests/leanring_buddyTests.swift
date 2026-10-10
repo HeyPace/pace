@@ -10,6 +10,13 @@ import Testing
 
 struct leanring_buddyTests {
 
+    @Test @MainActor func newScreenRecordingBuildGetsItsOwnPromptAttempt() {
+        let previousBuildKey = WindowPositionManager.screenRecordingPromptKey(bundleVersion: "19")
+        let newBuildKey = WindowPositionManager.screenRecordingPromptKey(bundleVersion: "20")
+        #expect(previousBuildKey != newBuildKey)
+        #expect(newBuildKey == WindowPositionManager.screenRecordingPromptKey(bundleVersion: "20"))
+    }
+
     @Test @MainActor func firstPermissionRequestUsesSystemPromptOnly() async throws {
         let presentationDestination = WindowPositionManager.permissionRequestPresentationDestination(
             hasPermissionNow: false,

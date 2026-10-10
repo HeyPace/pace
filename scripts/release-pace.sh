@@ -191,7 +191,7 @@ echo
 
 # ── Build Release ──────────────────────────────────────────────────────────
 
-if [ -e "$BUILD_DIR" ]; then /usr/bin/trash "$BUILD_DIR"; fi
+# Reuse isolated compiler caches; xcodebuild checks source and version inputs.
 mkdir -p "$BUILD_DIR" "$RELEASES_DIR"
 
 echo "📦 Building Pace.app (Release)..."
@@ -246,6 +246,11 @@ codesign --verify --deep --strict --verbose=2 "${APP_PATH}" && echo "✅ Develop
 # grants — same Authority on every release = same TCC identity = grants
 # kept.
 codesign -dvv "${APP_PATH}" 2>&1 | grep -E "Authority|Identifier|Runtime Version" | head -4
+
+echo "▶ Verify the signed Release app before publication: $APP_PATH"
+read -p "Signed Release smoke checks complete? (y/N) " -n 1 -r
+echo
+[[ "$REPLY" =~ ^[Yy]$ ]] || { echo "Aborted before publication."; exit 0; }
 
 # ── Package, notarize, staple, and Sparkle-sign ────────────────────────────
 # Public releases fail closed instead of publishing an ad-hoc archive. The

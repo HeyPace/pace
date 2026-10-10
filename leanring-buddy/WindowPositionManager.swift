@@ -27,6 +27,12 @@ class WindowPositionManager {
     /// survives quit/relaunch (matching macOS's actual behavior).
     private static let promptedKeyPrefix = "PaceHasPromptedSystem."
 
+    static func screenRecordingPromptKey(bundleVersion: String) -> String {
+        // A newly signed build may need a fresh native approval even when
+        // Settings retains the previous build's enabled entry.
+        "screenRecording.build." + bundleVersion
+    }
+
     private static func hasPromptedSystemFor(_ permissionKey: String) -> Bool {
         UserDefaults.standard.bool(forKey: promptedKeyPrefix + permissionKey)
     }
@@ -96,16 +102,18 @@ class WindowPositionManager {
     /// the user never gets the prompt and the Settings pane at the same time.
     @discardableResult
     static func requestScreenRecordingPermission() -> PermissionRequestPresentationDestination {
+        let promptKey = screenRecordingPromptKey(
+            bundleVersion: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown")
         let presentationDestination = permissionRequestPresentationDestination(
             hasPermissionNow: hasScreenRecordingPermission(),
-            hasAttemptedSystemPrompt: hasPromptedSystemFor("screenRecording")
+            hasAttemptedSystemPrompt: hasPromptedSystemFor(promptKey)
         )
 
         switch presentationDestination {
         case .alreadyGranted:
             return .alreadyGranted
         case .systemPrompt:
-            markSystemPromptedFor("screenRecording")
+            markSystemPromptedFor(promptKey)
             _ = CGRequestScreenCaptureAccess()
         case .systemSettings:
             openScreenRecordingSettings()
