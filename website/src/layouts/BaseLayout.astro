@@ -1,6 +1,7 @@
 ---
 import "../styles/global.css";
-import Footer from "../components/Footer.astro";
+import ProductFooter from "../components/ProductFooter.astro";
+import CtaTracking from "../components/CtaTracking.astro";
 import {
   canonicalPublicPagePath,
   markdownPublicPagePath,
@@ -83,12 +84,27 @@ const clampedDescription = clampDescription(description);
 <!-- fleet-jsonld:end -->
 <script is:inline type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","@id":"https://heypace.app/#product","name":"HeyPace","alternateName":["Pace","Pace Mac assistant"],"url":"https://heypace.app","description":"On-device Mac voice assistant that reads your screen and acts with local context.","applicationCategory":"UtilitiesApplication","operatingSystem":"macOS","isAccessibleForFree":true,"publisher":{"@id":"https://sarthakagrawal.dev/#person"},"sameAs":["https://github.com/HeyPace/pace"]}</script>
     <script is:inline>
-      (function(c,l,a,r,i,t,y){
-        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
-        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
-        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
-      })(window,document,"clarity","script","y6bqufsq6g");
-      window.clarity("set","project_id","pace");
+      /* Clarity loads on the first real interaction or after 90 s, whichever
+         comes first. Lighthouse and crawlers never interact, so they never set
+         Clarity's cookies (best-practices "third-party cookies"). */
+      (function () {
+        var clarityLoaded = false;
+        var interactionEvents = ["pointerdown", "keydown", "scroll", "touchstart"];
+        function loadClarity() {
+          if (clarityLoaded) return;
+          clarityLoaded = true;
+          interactionEvents.forEach(function (name) { window.removeEventListener(name, loadClarity, true); });
+          clearTimeout(clarityTimer);
+          (function (c, l, a, r, i, t, y) {
+            c[a] = c[a] || function () { (c[a].q = c[a].q || []).push(arguments); };
+            t = l.createElement(r); t.async = 1; t.src = "https://www.clarity.ms/tag/" + i;
+            y = l.getElementsByTagName(r)[0]; y.parentNode.insertBefore(t, y);
+          })(window, document, "clarity", "script", "y6bqufsq6g");
+          window.clarity("set", "project_id", "pace");
+        }
+        interactionEvents.forEach(function (name) { window.addEventListener(name, loadClarity, { capture: true, passive: true, once: true }); });
+        var clarityTimer = setTimeout(loadClarity, 90000);
+      })();
     </script>
     <script
       is:inline
@@ -104,111 +120,7 @@ const clampedDescription = clampDescription(description);
     <!--email_off-->
     <slot />
     <!--/email_off-->
-    <footer aria-label="Pace footer">
-    <fleet-footer-extension
-      data-fleet-footer-project="pace"
-      product-name="HeyPace"
-      signature-name="HeyPace"
-      signature-font="inherit"
-      font-base="/fonts/fleet-footer-precise-v1/"
-      surface="web"
-      theme="dark"
-      art-src="/footer-art/pace.webp"
-      art-alt="Original pixel illustration of a microphone connected to a quiet local workspace by a short blue ribbon"
-      art-width="2170"
-      art-height="725"
-      art-position="50% 50%"
-      art-credit="Original illustration for HeyPace"
-      style="font-family:var(--font-display);--fleet-footer-display-font:var(--font-display);--fleet-footer-focus:var(--color-accent);--fleet-footer-caption-background:#0b0b0d;--fleet-footer-caption-color:#9ca3af;--fleet-footer-art-surface:#0b0b0d"
-    >
-      <section slot="cta" data-fleet-footer-cta aria-labelledby="pace-closing-title">
-        <h2 id="pace-closing-title" class="pace-display text-3xl md:text-4xl text-white">Try Pace on your Mac.</h2>
-        <div class="mt-6 flex flex-wrap gap-3">
-          <a href="/download" class="pace-cta-primary">Download the free preview <span aria-hidden="true">↓</span></a>
-          <a href="/pricing" class="pace-cta-secondary">See the $29 local stack</a>
-        </div>
-        <p class="mt-4 text-sm text-[var(--color-text-muted)]">Free with Apple Foundation Models on macOS 26 · bundled local models are $29 once</p>
-      </section>
-      <saas-maker-newsletter-capture
-        slot="capture"
-        catalog-id="pace"
-        product-name="HeyPace"
-        kind="newsletter"
-        source="footer"
-        theme="dark"
-        layout="compact"
-        compact="true"
-        integrated="true"
-        privacy-url="https://heypace.app/privacy"
-      ></saas-maker-newsletter-capture>
-      <slot name="footer-navigation"><Footer /></slot>
-    </fleet-footer-extension>
-    </footer>
-    <script
-      is:inline
-      type="module"
-      src="https://sassmaker.com/newsletter-capture.js"
-      crossorigin="anonymous"
-    ></script>
-    <script
-      is:inline
-      src="https://sassmaker.com/project-strip.js?v=precise-b0adaa67"
-      crossorigin="anonymous"
-      data-project="pace"
-      data-theme="dark"
-      data-host-only="true"
-      defer
-    ></script>
-    <script
-      is:inline
-      src="https://sassmaker.com/ai-chat-footer.js?v=precise-b0adaa67"
-      crossorigin="anonymous"
-      data-name="HeyPace"
-      data-surface="web"
-      data-capture="false"
-      data-project="pace"
-      data-theme="dark"
-      data-host-only="true"
-      defer
-    ></script>
-    <script is:inline>
-      document.addEventListener("click", (event) => {
-        const target = event.target;
-        if (!(target instanceof Element)) return;
-
-        const link = target.closest("a[href]");
-        if (!(link instanceof HTMLAnchorElement)) return;
-
-        const destination = new URL(link.href, window.location.href);
-        let eventName;
-
-        if (destination.origin === window.location.origin && destination.pathname === "/download") {
-          eventName = "pace_download_cta_clicked";
-        } else if (destination.origin === window.location.origin && destination.pathname === "/pricing") {
-          eventName = "pace_pricing_cta_clicked";
-        } else if (destination.hostname === "github.com" && destination.pathname === "/HeyPace/pace/issues") {
-          eventName = "pace_roadmap_cta_clicked";
-        }
-
-        const tracker = window.appHealth;
-        if (!eventName || !tracker) return;
-
-        tracker.track(eventName);
-
-        const modifiedClick =
-          event instanceof MouseEvent &&
-          (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey);
-        const opensAnotherTab = link.target === "_blank";
-        const staysOnThisDocument =
-          destination.origin === window.location.origin &&
-          destination.pathname === window.location.pathname &&
-          destination.search === window.location.search;
-
-        if (modifiedClick || opensAnotherTab || staysOnThisDocument) return;
-
-        event.preventDefault();
-        tracker.flush().finally(() => window.location.assign(link.href));
-      });
-    </script>
+    <ProductFooter />
+    <CtaTracking />
   </body>
 </html>
