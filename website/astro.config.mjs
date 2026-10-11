@@ -7,7 +7,7 @@ import tailwindcss from "@tailwindcss/vite";
 //   - Astro for marketing / landing surfaces
 //   - Tailwind v4 via @tailwindcss/vite
 //   - Lightning CSS as transformer + minifier
-//   - Cache substantial CSS in external stylesheets
+//   - Inline critical CSS on every prerendered page
 //
 // Cloudflare Pages deployment: `pages_build_output_dir: dist`.
 export default defineConfig({
@@ -15,6 +15,12 @@ export default defineConfig({
   output: "static",
   compressHTML: true,
   integrations: [react()],
+  build: {
+    // Flat-inlines per-page CSS so the LCP element does not wait on a
+    // separate render-blocking stylesheet (the 164 KB shared CSS delayed
+    // first paint by ~2.5 s in mobile Lighthouse).
+    inlineStylesheets: "always",
+  },
   vite: {
     plugins: [tailwindcss()],
     css: {

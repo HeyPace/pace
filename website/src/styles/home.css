@@ -1,4 +1,13 @@
 /* Home uses Workbench's utilities; these are Pace's plain CSS additions. */
+/* Keep the hero visible even when motion sets inline styles after load. */
+.identity-hero .motion-reveal,
+.identity-hero .motion-tilt,
+.identity-hero .motion-stagger,
+.identity-hero .motion-stagger > * {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
 .pace-field-guides {
   max-width: 80rem;
   margin-inline: auto;
