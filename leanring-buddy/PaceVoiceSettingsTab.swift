@@ -17,7 +17,8 @@ struct PaceVoiceSettingsTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             paceSettingsInfoRow(title: "Transcription", value: companionManager.buddyDictationManager.transcriptionProviderDisplayName)
-            paceSettingsInfoRow(title: "Transcription model", value: companionManager.isTranscriptionModelReady ? "Ready" : "Loading")
+            paceSettingsInfoRow(
+                title: "Transcription model", value: companionManager.isTranscriptionModelReady ? "ready" : "loading")
             paceSettingsInfoRow(title: "Active voice", value: companionManager.activeTTSVoiceSummary.displayText)
             if companionManager.activeTTSVoiceSummary.needsUpgrade {
                 Text(companionManager.activeTTSVoiceSummary.recommendationText)
@@ -25,7 +26,7 @@ struct PaceVoiceSettingsTab: View {
                     .foregroundColor(DS.Colors.warning)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            paceSettingsButton("Open Spoken Content", systemName: "speaker.wave.2") {
+            paceSettingsButton("open spoken content", systemName: "speaker.wave.2") {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.Accessibility-Settings.extension?SpokenContent") {
                     NSWorkspace.shared.open(url)
                 }

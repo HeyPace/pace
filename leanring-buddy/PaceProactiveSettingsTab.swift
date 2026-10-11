@@ -17,7 +17,7 @@ struct PaceProactiveSettingsTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Proactivity Profile")
+                Text("proactivity profile")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Text(
@@ -83,7 +83,7 @@ struct PaceProactiveSettingsTab: View {
                 .background(DS.Colors.borderSubtle)
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("Nudge surfaces")
+                Text("nudge surfaces")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Text(
@@ -177,7 +177,7 @@ struct PaceProactiveSettingsTab: View {
 
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Delivery time")
+                    Text("delivery time")
                         .font(DS.Typography.calloutStrong)
                         .foregroundStyle(DS.Colors.textPrimary)
                     Text("Local time, weekdays only.")
@@ -226,7 +226,7 @@ struct PaceProactiveSettingsTab: View {
 
             HStack {
                 Spacer()
-                paceSettingsButton("Preview now", systemName: "paperplane") {
+                paceSettingsButton("preview now", systemName: "paperplane") {
                     companionManager.deliverMorningBriefPreviewNow()
                 }
             }

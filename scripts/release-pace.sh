@@ -221,6 +221,7 @@ if [ ! -d "$APP_PATH" ]; then
     exit 1
 fi
 echo "✅ Built ${APP_PATH}"
+bash "$PROJECT_DIR/scripts/ensure-sm-ui-bundle.sh" "$APP_PATH" "$(dirname "$APP_PATH")"
 
 # ── Bundle TTS launcher script so PaceTTSSidecarLauncher finds it in the
 # installed app (otherwise auto-start only works in dev builds where the

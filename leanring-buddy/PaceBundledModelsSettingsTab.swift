@@ -86,7 +86,7 @@ struct PaceBundledModelsSettingsTab: View {
 
         return VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Memory budget")
+                Text("memory budget")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textPrimary)
                 Text("These on-device models share your Mac's RAM. Estimates are for resident memory while each model is loaded — advisory only, they don't change what runs.")
@@ -314,7 +314,7 @@ struct PaceBundledModelsSettingsTab: View {
                 .foregroundColor(DS.Colors.accent)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 3) {
-                Text("Planner runs off-device")
+                Text("planner runs off-device")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(DS.Colors.textPrimary)
                 Text("\(plannerVariant.displayLabel) uses ~0 GB of local RAM, so about \(formatGB(freeForVLMGB)) is free for a larger local vision model — where quality matters most.")
@@ -341,7 +341,7 @@ struct PaceBundledModelsSettingsTab: View {
                 .foregroundColor(DS.Colors.textSecondary)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 3) {
-                Text("Local planner is using the budget")
+                Text("local planner is using the budget")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(DS.Colors.textPrimary)
                 Text("\(plannerVariant.displayLabel) holds ~\(formatGB(plannerVariant.estimatedResidentRAMGB)) resident. Switch the planner to a cloud tier or Apple Foundation Models (Settings → Planner) to free that RAM for a larger vision model.")
@@ -527,7 +527,7 @@ struct PaceBundledModelsSettingsTab: View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle(isOn: $isUsingMLXVLM) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("In-process MLX vision model")
+                    Text("in-process mlx vision model")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(DS.Colors.textPrimary)
                     Text("Run Qwen3-VL screen analysis via mlx-swift in-process. Drops LM Studio's max-loaded-models requirement for the VLM path. Same model as the LM Studio default — quality unchanged, latency improves by removing the HTTP loopback.")
@@ -551,7 +551,7 @@ struct PaceBundledModelsSettingsTab: View {
                 .textFieldStyle(.roundedBorder)
                 .disabled(!isUsingMLXVLM)
                 .onSubmit { commitVLMModelIdentifier() }
-                Button("Apply") { commitVLMModelIdentifier() }
+                Button("apply") { commitVLMModelIdentifier() }
                     .buttonStyle(.bordered)
                     .disabled(!isUsingMLXVLM)
             }
@@ -568,7 +568,7 @@ struct PaceBundledModelsSettingsTab: View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle(isOn: $isUsingQwen3TTS) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("In-process Qwen3 TTS")
+                    Text("in-process Qwen3 TTS")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(DS.Colors.textPrimary)
                     Text("Run text-to-speech via WhisperKit's TTSKit instead of the Kokoro Python sidecar. Drops the start-tts-server.sh dependency. ANE-accelerated, sub-200 ms first-audio-out.")
@@ -604,7 +604,7 @@ struct PaceBundledModelsSettingsTab: View {
                 .font(.system(size: 14))
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 4) {
-                Text("MLX Runtime")
+                Text("mlx runtime")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textPrimary)
                 Text(summaryText)
@@ -622,7 +622,7 @@ struct PaceBundledModelsSettingsTab: View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle(isOn: $isUsingMLXPlanner) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("In-process MLX planner")
+                    Text("in-process mlx planner")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(DS.Colors.textPrimary)
                     Text("Run the planner via mlx-swift in-process. Drops the LM Studio install dependency for new users. Default ships with Qwen3-4B-Instruct-2507 bf16 + a plan-then-execute prompt scaffold — high-precision, opt-in.")
@@ -646,7 +646,7 @@ struct PaceBundledModelsSettingsTab: View {
                 .textFieldStyle(.roundedBorder)
                 .disabled(!isUsingMLXPlanner)
                 .onSubmit { commitPlannerModelIdentifier() }
-                Button("Apply") { commitPlannerModelIdentifier() }
+                Button("apply") { commitPlannerModelIdentifier() }
                     .buttonStyle(.bordered)
                     .disabled(!isUsingMLXPlanner)
             }
@@ -750,7 +750,7 @@ struct PaceBundledModelsSettingsTab: View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle(isOn: $isUsingMLXEmbedder) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("In-process MLX embedder")
+                    Text("in-process mlx embedder")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(DS.Colors.textPrimary)
                     Text("Run semantic-memory embeddings via mlx-swift in-process. Falls back to Apple NaturalLanguage when the model isn't downloaded yet — safe to flip on.")
@@ -774,7 +774,7 @@ struct PaceBundledModelsSettingsTab: View {
                 .textFieldStyle(.roundedBorder)
                 .disabled(!isUsingMLXEmbedder)
                 .onSubmit { commitEmbedderModelIdentifier() }
-                Button("Apply") { commitEmbedderModelIdentifier() }
+                Button("apply") { commitEmbedderModelIdentifier() }
                     .buttonStyle(.bordered)
                     .disabled(!isUsingMLXEmbedder)
             }
@@ -803,7 +803,7 @@ struct PaceBundledModelsSettingsTab: View {
         HStack(spacing: 10) {
             switch entry.state {
             case .idle:
-                Button("Download now") {
+                Button("download now") {
                     PaceModelDownloadManager.shared.startDownload(entryId: entry.id)
                 }
                 .buttonStyle(.bordered)
@@ -818,7 +818,7 @@ struct PaceBundledModelsSettingsTab: View {
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textSecondary)
                 Spacer()
-                Button("Cancel") {
+                Button("cancel") {
                     PaceModelDownloadManager.shared.cancelDownload(entryId: entry.id)
                 }
                 .buttonStyle(.bordered)
@@ -827,7 +827,7 @@ struct PaceBundledModelsSettingsTab: View {
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textSecondary)
                 Spacer()
-                Button("Resume") {
+                Button("resume") {
                     PaceModelDownloadManager.shared.startDownload(entryId: entry.id)
                 }
                 .buttonStyle(.bordered)
@@ -840,7 +840,7 @@ struct PaceBundledModelsSettingsTab: View {
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.warning)
                 Spacer()
-                Button("Retry") {
+                Button("retry") {
                     PaceModelDownloadManager.shared.startDownload(entryId: entry.id)
                 }
                 .buttonStyle(.bordered)
@@ -855,7 +855,7 @@ struct PaceBundledModelsSettingsTab: View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle(isOn: $isPaceTunedTurnExportEnabled) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Contribute anonymized planner turns")
+                    Text("contribute anonymized planner turns")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(DS.Colors.textPrimary)
                     Text("On by default. Planner turns — including cloud ones like Codex — append to ~/Library/Application Support/Pace/pace-tuned-turns.jsonl after emails, phone numbers, and home paths are redacted; each turn is tagged with which brain produced it. The file never leaves your Mac. Copy into the repo with bash scripts/export-pace-tuned-turns.sh before training. Turn off to stop collecting.")
@@ -877,7 +877,7 @@ struct PaceBundledModelsSettingsTab: View {
 
     private var qualityCaveatSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Quality notes")
+            Text("quality notes")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
             Text("Bundled MLX is the right choice when you don't have LM Studio installed and don't want to install it. The 4B planner scores ~3-4 points below qwen3-30b-a3b on Pace's FM-fixture eval set, mostly affecting multi-step agent reasoning. For day-to-day voice turns the gap is small. The embedder is a cleaner swap — Apple NaturalLanguage fallback keeps recall working when the MLX model isn't loaded yet.")

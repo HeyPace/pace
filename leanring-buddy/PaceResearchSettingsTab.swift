@@ -59,7 +59,7 @@ struct PaceResearchSettingsTab: View {
 
     private var researchTierIntroBanner: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Research escalation")
+            Text("research escalation")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
             Text("When you say \"research X\" / \"look into Y\" / \"compare A vs B\", Pace routes that one turn to the heavyweight model you pick here. Other turns continue to use whatever your main Planner tier is set to.")
@@ -97,7 +97,7 @@ struct PaceResearchSettingsTab: View {
 
     private var cliBridgeConfigurationSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("CLI bridge upstream")
+            Text("cli bridge upstream")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
             Picker("Upstream", selection: Binding(
@@ -138,7 +138,7 @@ struct PaceResearchSettingsTab: View {
 
     private var directAPIConfigurationSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Direct API provider")
+            Text("direct api provider")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
             Picker("Provider", selection: Binding(
@@ -197,7 +197,7 @@ struct PaceResearchSettingsTab: View {
                 Image(systemName: "key.fill")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(DS.Colors.textTertiary)
-                Text("API key")
+                Text("api key")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Spacer()
@@ -209,11 +209,11 @@ struct PaceResearchSettingsTab: View {
                 SecureField("paste \(researchConfiguration.directAPIProvider.displayLabel) API key", text: $directAPIKeyEntryFieldText)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12, design: .monospaced))
-                paceSettingsButton("Save", systemName: "checkmark.circle") {
+                paceSettingsButton("save", systemName: "checkmark.circle") {
                     saveDirectAPIKey()
                 }
                 if keyIsStoredForCurrentProvider {
-                    paceSettingsButton("Remove", systemName: "xmark.circle") {
+                    paceSettingsButton("remove", systemName: "xmark.circle") {
                         removeDirectAPIKey()
                     }
                 }
@@ -236,7 +236,7 @@ struct PaceResearchSettingsTab: View {
             Divider().background(DS.Colors.borderSubtle)
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Max steps per turn")
+                    Text("max steps per turn")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(DS.Colors.textSecondary)
                     Text("Clamped \(PaceResearchTierStore.maximumAgentStepsRange.lowerBound)–\(PaceResearchTierStore.maximumAgentStepsRange.upperBound). Default \(PaceResearchTierStore.defaultMaximumAgentSteps).")
@@ -260,7 +260,7 @@ struct PaceResearchSettingsTab: View {
 
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Token budget cap")
+                    Text("token budget cap")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(DS.Colors.textSecondary)
                     Text("Bails the research loop once cumulative output ≈ this. Clamped \(PaceResearchTierStore.perTurnTokenBudgetCapRange.lowerBound) – \(PaceResearchTierStore.perTurnTokenBudgetCapRange.upperBound). Default \(PaceResearchTierStore.defaultPerTurnTokenBudgetCap).")

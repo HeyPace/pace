@@ -5,8 +5,9 @@
 //  A first-run journey that reaches one real production command.
 //
 
-import AppKit
 import AVFoundation
+import AppKit
+import SaaSMakerUI
 import SwiftUI
 
 @MainActor
@@ -82,6 +83,7 @@ struct PaceOnboardingView: View {
             }
         }
         .frame(minWidth: 900, minHeight: 620)
+        .smTheme(DS.palette)
         .preferredColorScheme(.dark)
         .onAppear {
             chatSession.loadHistoryWithoutBlockingInterface()
@@ -142,7 +144,7 @@ struct PaceOnboardingView: View {
                 .tracking(1.4)
                 .foregroundStyle(DS.Colors.textPrimary)
 
-            Text(onboardingUsesOffDeviceBoundary ? "Off-device" : "On this Mac")
+            Text(onboardingUsesOffDeviceBoundary ? "off-device" : "on this mac")
                 .font(DS.Typography.captionStrong)
                 .foregroundStyle(signalPresentation.colorRole.color)
 
@@ -153,7 +155,7 @@ struct PaceOnboardingView: View {
                     Button {
                         navigateBack()
                     } label: {
-                        Label("Back", systemImage: "chevron.left")
+                        Label("back", systemImage: "chevron.left")
                     }
                     .buttonStyle(.plain)
                     .font(DS.Typography.captionStrong)
@@ -163,11 +165,11 @@ struct PaceOnboardingView: View {
                     .accessibilityHint("Returns to the previous introduction step")
                 }
 
-                Text(progressLabel)
+                Text(progressLabel.lowercased())
                     .font(DS.Typography.metadata)
                     .foregroundStyle(DS.Colors.textTertiary)
 
-                Button("Skip introduction") {
+                Button("skip introduction") {
                     skipJourney()
                 }
                 .buttonStyle(.plain)
@@ -189,7 +191,7 @@ struct PaceOnboardingView: View {
     private var ignitionScene: some View {
         HStack(spacing: 70) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Meet the signal\nthat stays with you.")
+                Text("meet the signal\nthat stays with you.")
                     .font(DS.Typography.display)
                     .tracking(-1.4)
                     .foregroundStyle(DS.Colors.textPrimary)
@@ -203,12 +205,12 @@ struct PaceOnboardingView: View {
                     .padding(.top, 22)
 
                 HStack(spacing: 18) {
-                    primaryButton("Continue", systemImage: "arrow.right") {
+                    primaryButton("continue", systemImage: "arrow.right") {
                         advanceFromIgnition()
                     }
                     .keyboardShortcut(.return, modifiers: [])
 
-                    Text("Three short steps")
+                    Text("three short steps")
                         .font(DS.Typography.captionStrong)
                         .foregroundStyle(DS.Colors.textTertiary)
                 }
@@ -223,7 +225,7 @@ struct PaceOnboardingView: View {
                 )
                 .frame(width: 260, height: 70)
 
-                Text("Ready on this Mac")
+                Text("ready on this mac")
                     .font(DS.Typography.captionStrong)
                     .foregroundStyle(DS.Colors.localSignal)
 
@@ -241,7 +243,7 @@ struct PaceOnboardingView: View {
 
     private var permissionsScene: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Allow what Pace needs.")
+            Text("allow what Pace needs.")
                 .font(DS.Typography.sceneTitle)
                 .tracking(-0.9)
                 .foregroundStyle(DS.Colors.textPrimary)
@@ -325,7 +327,7 @@ struct PaceOnboardingView: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 5) {
-                Text(title)
+                Text(title.lowercased())
                     .font(DS.Typography.bodyStrong)
                     .foregroundStyle(DS.Colors.textPrimary)
                 Text(detail)
@@ -336,11 +338,11 @@ struct PaceOnboardingView: View {
             Spacer(minLength: 24)
 
             if isGranted {
-                Label("Granted", systemImage: "checkmark.circle.fill")
+                Label("granted", systemImage: "checkmark.circle.fill")
                     .font(DS.Typography.captionStrong)
                     .foregroundStyle(DS.Colors.success)
             } else {
-                Text("Not yet")
+                Text("not yet")
                     .font(DS.Typography.captionStrong)
                     .foregroundStyle(DS.Colors.textTertiary)
             }
@@ -386,7 +388,7 @@ struct PaceOnboardingView: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                Text(title.lowercased())
                     .font(DS.Typography.captionStrong)
                     .foregroundStyle(DS.Colors.textPrimary)
                 Text(detail)
@@ -400,7 +402,7 @@ struct PaceOnboardingView: View {
     private var firstCommandScene: some View {
         HStack(spacing: 54) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Give Pace one real job.")
+                Text("give Pace one real job.")
                     .font(DS.Typography.sceneTitle)
                     .tracking(-0.9)
                     .foregroundStyle(DS.Colors.textPrimary)
@@ -415,7 +417,7 @@ struct PaceOnboardingView: View {
                     .padding(.top, 22)
 
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Your first request")
+                    Text("your first request")
                         .font(DS.Typography.captionStrong)
                         .foregroundStyle(DS.Colors.textTertiary)
 
@@ -433,13 +435,13 @@ struct PaceOnboardingView: View {
                         .frame(height: 1)
 
                     HStack {
-                        Text(firstCommandOutcome.allowsHandoff ? "Return to continue" : "Return to run")
+                        Text(firstCommandOutcome.allowsHandoff ? "return to continue" : "return to run")
                             .font(DS.Typography.caption)
                             .foregroundStyle(DS.Colors.textTertiary)
                         Spacer()
                         if !firstCommandOutcome.allowsHandoff {
                             primaryButton(
-                                submittedCommandText == nil ? "Try it" : "Run again",
+                                submittedCommandText == nil ? "try it" : "run again",
                                 systemImage: "arrow.up",
                                 isEnabled: !trimmedCommandText.isEmpty
                                     && companionManager.voiceState == .idle
@@ -474,7 +476,7 @@ struct PaceOnboardingView: View {
                             .pointerCursor()
                         }
 
-                        Button("Edit request") {
+                        Button("edit request") {
                             resetFirstCommandForRetry()
                         }
                         .buttonStyle(.plain)
@@ -508,7 +510,7 @@ struct PaceOnboardingView: View {
             .frame(width: 230, height: 64)
 
             VStack(spacing: 8) {
-                Text(signalPresentation.label)
+                Text(signalPresentation.label.lowercased())
                     .font(DS.Typography.headline)
                     .foregroundStyle(DS.Colors.textPrimary)
 
@@ -536,12 +538,12 @@ struct PaceOnboardingView: View {
 
             if firstCommandOutcome.allowsHandoff {
                 VStack(spacing: 10) {
-                    primaryButton("Continue to Pace", systemImage: "arrow.right") {
+                    primaryButton("continue to Pace", systemImage: "arrow.right") {
                         continueFromFirstValue()
                     }
                     .keyboardShortcut(.return, modifiers: [])
 
-                    Button("Run another request") {
+                    Button("run another request") {
                         resetFirstCommandForRetry()
                     }
                     .buttonStyle(.plain)
@@ -575,7 +577,7 @@ struct PaceOnboardingView: View {
                 .opacity(reduceMotion ? (handoffIsContracted ? 0 : 1) : 1)
 
                 if !handoffIsContracted || reduceMotion {
-                    Text(handoffTitle)
+                    Text(handoffTitle.hasPrefix("Pace") ? handoffTitle : handoffTitle.lowercased())
                         .font(DS.Typography.windowTitle)
                         .foregroundStyle(DS.Colors.textPrimary)
                         .transition(.opacity)
@@ -686,10 +688,10 @@ struct PaceOnboardingView: View {
         for permissionKind: PacePermissionKind
     ) -> String {
         switch permissionKind {
-        case .accessibility: return "Open Accessibility"
-        case .screenRecording: return "Open Screen Recording"
-        case .microphone: return "Allow Microphone"
-        case .camera, .calendar, .reminders, .contacts: return "Open Settings"
+        case .accessibility: return "open accessibility"
+        case .screenRecording: return "open screen recording"
+        case .microphone: return "allow microphone"
+        case .camera, .calendar, .reminders, .contacts: return "open settings"
         }
     }
 
@@ -770,12 +772,12 @@ struct PaceOnboardingView: View {
 
     private var firstCommandRecoveryTitle: String {
         switch firstCommandRecoveryDestination {
-        case .permissions: return "Open Permissions"
-        case .voice: return "Open Voice Settings"
-        case .mcp: return "Open Connected Tools"
-        case .cloudBridge: return "Open Off-Device Model Settings"
-        case .doctor: return "Open Help & Diagnostics"
-        default: return "Open Pace Settings"
+        case .permissions: return "open permissions"
+        case .voice: return "open voice settings"
+        case .mcp: return "open connected tools"
+        case .cloudBridge: return "open off-device model settings"
+        case .doctor: return "open help & diagnostics"
+        default: return "open Pace settings"
         }
     }
 
@@ -787,8 +789,13 @@ struct PaceOnboardingView: View {
     ) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
+                .textCase(nil)
         }
-        .buttonStyle(PaceOnboardingPrimaryButtonStyle())
+        .buttonStyle(SMButtonStyle(.brand))
+        .transaction { transaction in
+            if reduceMotion { transaction.disablesAnimations = true }
+        }
+        .paceControlHoverHighlight(cornerRadius: 23, isEnabled: isEnabled)
         .pointerCursor(isEnabled: isEnabled)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.45)
@@ -799,7 +806,11 @@ struct PaceOnboardingView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(title, action: action)
-            .buttonStyle(PaceOnboardingSecondaryButtonStyle())
+            .buttonStyle(SMButtonStyle(.outline))
+            .transaction { transaction in
+                if reduceMotion { transaction.disablesAnimations = true }
+            }
+            .paceControlHoverHighlight(cornerRadius: 23)
             .pointerCursor()
     }
 
@@ -1007,41 +1018,5 @@ struct PaceOnboardingView: View {
         if let settingsURL = URL(string: settingsURLString) {
             NSWorkspace.shared.open(settingsURL)
         }
-    }
-}
-
-private struct PaceOnboardingPrimaryButtonStyle: ButtonStyle {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(DS.Typography.calloutStrong)
-            .foregroundStyle(DS.Colors.textOnAccent)
-            .padding(.horizontal, 17)
-            .frame(height: 38)
-            .background(DS.Colors.localSignal.opacity(configuration.isPressed ? 0.74 : 1))
-            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
-            .shadow(color: DS.Colors.localSignal.opacity(0.22), radius: 10, x: 0, y: 5)
-            .scaleEffect(reduceMotion ? 1 : (configuration.isPressed ? 0.98 : 1))
-            .animation(
-                reduceMotion ? nil : .easeOut(duration: DS.Motion.micro),
-                value: configuration.isPressed
-            )
-    }
-}
-
-private struct PaceOnboardingSecondaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(DS.Typography.captionStrong)
-            .foregroundStyle(DS.Colors.textPrimary)
-            .padding(.horizontal, 14)
-            .frame(height: 34)
-            .background(DS.Colors.surfaceRaised.opacity(configuration.isPressed ? 0.65 : 1))
-            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-            }
     }
 }

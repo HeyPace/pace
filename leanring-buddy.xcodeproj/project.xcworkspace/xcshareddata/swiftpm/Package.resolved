@@ -145,6 +145,15 @@
       }
     },
     {
+      "identity" : "ui-library",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/sass-maker/ui-library",
+      "state" : {
+        "revision" : "1c01ca58049ce7534117248e8dbd284bb5269e36",
+        "version" : "0.1.17"
+      }
+    },
+    {
       "identity" : "whisperkit",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/argmaxinc/WhisperKit",

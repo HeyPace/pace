@@ -18,7 +18,7 @@ struct PaceTasksSettingsTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Scheduled tasks")
+                Text("scheduled tasks")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Text(
@@ -43,7 +43,7 @@ struct PaceTasksSettingsTab: View {
             TextField("Every 2 hours remind me to stand up", text: $newTaskCommand)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit { addTaskFromCommand() }
-            paceSettingsButton("Add task", systemName: "plus") { addTaskFromCommand() }
+            paceSettingsButton("add task", systemName: "plus") { addTaskFromCommand() }
             if let creationFeedback {
                 Text(creationFeedback).font(.system(size: 12)).foregroundColor(DS.Colors.textSecondary)
             }
@@ -60,8 +60,8 @@ struct PaceTasksSettingsTab: View {
             "Restart this task?",
             isPresented: Binding(get: { taskToRetry != nil }, set: { if !$0 { taskToRetry = nil } })
         ) {
-            Button("Cancel", role: .cancel) { taskToRetry = nil }
-            Button("Restart") {
+            Button("cancel", role: .cancel) { taskToRetry = nil }
+            Button("restart") {
                 if let taskToRetry, !backgroundRunner.retry(taskId: taskToRetry.id) {
                     creationFeedback =
                         backgroundRunner.persistenceError ?? "This task cannot be restarted in its current state."
@@ -91,7 +91,7 @@ struct PaceTasksSettingsTab: View {
 
     private var backgroundTasksSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Background results").font(.system(size: 13, weight: .semibold)).foregroundColor(
+            Text("background results").font(.system(size: 13, weight: .semibold)).foregroundColor(
                 DS.Colors.textSecondary)
             if let persistenceError = backgroundRunner.persistenceError {
                 Text(persistenceError).font(.system(size: 12)).foregroundColor(DS.Colors.textSecondary)
@@ -109,13 +109,13 @@ struct PaceTasksSettingsTab: View {
                     ).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     HStack {
                         if task.state == .running || task.state == .queued {
-                            paceSettingsButton("Cancel", systemName: "stop") {
+                            paceSettingsButton("cancel", systemName: "stop") {
                                 backgroundRunner.cancel(taskId: task.id)
                             }
                         }
                         switch task.state {
                         case .interrupted, .failed, .cancelled:
-                            paceSettingsButton("Review and retry", systemName: "arrow.clockwise") { taskToRetry = task }
+                            paceSettingsButton("review and retry", systemName: "arrow.clockwise") { taskToRetry = task }
                         default: EmptyView()
                         }
                     }
@@ -127,7 +127,7 @@ struct PaceTasksSettingsTab: View {
 
     private var scheduledTasksSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Recurring tasks")
+            Text("recurring tasks")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
 
@@ -188,7 +188,7 @@ struct PaceTasksSettingsTab: View {
             ) {
                 cronScheduler.setTaskPaused(id: task.id, paused: task.isPaused != true)
             }
-            paceSettingsButton("Delete schedule", systemName: "trash") {
+            paceSettingsButton("delete schedule", systemName: "trash") {
                 cronScheduler.removeTask(id: task.id)
             }
         }

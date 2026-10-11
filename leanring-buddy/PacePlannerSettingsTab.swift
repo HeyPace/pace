@@ -42,7 +42,7 @@ struct PacePlannerSettingsTab: View {
 
     private var plannerTierPickerSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Backend tier")
+            Text("backend tier")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
 
@@ -159,7 +159,7 @@ struct PacePlannerSettingsTab: View {
 
     private var plannerCLIBridgeDetailPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("CLI bridge")
+            Text("cli bridge")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
             Text("Configure the upstream CLI, model, and consent in the Cloud bridge tab. This tier reuses that configuration.")
@@ -173,7 +173,7 @@ struct PacePlannerSettingsTab: View {
 
     private var plannerCLIDirectDetailPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Direct-spawn CLI")
+            Text("direct-spawn cli")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
 
@@ -233,7 +233,7 @@ struct PacePlannerSettingsTab: View {
                 .font(.system(size: 12))
                 .foregroundColor(DS.Colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
-            paceSettingsButton("Open Apple Intelligence settings", systemName: "apple.logo") {
+            paceSettingsButton("open Apple Intelligence settings", systemName: "apple.logo") {
                 if let appleIntelligenceURL = URL(string: "x-apple.systempreferences:com.apple.AppleIntelligence-Settings.extension") {
                     NSWorkspace.shared.open(appleIntelligenceURL)
                 }
@@ -248,7 +248,7 @@ struct PacePlannerSettingsTab: View {
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
-                paceSettingsButton("Upgrade to Local — LM Studio", systemName: "arrow.up.circle") {
+                paceSettingsButton("upgrade to local — LM Studio", systemName: "arrow.up.circle") {
                     companionManager.setActivePlannerTier(.local)
                 }
             }
@@ -259,7 +259,7 @@ struct PacePlannerSettingsTab: View {
         VStack(alignment: .leading, spacing: 12) {
             // Provider picker
             VStack(alignment: .leading, spacing: 8) {
-                Text("Provider")
+                Text("provider")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Picker("", selection: Binding(
@@ -281,7 +281,7 @@ struct PacePlannerSettingsTab: View {
 
             // API key field + Save/Delete buttons
             VStack(alignment: .leading, spacing: 6) {
-                Text("API key")
+                Text("api key")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 SecureField("Paste your \(companionManager.directAPIProvider.displayLabel) API key", text: $directAPIKeyEntryFieldText)
@@ -289,7 +289,7 @@ struct PacePlannerSettingsTab: View {
                     .font(.system(size: 12, design: .monospaced))
                 HStack(spacing: 10) {
                     let entryFieldTextTrimmed = directAPIKeyEntryFieldText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    paceSettingsButton("Save key", systemName: "key.fill") {
+                    paceSettingsButton("save key", systemName: "key.fill") {
                         guard !entryFieldTextTrimmed.isEmpty else { return }
                         let didStore = companionManager.saveDirectAPIKey(
                             entryFieldTextTrimmed,
@@ -304,7 +304,7 @@ struct PacePlannerSettingsTab: View {
                     .disabled(entryFieldTextTrimmed.isEmpty)
                     .opacity(entryFieldTextTrimmed.isEmpty ? 0.45 : 1)
 
-                    paceSettingsButton("Delete key", systemName: "trash") {
+                    paceSettingsButton("delete key", systemName: "trash") {
                         _ = companionManager.deleteDirectAPIKey(for: companionManager.directAPIProvider)
                         refreshProvidersWithStoredDirectAPIKeys()
                         lastDirectAPITestOutcomeText = nil
@@ -320,7 +320,7 @@ struct PacePlannerSettingsTab: View {
 
             // Model identifier text field
             VStack(alignment: .leading, spacing: 6) {
-                Text("Model")
+                Text("model")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 TextField(
@@ -337,7 +337,7 @@ struct PacePlannerSettingsTab: View {
             // Custom endpoint URL (only when provider == .custom)
             if companionManager.directAPIProvider == .custom {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Endpoint URL")
+                    Text("endpoint url")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(DS.Colors.textSecondary)
                     TextField(
@@ -368,7 +368,7 @@ struct PacePlannerSettingsTab: View {
             // Test round-trip button + last outcome row
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
-                    paceSettingsButton(isDirectAPITestInFlight ? "Testing…" : "Test", systemName: "bolt.fill") {
+                    paceSettingsButton(isDirectAPITestInFlight ? "testing…" : "test", systemName: "bolt.fill") {
                         runDirectAPITest()
                     }
                     .disabled(

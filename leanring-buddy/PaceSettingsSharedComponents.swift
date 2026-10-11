@@ -21,7 +21,7 @@ import SwiftUI
 @ViewBuilder
 func paceSettingsRowLabel(title: String, subtitle: String) -> some View {
     VStack(alignment: .leading, spacing: 3) {
-        Text(title)
+        Text(title.lowercased())
             .font(DS.Typography.calloutStrong)
             .foregroundColor(DS.Colors.textPrimary)
         Text(subtitle)
@@ -61,7 +61,7 @@ func paceSettingsToggleRow(
 @ViewBuilder
 func paceSettingsInfoRow(title: String, value: String) -> some View {
     HStack {
-        Text(title)
+        Text(title.lowercased())
             .font(DS.Typography.calloutStrong)
             .foregroundColor(DS.Colors.textSecondary)
         Spacer()
@@ -90,6 +90,7 @@ func paceSettingsButton(
             Image(systemName: systemName)
                 .font(.system(size: 11, weight: .medium))
             Text(title)
+                .textCase(nil)
                 .font(DS.Typography.captionStrong)
         }
         .foregroundColor(DS.Colors.textPrimary)

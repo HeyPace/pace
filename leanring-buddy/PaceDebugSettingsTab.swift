@@ -24,7 +24,7 @@ struct PaceDebugSettingsTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Tool calls")
+                Text("tool calls")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Text("Every recent voice or chat turn — the exact transcript, how it routed, per-turn latency, the planner's raw output, what parsed into tool calls, and what dispatch did. This is the place to see why a command that spoke something didn't act. Newest first.")
@@ -38,7 +38,7 @@ struct PaceDebugSettingsTab: View {
                     .textSelection(.enabled)
 
                 if !companionManager.recentToolCallDebugRecords.isEmpty {
-                    paceSettingsButton("Clear", systemName: "xmark.circle") {
+                    paceSettingsButton("clear", systemName: "xmark.circle") {
                         companionManager.clearToolCallDebugRecords()
                     }
                 }

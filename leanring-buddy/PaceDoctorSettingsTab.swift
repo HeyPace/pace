@@ -18,7 +18,7 @@ struct PaceDoctorSettingsTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Local stack diagnostics")
+                Text("local stack diagnostics")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Text("Probes LM Studio, the planner model, the embedding model, the VLM, and the TTS sidecar. Use this when Pace is misbehaving and you're not sure what's offline — it tells you exactly what's broken and how to fix it.")

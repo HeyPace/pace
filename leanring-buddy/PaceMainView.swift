@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import SaaSMakerUI
 import SwiftUI
 
 struct PaceMainView: View {
@@ -32,6 +33,9 @@ struct PaceMainView: View {
         }
         .background(DS.Colors.surface)
         .frame(minWidth: 820, minHeight: 540)
+        // Keep native settings controls compact beneath the package's 16pt default.
+        .font(DS.Typography.body)
+        .smTheme(DS.palette)
         .preferredColorScheme(.dark)
         .onChange(of: router.selectedDestination) { _, selectedDestination in
             guard !normalizedSearchText.isEmpty,
@@ -43,7 +47,7 @@ struct PaceMainView: View {
                 Button {
                     showsDestinationHelp.toggle()
                 } label: {
-                    Label("About this section", systemImage: "questionmark.circle")
+                    Label("about this section", systemImage: "questionmark.circle")
                 }
                 .help("Explain this section")
                 .popover(isPresented: $showsDestinationHelp, arrowEdge: .bottom) {
@@ -65,7 +69,7 @@ struct PaceMainView: View {
                         .font(DS.Typography.sectionTitle)
                         .foregroundStyle(DS.Colors.textPrimary)
                 }
-                Text("Command Center")
+                Text("command center")
                     .font(DS.Typography.caption)
                     .foregroundStyle(DS.Colors.textTertiary)
             }
@@ -79,7 +83,7 @@ struct PaceMainView: View {
                     ForEach(PaceCommandCenterGroup.allCases) { group in
                         let visibleDestinations = primaryDestinations(in: group)
                         if !visibleDestinations.isEmpty {
-                            Section(group.rawValue) {
+                            Section(group == .work ? "use Pace" : group.rawValue.lowercased()) {
                                 ForEach(visibleDestinations) { destination in
                                     destinationRow(destination)
                                 }
@@ -93,7 +97,7 @@ struct PaceMainView: View {
                                 destinationRow(destination)
                             }
                         } label: {
-                            Label("Advanced controls", systemImage: "slider.horizontal.3")
+                            Label("advanced controls", systemImage: "slider.horizontal.3")
                                 .font(DS.Typography.captionStrong)
                         }
                     } footer: {
@@ -104,7 +108,7 @@ struct PaceMainView: View {
                         .font(DS.Typography.callout)
                         .foregroundStyle(DS.Colors.textSecondary)
                 } else {
-                    Section("Search results") {
+                    Section("search results") {
                         ForEach(searchResults) { destination in
                             destinationRow(destination)
                         }
@@ -125,7 +129,7 @@ struct PaceMainView: View {
                     isReplay: true
                 )
             } label: {
-                Label("Getting Started", systemImage: "questionmark.circle")
+                Label("getting started", systemImage: "questionmark.circle")
                     .font(DS.Typography.captionStrong)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
@@ -157,7 +161,7 @@ struct PaceMainView: View {
         _ destination: PaceCommandCenterDestination
     ) -> some View {
         NavigationLink(value: destination) {
-            Label(destination.title, systemImage: destination.symbolName)
+            Label(interfaceTitle(for: destination), systemImage: destination.symbolName)
                 .font(DS.Typography.calloutStrong)
                 .pointerCursor()
         }
@@ -255,13 +259,11 @@ struct PaceMainView: View {
 
     private var commandCenterHeader: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(router.selectedDestination.title)
-                .font(DS.Typography.windowTitle)
-                .tracking(-0.45)
-                .foregroundStyle(DS.Colors.textPrimary)
+            SMSectionHeader("", accent: interfaceTitle(for: router.selectedDestination), size: 28)
             Text(destinationSubtitle)
                 .font(DS.Typography.body)
                 .foregroundStyle(DS.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -269,10 +271,14 @@ struct PaceMainView: View {
         router.selectedDestination.subtitle
     }
 
+    private func interfaceTitle(for destination: PaceCommandCenterDestination) -> String {
+        destination == .planner ? "how Pace thinks" : destination.title.lowercased()
+    }
+
     private var destinationHelp: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(
-                router.selectedDestination.title,
+                interfaceTitle(for: router.selectedDestination),
                 systemImage: router.selectedDestination.symbolName
             )
             .font(DS.Typography.headline)
@@ -284,7 +290,7 @@ struct PaceMainView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if router.selectedDestination.isAdvanced {
-                Text("Advanced control")
+                Text("advanced control")
                     .font(DS.Typography.captionStrong)
                     .foregroundStyle(DS.Colors.textTertiary)
                 Text("Pace’s defaults are suitable for most people. Change this only when you know which runtime behavior you need.")
@@ -306,29 +312,29 @@ struct PacePermissionsView: View {
     @ObservedObject private var permissionService = PacePermissionService.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Permissions")
-                .font(DS.Typography.windowTitle)
-                .tracking(-0.45)
-            Text("Live macOS capability state. Pace asks only when a requested feature needs access.")
-                .font(DS.Typography.body)
-                .foregroundColor(DS.Colors.textSecondary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                SMSectionHeader("", accent: "permissions", size: 28)
+                Text("Live macOS capability state. Pace asks only when a requested feature needs access.")
+                    .font(DS.Typography.body)
+                    .foregroundColor(DS.Colors.textSecondary)
 
-            VStack(spacing: 0) {
-                ForEach(PacePermissionKind.allCases, id: \.rawValue) { permissionKind in
-                    permissionRow(permissionKind: permissionKind)
-                    if permissionKind != PacePermissionKind.allCases.last {
-                        Divider().overlay(DS.Colors.borderSubtle)
+                SMCard(padding: 0) {
+                    VStack(spacing: 0) {
+                        ForEach(PacePermissionKind.allCases, id: \.rawValue) { permissionKind in
+                            permissionRow(permissionKind: permissionKind)
+                            if permissionKind != PacePermissionKind.allCases.last {
+                                Divider().overlay(DS.Colors.borderSubtle)
+                            }
+                        }
                     }
                 }
-            }
-            .background(DS.Colors.surfaceRaised)
-            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous))
-            .padding(.top, 10)
+                .padding(.top, 10)
 
-            Spacer()
+                Spacer()
+            }
+            .padding(28)
         }
-        .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(DS.Colors.surface)
     }
@@ -342,7 +348,7 @@ struct PacePermissionsView: View {
                 .frame(width: 22)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(humanName(permissionKind))
+                Text(humanName(permissionKind).lowercased())
                     .font(DS.Typography.bodyStrong)
                 Text(humanDescription(permissionKind))
                     .font(DS.Typography.callout)
@@ -352,17 +358,17 @@ struct PacePermissionsView: View {
             Spacer()
 
             if isGranted {
-                Text("Granted")
-                    .font(DS.Typography.captionStrong)
-                    .foregroundStyle(DS.Colors.success)
+                SMStatusPill("granted", tone: .success)
+                    .fixedSize()
             } else {
                 Button(
                     permissionKind == .calendar && companionManager.shouldRequestCalendarPermission
-                        ? "Grant Access" : "Open Settings"
+                        ? "grant access" : "open settings"
                 ) {
                     openSettings(for: permissionKind)
                 }
                 .buttonStyle(.bordered)
+                .fixedSize()
                 .pointerCursor()
             }
         }
@@ -444,7 +450,7 @@ struct PaceAboutView: View {
             .foregroundColor(DS.Colors.textTertiary)
             .multilineTextAlignment(.center)
             .frame(maxWidth: 440)
-            Button("Open-source credits and licenses") {
+            Button("open-source credits and licenses") {
                 if let noticesURL = Bundle.main.url(forResource: "OpenSourceNotices", withExtension: "txt") {
                     NSWorkspace.shared.open(noticesURL)
                 }

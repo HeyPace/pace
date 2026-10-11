@@ -47,7 +47,7 @@ struct PaceActivitySettingsTab: View {
                 .background(DS.Colors.borderSubtle)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Local memory")
+                Text("local memory")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Text(companionManager.localMemorySummary)
@@ -60,14 +60,14 @@ struct PaceActivitySettingsTab: View {
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                paceSettingsButton("Reset Retrieval", systemName: "arrow.counterclockwise") {
+                paceSettingsButton("reset retrieval", systemName: "arrow.counterclockwise") {
                     companionManager.resetLocalRetrievalIndex()
                 }
 
                 localRetrievalFileRootsSection
 
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("Retrieval sources")
+                    Text("retrieval sources")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(DS.Colors.textSecondary)
                         .padding(.top, 8)
@@ -82,7 +82,7 @@ struct PaceActivitySettingsTab: View {
                 .background(DS.Colors.borderSubtle)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Recent actions")
+                Text("recent actions")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
 
@@ -119,7 +119,7 @@ struct PaceActivitySettingsTab: View {
     /// facts.
     private var threadSummarySection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Thread summary")
+            Text("thread summary")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
 
@@ -176,7 +176,7 @@ struct PaceActivitySettingsTab: View {
                 }
             }
 
-            paceSettingsButton("Reset thread now", systemName: "arrow.counterclockwise") {
+            paceSettingsButton("reset thread now", systemName: "arrow.counterclockwise") {
                 companionManager.resetThreadMemoryNow()
                 threadMemoryRefreshTick &+= 1
             }
@@ -227,14 +227,14 @@ struct PaceActivitySettingsTab: View {
     private var localRetrievalFileRootsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Text("File folders")
+                Text("file folders")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Spacer()
-                paceSettingsButton("Add Folder", systemName: "folder.badge.plus") {
+                paceSettingsButton("add folder", systemName: "folder.badge.plus") {
                     chooseLocalRetrievalFileRoots()
                 }
-                paceSettingsButton("Clear", systemName: "xmark.circle") {
+                paceSettingsButton("clear", systemName: "xmark.circle") {
                     companionManager.clearLocalRetrievalFileRootPaths()
                 }
                 .disabled(companionManager.localRetrievalFileRootPaths.isEmpty)

@@ -23,6 +23,7 @@
 //
 
 import AVFoundation
+import SaaSMakerUI
 import SwiftUI
 
 // MARK: - Core permissions block
@@ -32,7 +33,7 @@ struct PaceCorePermissionsView: View {
 
     var body: some View {
         VStack(spacing: 2) {
-            Text("PERMISSIONS")
+            Text("permissions")
                 .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .foregroundColor(DS.Colors.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -61,7 +62,7 @@ struct PaceCorePermissionsView: View {
                     .foregroundColor(isGranted ? DS.Colors.textTertiary : DS.Colors.warning)
                     .frame(width: 16)
 
-                Text("Accessibility")
+                Text("accessibility")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
             }
@@ -109,7 +110,7 @@ struct PaceCorePermissionsView: View {
                     .frame(width: 16)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Screen Recording")
+                    Text("screen recording")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(DS.Colors.textSecondary)
 
@@ -150,7 +151,7 @@ struct PaceCorePermissionsView: View {
                     .foregroundColor(isGranted ? DS.Colors.textTertiary : DS.Colors.warning)
                     .frame(width: 16)
 
-                Text("Screen Content")
+                Text("screen content")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
             }
@@ -181,7 +182,7 @@ struct PaceCorePermissionsView: View {
                     .foregroundColor(isGranted ? DS.Colors.textTertiary : DS.Colors.warning)
                     .frame(width: 16)
 
-                Text("Microphone")
+                Text("microphone")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
             }
@@ -226,7 +227,7 @@ struct PaceCorePermissionsView: View {
                     .frame(width: 16)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Speech Recognition")
+                    Text("speech recognition")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(DS.Colors.textSecondary)
 
@@ -261,7 +262,7 @@ struct PaceToolPermissionsView: View {
 
     var body: some View {
         VStack(spacing: 2) {
-            Text("LOCAL TOOLS")
+            Text("local tools")
                 .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .foregroundColor(DS.Colors.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -282,7 +283,7 @@ struct PaceToolPermissionsView: View {
                     .frame(width: 16)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Automation")
+                    Text("automation")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(DS.Colors.textSecondary)
 
@@ -349,7 +350,7 @@ struct PaceToolPermissionsView: View {
                     .frame(width: 16)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
+                    Text(title.lowercased())
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(DS.Colors.textSecondary)
 
@@ -392,20 +393,14 @@ struct PaceToolPermissionsView: View {
 @MainActor
 @ViewBuilder
 fileprivate var pacePanelGrantedBadge: some View {
-    HStack(spacing: 4) {
-        Circle()
-            .fill(DS.Colors.success)
-            .frame(width: 6, height: 6)
-        Text("Granted")
-            .font(.system(size: 11, weight: .medium))
-            .foregroundColor(DS.Colors.success)
-    }
+    SMStatusPill("granted", tone: .success)
+        .fixedSize()
 }
 
 @MainActor
 @ViewBuilder
 fileprivate var pacePanelGrantButtonLabel: some View {
-    Text("Grant")
+    Text("grant")
         .font(.system(size: 11, weight: .semibold))
         .foregroundColor(DS.Colors.textOnAccent)
         .padding(.horizontal, 10)
@@ -419,7 +414,7 @@ fileprivate var pacePanelGrantButtonLabel: some View {
 @MainActor
 @ViewBuilder
 fileprivate func pacePanelOutlineButtonLabel(_ title: String) -> some View {
-    Text(title)
+    Text(title.lowercased())
         .font(.system(size: 11, weight: .semibold))
         .foregroundColor(DS.Colors.textSecondary)
         .padding(.horizontal, 10)

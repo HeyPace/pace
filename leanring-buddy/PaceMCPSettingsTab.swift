@@ -40,7 +40,7 @@ struct PaceMCPSettingsTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Config file")
+                Text("config file")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Text(PaceMCPServerRegistry.configurationPaths[0].path)
@@ -50,17 +50,17 @@ struct PaceMCPSettingsTab: View {
             }
 
             HStack(spacing: 10) {
-                paceSettingsButton("Create / Open", systemName: "doc.badge.gearshape") {
+                paceSettingsButton("create / open", systemName: "doc.badge.gearshape") {
                     createMCPConfigIfNeeded()
                     openPrimaryMCPConfig()
                     refreshMCPServerNames()
                 }
-                paceSettingsButton("Reveal", systemName: "folder") {
+                paceSettingsButton("reveal", systemName: "folder") {
                     createMCPConfigIfNeeded()
                     NSWorkspace.shared.activateFileViewerSelecting([PaceMCPServerRegistry.configurationPaths[0]])
                     refreshMCPServerNames()
                 }
-                paceSettingsButton("Refresh", systemName: "arrow.clockwise") {
+                paceSettingsButton("refresh", systemName: "arrow.clockwise") {
                     refreshMCPServerNames()
                 }
             }
@@ -74,7 +74,7 @@ struct PaceMCPSettingsTab: View {
                 .background(DS.Colors.borderSubtle)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Configured servers")
+                Text("configured servers")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
 
@@ -133,7 +133,7 @@ struct PaceMCPSettingsTab: View {
     /// has already configured by hand.
     private var mcpCatalogSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Install a popular server")
+            Text("install a popular server")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
             Text(
@@ -202,7 +202,7 @@ struct PaceMCPSettingsTab: View {
                 Image(systemName: "key.fill")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(DS.Colors.textTertiary)
-                Text("Composio API key")
+                Text("composio api key")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Spacer()
@@ -214,11 +214,11 @@ struct PaceMCPSettingsTab: View {
                 SecureField("paste composio API key", text: $composioAPIKeyEditingDraft)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12, design: .monospaced))
-                paceSettingsButton("Save", systemName: "checkmark.circle") {
+                paceSettingsButton("save", systemName: "checkmark.circle") {
                     saveComposioAPIKey()
                 }
                 if composioKeyIsStoredInKeychain {
-                    paceSettingsButton("Remove", systemName: "xmark.circle") {
+                    paceSettingsButton("remove", systemName: "xmark.circle") {
                         removeComposioAPIKey()
                     }
                 }
@@ -300,7 +300,7 @@ struct PaceMCPSettingsTab: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(DS.Colors.textPrimary)
                     if isInstalled {
-                        Text("Installed")
+                        Text("installed")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundColor(DS.Colors.success)
                             .padding(.horizontal, 6)
@@ -332,16 +332,16 @@ struct PaceMCPSettingsTab: View {
 
             VStack(alignment: .trailing, spacing: 6) {
                 if isInstalled {
-                    paceSettingsButton("Remove", systemName: "trash") {
+                    paceSettingsButton("remove", systemName: "trash") {
                         uninstallCatalogEntry(entry)
                     }
                 } else {
-                    paceSettingsButton("Install", systemName: "arrow.down.circle") {
+                    paceSettingsButton("install", systemName: "arrow.down.circle") {
                         installCatalogEntry(entry)
                     }
                 }
                 if let docsURL = entry.setupDocsURL {
-                    paceSettingsButton("Setup docs", systemName: "book") {
+                    paceSettingsButton("setup docs", systemName: "book") {
                         NSWorkspace.shared.open(docsURL)
                     }
                 }
