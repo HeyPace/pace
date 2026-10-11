@@ -297,21 +297,11 @@ Status: unstarted. Biggest remaining quality lever toward "best local tool."
   an agent can't see the UI render, so treat it as iterative back-and-forth with
   the user, not fire-and-forget. Don't claim UI correctness from a green build.
 
-## Priority 14: One-Tap obscura (headless browser) in the MCP catalog
+## Retired: a second browser engine through Obscura
 
-Status: unstarted. Drivable solo (no visual judgment needed).
-
-- Context: the bundled six-server catalog (`PaceMCPServerCatalog`, Settings →
-  MCP) already does one-tap npx/uvx installs. obscura is validated end-to-end
-  via a hand-edited `~/.config/pace/mcp-servers.json` but is NOT in the catalog.
-- What: add obscura to `PaceMCPServerCatalog` plus a binary-download install
-  path (obscura ships as a prebuilt per-arch binary, not npx/uvx) so any user
-  gets the headless programmable browser.
-- Why: obscura (Rust + V8, CDP + MCP, ~35 tools) renders JS pages; productizing
-  it lifts it beyond the current hand-config.
-- Consideration: downloading + running a third-party binary at install is a
-  trust surface on a privacy-first product — confirm the install/consent UX
-  before shipping.
+The one-tap Obscura proposal is no longer active work. Playwright MCP covers
+Pace's current browser workflows; see the
+[retirement rationale](../knowledge/failed-approaches.md#retired-obscura-as-an-additional-browser-engine).
 
 ## Deferred (gated, do NOT start blind): UI-TARS / GUI-grounding VLM
 
