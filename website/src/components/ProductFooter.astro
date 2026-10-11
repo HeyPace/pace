@@ -1,0 +1,74 @@
+---
+import { StudioFooter, studioFromProjects, studioProjectsFeed } from "@saas-maker/ui/blocks/footer";
+const projects = await fetch(studioProjectsFeed).then((response) => response.ok ? response.json() : []).catch(() => []);
+const studio = studioFromProjects(projects, { current: "pace" });
+const groups = [
+  { title: "product", links: [
+    { label: "download", href: "/download" },
+    { label: "pricing", href: "/pricing" },
+    { label: "compared", href: "/compared" },
+    { label: "faq", href: "/faq" },
+  ] },
+  { title: "resources", links: [
+    { label: "docs", href: "/docs/" },
+    { label: "changelog", href: "/changelog" },
+    { label: "roadmap", href: "https://github.com/HeyPace/pace/issues" },
+    { label: "github", href: "https://github.com/HeyPace/pace" },
+  ] },
+  { title: "trust", links: [
+    { label: "privacy", href: "/privacy" },
+    { label: "terms", href: "/terms" },
+    { label: "email", href: "mailto:hi@sarthakagrawal.dev" },
+  ] },
+];
+---
+
+<studio-footer class="pace-studio-footer" data-theme="ink" data-mode="dark">
+  <StudioFooter
+    product="HeyPace"
+    url="https://heypace.app"
+    catalogId="pace"
+    capture="newsletter"
+    privacyUrl="https://heypace.app/privacy"
+    summary="A private Mac voice agent. Local by default; visible consent and an audit trail when your chosen planner goes off-device."
+    cta={{ label: "download the free preview", href: "/download" }}
+    groups={groups}
+    studio={studio}
+    art={{
+      src: "/footer-art/pace.webp",
+      alt: "Original pixel illustration of a microphone connected to a quiet local workspace by a short blue ribbon",
+      width: 2170,
+      height: 725,
+      position: "50% 50%",
+      credit: "Original illustration for HeyPace",
+    }}
+    wordmark="poster"
+    legal="© 2026 HeyPace · made for macOS in California"
+  />
+</studio-footer>
+
+<script>
+  import "@saas-maker/ui/footer.js";
+</script>
+
+<style>
+  .pace-studio-footer {
+    display: block;
+    --brand: #4f8bff;
+    --brand-foreground: #000;
+    --brand-soft: #101e36;
+    --brand-ink: #6b9fff;
+    --primary: #4f8bff;
+    --primary-foreground: #000;
+    --ring: #4f8bff;
+    --background: #000;
+    --foreground: #fff;
+    --card: #0b0b0d;
+    --card-foreground: #fff;
+    --muted: #15171b;
+    --muted-foreground: #9ca3af;
+    --border: #2a2d31;
+    --input: #2a2d31;
+    font-family: var(--font-text, var(--font-sans));
+  }
+</style>

@@ -14,8 +14,14 @@
     "deploy": "pnpm run build && wrangler pages deploy dist --project-name pace"
   },
   "dependencies": {
+    "@astrojs/react": "7.0.0",
+    "@saas-maker/motion": "github:sass-maker/ui-library#v0.1.18&path:/packages/motion",
+    "@saas-maker/templates": "github:sass-maker/ui-library#v0.1.18&path:/packages/templates",
+    "@saas-maker/ui": "github:sass-maker/ui-library#v0.1.18&path:/packages/ui",
     "@tailwindcss/vite": "^4.3.3",
     "astro": "7.3.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
