@@ -111,6 +111,17 @@ never chose ASK_USER correctly. ~550 ms p50 on PyTorch MPS with 32 described
 labels. Revisit only with a decision-tuned checkpoint (e.g. GLiNER2.5-Decide) or
 a model fine-tuned on step-level state.
 
+## Retired: Obscura as an additional browser engine
+
+The manually configured Obscura experiment was retired from the personal Pace
+setup on 2026-10-11. Its configured executable was missing, while the installed
+Playwright MCP integration already covered the current browser workflows.
+The old one-tap catalog proposal is therefore no longer an active requirement.
+
+This is a fit decision for Pace, not an assessment of Obscura's upstream quality.
+Reconsider another browser engine only for a concrete workflow that the existing
+integration cannot fulfill, with a successful command test and license attribution.
+
 ## Rejected: bundled recipes that overclaim recorded UI steps
 
 The original five bundled recipes encoded literal app activation and keystrokes
