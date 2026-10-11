@@ -10,6 +10,7 @@
 import AppKit
 import Combine
 import QuartzCore
+import SaaSMakerUI
 import SwiftUI
 
 /// Pace's overlay hierarchy is centralized so ambient screen signals can
@@ -547,6 +548,7 @@ private struct PaceMenuBarOverlayView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .smTheme(DS.palette)
         .background(Color.black)
         .clipShape(notchShape)
         .contentShape(
@@ -596,7 +598,7 @@ private struct PaceMenuBarOverlayView: View {
 
     private var livingNotchHeader: some View {
         HStack(spacing: 0) {
-            Text(livingNotchPrimaryLabel)
+            Text(livingNotchPrimaryLabel == "Pace" ? "Pace" : livingNotchPrimaryLabel.lowercased())
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color.white.opacity(0.9))
                 .lineLimit(1)

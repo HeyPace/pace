@@ -35,7 +35,7 @@ struct PaceQuickTogglesView: View {
                     .frame(width: 16)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Tuition Mode")
+                    Text("tuition mode")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(DS.Colors.textSecondary)
 
@@ -67,7 +67,7 @@ struct PaceQuickTogglesView: View {
                     .foregroundColor(DS.Colors.textTertiary)
                     .frame(width: 16)
 
-                Text("Read My Screen")
+                Text("read my screen")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
             }
@@ -94,7 +94,7 @@ struct PaceQuickTogglesView: View {
                     .foregroundColor(DS.Colors.textTertiary)
                     .frame(width: 16)
 
-                Text("Cursor Annotations")
+                Text("cursor annotations")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
             }
@@ -122,7 +122,7 @@ struct PaceQuickTogglesView: View {
                     .frame(width: 16)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Approve Risky Actions")
+                    Text("approve risky actions")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(DS.Colors.textSecondary)
 
@@ -155,7 +155,7 @@ struct PaceQuickTogglesView: View {
                     .frame(width: 16)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Watch Mode")
+                    Text("watch mode")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(DS.Colors.textSecondary)
 

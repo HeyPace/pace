@@ -9,6 +9,7 @@
 
 import AppKit
 import Combine
+import SaaSMakerUI
 import SwiftUI
 
 // MARK: - View Model
@@ -320,7 +321,7 @@ private struct CompanionResponseOverlayView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "stop.circle.fill")
                                 .font(.system(size: 12, weight: .semibold))
-                            Text("Stop")
+                            Text("stop")
                                 .font(.system(size: 12, weight: .semibold))
                         }
                         .foregroundColor(.white)
@@ -332,6 +333,7 @@ private struct CompanionResponseOverlayView: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .pointerCursor()
                 }
             }
             // Min width keeps the bubble from collapsing into a sliver
@@ -340,6 +342,8 @@ private struct CompanionResponseOverlayView: View {
             .frame(minWidth: 140, maxWidth: 300, alignment: .leading)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
+            .smTheme(DS.palette)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .background(
                     ZStack {
                         // Dark glass fill — slightly translucent so the bubble

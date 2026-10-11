@@ -48,7 +48,9 @@ xcodebuild \
     build
 
 [[ -d "$BUILT_APP" ]] || { echo "missing built app: $BUILT_APP" >&2; exit 1; }
+bash "$SCRIPT_DIR/ensure-sm-ui-bundle.sh" "$BUILT_APP" "$(dirname "$BUILT_APP")"
 ditto "$BUILT_APP" "$OUTPUT_APP"
+bash "$SCRIPT_DIR/ensure-sm-ui-bundle.sh" "$OUTPUT_APP"
 
 mkdir -p "$OUTPUT_APP/Contents/Resources/scripts"
 cp "$SCRIPT_DIR/start-tts-server.sh" "$OUTPUT_APP/Contents/Resources/scripts/start-tts-server.sh"

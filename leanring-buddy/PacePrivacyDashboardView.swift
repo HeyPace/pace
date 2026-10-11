@@ -16,6 +16,7 @@
 
 import AppKit
 import Foundation
+import SaaSMakerUI
 import SwiftUI
 
 /// Off-device subsystem buckets used by the dashboard. These mirror
@@ -231,30 +232,30 @@ struct PacePrivacyDashboardView: View {
 
     private var headlineCardSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Privacy")
-                .font(.system(size: 22, weight: .semibold))
+            SMSectionHeader("", accent: "privacy", size: 28)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(headlineCardPrimaryText)
-                    .font(.system(size: 18, weight: .semibold))
-                Text(headlineCardSecondaryText)
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack {
-                    Spacer()
-                    Button(action: refresh) {
-                        Image(systemName: "arrow.clockwise")
-                        Text("Refresh")
+            SMCard(padding: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(headlineCardPrimaryText)
+                        .font(.system(size: 18, weight: .semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(headlineCardSecondaryText)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Spacer()
+                        Button(action: refresh) {
+                            Label("refresh", systemImage: "arrow.clockwise")
+                                .font(DS.Typography.calloutStrong)
+                        }
+                        .buttonStyle(.bordered)
+                        .pointerCursor()
                     }
-                    .buttonStyle(.bordered)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color(NSColor.controlBackgroundColor))
-            )
         }
     }
 
@@ -281,18 +282,20 @@ struct PacePrivacyDashboardView: View {
 
     private var auditTableSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Off-device audit log")
+            Text("off-device audit log")
                 .font(.system(size: 14, weight: .semibold))
-            Text("Every byte Pace sent off this Mac in the last \(lookbackInHours)h. Searchable. No message content — only sizes and outcomes.")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            Text(
+                "Every byte Pace sent off this Mac in the last \(lookbackInHours)h. Searchable. No message content — only sizes and outcomes."
+            )
+            .font(.system(size: 11))
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 8) {
                 TextField("Search target / outcome…", text: $auditSearchQuery)
                     .textFieldStyle(.roundedBorder)
-                Picker("Tier", selection: $auditTierFilter) {
-                    Text("All").tag(PaceOffDeviceTier?.none)
+                Picker("tier", selection: $auditTierFilter) {
+                    Text("all").tag(PaceOffDeviceTier?.none)
                     ForEach(PaceOffDeviceTier.allCases) { tier in
                         Text(tier.rawValue).tag(PaceOffDeviceTier?.some(tier))
                     }
@@ -302,12 +305,14 @@ struct PacePrivacyDashboardView: View {
             }
 
             if filteredOffDeviceEntries.isEmpty {
-                Text(snapshot.totalOffDeviceCallCount == 0
-                     ? "No off-device calls recorded."
-                     : "No entries match the current filter.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .padding(.vertical, 6)
+                Text(
+                    snapshot.totalOffDeviceCallCount == 0
+                        ? "No off-device calls recorded."
+                        : "No entries match the current filter."
+                )
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+                .padding(.vertical, 6)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     auditTableHeader
@@ -322,15 +327,16 @@ struct PacePrivacyDashboardView: View {
     }
 
     private var auditTableHeader: some View {
-        HStack(spacing: 8) {
-            Text("Time").font(.system(size: 11, weight: .semibold)).frame(width: 90, alignment: .leading)
-            Text("Tier").font(.system(size: 11, weight: .semibold)).frame(width: 110, alignment: .leading)
-            Text("Target").font(.system(size: 11, weight: .semibold)).frame(maxWidth: .infinity, alignment: .leading)
-            Text("Sent").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
-            Text("Recv").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
-            Text("Tokens").font(.system(size: 11, weight: .semibold)).frame(width: 80, alignment: .trailing)
-            Text("Cost").font(.system(size: 11, weight: .semibold)).frame(width: 70, alignment: .trailing)
-            Text("Outcome").font(.system(size: 11, weight: .semibold)).frame(width: 80, alignment: .leading)
+        // 428pt of fixed columns and gaps leaves room for the tier at the 820pt window minimum.
+        HStack(spacing: 4) {
+            Text("time").font(.system(size: 11, weight: .semibold)).frame(width: 84, alignment: .leading)
+            Text("tier").font(.system(size: 11, weight: .semibold))
+                .frame(minWidth: 40, maxWidth: .infinity, alignment: .leading)
+            Text("sent").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
+            Text("recv").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
+            Text("tokens").font(.system(size: 11, weight: .semibold)).frame(width: 80, alignment: .trailing)
+            Text("cost").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
+            Text("outcome").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .leading)
         }
         .foregroundColor(.secondary)
         .padding(.vertical, 6)
@@ -354,18 +360,14 @@ struct PacePrivacyDashboardView: View {
             inputTokenCount: entry.inputTokenCount,
             outputTokenCount: entry.outputTokenCount
         ).map { PaceProviderCostEstimator.formatCostInDollars($0) }
-        return HStack(spacing: 8) {
+        return HStack(spacing: 4) {
             Text(entry.at.formatted(date: .omitted, time: .standard))
-                .font(.system(size: 11, design: .monospaced))
-                .frame(width: 90, alignment: .leading)
+                .font(DS.Typography.metadata)
+                .frame(width: 84, alignment: .leading)
             Text(tier?.rawValue ?? entry.subsystem)
                 .font(.system(size: 11))
-                .frame(width: 110, alignment: .leading)
-            Text(entry.target)
-                .font(.system(size: 11, design: .monospaced))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .lineLimit(1)
-                .truncationMode(.middle)
+                .frame(minWidth: 40, maxWidth: .infinity, alignment: .leading)
+                .help(entry.target)
             Text(PacePrivacyByteFormatter.format(bytes: entry.inputCharacterCount ?? 0))
                 .font(.system(size: 11))
                 .frame(width: 60, alignment: .trailing)
@@ -373,17 +375,17 @@ struct PacePrivacyDashboardView: View {
                 .font(.system(size: 11))
                 .frame(width: 60, alignment: .trailing)
             Text(tokenDisplay ?? "—")
-                .font(.system(size: 11, design: .monospaced))
+                .font(DS.Typography.metadata)
                 .foregroundColor(tokenDisplay == nil ? .secondary : .primary)
                 .frame(width: 80, alignment: .trailing)
             Text(costDisplay ?? "—")
-                .font(.system(size: 11, design: .monospaced))
+                .font(DS.Typography.metadata)
                 .foregroundColor(costDisplay == nil ? .secondary : .primary)
-                .frame(width: 70, alignment: .trailing)
+                .frame(width: 60, alignment: .trailing)
             Text(entry.outcome)
                 .font(.system(size: 11))
                 .foregroundColor(entry.outcome == "ok" ? .secondary : .orange)
-                .frame(width: 80, alignment: .leading)
+                .frame(width: 60, alignment: .leading)
         }
         .padding(.vertical, 4)
     }
@@ -437,7 +439,7 @@ struct PacePrivacyDashboardView: View {
                         )
                         .progressViewStyle(.linear)
                         Text("\(row.callCount)")
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(DS.Typography.metadata)
                             .frame(width: 60, alignment: .trailing)
                     }
                 }
@@ -470,7 +472,7 @@ struct PacePrivacyDashboardView: View {
 
     private var permissionsAuditSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Permissions Pace has and uses")
+            Text("permissions pace has and uses")
                 .font(.system(size: 14, weight: .semibold))
             Text("Cross-references the macOS grants with the audit log so you can see which permissions Pace actually exercises.")
                 .font(.system(size: 11))
@@ -483,7 +485,7 @@ struct PacePrivacyDashboardView: View {
                         Text(row.label)
                             .font(.system(size: 12, weight: .medium))
                             .frame(width: 160, alignment: .leading)
-                        Text(row.grantStatus)
+                        Text(row.grantStatus.lowercased())
                             .font(.system(size: 12))
                             .foregroundColor(row.isGranted ? .green : .secondary)
                             .frame(width: 110, alignment: .leading)
@@ -552,11 +554,11 @@ struct PacePrivacyDashboardView: View {
 
     private var dataResidencyClaimSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Data residency")
+            Text("data residency")
                 .font(.system(size: 14, weight: .semibold))
             VStack(alignment: .leading, spacing: 6) {
                 Text("Pace runs every planner, VLM, OCR, TTS, and MCP call on this Mac by default. No transcripts, screenshots, or audio leave the device.")
-                Text("Deliberate exceptions, all opt-in:")
+                Text("deliberate exceptions, all opt-in:")
                     .padding(.top, 4)
                 bulletText("download_file fetches a URL you name into ~/Downloads — no other bytes are sent.")
                 bulletText("Cloud bridge (off by default) routes a turn through your already-authenticated Claude Code / Codex / Gemini CLI on this Mac. The CLI itself contacts the upstream provider.")

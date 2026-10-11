@@ -24,7 +24,7 @@ struct PaceCloudBridgeSettingsTab: View {
         VStack(alignment: .leading, spacing: 16) {
             // Explanation banner
             VStack(alignment: .leading, spacing: 6) {
-                Text("Opt-in only. Default is Off.")
+                Text("opt-in only. default is off.")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Text("The cloud bridge routes turns through the local-ai Node server at localhost:3456, which spawns your already-authenticated CLI tool and contacts its cloud provider. This is the only intentional break of Pace's on-device-only principle. First enablement shows a consent dialog.")
@@ -103,7 +103,7 @@ struct PaceCloudBridgeSettingsTab: View {
 
             // Upstream picker
             VStack(alignment: .leading, spacing: 8) {
-                Text("Upstream CLI")
+                Text("upstream cli")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
 
@@ -121,7 +121,7 @@ struct PaceCloudBridgeSettingsTab: View {
 
             // Model text field
             VStack(alignment: .leading, spacing: 6) {
-                Text("Model")
+                Text("model")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
 
@@ -144,7 +144,7 @@ struct PaceCloudBridgeSettingsTab: View {
             // Bridge URL (read-only)
             let bridgeURLString = PaceCloudBridgeConsent.loadConfiguration().baseURL.absoluteString
             VStack(alignment: .leading, spacing: 4) {
-                Text("Bridge URL")
+                Text("bridge url")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Text(bridgeURLString)
@@ -183,7 +183,7 @@ struct PaceCloudBridgeSettingsTab: View {
                 }
 
                 Spacer()
-                paceSettingsButton("Check", systemName: "arrow.clockwise") {
+                paceSettingsButton("check", systemName: "arrow.clockwise") {
                     checkCloudBridgeReachability()
                 }
             }
@@ -201,7 +201,7 @@ struct PaceCloudBridgeSettingsTab: View {
                         .foregroundColor(DS.Colors.textTertiary)
                 }
                 Spacer()
-                paceSettingsButton("Revoke", systemName: "xmark.circle") {
+                paceSettingsButton("revoke", systemName: "xmark.circle") {
                     PaceCloudBridgeConsent.revokeConsentAndResetAllBridgeState()
                     companionManager.setCloudBridgeMode(.off)
                 }

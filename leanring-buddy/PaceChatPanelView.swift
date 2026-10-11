@@ -19,6 +19,7 @@
 //  only draws.
 //
 
+import SaaSMakerUI
 import SwiftUI
 
 struct PaceChatPanelView: View {
@@ -64,6 +65,7 @@ struct PaceChatPanelView: View {
         }
         .frame(width: panelWidth, height: panelHeight)
         .background(panelBackground)
+        .smTheme(DS.palette)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onAppear {
             // Re-pull persisted history so turns recorded before this
@@ -99,9 +101,10 @@ struct PaceChatPanelView: View {
                 .foregroundColor(voiceStateColor)
                 .frame(width: 16)
 
-            Text(voiceStateDisplayText)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(DS.Colors.textSecondary)
+            SMStatusPill(
+                voiceStateDisplayText.lowercased(),
+                tone: companionManager.isOffDeviceTurnInFlight ? .warning : .brand
+            )
 
             Spacer()
 
@@ -424,7 +427,7 @@ struct PaceChatPanelView: View {
         if let pendingMorningBriefCard = morningTriageScheduler.pendingMorningBriefCard {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .center, spacing: 6) {
-                    Text("Morning brief")
+                    Text("morning brief")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(DS.Colors.textSecondary)
 
@@ -491,7 +494,7 @@ struct PaceChatPanelView: View {
     private var meetingActiveInlineCard: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 6) {
-                Text(meetingStateLabel(for: meetingController.state))
+                Text(meetingStateLabel(for: meetingController.state).lowercased())
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
 
@@ -558,7 +561,7 @@ struct PaceChatPanelView: View {
             }
 
             if !meetingNotes.actionItems.isEmpty {
-                Text("Action items:")
+                Text("action items:")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                     .padding(.top, 4)
@@ -571,7 +574,7 @@ struct PaceChatPanelView: View {
             }
 
             if !meetingNotes.decisions.isEmpty {
-                Text("Decisions:")
+                Text("decisions:")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                     .padding(.top, 4)
@@ -593,7 +596,7 @@ struct PaceChatPanelView: View {
 
     private func meetingFailedInlineCard(failureMessage: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Meeting failed")
+            Text("meeting failed")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
             Text(failureMessage)

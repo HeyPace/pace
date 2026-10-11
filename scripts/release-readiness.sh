@@ -123,7 +123,11 @@ build_status() {
     return
   fi
   if bash "$SCRIPT_DIR/test-pace.sh" >/dev/null 2>&1; then
-    echo "pass"
+    if bash "$SCRIPT_DIR/ensure-sm-ui-bundle.sh" "/tmp/pace-test-derived-data/Build/Products/Debug/Pace.app"; then
+      echo "pass"
+    else
+      echo "fail"
+    fi
   else
     echo "fail"
   fi

@@ -17,6 +17,7 @@
 //  per-row vertical padding, matching the previous visual layout.
 //
 
+import SaaSMakerUI
 import SwiftUI
 
 struct PaceModelStatusView: View {
@@ -83,27 +84,16 @@ struct PaceModelStatusView: View {
 
     private func plannerInfoLine(label: String, value: String) -> some View {
         HStack {
-            Text(label)
+            Text(label.lowercased())
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(DS.Colors.textSecondary)
 
             Spacer()
 
-            Text(value)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(DS.Colors.textTertiary)
+            SMStatusPill(value)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(Color.white.opacity(0.06))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-                )
+                .help(value)
         }
     }
 
@@ -115,11 +105,11 @@ struct PaceModelStatusView: View {
                 .frame(width: 16)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("ASR")
+                Text("asr")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
 
-                Text(companionManager.isTranscriptionModelReady ? "Ready" : "Loading model")
+                Text(companionManager.isTranscriptionModelReady ? "ready" : "loading model")
                     .font(.system(size: 10))
                     .foregroundColor(DS.Colors.textTertiary)
                     .lineLimit(1)
@@ -127,21 +117,10 @@ struct PaceModelStatusView: View {
 
             Spacer()
 
-            Text(companionManager.buddyDictationManager.transcriptionProviderDisplayName)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(DS.Colors.textTertiary)
+            SMStatusPill(companionManager.buddyDictationManager.transcriptionProviderDisplayName)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(Color.white.opacity(0.06))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-                )
+                .help(companionManager.buddyDictationManager.transcriptionProviderDisplayName)
         }
         .padding(.vertical, 4)
     }
@@ -158,7 +137,7 @@ struct PaceModelStatusView: View {
                 .frame(width: 16)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("Voice")
+                Text("voice")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
 
@@ -171,21 +150,10 @@ struct PaceModelStatusView: View {
 
             Spacer()
 
-            Text(companionManager.activeTTSVoiceSummary.displayText)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(DS.Colors.textTertiary)
+            SMStatusPill(companionManager.activeTTSVoiceSummary.displayText)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(Color.white.opacity(0.06))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-                )
+                .help(companionManager.activeTTSVoiceSummary.displayText)
         }
         .padding(.vertical, 4)
     }

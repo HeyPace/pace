@@ -26,7 +26,7 @@ struct PaceFlowsSettingsTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Saved flows")
+                Text("saved flows")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Text("Literal UI sequences you've recorded. Use \"do <name>\" to run one, or say \"list my automations\" for every reusable workflow.")
@@ -98,22 +98,22 @@ struct PaceFlowsSettingsTab: View {
             Spacer()
             HStack(spacing: 6) {
                 if isEditingRename {
-                    paceSettingsButton("Save", systemName: "checkmark.circle") {
+                    paceSettingsButton("save", systemName: "checkmark.circle") {
                         commitRenameForSettings(originalFlowName: savedFlow.name)
                     }
-                    paceSettingsButton("Cancel", systemName: "xmark.circle") {
+                    paceSettingsButton("cancel", systemName: "xmark.circle") {
                         flowRowEditingFlowName = nil
                         flowRowRenameDrafts[slug] = savedFlow.name
                     }
                 } else {
-                    paceSettingsButton("Play once", systemName: "play.circle") {
+                    paceSettingsButton("play once", systemName: "play.circle") {
                         playSavedFlowOnceFromSettings(savedFlow)
                     }
-                    paceSettingsButton("Rename", systemName: "pencil") {
+                    paceSettingsButton("rename", systemName: "pencil") {
                         flowRowEditingFlowName = savedFlow.name
                         flowRowRenameDrafts[slug] = savedFlow.name
                     }
-                    paceSettingsButton("Delete", systemName: "trash") {
+                    paceSettingsButton("delete", systemName: "trash") {
                         deleteSavedFlowFromSettings(savedFlow)
                     }
                 }

@@ -19,6 +19,7 @@
 //  chips layer in on top of this surface.
 //
 
+import SaaSMakerUI
 import SwiftUI
 
 struct PacePanelChatView: View {
@@ -55,6 +56,7 @@ struct PacePanelChatView: View {
             height: PaceQuickPanelMetrics.height
         )
         .background(DS.Colors.surface)
+        .paceRootTheme(isRoot: !isEmbeddedInLivingNotch)
         .clipShape(
             RoundedRectangle(
                 cornerRadius: isEmbeddedInLivingNotch ? 0 : DS.Radius.window,
@@ -91,9 +93,10 @@ struct PacePanelChatView: View {
                 .font(DS.Typography.bodyStrong)
                 .foregroundColor(DS.Colors.textPrimary)
 
-            Text(companionManager.isOffDeviceTurnInFlight ? "Off-device" : "On this Mac")
-                .font(DS.Typography.captionStrong)
-                .foregroundColor(signalColorRole.color)
+            SMStatusPill(
+                companionManager.isOffDeviceTurnInFlight ? "off-device" : "on this mac",
+                tone: companionManager.isOffDeviceTurnInFlight ? .warning : .brand
+            )
                 .help(boundaryHelpText)
 
             Spacer()
@@ -114,7 +117,7 @@ struct PacePanelChatView: View {
     private var turnStage: some View {
         VStack(alignment: .leading, spacing: signalState == .ready ? 6 : 9) {
             HStack {
-                Text(signalPresentation.label)
+                Text(signalPresentation.label.lowercased())
                     .font(DS.Typography.sectionTitle)
                     .foregroundStyle(DS.Colors.textPrimary)
 
@@ -282,7 +285,7 @@ struct PacePanelChatView: View {
                     .foregroundColor(DS.Colors.textTertiary)
             }
 
-            Button("Show what I can automate") {
+            Button("show what i can automate") {
                 chatSession.submitUserMessage("What can you help me automate on this Mac?")
             }
             .buttonStyle(.plain)
@@ -301,7 +304,7 @@ struct PacePanelChatView: View {
     private var permissionRecoveryState: some View {
         VStack(spacing: 14) {
             VStack(spacing: 5) {
-                Text("Finish Pace setup")
+                Text("finish Pace setup")
                     .font(DS.Typography.bodyStrong)
                     .foregroundColor(DS.Colors.textPrimary)
                 Text("Voice and screen-aware actions need the remaining macOS permissions. You can still type below.")
@@ -311,7 +314,7 @@ struct PacePanelChatView: View {
                     .frame(maxWidth: 300)
             }
 
-            Button("Open Permissions") {
+            Button("open permissions") {
                 PaceSettingsWindowManager.shared.show(
                     companionManager: companionManager,
                     destination: .permissions
@@ -336,13 +339,13 @@ struct PacePanelChatView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(DS.Colors.localSignal)
 
-            Text("Voice and screen features need permission")
+            Text("voice and screen features need permission")
                 .font(DS.Typography.captionStrong)
                 .foregroundStyle(DS.Colors.textSecondary)
 
             Spacer(minLength: 8)
 
-            Button("Open Permissions") {
+            Button("open permissions") {
                 PaceSettingsWindowManager.shared.show(
                     companionManager: companionManager,
                     destination: .permissions
@@ -414,7 +417,7 @@ struct PacePanelChatView: View {
             }
 
             if didFail {
-                Button("Open Help & Diagnostics") {
+                Button("open help & diagnostics") {
                     PaceSettingsWindowManager.shared.show(
                         companionManager: companionManager,
                         destination: .doctor
@@ -589,7 +592,7 @@ struct PacePanelChatView: View {
                     .font(DS.Typography.caption)
                     .foregroundColor(DS.Colors.textSecondary)
                     Spacer(minLength: 8)
-                    Button("Clear") {
+                    Button("clear") {
                         companionManager.clearQueuedChatTurns()
                     }
                     .buttonStyle(.plain)
