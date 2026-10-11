@@ -1,0 +1,8 @@
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+
+/* Workbench registers its own template sources. Include its UI dependencies and
+   Pace's home slots without scanning generated docs or unrelated UI components. */
+@source "../../node_modules/@saas-maker/ui/src/blocks/{site-header,mobile-nav,hero,layout,features,proof,frames,closing,footer,assistant-logos}.tsx";
+@source "../../node_modules/@saas-maker/ui/src/components/button.tsx";
+@source "../pages/index.astro";
+@source "../components/{ProductFooter,PageTracking,CtaTracking}.astro";
