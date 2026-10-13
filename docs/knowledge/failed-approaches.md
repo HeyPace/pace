@@ -113,10 +113,18 @@ a model fine-tuned on step-level state.
 
 ## Retired: Obscura as an additional browser engine
 
-The manually configured Obscura experiment was retired from the personal Pace
-setup on 2026-10-11. Its configured executable was missing, while the installed
-Playwright MCP integration already covered the current browser workflows.
-The old one-tap catalog proposal is therefore no longer an active requirement.
+The historical 2026-10-11 cleanup recorded a missing Obscura executable and
+retired that experiment from the personal Pace setup. That local cleanup and
+its connection checks are historical evidence, not checks repeated here.
+The old one-tap catalog proposal is no longer an active requirement:
+[PR #217](https://github.com/HeyPace/pace/pull/217) tracks the retirement, owned
+by [issue #223](https://github.com/HeyPace/pace/issues/223).
+
+Repository evidence: the [bundled catalog](../../leanring-buddy/PaceMCPServerCatalog.swift)
+already offers pinned Playwright MCP with an isolated Chrome session; the
+[MCP architecture](../architecture/systems.md#actions-tools-integrations) describes
+its persistent browser navigation, snapshots, and element actions. This supports
+retiring a redundant proposal, not claiming every browser workflow is accepted.
 
 This is a fit decision for Pace, not an assessment of Obscura's upstream quality.
 Reconsider another browser engine only for a concrete workflow that the existing

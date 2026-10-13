@@ -302,6 +302,9 @@ Status: unstarted. Biggest remaining quality lever toward "best local tool."
 The one-tap Obscura proposal is no longer active work. Playwright MCP covers
 Pace's current browser workflows; see the
 [retirement rationale](../knowledge/failed-approaches.md#retired-obscura-as-an-additional-browser-engine).
+Tracked by [issue #223](https://github.com/HeyPace/pace/issues/223) and
+[PR #217](https://github.com/HeyPace/pace/pull/217); retirement does not authorize
+new integration work or establish live browser acceptance.
 
 ## Deferred (gated, do NOT start blind): UI-TARS / GUI-grounding VLM
 
