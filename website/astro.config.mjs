@@ -83,13 +83,8 @@ export default defineConfig({
               return `<style${attributes}>${trimmedCSS}</style>`;
             },
           );
-          // The template preloads the display font, which pulls it onto the
-          // first-paint path and costs ~0.8 s of simulated mobile LCP. The
-          // headline renders with a metric-matched fallback and swaps.
-          homeHTMLWithTrimmedCSS = homeHTMLWithTrimmedCSS.replace(
-            /<link rel="preload"[^>]*as="font"[^>]*>/g,
-            "",
-          );
+          // Keep the template's display-font preload: the hero fallback has
+          // different metrics and its swap causes a measured mobile layout shift.
           // Only / is trimmed; the other pages retain their complete stylesheets.
           await writeFile(homePath, homeHTMLWithTrimmedCSS);
         },
