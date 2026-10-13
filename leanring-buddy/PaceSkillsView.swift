@@ -20,6 +20,7 @@
 //
 
 import AppKit
+import SaaSMakerUI
 import SwiftUI
 
 // MARK: - PaceSkillsView
@@ -72,10 +73,7 @@ struct PaceSkillsView: View {
 
     private var sectionHeader: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Automations")
-                .font(DS.Typography.windowTitle)
-                .tracking(-0.45)
-                .foregroundStyle(DS.Colors.textPrimary)
+            SMSectionHeader("", accent: "automations", size: 28)
             Text("Teach Pace a repeatable action in plain language, or browse what it can already run on this Mac.")
                 .font(DS.Typography.body)
                 .foregroundStyle(DS.Colors.textSecondary)
@@ -94,14 +92,14 @@ struct PaceSkillsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Your automations")
+                    Text("your automations")
                         .font(.system(size: 14, weight: .semibold))
                     Text("Repeatable actions you taught Pace. Say a saved trigger phrase to run one.")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 }
                 Spacer()
-                Button(isTeachFormExpanded ? "Cancel" : "Teach an automation") {
+                Button(isTeachFormExpanded ? "cancel" : "teach an automation") {
                     withAnimation { isTeachFormExpanded.toggle() }
                     if !isTeachFormExpanded { clearTeachDraft() }
                 }
@@ -135,7 +133,7 @@ struct PaceSkillsView: View {
             }
 
             if !filteredBundledSkills().isEmpty {
-                Text("Built-in automations")
+                Text("built-in automations")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.secondary)
                     .padding(.top, 6)
@@ -150,39 +148,39 @@ struct PaceSkillsView: View {
     }
 
     private var teachSkillForm: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TextField("Automation name (e.g. Start My Day)", text: $teachDraftName)
-                .textFieldStyle(.roundedBorder)
-            TextField("Trigger phrase — optional (e.g. start my day)", text: $teachDraftTrigger)
-                .textFieldStyle(.roundedBorder)
-            Text("Steps — one per line")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
-            TextEditor(text: $teachDraftSteps)
-                .font(.system(size: 12, design: .monospaced))
-                .frame(minHeight: 90)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.secondary.opacity(0.3))
-                )
-            HStack {
-                if let teachFeedbackMessage {
-                    Text(teachFeedbackMessage)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
-                Button("Save automation") { saveTaughtSkillFromForm() }
-                    .buttonStyle(.borderedProminent)
-                    .pointerCursor()
-                    .disabled(
-                        teachDraftName.trimmingCharacters(in: .whitespaces).isEmpty
-                        || teachDraftSteps.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        SMCard(padding: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("Automation name (e.g. Start My Day)", text: $teachDraftName)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Trigger phrase — optional (e.g. start my day)", text: $teachDraftTrigger)
+                    .textFieldStyle(.roundedBorder)
+                Text("steps — one per line")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                TextEditor(text: $teachDraftSteps)
+                    .font(DS.Typography.metadata)
+                    .frame(minHeight: 90)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.secondary.opacity(0.3))
                     )
+                HStack {
+                    if let teachFeedbackMessage {
+                        Text(teachFeedbackMessage)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Button("save automation") { saveTaughtSkillFromForm() }
+                        .buttonStyle(.borderedProminent)
+                        .pointerCursor()
+                        .disabled(
+                            teachDraftName.trimmingCharacters(in: .whitespaces).isEmpty
+                                || teachDraftSteps.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        )
+                }
             }
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.06)))
     }
 
     private func taughtSkillRow(skill: PaceSkillFile, isDeletable: Bool) -> some View {
@@ -192,12 +190,7 @@ struct PaceSkillsView: View {
                     Text(skill.name)
                         .font(.system(size: 13, weight: .medium))
                     if !isDeletable {
-                        Text("built-in")
-                            .font(.system(size: 10, weight: .medium))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.secondary.opacity(0.15))
-                            .clipShape(Capsule())
+                        SMStatusPill("built-in")
                     }
                 }
                 Text(skill.description)
@@ -377,7 +370,7 @@ struct PaceSkillsView: View {
 
     private var localSkillsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Built-in actions")
+            Text("built-in actions")
                 .font(.system(size: 14, weight: .semibold))
             Text("On-device. No network. Always available.")
                 .font(.system(size: 12))
@@ -420,7 +413,7 @@ struct PaceSkillsView: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 6) {
-                Text(definition.riskLevel.displayName)
+                Text(definition.riskLevel.displayName.lowercased())
                     .font(.system(size: 10, weight: .medium))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -486,7 +479,7 @@ struct PaceSkillsView: View {
 
     private var mcpSkillsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("MCP servers")
+            Text("mcp servers")
                 .font(.system(size: 14, weight: .semibold))
             Text("Configured at ~/.config/pace/mcp-servers.json. Each server adds external actions through the Model Context Protocol.")
                 .font(.system(size: 12))
@@ -518,7 +511,7 @@ struct PaceSkillsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            Text(PaceToolRiskLevel.externalIntegration.displayName)
+            Text(PaceToolRiskLevel.externalIntegration.displayName.lowercased())
                 .font(.system(size: 10, weight: .medium))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)

@@ -7,14 +7,51 @@
 //  interaction states are defined here as the single source of truth.
 //
 
-import SwiftUI
 import AppKit
+import SaaSMakerUI
+import SwiftUI
 
 // MARK: - Design System Namespace
 
 /// The top-level namespace for all design system tokens.
 /// Usage: `DS.Colors.background`, `DS.Colors.accent`, etc.
 enum DS {
+
+    /// Pace owns semantic colors; the package supplies fonts and SwiftUI components.
+    static let palette: SMPalette = {
+        var palette = SMPalette.ink.brand(Colors.accent, foreground: Colors.textOnAccent)
+        palette.background = Colors.background
+        palette.foreground = Colors.textPrimary
+        palette.surface = Colors.surface
+        palette.card = Colors.surface
+        palette.secondary = Colors.surfaceRaised
+        palette.muted = Colors.surfaceInset
+        palette.mutedForeground = Colors.textSecondary
+        palette.border = Colors.borderSubtle
+        palette.hairline = Colors.borderSubtle
+        palette.input = Colors.surfaceRaised
+        palette.primary = Colors.accent
+        palette.primaryForeground = Colors.textOnAccent
+        palette.accent = Colors.accent
+        palette.accentInk = Colors.textPrimary
+        palette.toneInk = Colors.background
+        palette.success = Colors.success
+        palette.warning = Colors.warning
+        palette.destructive = Colors.failure
+        palette.radius = Radius.control
+        palette.displayWeight = 500
+        palette.displayTracking = -0.012
+        palette.displayFont = "Geist"
+        palette.accentFont = "InstrumentSerif-Italic"
+        palette.displaySerif = false
+        palette.accentSerif = true
+        palette.accentItalic = true
+        palette.textSerif = false
+        // Headings are authored lowercase so product names can retain their case.
+        palette.displayLowercase = false
+        palette.uiLowercase = true
+        return palette
+    }()
 
     // MARK: - Color Tokens
     //
@@ -124,18 +161,18 @@ enum DS {
     /// Semantic roles keep Pace readable when the system text size changes.
     /// Display moments stay rare; working surfaces use native text styles.
     enum Typography {
-        static let display = Font.system(.largeTitle, design: .default, weight: .medium)
-        static let windowTitle = Font.system(.title, design: .default, weight: .semibold)
-        static let sceneTitle = Font.system(.title, design: .default, weight: .medium)
-        static let sectionTitle = Font.system(.title3, design: .default, weight: .semibold)
-        static let headline = Font.system(.headline, design: .default, weight: .semibold)
-        static let body = Font.system(.body, design: .default, weight: .regular)
-        static let bodyStrong = Font.system(.body, design: .default, weight: .semibold)
-        static let callout = Font.system(.callout, design: .default, weight: .regular)
-        static let calloutStrong = Font.system(.callout, design: .default, weight: .semibold)
-        static let caption = Font.system(.caption, design: .default, weight: .regular)
-        static let captionStrong = Font.system(.caption, design: .default, weight: .semibold)
-        static let metadata = Font.system(.caption2, design: .monospaced, weight: .semibold)
+        static let display = Font.custom("InstrumentSerif-Italic", size: 34, relativeTo: .largeTitle)
+        static let windowTitle = Font.custom("InstrumentSerif-Regular", size: 28, relativeTo: .title)
+        static let sceneTitle = Font.custom("InstrumentSerif-Italic", size: 28, relativeTo: .title)
+        static let sectionTitle = Font.custom("Geist", size: 15, relativeTo: .title3).weight(.semibold)
+        static let headline = Font.custom("Geist", size: 13, relativeTo: .headline).weight(.semibold)
+        static let body = Font.custom("Geist", size: 13, relativeTo: .body)
+        static let bodyStrong = Font.custom("Geist", size: 13, relativeTo: .body).weight(.semibold)
+        static let callout = Font.custom("Geist", size: 12, relativeTo: .callout)
+        static let calloutStrong = Font.custom("Geist", size: 12, relativeTo: .callout).weight(.semibold)
+        static let caption = Font.custom("Geist", size: 11, relativeTo: .caption)
+        static let captionStrong = Font.custom("Geist", size: 11, relativeTo: .caption).weight(.semibold)
+        static let metadata = Font.custom("GeistMono-Regular", size: 11, relativeTo: .caption2)
     }
 
     enum Motion {
@@ -149,6 +186,16 @@ enum DS {
 // MARK: - Convenience View Extensions
 
 extension View {
+    /// The living notch supplies the theme when it embeds the quick panel.
+    @ViewBuilder
+    func paceRootTheme(isRoot: Bool) -> some View {
+        if isRoot {
+            smTheme(DS.palette)
+        } else {
+            self
+        }
+    }
+
     /// Attaches the shared pointing-hand cursor treatment used across interactive controls.
     /// Disabled controls can opt out so they keep the default arrow cursor.
     func pointerCursor(isEnabled: Bool = true) -> some View {

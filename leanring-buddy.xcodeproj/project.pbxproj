@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DD00AA000000000000000003 /* SaaSMakerUI in Frameworks */ = {isa = PBXBuildFile; productRef = DD00AA000000000000000002 /* SaaSMakerUI */; };
 		2DD12CCA2FC82FE8009F8723 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB082F6500080039DA55 /* WhisperKit */; };
 		AA00BB032F6500030039DA55 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB022F6500020039DA55 /* Sparkle */; };
 		BB00CC052F6500050039DA55 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = BB00CC022F6500020039DA55 /* MLXLLM */; };
@@ -102,6 +103,7 @@
 				CC00EE000000000000000003 /* SileroVAD in Frameworks */,
 				CC00DD000000000000000003 /* MCP in Frameworks */,
 				AA00BB032F6500030039DA55 /* Sparkle in Frameworks */,
+				DD00AA000000000000000003 /* SaaSMakerUI in Frameworks */,
 				BB00CC052F6500050039DA55 /* MLXLLM in Frameworks */,
 				BB00CC062F6500060039DA55 /* MLXLMCommon in Frameworks */,
 				BB00CC072F6500070039DA55 /* MLXEmbedders in Frameworks */,
@@ -179,6 +181,7 @@
 			name = "leanring-buddy";
 			packageProductDependencies = (
 				AA00BB022F6500020039DA55 /* Sparkle */,
+				DD00AA000000000000000002 /* SaaSMakerUI */,
 				AA00BB082F6500080039DA55 /* WhisperKit */,
 				CC00EE000000000000000002 /* SileroVAD */,
 				CC00DD000000000000000002 /* MCP */,
@@ -298,6 +301,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				AA00BB012F6500010039DA55 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				DD00AA000000000000000001 /* XCRemoteSwiftPackageReference "ui-library" */,
 				AA00BB072F6500070039DA55 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 				CC00EE000000000000000001 /* XCRemoteSwiftPackageReference "silero-vad-swift" */,
 				CC00DD000000000000000001 /* XCRemoteSwiftPackageReference "swift-sdk" */,
@@ -795,6 +799,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		DD00AA000000000000000001 /* XCRemoteSwiftPackageReference "ui-library" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sass-maker/ui-library";
+			requirement = {
+				kind = exactVersion;
+				version = 0.1.17;
+			};
+		};
 		AA00BB012F6500010039DA55 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
@@ -838,6 +850,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		DD00AA000000000000000002 /* SaaSMakerUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DD00AA000000000000000001 /* XCRemoteSwiftPackageReference "ui-library" */;
+			productName = SaaSMakerUI;
+		};
 		AA00BB022F6500020039DA55 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = AA00BB012F6500010039DA55 /* XCRemoteSwiftPackageReference "Sparkle" */;

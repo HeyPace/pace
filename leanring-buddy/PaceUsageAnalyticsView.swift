@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import SaaSMakerUI
 import SwiftUI
 
 struct PaceSubsystemUsageStats: Identifiable, Equatable {
@@ -32,8 +33,7 @@ struct PaceUsageAnalyticsView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Usage")
-                        .font(.system(size: 22, weight: .semibold))
+                    SMSectionHeader("", accent: "usage", size: 28)
                     Text("Last \(lookbackInHours)h — \(totalTurnsInWindow) turn(s) tracked")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
@@ -43,6 +43,7 @@ struct PaceUsageAnalyticsView: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.plain)
+                .pointerCursor()
             }
             .padding(.horizontal, 24)
             .padding(.top, 24)
@@ -58,18 +59,18 @@ struct PaceUsageAnalyticsView: View {
                 .frame(maxWidth: .infinity)
             } else {
                 Table(statsRows) {
-                    TableColumn("Subsystem") { row in
+                    TableColumn("subsystem") { row in
                         Text(row.subsystem)
                     }
                     .width(min: 90, ideal: 110)
-                    TableColumn("Target") { row in
-                        Text(row.target).font(.system(size: 12, design: .monospaced))
+                    TableColumn("target") { row in
+                        Text(row.target).font(DS.Typography.metadata)
                     }
-                    TableColumn("Calls") { row in
+                    TableColumn("calls") { row in
                         Text("\(row.callCount)")
                     }
                     .width(min: 50, ideal: 60)
-                    TableColumn("Error %") { row in
+                    TableColumn("error %") { row in
                         Text("\(row.errorPercent)%")
                             .foregroundColor(row.errorPercent > 0 ? .orange : .secondary)
                     }

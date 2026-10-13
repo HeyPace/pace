@@ -8,6 +8,7 @@
 //
 
 import AVFoundation
+import SaaSMakerUI
 import SwiftUI
 
 struct CompanionPanelView: View {
@@ -125,6 +126,7 @@ struct CompanionPanelView: View {
                 .padding(.vertical, 12)
         }
         .frame(width: 320)
+        .smTheme(DS.palette)
         .background(panelBackground)
     }
 
@@ -146,9 +148,10 @@ struct CompanionPanelView: View {
 
             Spacer()
 
-            Text(statusText)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(DS.Colors.textTertiary)
+            SMStatusPill(
+                statusText.lowercased(),
+                tone: companionManager.isOffDeviceTurnInFlight ? .warning : .brand
+            )
 
             Button(action: {
                 PaceMainWindowManager.shared.show(companionManager: companionManager)
@@ -220,7 +223,7 @@ struct CompanionPanelView: View {
         if PaceStarterPromptStore.isVisible() {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .center, spacing: 6) {
-                    Text("Try these")
+                    Text("try these")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(DS.Colors.textSecondary)
 
@@ -331,7 +334,7 @@ struct CompanionPanelView: View {
         if let pendingMorningBriefCard = companionManager.morningTriageScheduler.pendingMorningBriefCard {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .center, spacing: 6) {
-                    Text("Morning brief")
+                    Text("morning brief")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(DS.Colors.textSecondary)
 
@@ -405,7 +408,7 @@ struct CompanionPanelView: View {
     private func meetingActiveCard(controller: PaceMeetingModeController) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 6) {
-                Text(stateLabel(for: controller.state))
+                Text(stateLabel(for: controller.state).lowercased())
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
 
@@ -497,7 +500,7 @@ struct CompanionPanelView: View {
             }
 
             if !notes.actionItems.isEmpty {
-                Text("Action items:")
+                Text("action items:")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                     .padding(.top, 4)
@@ -507,7 +510,7 @@ struct CompanionPanelView: View {
             }
 
             if !notes.decisions.isEmpty {
-                Text("Decisions:")
+                Text("decisions:")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                     .padding(.top, 4)
@@ -541,7 +544,7 @@ struct CompanionPanelView: View {
 
     private func meetingFailedCard() -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Meeting failed")
+            Text("meeting failed")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
             if case .failed(let message) = meetingController.state {
@@ -589,7 +592,7 @@ struct CompanionPanelView: View {
                             Image(systemName: "speaker.wave.2.fill")
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundColor(DS.Colors.textSecondary)
-                            Text("Replay last reply")
+                            Text("replay last reply")
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundColor(DS.Colors.textSecondary)
                                 .lineLimit(1)
@@ -691,7 +694,7 @@ struct CompanionPanelView: View {
         } else if companionManager.hasCompletedOnboarding {
             // Permissions were revoked after onboarding — tell user to re-grant
             VStack(alignment: .leading, spacing: 6) {
-                Text("Permissions needed")
+                Text("permissions needed")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(DS.Colors.textSecondary)
 
@@ -745,7 +748,7 @@ struct CompanionPanelView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "power")
                         .font(.system(size: 11, weight: .medium))
-                    Text("Quit Pace")
+                    Text("quit Pace")
                         .font(.system(size: 12, weight: .medium))
                 }
                 .foregroundColor(DS.Colors.textTertiary)

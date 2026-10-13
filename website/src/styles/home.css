@@ -1,0 +1,46 @@
+/* Home uses Workbench's utilities; these are Pace's plain CSS additions. */
+/* Keep the hero visible even when motion sets inline styles after load. */
+.identity-hero .motion-reveal,
+.identity-hero .motion-tilt,
+.identity-hero .motion-stagger,
+.identity-hero .motion-stagger > * {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+.pace-field-guides {
+  max-width: 80rem;
+  margin-inline: auto;
+  padding: clamp(4rem, 8vw, 7rem) clamp(1.5rem, 4vw, 3rem);
+  border-top: 1px solid var(--border);
+}
+.pace-field-guides > p {
+  font-family: var(--font-mono);
+  font-size: .75rem;
+  color: var(--muted-foreground);
+  letter-spacing: .12em;
+}
+.pace-field-guides h2 {
+  margin-block: 1.5rem 3rem;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(2.5rem, 5vw, 4rem);
+  line-height: 1.05;
+}
+.pace-field-guides em { color: var(--brand-ink); }
+.pace-field-guides nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 2.5rem;
+}
+.pace-field-guides a {
+  padding-block: 1.25rem;
+  border-block-start: 1px solid var(--border);
+  line-height: 1.5;
+  transition: color 150ms;
+}
+.pace-field-guides a:hover { color: var(--brand-ink); }
+.pace-field-guides a:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; }
+@media (max-width: 600px) {
+  .pace-field-guides nav { grid-template-columns: minmax(0, 1fr); }
+}

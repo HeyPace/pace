@@ -84,7 +84,7 @@ struct PaceGeneralSettingsTab: View {
     /// cron scheduling, and dynamic plugins. All default OFF.
     private var automationSubsection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Automation")
+            Text("automation")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
                 .padding(.bottom, 6)
@@ -146,7 +146,7 @@ struct PaceGeneralSettingsTab: View {
     /// toggle for `meetingNotes`.
     private var meetingNotesSubsection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Meeting notes")
+            Text("meeting notes")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
                 .padding(.bottom, 6)
@@ -246,7 +246,7 @@ struct PaceGeneralSettingsTab: View {
 
             HStack {
                 Spacer()
-                paceSettingsButton("Repair crashed recordings", systemName: "wrench.and.screwdriver") {
+                paceSettingsButton("repair crashed recordings", systemName: "wrench.and.screwdriver") {
                     // Static sweep over EVERY meeting directory — a fresh
                     // recorder instance can't know a crashed meeting's UUID.
                     PaceMeetingAudioRecorder.crashRepairAllMeetingRecordings()

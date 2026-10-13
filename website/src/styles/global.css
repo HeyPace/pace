@@ -1,4 +1,6 @@
-@import "tailwindcss";
+@import "@saas-maker/ui/theme.css";
+@import "tailwindcss/utilities.css" layer(utilities);
+@source "../../node_modules/@saas-maker/ui/src/blocks/{footer,assistant-logos}.tsx";
 
 /* Pace site palette — mirrors the app's DesignSystem.swift.
    Restrained per the fleet landing standard: pure black background,
@@ -38,6 +40,11 @@ body {
 }
 
 html {
+  /* Keep the existing pages' typefaces when loading the shared footer theme. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  --font-display: "Iowan Old Style", "Palatino", Georgia, serif;
+  --font-text: var(--font-sans);
   scrollbar-gutter: stable;
 }
 

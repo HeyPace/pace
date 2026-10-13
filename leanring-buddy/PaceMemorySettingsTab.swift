@@ -24,7 +24,7 @@ struct PaceMemorySettingsTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Episodic memory")
+                Text("episodic memory")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Text("Durable facts Pace has remembered from your conversations. Pace re-extracts after every turn; the dedup + 200-fact cap + tombstone gates keep this list bounded.")
@@ -96,7 +96,7 @@ struct PaceMemorySettingsTab: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
-                paceSettingsButton("Reset", systemName: "trash.slash") {
+                paceSettingsButton("reset", systemName: "trash.slash") {
                     companionManager.resetAllEpisodicMemory()
                     memoryRefreshTick &+= 1
                 }
@@ -160,7 +160,7 @@ struct PaceMemorySettingsTab: View {
                 }
             }
             Spacer(minLength: 0)
-            paceSettingsButton("Delete", systemName: "trash") {
+            paceSettingsButton("delete", systemName: "trash") {
                 companionManager.deleteEpisodicFact(withIdentifier: fact.identifier)
                 memoryRefreshTick &+= 1
             }
@@ -177,12 +177,12 @@ struct PaceMemorySettingsTab: View {
         let researchEntries = companionManager.researchHistoryEntries()
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text("Past research")
+                Text("past research")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Spacer()
                 if !researchEntries.isEmpty {
-                    paceSettingsButton("Clear all", systemName: "trash.slash") {
+                    paceSettingsButton("clear all", systemName: "trash.slash") {
                         companionManager.clearResearchHistory()
                         researchHistoryRefreshTick &+= 1
                     }
@@ -227,7 +227,7 @@ struct PaceMemorySettingsTab: View {
                     .foregroundColor(DS.Colors.textTertiary)
             }
             Spacer(minLength: 0)
-            paceSettingsButton("Delete", systemName: "trash") {
+            paceSettingsButton("delete", systemName: "trash") {
                 companionManager.deleteResearchHistoryEntry(id: entry.id)
                 researchHistoryRefreshTick &+= 1
             }

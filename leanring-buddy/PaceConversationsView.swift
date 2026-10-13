@@ -17,6 +17,7 @@
 //
 
 import Foundation
+import SaaSMakerUI
 import SwiftUI
 
 struct PaceConversationsView: View {
@@ -52,18 +53,14 @@ struct PaceConversationsView: View {
     private var chatHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text("Conversations")
-                    .font(DS.Typography.windowTitle)
-                    .tracking(-0.45)
-                    .foregroundStyle(DS.Colors.textPrimary)
+                SMSectionHeader("", accent: "conversations", size: 28)
+                    .layoutPriority(1)
 
-                Text(companionManager.isOffDeviceTurnInFlight ? "Off-device" : "On this Mac")
-                    .font(DS.Typography.captionStrong)
-                    .foregroundStyle(
-                        companionManager.isOffDeviceTurnInFlight
-                            ? DS.Colors.offDeviceSignal
-                            : DS.Colors.localSignal
-                    )
+                SMStatusPill(
+                    companionManager.isOffDeviceTurnInFlight ? "off-device" : "on this mac",
+                    tone: companionManager.isOffDeviceTurnInFlight ? .warning : .brand
+                )
+                .fixedSize()
 
                 Spacer()
                 muteToggleButton
@@ -496,12 +493,12 @@ private struct ShareAndCopyContextMenuItems: View {
     let messageBody: String
 
     var body: some View {
-        Button("Copy") {
+        Button("copy") {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.setString(messageBody, forType: .string)
         }
-        Button("Share…") {
+        Button("share…") {
             presentSystemSharePickerAnchoredToKeyWindow()
         }
     }

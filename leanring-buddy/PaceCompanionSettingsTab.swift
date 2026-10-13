@@ -28,7 +28,7 @@ struct PaceCompanionSettingsTab: View {
 
             if controlCenter.preferences.isCompanionModeEnabled {
                 HStack {
-                    paceSettingsButton("Pause now", systemName: "pause.fill") {
+                    paceSettingsButton("pause now", systemName: "pause.fill") {
                         controlCenter.pause()
                     }
                     Spacer()
@@ -59,11 +59,11 @@ struct PaceCompanionSettingsTab: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 8) {
-                    paceSettingsButton("New code", systemName: "arrow.clockwise") {
+                    paceSettingsButton("new code", systemName: "arrow.clockwise") {
                         companionServer.rotatePairingCode()
                     }
                     if companionServer.pairedDeviceName != nil {
-                        paceSettingsButton("Unpair iPad", systemName: "link.badge.minus") {
+                        paceSettingsButton("unpair iPad", systemName: "link.badge.minus") {
                             companionServer.unpairCurrentDevice()
                         }
                     }
@@ -183,12 +183,12 @@ struct PaceCompanionSettingsTab: View {
 
             HStack {
                 ForEach(clearableSources, id: \.rawValue) { source in
-                    paceSettingsButton("Clear \(displayName(for: source))", systemName: "trash") {
+                    paceSettingsButton("clear \(displayName(for: source))", systemName: "trash") {
                         controlCenter.clear(source: source)
                     }
                 }
                 Spacer()
-                paceSettingsButton("Clear all", systemName: "trash.fill") {
+                paceSettingsButton("clear all", systemName: "trash.fill") {
                     controlCenter.clearAll()
                 }
             }
