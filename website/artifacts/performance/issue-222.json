@@ -1,0 +1,264 @@
+{
+  "baselineCommit": "a7ee2e9f275f0cd03133a87305b68b60c2f977ae",
+  "afterSourceSHA256": {
+    "website/astro.config.mjs": "d3dd936b0defc0ea60e34ecad91df0eaeab294768d6b58b8876d29cc8faed957",
+    "website/src/pages/index.astro": "766d6e1ab8aae9b3ae7bb938be6b74473d87f029e9d3de47930f002537a985ce"
+  },
+  "dateUTC": "2026-10-13",
+  "lighthouseVersion": "12.8.2",
+  "hostUserAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+  "settings": {
+    "output": "json",
+    "maxWaitForFcp": 30000,
+    "maxWaitForLoad": 45000,
+    "pauseAfterFcpMs": 1000,
+    "pauseAfterLoadMs": 1000,
+    "networkQuietThresholdMs": 1000,
+    "cpuQuietThresholdMs": 1000,
+    "formFactor": "mobile",
+    "throttling": {
+      "rttMs": 150,
+      "throughputKbps": 1638.4,
+      "requestLatencyMs": 562.5,
+      "downloadThroughputKbps": 1474.5600000000002,
+      "uploadThroughputKbps": 675,
+      "cpuSlowdownMultiplier": 4
+    },
+    "throttlingMethod": "simulate",
+    "screenEmulation": {
+      "mobile": true,
+      "width": 412,
+      "height": 823,
+      "deviceScaleFactor": 1.75,
+      "disabled": false
+    },
+    "emulatedUserAgent": "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36",
+    "auditMode": false,
+    "gatherMode": false,
+    "clearStorageTypes": [
+      "file_systems",
+      "shader_cache",
+      "service_workers",
+      "cache_storage"
+    ],
+    "disableStorageReset": false,
+    "debugNavigation": false,
+    "channel": "node",
+    "usePassiveGathering": false,
+    "disableFullPageScreenshot": false,
+    "skipAboutBlank": false,
+    "blankPage": "about:blank",
+    "ignoreStatusCode": false,
+    "locale": "en-US",
+    "blockedUrlPatterns": [
+      "https://*"
+    ],
+    "additionalTraceCategories": null,
+    "extraHeaders": null,
+    "precomputedLanternData": null,
+    "onlyAudits": null,
+    "onlyCategories": [
+      "performance"
+    ],
+    "skipAudits": null
+  },
+  "before": {
+    "url": "http://127.0.0.1:4321/",
+    "runs": [
+      {
+        "run": 1,
+        "performance": 99,
+        "CLS": 0.01153288476398951,
+        "LCP_ms": 1954.6775000000002
+      },
+      {
+        "run": 2,
+        "performance": 99,
+        "CLS": 0.01153288476398951,
+        "LCP_ms": 1953.3943
+      },
+      {
+        "run": 3,
+        "performance": 99,
+        "CLS": 0.01153288476398951,
+        "LCP_ms": 1953.0120000000002
+      }
+    ],
+    "median": {
+      "performance": 99,
+      "CLS": 0.01153288476398951,
+      "LCP_ms": 1953.3943
+    }
+  },
+  "after": {
+    "url": "http://127.0.0.1:4321/",
+    "runs": [
+      {
+        "run": 1,
+        "performance": 99,
+        "CLS": 0,
+        "LCP_ms": 1953.9272
+      },
+      {
+        "run": 2,
+        "performance": 99,
+        "CLS": 0,
+        "LCP_ms": 1952.5259999999998
+      },
+      {
+        "run": 3,
+        "performance": 99,
+        "CLS": 0,
+        "LCP_ms": 1952.9092
+      }
+    ],
+    "median": {
+      "performance": 99,
+      "CLS": 0,
+      "LCP_ms": 1952.9092
+    }
+  },
+  "baselineLayoutShifts": {
+    "type": "table",
+    "headings": [
+      {
+        "key": "node",
+        "valueType": "node",
+        "subItemsHeading": {
+          "key": "extra"
+        },
+        "label": "Element"
+      },
+      {
+        "key": "score",
+        "valueType": "numeric",
+        "subItemsHeading": {
+          "key": "cause",
+          "valueType": "text"
+        },
+        "granularity": 0.001,
+        "label": "Layout shift score"
+      }
+    ],
+    "items": [
+      {
+        "node": {
+          "type": "node",
+          "lhId": "page-1-H1",
+          "path": "1,HTML,1,BODY,3,MAIN,0,SECTION,0,DIV,0,DIV,1,H1",
+          "selector": "section.identity-hero > div.identity-hero-grid > div.identity-copy > h1.font-display",
+          "boundingRect": {
+            "top": 154,
+            "bottom": 250,
+            "left": 20,
+            "right": 392,
+            "width": 372,
+            "height": 96
+          },
+          "snippet": "<h1 class=\"font-display\">",
+          "nodeLabel": "a voice assistant that sees your mac."
+        },
+        "score": 0.01153288476398951,
+        "subItems": {
+          "type": "subitems",
+          "items": [
+            {
+              "extra": {
+                "type": "url",
+                "value": "http://127.0.0.1:4321/_astro/geist-latin-normal.CIj6-auu.woff2"
+              },
+              "cause": "Web font loaded"
+            },
+            {
+              "extra": {
+                "type": "url",
+                "value": "http://127.0.0.1:4321/_astro/instrument-serif-latin-normal.C25OoxOl.woff2"
+              },
+              "cause": "Web font loaded"
+            },
+            {
+              "extra": {
+                "type": "url",
+                "value": "http://127.0.0.1:4321/_astro/instrument-serif-latin-italic.Bo9sSVtT.woff2"
+              },
+              "cause": "Web font loaded"
+            },
+            {
+              "extra": {
+                "type": "url",
+                "value": "http://127.0.0.1:4321/_astro/geist-mono-latin-normal.Dx5nH8dz.woff2"
+              },
+              "cause": "Web font loaded"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "afterLayoutShifts": {
+    "type": "table",
+    "headings": [
+      {
+        "key": "node",
+        "valueType": "node",
+        "subItemsHeading": {
+          "key": "extra"
+        },
+        "label": "Element"
+      },
+      {
+        "key": "score",
+        "valueType": "numeric",
+        "subItemsHeading": {
+          "key": "cause",
+          "valueType": "text"
+        },
+        "granularity": 0.001,
+        "label": "Layout shift score"
+      }
+    ],
+    "items": []
+  },
+  "responsiveRendering": [
+    {
+      "width": 390,
+      "height": 900,
+      "deviceScaleFactor": 1,
+      "sha256": {
+        "render-before": "b4ad1080d454f4895a88de9fb87d9d5526e14efd14c30415cb59d77701531a93",
+        "render-after": "b4ad1080d454f4895a88de9fb87d9d5526e14efd14c30415cb59d77701531a93"
+      },
+      "pixelIdentical": true
+    },
+    {
+      "width": 768,
+      "height": 900,
+      "deviceScaleFactor": 1,
+      "sha256": {
+        "render-before": "ac4b95cc0824a3308b420035c2e3192b396e848a49b24651704724868b9bb2ca",
+        "render-after": "ac4b95cc0824a3308b420035c2e3192b396e848a49b24651704724868b9bb2ca"
+      },
+      "pixelIdentical": true
+    },
+    {
+      "width": 1440,
+      "height": 900,
+      "deviceScaleFactor": 1,
+      "sha256": {
+        "render-before": "be053d81e282442fea90a7e6fa510f5e443beb4700b158ab68127c7f1244678c",
+        "render-after": "be053d81e282442fea90a7e6fa510f5e443beb4700b158ab68127c7f1244678c"
+      },
+      "pixelIdentical": true
+    }
+  ],
+  "rawReportsSHA256": {
+    "before-final/run-1.json": "4045d68250bbdc4955c9d7cc144d9cbcf4c1619e5c4f1ad83041dd979fec87e6",
+    "before-final/run-2.json": "8005820eef1054c0e06debb5e481765a18d2ed7fae606a9fc7357f63923963a9",
+    "before-final/run-3.json": "651cee50ebe57e098a10d51adf31fada29acfc417990f9ae1860616ac946a3df",
+    "after-final/run-1.json": "d1ed0f9d2f8408c33cc5e09c017d5bd88a3c3d90e09f4b8d21a08efbc17748c2",
+    "after-final/run-2.json": "ba09bce3fbe37cc4940ad482c53106150d4718dca976130b9d14334c44900038",
+    "after-final/run-3.json": "9965f00748ed9ad3bad0af9b1e6579b34d9907d3f424bcbcbdf2bb56e5df6a93"
+  },
+  "productionAcceptance": "unrun",
+  "nativeAcceptance": "excluded; issue #207 remains closed"
+}
