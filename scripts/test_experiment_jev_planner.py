@@ -1,8 +1,10 @@
 """Offline regressions for the development scorer; no model or app execution."""
 import importlib.util
+import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPT_PATH = Path(__file__).with_name("experiment-jev-planner.py")
 MODULE_SPEC = importlib.util.spec_from_file_location("experiment_jev_planner", SCRIPT_PATH)
@@ -52,6 +54,43 @@ class ClickAlternativesTests(unittest.TestCase):
             self.fixture = HARNESS.parse_fixture(fixture_path)
             self.assertEqual(self.fixture["expectation"]["acceptable_first_steps"], {"scroll"})
             self.assertFalse(self.score("RESPOND")["full_pass"])
+
+
+class TeacherAccessTests(unittest.TestCase):
+    def setUp(self):
+        specification = importlib.util.spec_from_file_location("fresh_jev_access", SCRIPT_PATH)
+        self.harness = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(self.harness)
+
+    def test_denied_access_is_not_retried_or_repeated_by_the_next_case(self):
+        def denied(*args, **kwargs):
+            raise self.harness.urllib.error.HTTPError(self.harness.CLASSIFIER_DEV_ENDPOINT, 403,
+                "Forbidden", {}, io.BytesIO(b'{"code":"proxy_requires_payment","retryable":false}'))
+        with patch.object(self.harness.urllib.request, "urlopen", side_effect=denied) as request, \
+                patch.object(self.harness.time, "sleep") as sleep:
+            for _ in range(2):
+                with self.assertRaises(self.harness.JevAccessDenied):
+                    self.harness.post_json(self.harness.CLASSIFIER_DEV_ENDPOINT, {}, max_attempts=6)
+            self.assertEqual(request.call_count, 1)
+            sleep.assert_not_called()
+
+    def test_keyless_synthetic_requests_explicitly_disable_data_sharing(self):
+        fixture = {"user_request": "Who are you?", "screen_elements": []}
+        response = {"results": [{"scores": {"RESPOND: " + self.harness.CONTROL_LABEL_DESCRIPTIONS["RESPOND"]: 1}}]}
+        with patch.object(self.harness.os, "environ", {}), \
+                patch.object(self.harness, "wait_for_keyless_jev_pacing_slot"), \
+                patch.object(self.harness, "post_json", return_value=response) as post:
+            self.harness.last_successful_attempt.elapsed_ms = 1
+            self.harness.route_with_jev(fixture, [], self.harness.load_tool_catalog())
+            self.assertIs(post.call_args.kwargs["payload"].get("share_data"), False)
+            self.assertEqual(post.call_args.kwargs.get("headers", {}).get("X-Classifier-Share-Data"), "false")
+
+    def test_local_access_error_does_not_block_the_teacher_route(self):
+        error = self.harness.urllib.error.HTTPError(self.harness.LM_STUDIO_ENDPOINT, 403, "Forbidden", {}, io.BytesIO(b"local error"))
+        with patch.object(self.harness.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(self.harness.urllib.error.HTTPError):
+                self.harness.post_json(self.harness.LM_STUDIO_ENDPOINT, {}, max_attempts=1)
+        self.assertFalse(self.harness.teacher_access_denied.is_set())
 
 
 if __name__ == "__main__":

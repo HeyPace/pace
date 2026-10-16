@@ -1,0 +1,19 @@
+{
+  "source_revision": "2ea410934c3058eacae2439228f2246947c338ae",
+  "frozen_bundle_sha256": "7095e2e73bd32ac5d0a6f94df24835ef6b499b6f7246f94fa6e9b43cc7878d19",
+  "arms": [
+    "rules",
+    "local"
+  ],
+  "training": false,
+  "model_key": "qwen/qwen3.5-4b",
+  "context_length": 8192,
+  "timing_limit": "Shared owner Mac; latency is descriptive only.",
+  "source_files": {
+    "scripts/experiment-jev-planner.py": "ca71577104ae001289753e520cc8b98b19811b7ad8041e38c255b5acc8bcf181",
+    "leanring-buddy/Resources/v10-actions/registry.json": "7a12942c6f73b8c317db04f8500674e8884f8810e00e97cda802d8f3b0cda8dc",
+    "leanring-buddy/PaceToolRegistry.swift": "dc45e56176943e245f5d887611e7142e1ac04e55306099d4540c698dc445eda2"
+  },
+  "completed_rows": 60,
+  "completed_at_utc": "2026-10-16T13:30:31Z"
+}

@@ -58,7 +58,7 @@ def load_experiment_harness():
 
 
 def sorted_router_labels(harness_module):
-    """Fixed label order: alphabetical over the 29 registry tools + ASK_USER/RESPOND/DONE."""
+    """Fixed label order: alphabetical over current registry tools + ASK_USER/RESPOND/DONE."""
     return sorted(harness_module.router_label_descriptions(harness_module.load_tool_catalog()))
 
 
@@ -177,7 +177,9 @@ def encode_rows(harness_module, tokenizer, step_state_rows, router_labels, max_l
     label_index_by_name = {label: index for index, label in enumerate(router_labels)}
     encoded_rows = []
     truncated_row_count = 0
+    tool_catalog = harness_module.load_tool_catalog()
     for step_state_row in step_state_rows:
+        harness_module.validate_teacher_input_identity(step_state_row, tool_catalog)
         input_text, was_truncated = router_text_within_token_budget(
             harness_module, tokenizer, fixture_view_for_step_state(step_state_row),
             step_state_row["completed_steps"], max_length)
@@ -327,21 +329,11 @@ def main():
                                  help="also train on train-extra.labelled.jsonl (review rows go to review-extra.jsonl)")
     parsed_arguments = argument_parser.parse_args()
 
-    import torch
-    from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_linear_schedule_with_warmup
-
-    random.seed(parsed_arguments.seed)
-    torch.manual_seed(parsed_arguments.seed)
-    device_name = parsed_arguments.device or ("mps" if torch.backends.mps.is_available() else "cpu")
-    device = torch.device(device_name)
-
     harness_module = load_experiment_harness()
     router_labels = sorted_router_labels(harness_module)
     format_sha256 = harness_module.router_format_sha256(harness_module.load_tool_catalog())
     data_directory = Path(parsed_arguments.data_dir)
     run_directory = data_directory / "student" / parsed_arguments.run_name
-    run_directory.mkdir(parents=True, exist_ok=True)
-    tokenizer = AutoTokenizer.from_pretrained(parsed_arguments.base_model)
 
     # ---- data
     labelled_train_rows = read_jsonl_rows_tolerating_partial_tail(data_directory / "train.labelled.jsonl")
@@ -357,6 +349,19 @@ def main():
     unknown_teacher_labels = {row["teacher_label"] for row in labelled_train_rows + sealed_rows + extra_sealed_rows} - set(router_labels)
     if unknown_teacher_labels:
         raise SystemExit(f"teacher labels not in the registry label set: {sorted(unknown_teacher_labels)}")
+    tool_catalog = harness_module.load_tool_catalog()
+    for row in labelled_train_rows + sealed_rows + extra_sealed_rows:
+        harness_module.validate_teacher_input_identity(row, tool_catalog)
+
+    import torch
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_linear_schedule_with_warmup
+
+    random.seed(parsed_arguments.seed)
+    torch.manual_seed(parsed_arguments.seed)
+    device_name = parsed_arguments.device or ("mps" if torch.backends.mps.is_available() else "cpu")
+    device = torch.device(device_name)
+    run_directory.mkdir(parents=True, exist_ok=True)
+    tokenizer = AutoTokenizer.from_pretrained(parsed_arguments.base_model)
 
     validation_rows = [row for row in labelled_train_rows if is_validation_row(row["id"], parsed_arguments.validation_fraction)]
     training_candidate_rows = [row for row in labelled_train_rows if not is_validation_row(row["id"], parsed_arguments.validation_fraction)]

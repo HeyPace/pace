@@ -9,10 +9,10 @@ and asks TypeSafe Jev — through the exact `route_with_jev` call the experiment
 harness measured — for the best next step. Writes one labelled row per state:
 
     {...original row..., "teacher_label": str, "teacher_probabilities": {label: p},
-     "teacher_confidence": float, "teacher_ms": int}
+     "teacher_confidence": float, "teacher_ms": int, "teacher_input_identity": {...}}
 
-Resumable: rows whose id is already in the output file are skipped, so an
-interrupted run continues where it stopped.
+Resumable only when the saved label's router-input identity and original state
+still match. Legacy or changed rows require a fresh output dataset; never restamp them.
 
 PRIVACY: sends only SYNTHETIC step states to TypeSafe, at training time.
 Requires TYPESAFE_API_KEY (the keyless endpoint cannot sustain this volume).
@@ -43,13 +43,22 @@ def load_experiment_harness():
     return harness_module
 
 
-def already_labelled_ids(output_path):
+def already_labelled_ids(output_path, step_state_rows, harness_module, tool_catalog):
+    current_by_id = {row["id"]: row for row in step_state_rows}
+    if len(current_by_id) != len(step_state_rows):
+        raise ValueError("Duplicate input state ids; refusing ambiguous resume")
     if not output_path.exists():
         return set()
     labelled_ids = set()
     for line in output_path.read_text().splitlines():
         if line.strip():
-            labelled_ids.add(json.loads(line)["id"])
+            labelled_row = json.loads(line)
+            harness_module.validate_teacher_input_identity(labelled_row, tool_catalog)
+            row_id = labelled_row["id"]
+            current = current_by_id.get(row_id)
+            if row_id in labelled_ids or current is None or any(labelled_row.get(key) != value for key, value in current.items()):
+                raise ValueError("Saved teacher state is duplicate, missing or changed; use a fresh output dataset")
+            labelled_ids.add(row_id)
     return labelled_ids
 
 
@@ -71,7 +80,7 @@ def main():
     output_path = data_directory / f"{parsed_arguments.split}.labelled.jsonl"
 
     step_state_rows = [json.loads(line) for line in input_path.read_text().splitlines() if line.strip()]
-    labelled_ids = already_labelled_ids(output_path)
+    labelled_ids = already_labelled_ids(output_path, step_state_rows, harness_module, tool_catalog)
     pending_rows = [row for row in step_state_rows if row["id"] not in labelled_ids]
     if parsed_arguments.limit:
         pending_rows = pending_rows[:parsed_arguments.limit]
@@ -84,9 +93,12 @@ def main():
     def label_one_row(step_state_row):
         # route_with_jev reads only these two fixture fields.
         fixture_view = {"user_request": step_state_row["request"], "screen_elements": step_state_row["screen_elements"]}
+        input_identity = harness_module.router_teacher_input_identity(step_state_row, tool_catalog)
         try:
             chosen_label, probabilities, route_ms, _ = harness_module.route_with_jev(
                 fixture_view, step_state_row["completed_steps"], tool_catalog)
+        except harness_module.JevAccessDenied:
+            raise  # Stop the batch; later rows must not repeat a non-retryable denial.
         except Exception as error:  # keep going; failed rows are retried on the next run
             with output_write_lock:
                 progress_counts["failed"] += 1
@@ -94,6 +106,9 @@ def main():
             return
         labelled_row = {
             **step_state_row,
+            "teacher_input_identity": input_identity,
+            "teacher_route": "typesafe-direct",
+            "teacher_requested_model": harness_module.TYPESAFE_MODEL,
             "teacher_label": chosen_label,
             "teacher_probabilities": {label: round(probability, 4) for label, probability in probabilities.items()},
             "teacher_confidence": round(probabilities[chosen_label], 4),

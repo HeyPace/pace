@@ -267,9 +267,26 @@ def router_format_sha256(tool_catalog):
                 "instructions": ROUTER_INSTRUCTIONS,
                 "labels": router_label_descriptions(tool_catalog),
                 "label_order": sorted(router_label_descriptions(tool_catalog)),
+                "teacher_label_order": list(router_label_descriptions(tool_catalog)),
                 "screen": inspect.getsource(screen_text),
                 "completed": inspect.getsource(completed_steps_text)}
     return hashlib.sha256(json.dumps(contract, sort_keys=True).encode()).hexdigest()
+
+
+def router_teacher_input_identity(step_state_row, tool_catalog):
+    fixture = {"user_request": step_state_row["request"], "screen_elements": step_state_row["screen_elements"]}
+    serialized_input = router_input_text(fixture, step_state_row["completed_steps"])
+    return {"schema_version": "pace.router-teacher-input/v1", "format_contract_version": 2,
+            "format_sha256": router_format_sha256(tool_catalog),
+            "input_sha256": hashlib.sha256(serialized_input.encode()).hexdigest()}
+
+
+def validate_teacher_input_identity(step_state_row, tool_catalog):
+    expected = router_teacher_input_identity(step_state_row, tool_catalog)
+    if step_state_row.get("teacher_input_identity") != expected:
+        raise ValueError("Teacher input identity is missing or stale; relabel from the original synthetic states "
+                         "under the current serializer, instructions and registry. Do not restamp historical labels.")
+    return expected
 
 
 class JevAccessDenied(Exception):
@@ -278,11 +295,14 @@ class JevAccessDenied(Exception):
 
 # Wall time of the attempt that succeeded, per thread — retries/backoff sleeps are excluded.
 last_successful_attempt = threading.local()
+teacher_access_denied = threading.Event()
 
 
 def post_json(url, payload, headers=None, timeout_seconds=30, max_attempts=3):
     request_body = json.dumps(payload).encode()
     for attempt_index in range(max_attempts):
+        if url in (CLASSIFIER_DEV_ENDPOINT, TYPESAFE_ENDPOINT) and teacher_access_denied.is_set():
+            raise JevAccessDenied("Teacher access was denied in this run; no further requests will be sent")
         attempt_started = time.perf_counter()
         request = urllib.request.Request(
             url, data=request_body, method="POST",
@@ -295,12 +315,8 @@ def post_json(url, payload, headers=None, timeout_seconds=30, max_attempts=3):
             return response_json
         except urllib.error.HTTPError as http_error:
             error_body = http_error.read().decode(errors="replace")[:300]
-            if http_error.code == 403:
-                # Keyless classifier.dev has a small shared allowance that refills; back off and retry
-                # before giving up. The direct TypeSafe API never needs this path.
-                if url == CLASSIFIER_DEV_ENDPOINT and attempt_index + 1 < max_attempts:
-                    time.sleep(20 * (attempt_index + 1))
-                    continue
+            if http_error.code == 403 and url in (CLASSIFIER_DEV_ENDPOINT, TYPESAFE_ENDPOINT):
+                teacher_access_denied.set()
                 raise JevAccessDenied(error_body) from http_error
             if http_error.code == 429 and attempt_index + 1 < max_attempts:
                 time.sleep(float(http_error.headers.get("Retry-After") or 2))
@@ -362,6 +378,8 @@ def wait_for_keyless_jev_pacing_slot():
 
 def route_with_jev(fixture, completed_steps, tool_catalog):
     """Returns (chosen_label, {label: probability}, elapsed_ms, model_reported_ms)."""
+    if teacher_access_denied.is_set():
+        raise JevAccessDenied("Teacher access was denied in this run")
     label_descriptions = router_label_descriptions(tool_catalog)
     typesafe_api_key = os.environ.get("TYPESAFE_API_KEY")
     if not typesafe_api_key:
@@ -391,7 +409,8 @@ def route_with_jev(fixture, completed_steps, tool_catalog):
             "labels": list(label_text_by_name.values()),
             "tier": "fast",
             "instructions": ROUTER_INSTRUCTIONS,
-        })
+            "share_data": False,
+        }, headers={"X-Classifier-Share-Data": "false"})
         elapsed_ms = last_successful_attempt.elapsed_ms
         result = response["results"][0]
         name_by_label_text = {text: name for name, text in label_text_by_name.items()}

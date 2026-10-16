@@ -135,3 +135,60 @@ HF_HUB_OFFLINE=1 <jeff-venv>/bin/python scripts/experiment-jev-planner.py --arms
 HF_HUB_OFFLINE=1 <jeff-venv>/bin/python scripts/experiment-jev-planner.py --arms jeff --jeff-checkpoint <base-v1.2> --jeff-adapter-dir <tools-v1.2> --output <report.json>
 HF_HUB_OFFLINE=1 <jeff-venv>/bin/python scripts/experiment-jeff-tools-native.py --arms jeff --jeff-checkpoint <base-v1.2> --jeff-adapter-dir <tools-v1.2> --output <report.json>
 ```
+
+## Policy qualification refresh (2026-10-16)
+
+Current-source research at `2ea410934c3058eacae2439228f2246947c338ae`
+uses 32 registry tools plus three control labels. The frozen October 8 set
+again produced rules 96/96 and local Qwen 48/96. It remains too lexical for
+model acceptance. A keyless Jev 1.13.0 preflight succeeded with sharing off;
+the matched run then stopped on non-retryable `proxy_requires_payment` after
+two accepted calls. No complete Jev score is available, and no credential or
+paid-route fallback was used.
+
+The separately frozen [30-case challenge](../router-policy-20261016/policy_challenge.json)
+adds semantic verbs, partial progress, failed actions, missing observations,
+adversarial screen text and unrelated duplicate controls. It was frozen before
+execution at SHA-256 `7095e2e73bd32ac5d0a6f94df24835ef6b499b6f7246f94fa6e9b43cc7878d19`.
+[Raw results](../router-policy-20261016/policy_challenge-results.json) and
+[source/runtime settings](../router-policy-20261016/policy_challenge-metadata.json)
+retain both arms. All actions were simulated using the existing cached Qwen
+4-bit model and the same local argument extractor. The temporary model was
+unloaded and the initially stopped local server was stopped afterward.
+
+| Kind | Cases | Rules full pass | Qwen full pass |
+| --- | ---: | ---: | ---: |
+| ASK_USER | 4 | 3 | 0 |
+| Click | 5 | 0 | 5 |
+| Compose | 4 | 0 | 4 |
+| DONE | 4 | 4 | 4 |
+| RESPOND | 7 | 6 | 7 |
+| Named tool | 6 | 0 | 6 |
+| Total | 30 | 13 | 26 |
+
+Qwen routed all four ASK_USER cases to an initial click, including ambiguous
+selection and unapproved send/delete/payment. This is a failed routing gate;
+Pace's separate action-approval layer was not exercised or changed. The set is
+machine-generated from the draft policy, designed to challenge known lexical
+rules, and has no independent frontier or human adjudication. These are
+exploratory policy diagnostics, not generalization or shipping accuracy. No
+thresholds were fitted, no student was trained and app defaults are unchanged.
+Shared-host latency is descriptive; exact model weights were not fingerprinted,
+and peak RAM, CPU/MPS parity and ECE were not qualified. No replacement qualifies.
+
+Before new training, teacher rows must bind their serialized state and current
+serializer/instructions/registry hash in `teacher_input_identity`. The format
+hash also binds the teacher's actual option order, separately from the fixed
+student label order. The labeller
+records this at the call; resume rejects legacy, changed or duplicate states.
+The trainer validates every input row before importing model dependencies,
+creating a run folder or downloading tokenizer/model bytes. This consistency
+check does not prove teacher correctness or qualify historical checkpoints.
+Never add current identity metadata to old labels; relabel original synthetic
+states into a fresh output dataset with an authorized teacher route.
+
+The harness now stops teacher requests after a 403, including queued cases,
+and the labeller aborts the batch while preserving prior output. It retains
+bounded 429 handling. Keyless requests explicitly opt out through both
+`share_data: false` and `X-Classifier-Share-Data: false`, following the
+[service privacy contract](https://classifier.dev/privacy).
