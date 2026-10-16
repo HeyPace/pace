@@ -267,9 +267,26 @@ def router_format_sha256(tool_catalog):
                 "instructions": ROUTER_INSTRUCTIONS,
                 "labels": router_label_descriptions(tool_catalog),
                 "label_order": sorted(router_label_descriptions(tool_catalog)),
+                "teacher_label_order": list(router_label_descriptions(tool_catalog)),
                 "screen": inspect.getsource(screen_text),
                 "completed": inspect.getsource(completed_steps_text)}
     return hashlib.sha256(json.dumps(contract, sort_keys=True).encode()).hexdigest()
+
+
+def router_teacher_input_identity(step_state_row, tool_catalog):
+    fixture = {"user_request": step_state_row["request"], "screen_elements": step_state_row["screen_elements"]}
+    serialized_input = router_input_text(fixture, step_state_row["completed_steps"])
+    return {"schema_version": "pace.router-teacher-input/v1", "format_contract_version": 2,
+            "format_sha256": router_format_sha256(tool_catalog),
+            "input_sha256": hashlib.sha256(serialized_input.encode()).hexdigest()}
+
+
+def validate_teacher_input_identity(step_state_row, tool_catalog):
+    expected = router_teacher_input_identity(step_state_row, tool_catalog)
+    if step_state_row.get("teacher_input_identity") != expected:
+        raise ValueError("Teacher input identity is missing or stale; relabel from the original synthetic states "
+                         "under the current serializer, instructions and registry. Do not restamp historical labels.")
+    return expected
 
 
 class JevAccessDenied(Exception):

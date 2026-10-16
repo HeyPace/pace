@@ -11,6 +11,9 @@ SCRIPT = Path(__file__).with_name("train-router-student.py")
 SPEC = importlib.util.spec_from_file_location("train_router_student", SCRIPT)
 TRAINER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(TRAINER)
+LABELLER_SPEC = importlib.util.spec_from_file_location("label_router_states", SCRIPT.with_name("label-router-step-states.py"))
+LABELLER = importlib.util.module_from_spec(LABELLER_SPEC)
+LABELLER_SPEC.loader.exec_module(LABELLER)
 
 
 class StudentFormatTests(unittest.TestCase):
@@ -48,6 +51,12 @@ class StudentFormatTests(unittest.TestCase):
         first_tool = next(iter(catalog))
         catalog[first_tool]["description"] += " changed"
         self.assertNotEqual(original, self.harness.router_format_sha256(catalog))
+
+    def test_teacher_option_order_changes_identity(self):
+        catalog = self.harness.load_tool_catalog()
+        original = self.harness.router_format_sha256(catalog)
+        reordered = dict(reversed(list(catalog.items())))
+        self.assertNotEqual(original, self.harness.router_format_sha256(reordered))
 
 
 class TeacherInputTests(unittest.TestCase):
@@ -105,6 +114,45 @@ class TeacherInputTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Teacher input identity"):
                     TRAINER.main()
             self.assertFalse((root / "student").exists())
+
+    def test_labeller_records_input_and_resumes_only_unchanged_states(self):
+        source_row = {key: value for key, value in self.row.items() if not key.startswith("teacher_")}
+        catalog = self.harness.load_tool_catalog()
+        probabilities = self.row["teacher_probabilities"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "train.jsonl"
+            source.write_text(json.dumps(source_row) + "\n")
+            with patch("sys.argv", ["label-router-step-states.py", "--split", "train", "--data-dir", directory,
+                                    "--concurrency", "1"]), \
+                    patch.object(LABELLER.os, "environ", {"TYPESAFE_API_KEY": "synthetic-test-no-network"}), \
+                    patch.object(LABELLER, "load_experiment_harness", return_value=self.harness), \
+                    patch.object(self.harness, "route_with_jev", return_value=("RESPOND", probabilities, 1, None)) as teacher:
+                LABELLER.main()
+                saved = json.loads((root / "train.labelled.jsonl").read_text())
+                self.assertEqual(saved["teacher_input_identity"], self.row["teacher_input_identity"])
+                LABELLER.main()
+                self.assertEqual(teacher.call_count, 1)
+                source.write_text(json.dumps({**source_row, "request": "Open Safari."}) + "\n")
+                with self.assertRaisesRegex(ValueError, "Saved teacher state"):
+                    LABELLER.main()
+                self.assertEqual(teacher.call_count, 1)
+                source.write_text(json.dumps(source_row) + "\n")
+                del saved["teacher_input_identity"]
+                (root / "train.labelled.jsonl").write_text(json.dumps(saved) + "\n")
+                with self.assertRaisesRegex(ValueError, "Teacher input identity"):
+                    LABELLER.main()
+                self.assertEqual(teacher.call_count, 1)
+                saved["teacher_input_identity"] = self.row["teacher_input_identity"]
+                (root / "train.labelled.jsonl").write_text(json.dumps(saved) + "\n")
+            self.assertEqual(LABELLER.already_labelled_ids(root / "train.labelled.jsonl", [source_row],
+                                                         self.harness, catalog), {source_row["id"]})
+
+    def test_duplicate_input_ids_fail_before_a_first_teacher_call(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "Duplicate input state"):
+                LABELLER.already_labelled_ids(Path(directory) / "not-created.jsonl", [self.row, self.row],
+                                             self.harness, self.harness.load_tool_catalog())
 
 
 if __name__ == "__main__":
