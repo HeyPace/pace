@@ -186,3 +186,9 @@ creating a run folder or downloading tokenizer/model bytes. This consistency
 check does not prove teacher correctness or qualify historical checkpoints.
 Never add current identity metadata to old labels; relabel original synthetic
 states into a fresh output dataset with an authorized teacher route.
+
+The harness now stops teacher requests after a 403, including queued cases,
+and the labeller aborts the batch while preserving prior output. It retains
+bounded 429 handling. Keyless requests explicitly opt out through both
+`share_data: false` and `X-Classifier-Share-Data: false`, following the
+[service privacy contract](https://classifier.dev/privacy).

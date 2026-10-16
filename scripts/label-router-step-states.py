@@ -97,6 +97,8 @@ def main():
         try:
             chosen_label, probabilities, route_ms, _ = harness_module.route_with_jev(
                 fixture_view, step_state_row["completed_steps"], tool_catalog)
+        except harness_module.JevAccessDenied:
+            raise  # Stop the batch; later rows must not repeat a non-retryable denial.
         except Exception as error:  # keep going; failed rows are retried on the next run
             with output_write_lock:
                 progress_counts["failed"] += 1
