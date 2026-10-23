@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { dirname, posix, relative, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 const websiteRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(websiteRoot, "..");
@@ -83,18 +84,18 @@ function normalizeDocsURLs(directory) {
   return replacements;
 }
 
-function assertInternalDocsLinks(directory) {
+export function assertInternalDocsLinks(directory, docsRoot = directory) {
   const brokenLinks = [];
 
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const target = resolve(directory, entry.name);
     if (entry.isDirectory()) {
-      brokenLinks.push(...assertInternalDocsLinks(target));
+      brokenLinks.push(...assertInternalDocsLinks(target, docsRoot));
       continue;
     }
     if (!entry.name.endsWith(".html")) continue;
 
-    const relativeHTML = relative(publicDocs, target).split(sep).join("/");
+    const relativeHTML = relative(docsRoot, target).split(sep).join("/");
     const currentRoute =
       relativeHTML === "index.html"
         ? "/docs/"
@@ -103,31 +104,25 @@ function assertInternalDocsLinks(directory) {
 
     for (const match of html.matchAll(RENDERED_HREF_PATTERN)) {
       const rawHref = match[2];
-      if (
-        rawHref.startsWith("#") ||
-        rawHref.startsWith("//") ||
-        /^(?:[a-z]+:)/i.test(rawHref)
-      ) {
-        continue;
-      }
-
-      const href = rawHref.split(/[?#]/, 1)[0];
-      const route = href.startsWith("/")
-        ? href
-        : posix.resolve(posix.dirname(currentRoute), href);
+      if (rawHref.startsWith("#")) continue;
+      // Resolve against the served page URL: dirname() would remove a
+      // directory from a trailing-slash route and silently miss broken links.
+      const href = new URL(rawHref, `${SITE_ORIGIN}${currentRoute}`);
+      if (href.origin !== SITE_ORIGIN) continue;
+      const route = href.pathname;
       if (!route.startsWith("/docs/")) continue;
 
       const docsPath = route.slice("/docs/".length);
       const candidate = route.endsWith("/")
-        ? resolve(publicDocs, docsPath, "index.html")
-        : resolve(publicDocs, docsPath);
+        ? resolve(docsRoot, docsPath, "index.html")
+        : resolve(docsRoot, docsPath);
       if (!existsSync(candidate)) {
         brokenLinks.push(`${relativeHTML}: ${rawHref}`);
       }
     }
   }
 
-  if (directory === publicDocs && brokenLinks.length > 0) {
+  if (directory === docsRoot && brokenLinks.length > 0) {
     throw new Error(
       `[pace] broken internal docs links:\n${brokenLinks.map((link) => `- ${link}`).join("\n")}`,
     );
@@ -136,23 +131,25 @@ function assertInternalDocsLinks(directory) {
   return brokenLinks;
 }
 
-// Blume is pinned in the repository root. Building it here keeps the local
-// deploy, GitHub Actions deploy, and docs integrity workflow on one path.
-execFileSync("pnpm", ["install", "--frozen-lockfile"], {
-  cwd: repoRoot,
-  stdio: "inherit",
-});
-execFileSync("pnpm", ["run", "docs:build"], {
-  cwd: repoRoot,
-  stdio: "inherit",
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  // Blume is pinned in the repository root. Building it here keeps the local
+  // deploy, GitHub Actions deploy, and docs integrity workflow on one path.
+  execFileSync("pnpm", ["install", "--frozen-lockfile"], {
+    cwd: repoRoot,
+    stdio: "inherit",
+  });
+  execFileSync("pnpm", ["run", "docs:build"], {
+    cwd: repoRoot,
+    stdio: "inherit",
+  });
 
-mkdirSync(dirname(publicDocs), { recursive: true });
-rmSync(publicDocs, { recursive: true, force: true });
-cpSync(docsOutput, publicDocs, { recursive: true });
+  mkdirSync(dirname(publicDocs), { recursive: true });
+  rmSync(publicDocs, { recursive: true, force: true });
+  cpSync(docsOutput, publicDocs, { recursive: true });
 
-const normalizedURLs = normalizeDocsURLs(publicDocs);
-assertInternalDocsLinks(publicDocs);
-console.log(
-  `[pace] merged Blume docs into website/public/docs, normalized ${normalizedURLs} document URLs, and verified internal links`,
-);
+  const normalizedURLs = normalizeDocsURLs(publicDocs);
+  assertInternalDocsLinks(publicDocs);
+  console.log(
+    `[pace] merged Blume docs into website/public/docs, normalized ${normalizedURLs} document URLs, and verified internal links`,
+  );
+}
