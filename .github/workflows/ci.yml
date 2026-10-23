@@ -283,6 +283,9 @@ jobs:
       - name: Verify patched HTTP cache behavior
         run: PACE_CACHE_CONSUMER=website node ../scripts/http-cache-security.test.mjs
 
+      - name: Test rendered docs link validation
+        run: node --test scripts/merge-blume-docs.test.mjs
+
       - name: Build
         run: pnpm run build
 

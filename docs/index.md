@@ -7,7 +7,7 @@ description: Index of Pace documentation — the on-device macOS menu-bar voice 
 
 This is the canonical documentation index for **Pace** — the on-device macOS
 menu-bar voice agent. Markdown committed to this repository is the source of
-truth. [Blume](../blume.config.ts) renders it as a searchable site; it is the
+truth. [Blume](https://github.com/HeyPace/pace/blob/main/blume.config.ts) renders it as a searchable site; it is the
 presentation layer, not the truth.
 
 Agent instructions live in the [repository AGENTS.md](https://github.com/HeyPace/pace/blob/main/AGENTS.md) (concise bootloader).
