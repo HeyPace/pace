@@ -3,7 +3,7 @@
 Pace builds on maintained open-source components. Full copyright, license,
 and bundled notice text is available in **About → Open-source credits and
 licenses**, including offline. The source of that screen is
-[`OpenSourceNotices.txt`](../../leanring-buddy/Resources/OpenSourceNotices.txt).
+[`OpenSourceNotices.txt`](https://github.com/HeyPace/pace/blob/main/leanring-buddy/Resources/OpenSourceNotices.txt).
 
 ## Swift packages
 

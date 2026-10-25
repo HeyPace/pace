@@ -120,7 +120,7 @@ The old one-tap catalog proposal is no longer an active requirement:
 [PR #217](https://github.com/HeyPace/pace/pull/217) tracks the retirement, owned
 by [issue #223](https://github.com/HeyPace/pace/issues/223).
 
-Repository evidence: the [bundled catalog](../../leanring-buddy/PaceMCPServerCatalog.swift)
+Repository evidence: the [bundled catalog](https://github.com/HeyPace/pace/blob/main/leanring-buddy/PaceMCPServerCatalog.swift)
 already offers pinned Playwright MCP with an isolated Chrome session; the
 [MCP architecture](../architecture/systems.md#actions-tools-integrations) describes
 its persistent browser navigation, snapshots, and element actions. This supports

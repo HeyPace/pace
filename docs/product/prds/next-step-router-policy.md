@@ -111,7 +111,7 @@ latency p50/p95 was 394.751/953.559 ms; the complete arm took 164.474 seconds.
 The cached model artifact was 3,061,316,115 bytes. Shared-host MLX timing is not
 Pace's native MPS/CPU hardware qualification, peak memory or calibrated ECE.
 
-The [comparison summary](../../../evals/router-policy-20261008/local-comparison.json)
+The [comparison summary](https://github.com/HeyPace/pace/blob/main/evals/router-policy-20261008/local-comparison.json)
 retains the predeclared decision, input hashes, per-class counts and raw-report
 SHA-256. All raw attempts remain in the private lane evidence. No calibration
 threshold was fitted and no new student was trained. Historical 123-case
