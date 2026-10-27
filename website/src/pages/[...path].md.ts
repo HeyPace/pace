@@ -6,7 +6,7 @@ import {
 } from "../config/public-surfaces";
 
 export const getStaticPaths: GetStaticPaths = () =>
-  generatedMarkdownSurfaces.map((surface) => ({
+  [...generatedMarkdownSurfaces, ...generatedMarkdownSurfaces.filter((surface) => surface.path === "/docs").map((surface) => ({ ...surface, markdownPath: "/docs/index.md" }))].map((surface) => ({
     params: {
       path: surface.markdownPath.replace(/^\//, "").replace(/\.md$/, ""),
     },
@@ -24,7 +24,6 @@ export const GET: APIRoute = ({ props }) => {
     `title: ${JSON.stringify(surface.title)}`,
     `description: ${JSON.stringify(surface.description)}`,
     `canonical: ${canonical}`,
-    "last-updated: 2026-08-27",
     "---",
     "",
   ].join("\n");

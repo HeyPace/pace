@@ -5,54 +5,158 @@
 
 User-agent: *
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
 
 # AI / answer-engine crawlers, allowed explicitly so there's no ambiguity.
 User-agent: GPTBot
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
 
 User-agent: OAI-SearchBot
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
 
 User-agent: ChatGPT-User
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
 
 User-agent: ClaudeBot
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
 
 User-agent: Claude-Web
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
 
 User-agent: anthropic-ai
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
 
 User-agent: Google-Extended
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
 
 User-agent: PerplexityBot
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
 
 User-agent: Perplexity-User
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
 
 User-agent: Applebot-Extended
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
 
 User-agent: CCBot
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
 
 User-agent: Bytespider
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
 
 User-agent: Amazonbot
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
 
 User-agent: cohere-ai
 Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
+
+User-agent: Claude-SearchBot
+Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
+
+User-agent: Claude-User
+Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /api/
+Allow: /api/ai$
+Allow: /api/md
 
 Sitemap: https://heypace.app/sitemap.xml
 Sitemap: https://heypace.app/docs/sitemap.xml
-# Agent indexing
-Allow: /llms.txt
-Allow: /index.md
-Allow: /api/ai
-Allow: /llms-full.txt
+# Keep in sync with /ai.txt and /llms.txt.

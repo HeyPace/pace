@@ -58,6 +58,7 @@ const clampedDescription = clampDescription(description);
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>{title}</title>
     <meta name="description" content={clampedDescription} />
+    {pathname === "/404" ? <meta name="robots" content="noindex, follow" /> : <meta name="ai-summary" content={clampedDescription} />}
     <meta name="application-name" content="HeyPace" />
     <link rel="canonical" href={canonicalURL} />
     {markdownURL && <link rel="alternate" type="text/markdown" href={markdownURL} />}

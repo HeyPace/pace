@@ -6,6 +6,7 @@ import {
   readdirSync,
   rmSync,
   writeFileSync,
+  unlinkSync,
 } from "node:fs";
 import { dirname, posix, relative, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -134,11 +135,11 @@ export function assertInternalDocsLinks(directory, docsRoot = directory) {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   // Blume is pinned in the repository root. Building it here keeps the local
   // deploy, GitHub Actions deploy, and docs integrity workflow on one path.
-  execFileSync("pnpm", ["install", "--frozen-lockfile"], {
+  if (!process.argv.includes("--installed")) execFileSync("pnpm", ["install", "--frozen-lockfile"], {
     cwd: repoRoot,
     stdio: "inherit",
   });
-  execFileSync("pnpm", ["run", "docs:build"], {
+  if (!process.argv.includes("--reuse-build")) execFileSync("pnpm", ["run", "docs:build"], {
     cwd: repoRoot,
     stdio: "inherit",
   });
@@ -149,6 +150,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
 
   const normalizedURLs = normalizeDocsURLs(publicDocs);
   assertInternalDocsLinks(publicDocs);
+function removeCopiedMarkdown(directory) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const target = resolve(directory, entry.name);
+    if (entry.isDirectory()) removeCopiedMarkdown(target);
+    else if (entry.name.endsWith(".md")) unlinkSync(target);
+  }
+}
+// Astro regenerates the same source documents with canonical representation metadata.
+removeCopiedMarkdown(publicDocs);
   console.log(
     `[pace] merged Blume docs into website/public/docs, normalized ${normalizedURLs} document URLs, and verified internal links`,
   );
