@@ -50,7 +50,8 @@ export function buildAiTxt(manifest, routes) {
     '[attribution]', `cite: ${manifest.name} and the canonical HTML URL`, '',
     '[scope]', `included: public routes listed at ${manifest.origin}/api/md/_catalog`,
     `public-route-count: ${routes.length}`,
-    `excluded: ${(manifest.excludedPaths || ['/admin', '/api', '/dashboard', '/auth']).join(', ')}`, '',
+    `excluded: ${(manifest.excludedPaths || ['/admin', '/api', '/dashboard', '/auth']).join(', ')}`,
+    'public-machine-endpoints: /api/ai, /api/md/*', '',
     ...(contact ? ['[contact]', `contact: ${contact}`, ''] : []),
     ...(manifest.updatedAt ? [`Last updated: ${manifest.updatedAt}`, ''] : []),
   ].join('\n');

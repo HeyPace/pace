@@ -1,3 +1,4 @@
+import { descriptionFromMarkdown } from "../src/config/documentation-surfaces.ts";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve, relative } from "node:path";
@@ -35,3 +36,6 @@ console.log(`Public HTML, sitemap and Markdown coverage: ${routes.length}/${publ
 const robots = await readFile(resolve(root, "robots.txt"), "utf8");
 assert.ok(!robots.split("\n").includes("Disallow: /api"), "Do not prefix-block the public /api-ai.json catalog");
 assert.ok((await readFile(resolve(root,"llms.txt"),"utf8")).includes("No CLI tool is currently available"));
+
+assert.equal(descriptionFromMarkdown("<!-- internal -->\n\nRead [PROJECT_STATUS.md](../PROJECT_STATUS.md) and `SETUP_LOCAL.md`.", "Title"), "Read PROJECT_STATUS.md and SETUP_LOCAL.md.");
+for (const route of routes) assert.ok(!route.description.includes("<!--"), route.path);

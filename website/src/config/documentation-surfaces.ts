@@ -6,6 +6,11 @@ import type { PublicSurface } from "./public-surfaces";
 // not the bundled import.meta.url, to locate the original content.
 const docsRoot = resolve("../docs");
 const publicDocs = resolve("public/docs");
+export function descriptionFromMarkdown(body: string, title: string) {
+  const paragraph = body.replace(/<!--[\s\S]*?-->/g, "").split(/\n\s*\n/).find((paragraph) => !/^[#>|`<\-]/.test(paragraph.trim()) && paragraph.trim()) ?? title;
+  const plain = paragraph.replace(/!?\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/`/g, "").replace(/\s+/g, " ").trim();
+  return plain.length > 180 ? `${plain.slice(0, 180).replace(/\s+\S*$/, "")}…` : plain;
+}
 export function documentationSurfaces(): PublicSurface[] {
   if (!existsSync(publicDocs)) throw new Error("Build and merge the source documentation before building website representations.");
   const sources = new Map<string, string>();
@@ -40,9 +45,7 @@ export function documentationSurfaces(): PublicSurface[] {
   return published.map(({ path, source }) => {
     const body = readFileSync(source, "utf8").replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "").trim();
     const title = body.match(/^#\s+(.+)$/m)?.[1] ?? path.split("/").at(-1) ?? "Pace documentation";
-    const paragraph = body.split(/\n\s*\n/).find((paragraph) => !/^[#>|`-]/.test(paragraph) && paragraph.trim()) ?? title;
-    const plain = paragraph.replace(/!?\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/[`*_]/g, "").replace(/\s+/g, " ").trim();
-    const description = plain.length > 180 ? `${plain.slice(0, 180).replace(/\s+\S*$/, "")}…` : plain;
+    const description = descriptionFromMarkdown(body, title);
     return { id: path.slice(1), path, markdownPath: `${path}.md`, kind: "detail" as const, title, description, priority: "0.5", markdown: absoluteMarkdownLinks(body, new URL(`/docs/${relative(docsRoot, source).replaceAll("\\", "/")}`, "https://heypace.app").href, { htmlPathsByMarkdown }) };
   }).sort((left, right) => left.path.localeCompare(right.path));
 }
