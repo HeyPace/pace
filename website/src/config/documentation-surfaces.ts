@@ -40,7 +40,9 @@ export function documentationSurfaces(): PublicSurface[] {
   return published.map(({ path, source }) => {
     const body = readFileSync(source, "utf8").replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "").trim();
     const title = body.match(/^#\s+(.+)$/m)?.[1] ?? path.split("/").at(-1) ?? "Pace documentation";
-    const description = body.split(/\n\s*\n/).find((paragraph) => !/^[#>|`-]/.test(paragraph) && paragraph.trim())?.replace(/\s+/g, " ").slice(0, 180) ?? title;
+    const paragraph = body.split(/\n\s*\n/).find((paragraph) => !/^[#>|`-]/.test(paragraph) && paragraph.trim()) ?? title;
+    const plain = paragraph.replace(/!?\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/[`*_]/g, "").replace(/\s+/g, " ").trim();
+    const description = plain.length > 180 ? `${plain.slice(0, 180).replace(/\s+\S*$/, "")}…` : plain;
     return { id: path.slice(1), path, markdownPath: `${path}.md`, kind: "detail" as const, title, description, priority: "0.5", markdown: absoluteMarkdownLinks(body, new URL(`/docs/${relative(docsRoot, source).replaceAll("\\", "/")}`, "https://heypace.app").href, { htmlPathsByMarkdown }) };
   }).sort((left, right) => left.path.localeCompare(right.path));
 }

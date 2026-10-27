@@ -8,7 +8,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 
@@ -18,7 +18,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 
@@ -27,7 +27,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 
@@ -36,7 +36,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 
@@ -45,7 +45,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 
@@ -54,7 +54,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 
@@ -63,7 +63,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 
@@ -72,7 +72,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 
@@ -81,7 +81,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 
@@ -90,7 +90,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 
@@ -99,7 +99,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 
@@ -108,7 +108,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 
@@ -117,7 +117,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 
@@ -126,7 +126,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 
@@ -135,7 +135,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 
@@ -144,7 +144,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 
@@ -153,7 +153,7 @@ Allow: /
 Disallow: /admin
 Disallow: /auth
 Disallow: /dashboard
-Disallow: /api
+Disallow: /api/
 Allow: /api/ai$
 Allow: /api/md
 

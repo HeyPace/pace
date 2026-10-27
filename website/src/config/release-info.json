@@ -1,18 +1,31 @@
 {
   "latest": {
-    "version": "0.3.19",
-    "build": "19",
-    "title": "Pace 0.3.19",
-    "pubDate": "Tue, 07 Jul 2026 06:28:31 +0000",
-    "isoDate": "2026-07-07T06:28:31+00:00",
-    "displayDate": "Jul 7, 2026",
-    "downloadURL": "https://github.com/HeyPace/pace/releases/download/v0.3.19/Pace-0.3.19.zip",
-    "length": 30584188,
-    "lengthMB": 29.2,
+    "version": "0.3.20",
+    "build": "20",
+    "title": "Pace 0.3.20",
+    "pubDate": "Sat, 10 Oct 2026 17:57:24 +0000",
+    "isoDate": "2026-10-10T17:57:24+00:00",
+    "displayDate": "Oct 10, 2026",
+    "downloadURL": "https://github.com/HeyPace/pace/releases/download/v0.3.20/Pace-0.3.20.dmg",
+    "length": 39875634,
+    "lengthMB": 38.0,
     "minimumSystemVersion": "26.0",
-    "edSignature": "rX3NTx9lCuKzEJCtUCYamEdUs8iaS/sV+jhLCwtWGnKXsEva3igBVnDCbUiV9X+qBcfGYxTJzn7KVe3TG+UNCw=="
+    "edSignature": "AAf7moCHv5zfbTW9Pbd9ypTz7u12F9iRgeyPALKHv1J/8C8cGR849NRGIVFo9srq3ev//iFTJgjaBJQm3yI7Dg=="
   },
   "releases": [
+    {
+      "version": "0.3.20",
+      "build": "20",
+      "title": "Pace 0.3.20",
+      "pubDate": "Sat, 10 Oct 2026 17:57:24 +0000",
+      "isoDate": "2026-10-10T17:57:24+00:00",
+      "displayDate": "Oct 10, 2026",
+      "downloadURL": "https://github.com/HeyPace/pace/releases/download/v0.3.20/Pace-0.3.20.dmg",
+      "length": 39875634,
+      "lengthMB": 38.0,
+      "minimumSystemVersion": "26.0",
+      "edSignature": "AAf7moCHv5zfbTW9Pbd9ypTz7u12F9iRgeyPALKHv1J/8C8cGR849NRGIVFo9srq3ev//iFTJgjaBJQm3yI7Dg=="
+    },
     {
       "version": "0.3.19",
       "build": "19",
@@ -129,22 +142,9 @@
       "lengthMB": 14.8,
       "minimumSystemVersion": "14.0",
       "edSignature": "Hagn6gWtTR7cUZd2zN3tI2a5YN35esBfjOVJiq1A6NmtH+Grhwv8LuyvIiphTVUgE9NKYmg9vRDy3Er3C+r9CA=="
-    },
-    {
-      "version": "0.3.10",
-      "build": "10",
-      "title": "Pace 0.3.10",
-      "pubDate": "Thu, 11 Jun 2026 18:22:31 +0000",
-      "isoDate": "2026-06-11T18:22:31+00:00",
-      "displayDate": "Jun 11, 2026",
-      "downloadURL": "https://github.com/sarthakagrawal927/pace/releases/download/v0.3.10/Pace-0.3.10.zip",
-      "length": 14417922,
-      "lengthMB": 13.8,
-      "minimumSystemVersion": "14.0",
-      "edSignature": "8QpVQdBa77eNAZ+JylBVBVR8JqV5bCFWi/EonXK6ryfv7Y/+LygaliHcag1dj2XmLgvyVilkE/bRb2FB1EW7Cg=="
     }
   ],
   "releasesPageURL": "https://github.com/HeyPace/pace/releases",
-  "sourceRevision": "fad5f87",
-  "generatedAt": "2026-08-29T07:47:54.337616Z"
+  "sourceRevision": "046a71c",
+  "generatedAt": "2026-10-27T06:33:25.163114Z"
 }

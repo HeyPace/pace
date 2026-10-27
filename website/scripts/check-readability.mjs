@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve, relative } from "node:path";
-const root = resolve("dist");
+const root = resolve(import.meta.dirname, "../dist");
 const routes = JSON.parse(await readFile(resolve(root, "api/md/_catalog"), "utf8"));
 const publicPaths = new Set();
 async function visit(directory) {
@@ -31,3 +31,7 @@ assert.deepEqual(new Set([...sitemap.matchAll(/<loc>(.*?)<\/loc>/g)].map((match)
 assert.ok((await readFile(resolve(root,"llms-full.txt"),"utf8")).length < 500_000);
 for (const crawler of ["GPTBot","ClaudeBot","Google-Extended","Applebot-Extended","CCBot","Bytespider"]) assert.ok((await readFile(resolve(root,"robots.txt"),"utf8")).includes(`User-agent: ${crawler}\nAllow: /`));
 console.log(`Public HTML, sitemap and Markdown coverage: ${routes.length}/${publicPaths.size}`);
+
+const robots = await readFile(resolve(root, "robots.txt"), "utf8");
+assert.ok(!robots.split("\n").includes("Disallow: /api"), "Do not prefix-block the public /api-ai.json catalog");
+assert.ok((await readFile(resolve(root,"llms.txt"),"utf8")).includes("No CLI tool is currently available"));
