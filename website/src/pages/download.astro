@@ -1,4 +1,5 @@
 ---
+import { fragment } from "../config/source-fragments";
 import BaseLayout from "../layouts/BaseLayout.astro";
 import Nav from "../components/Nav.astro";
 import Footer from "../components/Footer.astro";
@@ -31,29 +32,7 @@ const releasesPageURL = releaseInfo.releasesPageURL;
   <main class="px-6 pt-32 md:pt-40 pb-24">
     <div class="max-w-3xl mx-auto">
       <!-- ── Hero ─────────────────────────────────────────────── -->
-      <p class="text-sm uppercase tracking-widest text-[var(--color-text-muted)] font-mono mb-6">
-        Download
-      </p>
-
-      <h1 class="pace-display text-4xl md:text-6xl text-white mb-8 max-w-2xl">
-        Get Pace <em>{latest?.version ?? ""}</em>
-      </h1>
-
-      <div class="pace-prose mb-12">
-        <p>
-          Unzip the download and move Pace to Applications. The current preview
-          is ad-hoc signed and not notarized, so macOS may block the first launch.
-          If you choose to run this preview, first try opening Pace, then go to
-          System Settings → Privacy &amp; Security and use Open Anyway for Pace
-          under Security. Confirm the per-app approval when macOS asks.
-        </p>
-        <p>
-          <strong>Updates itself.</strong> Once Pace is running, it checks the
-          appcast feed every hour and installs new versions automatically via
-          Sparkle. You won't need to come back to this page.
-        </p>
-      </div>
-
+<Fragment set:html={fragment("download-intro", { version: latest?.version ?? "" })} />
       <!-- ── Download button ──────────────────────────────────── -->
       {
         latest && (
@@ -74,63 +53,13 @@ const releasesPageURL = releaseInfo.releasesPageURL;
               </div>
             </div>
 
-            <div class="mt-8 pt-6 border-t border-[var(--color-border-subtle)]">
-              <p class="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-                <strong class="text-white">Try it free.</strong> If your Mac has
-                Apple Intelligence, Pace runs against Apple's Foundation Models
-                tier at no cost. Pace is a $29 one-time purchase for the
-                bundled local model experience — buy it after you've tried the
-                current preview. Purchases are manual when hosted checkout is
-                not configured.
-              </p>
-              <a
-                href="/#pricing"
-                class="pace-cta-secondary text-sm mt-4 inline-flex"
-              >
-                Buy Pace — $29
-                <span aria-hidden="true">→</span>
-              </a>
-            </div>
+<Fragment set:html={fragment("download-offer")} />
           </div>
         )
       }
 
       <!-- ── Install steps ────────────────────────────────────── -->
-      <section class="mb-20">
-        <p class="text-sm uppercase tracking-widest text-[var(--color-text-muted)] font-mono mb-6">
-          After you download
-        </p>
-
-        <h2 class="pace-display text-2xl md:text-3xl text-white mb-8">
-          <em>Three steps</em>, then it's in your menu bar.
-        </h2>
-
-        <div class="pace-prose space-y-5">
-          <p>
-            <strong>1. Unzip.</strong> Double-click <code class="font-mono text-sm text-[var(--color-accent)]">Pace-{latest?.version ?? ""}.zip</code>.
-            You'll get <code class="font-mono text-sm text-[var(--color-accent)]">Pace.app</code>.
-          </p>
-          <p>
-            <strong>2. Open it.</strong> Double-click <code class="font-mono text-sm text-[var(--color-accent)]">Pace.app</code>.
-            If macOS blocks it, follow the Privacy &amp; Security approval above.
-            Once Pace opens, review its Microphone, Screen Recording, and
-            Accessibility requests for voice, screen context, and approved actions.
-          </p>
-          <p>
-            <strong>3. Hold ctrl+option and talk.</strong> That's push-to-talk.
-            Pace measures time to first spoken response on every turn and lives
-            in your menu bar from now on — no dock icon.
-          </p>
-        </div>
-
-        <p class="pace-margin-note mt-8 max-w-md">
-          This preview is not Developer ID signed or notarized. See
-          <a href="https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac">Apple's current opening instructions</a>
-          for the per-app approval in Privacy &amp; Security. The Open Anyway
-          option is available for about an hour after an opening attempt.
-        </p>
-      </section>
-
+<Fragment set:html={fragment("download-install", { version: latest?.version ?? "" })} />
       <!-- ── Recent releases ──────────────────────────────────── -->
       {
         releases.length > 0 && (
@@ -177,41 +106,7 @@ const releasesPageURL = releaseInfo.releasesPageURL;
       }
 
       <!-- ── Auto-update note ─────────────────────────────────── -->
-      <section class="border-t border-[var(--color-border-subtle)] pt-16">
-        <p class="text-sm uppercase tracking-widest text-[var(--color-text-muted)] font-mono mb-6">
-          Auto-update
-        </p>
-
-        <h2 class="pace-display text-2xl md:text-3xl text-white mb-8 max-w-xl">
-          You only download from this page <em>once</em>.
-        </h2>
-
-        <div class="pace-prose">
-          <p>
-            Pace uses <strong>Sparkle</strong> — the same auto-updater most
-            indie Mac apps use. Once it's installed, Pace checks an appcast
-            feed every hour. When a new version ships, it downloads, verifies
-            the EdDSA update signature, and prompts you to relaunch. This
-            protects Sparkle updates; it does not make the current app
-            Developer ID signed or Apple-notarized.
-          </p>
-          <p>
-            If you ever want to check manually: Settings → General →
-            "Check for updates…"
-          </p>
-        </div>
-      </section>
-
-      <!-- ── CTA back ─────────────────────────────────────────── -->
-      <section class="text-center mt-32">
-        <p class="pace-display text-xl md:text-2xl text-white mb-6 max-w-lg mx-auto">
-          Want to know what you're downloading <em>before</em> you download it?
-        </p>
-        <a href="/" class="pace-cta-secondary">
-          See what Pace does
-          <span aria-hidden="true">→</span>
-        </a>
-      </section>
+<Fragment set:html={fragment("download-outro")} />
     </div>
   </main>
 

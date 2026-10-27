@@ -16,7 +16,7 @@ export const GET: APIRoute = () =>
         robots: `${PRODUCTION_ORIGIN}/robots.txt`,
         markdown: {
           suffix: ".md",
-          negotiation: false,
+          negotiation: true,
           linkedAlternates: true,
         },
         aiCatalog: `${PRODUCTION_ORIGIN}/.well-known/ai-catalog.json`,

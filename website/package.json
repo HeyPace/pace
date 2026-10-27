@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "astro dev",
     "prebuild": "bash ../scripts/generate-og-image.sh || true && bash ../scripts/generate-release-info.sh || true",
-    "build": "pnpm run build:docs && astro build",
+    "build": "pnpm run build:docs && astro build && node scripts/finalize-readability.mjs && node scripts/check-readability.mjs",
     "build:docs": "node scripts/merge-blume-docs.mjs",
     "preview": "astro preview",
     "astro": "astro",

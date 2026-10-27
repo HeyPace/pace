@@ -1,0 +1,46 @@
+      <p
+        class="text-sm uppercase tracking-widest text-[var(--color-text-muted)] font-mono mb-6"
+      >
+        The field
+      </p>
+
+      <h1 class="pace-display text-4xl md:text-6xl text-white mb-10 max-w-3xl">
+        Mac AI agents that <em>see your screen</em> and run tasks.
+      </h1>
+
+      <div class="pace-prose mb-20">
+        <p>
+          A screen-aware Mac agent combines a way to observe the current interface, a reasoning
+          model, permitted actions, and a visible safety boundary. Similar demos can hide sharp
+          differences in where screenshots go, whether inference is local, whether the agent waits
+          for a prompt or watches continuously, and whether actions need approval.
+        </p>
+        <p>
+          This comparison covers {{count}} current macOS agents across on-device,
+          hybrid, and cloud-backed postures. It links to each product's source or site, describes
+          what it does well, and says where Pace is behind. It does not assign review scores or
+          declare a universal winner.
+        </p>
+      </div>
+
+      <section class="pace-prose mb-20">
+        <h2>How to choose a screen-aware Mac agent</h2>
+        <ol>
+          <li><strong>Follow the data path.</strong> A local app can still send screenshots, transcripts, or prompts to a provider API.</li>
+          <li><strong>Separate observation from action.</strong> Region capture, full-screen capture, and the Accessibility tree expose different data and permissions.</li>
+          <li><strong>Check the control model.</strong> Push-to-talk, hotword, proactive watching, scheduled work, and remote commands have different interruption and safety tradeoffs.</li>
+          <li><strong>Inspect approval and recovery.</strong> Look for action previews, permission tiers, audit records, undo, and a reliable stop path.</li>
+          <li><strong>Check distribution reality.</strong> License, signed releases, supported macOS versions, API-key requirements, and update paths matter beyond the demo.</li>
+        </ol>
+      </section>
+
+      <!-- ── Cluster legend ──────────────────────────────────── -->
+      <div class="pace-prose mb-24">
+        <p>
+          The field splits three ways. <strong>Cloud</strong> agents round-trip
+          every turn through someone else's servers. <strong>Hybrid</strong>
+          ones default local but let you opt into cloud. <strong>On-device</strong>
+          ones — the cluster Pace lives in — never leave your machine.
+        </p>
+      </div>
+
