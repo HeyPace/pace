@@ -113,7 +113,10 @@ local detail without a model call; the deliberate “Explain this” button ente
 cancellation and action policy. Presentation collapses the quick panel, and
 shutdown/dismissal closes every diagram panel. Screen-referential diagram requests
 use the existing screen-enabled planner path; self-contained subjects use the
-text-only path. No generated code, external resources or web renderer execute.
+text-only path. Diagram instructions are enabled only for interactive planner
+callers. Part follow-ups use neutral intent text; generated labels remain context
+rather than becoming commands. Escape dismissal applies only while the pointer
+is over the diagram. No generated code, external resources or web renderer execute.
 
 **Global Push-To-Talk Shortcut**: Background push-to-talk uses a listen-only `CGEvent` tap instead of an AppKit global monitor so modifier-based shortcuts like `ctrl + option` are detected more reliably while the app is running in the background.
 
