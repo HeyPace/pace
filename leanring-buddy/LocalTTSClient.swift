@@ -195,7 +195,7 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
         case .premium, .enhanced:
             print("🔊 Local TTS voice: \(pickedVoice.name) (\(pickedVoice.quality == .premium ? "Premium" : "Enhanced"))")
         default:
-            print("🔊 Local TTS voice: \(pickedVoice.name) (Compact, softened with Pace prosody)")
+            print("🔊 Local TTS voice: \(pickedVoice.name) (Compact)")
             print("    → For a bigger quality jump, open System Settings → Accessibility → Spoken Content")
             print("      → System Voice → Manage Voices → English (US) and download either:")
             print("        - \"Samantha\" at Enhanced quality (~150 MB, quick stopgap), OR")
