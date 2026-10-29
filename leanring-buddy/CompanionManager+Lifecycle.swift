@@ -211,6 +211,12 @@ extension CompanionManager {
     }
 
     func start() {
+        diagramOverlayController.onDidPresent = {
+            NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+        }
+        diagramOverlayController.onAskAboutPart = { [weak self] transcript in
+            self?.submitChatTranscriptFromDeepLink(transcript)
+        }
         refreshAllPermissions()
         loadPersistedToolCallDebugRecords()
         // Warm the local Shortcuts names asynchronously. Natural transcript
@@ -734,6 +740,7 @@ extension CompanionManager {
     }
 
     func stop() {
+        diagramOverlayController.dismiss()
         PaceScreenRecordingController.shared.shutdown()
         stopCompanionRuntime()
         appUsageTracker?.stop()

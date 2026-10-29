@@ -170,6 +170,7 @@ final class CompanionManager: ObservableObject {
     /// `clear_annotations` (tool or voice command), and on the 30 s
     /// timer. See PRD tuition-mode annotations.
     let annotationOverlayController = PaceAnnotationOverlayController()
+    let diagramOverlayController = PaceDiagramOverlayController()
 
     let buddyDictationManager = PacePushToTalkManager()
     /// Wave 2b — always-listening wake-word spotter (Apple Speech,

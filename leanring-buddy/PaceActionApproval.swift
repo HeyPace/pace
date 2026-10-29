@@ -165,7 +165,7 @@ nonisolated enum PaceActionApprovalPolicy {
             .screenCapture, .meeting, .codexSession,
              .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
-             .drawAnnotation, .clearAnnotations:
+             .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
             return false
         }
     }
@@ -197,7 +197,7 @@ nonisolated enum PaceActionApprovalPolicy {
             .openApplication, .openBrowser, .screenCapture, .meeting, .codexSession, .openURL, .controlMusic,
             .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
-             .drawAnnotation, .clearAnnotations:
+             .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
             return false
         }
     }
@@ -251,7 +251,7 @@ nonisolated enum PaceActionApprovalPolicy {
             .screenCapture, .meeting, .codexSession,
              .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
-             .clearAnnotations:
+             .dismissDiagram, .clearAnnotations:
             // clearAnnotations: pure overlay cleanup, no speech needed.
             return true
         case .openMessages(let messageRequest):
@@ -259,7 +259,7 @@ nonisolated enum PaceActionApprovalPolicy {
         case .createCalendarEvent, .createReminder, .createNote, .appendNote,
              .composeMail, .createThingsToDo, .runShortcut, .downloadFile,
              .recordFlow, .runFlow, .mcp,
-             .drawAnnotation:
+             .showDiagram, .drawAnnotation:
             // drawAnnotation: the spoken narration IS the teaching
             // value — the drawing alone isn't sufficient feedback. So
             // do NOT suppress initial spoken feedback for this action,

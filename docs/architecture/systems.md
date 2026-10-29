@@ -96,6 +96,25 @@ responsibilities live in [`../development/key-files.md`](../development/key-file
 
 **Cursor Overlay**: A full-screen transparent `NSPanel` hosts the blue cursor companion. It's non-activating, joins all Spaces, and never steals focus. Cursor flight, response text placement, and pointing animations render in this overlay via SwiftUI through `NSHostingView`; listening/thinking animation lives in the notch bar.
 
+**Interactive diagrams**: `PaceDiagramDocument` is a bounded typed 1000×600 scene
+of up to twelve nonoverlapping labelled parts and twenty-four connections. The
+`show_diagram` and `dismiss_diagram` read-only tools are available independently
+of `EnableActions`. Both the text-only and full planner paths drain these tools
+before the action executor. `PaceDiagramOverlayController` owns the persistent
+figure and selection; a complete replacement keeps selection only if its stable
+part ID survives. Its bounded document and selected part are included in later
+planner context because spoken conversation history does not retain tool payloads.
+A dismissal generation prevents an in-flight reply from reopening a closed figure.
+`PaceDiagramOverlayManager` renders connectors in a click-through panel and each
+interactive node, heading and detail card in separate nonactivating native panels.
+The desktop remains interactive between these islands. Clicking a part reveals
+local detail without a model call; the deliberate “Explain this” button enters
+`submitChatTranscriptFromDeepLink`, preserving the normal queue, consent, audit,
+cancellation and action policy. Presentation collapses the quick panel, and
+shutdown/dismissal closes every diagram panel. Screen-referential diagram requests
+use the existing screen-enabled planner path; self-contained subjects use the
+text-only path. No generated code, external resources or web renderer execute.
+
 **Global Push-To-Talk Shortcut**: Background push-to-talk uses a listen-only `CGEvent` tap instead of an AppKit global monitor so modifier-based shortcuts like `ctrl + option` are detected more reliably while the app is running in the background.
 
 **Transient Cursor Mode**: When "Show Pace" is off, pressing the hotkey fades in the cursor overlay for the duration of the interaction (recording → response → TTS → optional pointing), then fades it out automatically after 1 second of inactivity.

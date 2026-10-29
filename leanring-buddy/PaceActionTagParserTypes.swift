@@ -166,6 +166,8 @@ nonisolated enum PaceParsedAction {
     /// polygon) on the overlay. Drained out of the plan by
     /// `PaceAnnotationActionDrainer` before the executor runs, so it never
     /// reaches the action dispatch switch in `PaceActionExecutor`.
+    case showDiagram(PaceDiagramDocument)
+    case dismissDiagram
     case drawAnnotation(PaceAnnotationRequest)
     /// Tuition-mode: wipe all currently visible annotations. Same drain
     /// path as `drawAnnotation`.
@@ -210,6 +212,8 @@ nonisolated enum PaceParsedAction {
         case .recordFlow: return "record_flow"
         case .runFlow: return "run_flow"
         case .mcp: return "mcp_call"
+        case .showDiagram: return "show_diagram"
+        case .dismissDiagram: return "dismiss_diagram"
         case .drawAnnotation: return "draw_annotation"
         case .clearAnnotations: return "clear_annotations"
         }
@@ -376,6 +380,10 @@ nonisolated enum PaceParsedAction {
             return "Run recorded flow: \(flowRequest.name)"
         case .mcp(let mcpToolCall):
             return "Call MCP tool: \(mcpToolCall.approvalDescription)"
+        case .showDiagram(let document):
+            return "Show interactive diagram: \(document.title)"
+        case .dismissDiagram:
+            return "Close diagram"
         case .drawAnnotation(let annotationRequest):
             let shapeCount = annotationRequest.shapes.count
             let shapeNoun = shapeCount == 1 ? "shape" : "shapes"

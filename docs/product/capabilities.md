@@ -49,6 +49,19 @@ replayed from the Command Center without clearing permissions or data.
 it, point the cursor at / click a named element. Backed by the local VLM +
 OCR + AX tree (`PaceScreenContextService`).
 
+**Interactive visual explanations** — ask “explain attention with a diagram” to
+create a native 2D figure directly over the desktop. Click a part to read its
+local explanation; “Explain this” continues through the normal selected-planner
+conversation. Voice follow-ups can replace the figure while retaining stable
+part selection. The figure remains until closed, including across later turns.
+Escape, the close control, or “close the diagram” dismisses it. The spaces between
+parts stay clickable in the underlying app. This supports bounded diagrams of
+labelled shapes and connections, rather than arbitrary HTML, JavaScript or 3D.
+Self-contained questions do not capture the screen. Explanations of a page,
+image or code on screen require Read My Screen and use the existing screen path.
+Codex/cloud planning still requires the selected tier's consent and audit path;
+rendering, selection and saved conversation storage remain local.
+
 **Knowledge & chitchat** — pure-knowledge questions ("what is HTTP?") route to a
 fast text-only planner with no screen capture; chitchat gets a canned instant
 reply. Routing is `PaceIntentClassifier`.

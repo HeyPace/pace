@@ -365,7 +365,9 @@ nonisolated enum PaceActionTagParser {
         guard envelopeValidationIssues.isEmpty else {
             print("⚠️ Rejected invalid v10 planner response before execution: \(envelopeValidationIssues.joined(separator: "; "))")
             return PaceActionTagParseResult(
-                spokenText: strictStringValue(for: "spokenText", in: plannerResponseObject) ?? "",
+                spokenText: containsDiagramToolRequest(in: plannerResponseObject["payload"])
+                    ? "I couldn't draw that diagram because its structure wasn't valid. Please ask me to try again."
+                    : strictStringValue(for: "spokenText", in: plannerResponseObject) ?? "",
                 actions: [],
                 executionPlan: PaceActionExecutionPlan(steps: []),
                 firstClickVisualisationLocation: nil
@@ -400,6 +402,21 @@ nonisolated enum PaceActionTagParser {
             executionPlan: executionPlan,
             firstClickVisualisationLocation: firstClickVisualisationLocation(in: plannerActions)
         )
+    }
+
+    private static func containsDiagramToolRequest(in value: PaceMCPJSONValue?) -> Bool {
+        switch value {
+        case .object(let arguments):
+            if ["name", "tool"].contains(where: {
+                guard case .string(let name) = arguments[$0] else { return false }
+                return ["show.diagram", "diagram"].contains(normalizedParameterizedActionName(name))
+            }) { return true }
+            return arguments.values.contains { containsDiagramToolRequest(in: $0) }
+        case .array(let values):
+            return values.contains { containsDiagramToolRequest(in: $0) }
+        default:
+            return false
+        }
     }
 
     private static func validatePlannerResponseEnvelope(
@@ -754,6 +771,10 @@ nonisolated enum PaceActionTagParser {
             let path = firstStringValue(for: ["path", "url"], in: arguments)
             guard let path, !path.isEmpty else { return nil }
             return .finder(PaceFinderRequest(path: path, action: .open))
+        case "show.diagram", "diagram":
+            return PaceDiagramDocument.parse(arguments: arguments).map { .showDiagram($0) }
+        case "dismiss.diagram", "close.diagram", "hide.diagram":
+            return .dismissDiagram
         case "draw.annotation", "annotate", "draw":
             return parseDrawAnnotationRequest(from: arguments)
                 .map { .drawAnnotation($0) }
@@ -877,6 +898,12 @@ nonisolated enum PaceActionTagParser {
             if !hasNonEmptyString(for: ["path", "url"], in: arguments) {
                 issues.append("requires path")
             }
+        case "show.diagram", "diagram":
+            if PaceDiagramDocument.parse(arguments: arguments) == nil {
+                issues.append("requires a valid bounded diagram document with named parts and valid connections")
+            }
+        case "dismiss.diagram", "close.diagram", "hide.diagram":
+            break
         case "draw.annotation", "annotate", "draw":
             if parseDrawAnnotationRequest(from: arguments) == nil {
                 issues.append("requires at least one valid shape")
@@ -1366,6 +1393,10 @@ nonisolated enum PaceActionTagParser {
             return parseFlowToolCall(toolCall, action: .record)
         case .runFlow:
             return parseFlowToolCall(toolCall, action: .run)
+        case .showDiagram:
+            return PaceDiagramDocument.parse(arguments: mergeMCPArguments(from: toolCall)).map { .showDiagram($0) }
+        case .dismissDiagram:
+            return .dismissDiagram
         case .drawAnnotation:
             return parseDrawAnnotationRequest(from: mergeMCPArguments(from: toolCall))
                 .map { .drawAnnotation($0) }
@@ -1549,6 +1580,12 @@ nonisolated enum PaceActionTagParser {
             if !hasNonEmptyString(for: ["name", "title", "flow", "label"], in: mergedArguments) {
                 issues.append("requires flow name")
             }
+        case .showDiagram:
+            if PaceDiagramDocument.parse(arguments: mergedArguments) == nil {
+                issues.append("requires a valid bounded diagram document with named parts and valid connections")
+            }
+        case .dismissDiagram:
+            break
         case .drawAnnotation:
             if parseDrawAnnotationRequest(from: mergedArguments) == nil {
                 issues.append("requires at least one valid shape")

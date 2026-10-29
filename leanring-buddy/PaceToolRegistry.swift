@@ -64,6 +64,8 @@ nonisolated enum PaceLocalToolKind: String, CaseIterable {
     case startTimer
     case recordFlow
     case runFlow
+    case showDiagram
+    case dismissDiagram
     case drawAnnotation
     case clearAnnotations
 }
@@ -443,6 +445,28 @@ nonisolated enum PaceToolRegistry {
             exampleUtterance: "run my standup setup flow"
         ),
         PaceLocalToolDefinition(
+            kind: .showDiagram,
+            canonicalName: "show_diagram",
+            aliases: ["diagram"],
+            schemaExample: #"{"tool":"show_diagram","title":"How attention works","summary":"Select a part to explore how context changes meaning.","nodes":[{"id":"tokens","label":"Tokens","detail":"Each token begins as a learned vector.","x":70,"y":220,"width":220,"height":130,"role":"input"},{"id":"attention","label":"Attention","detail":"Queries compare with keys to weight values from other tokens.","x":600,"y":220,"width":260,"height":160,"role":"process"}],"connections":[{"source":"tokens","target":"attention","label":"context"}]}"#,
+            description: "generate or replace an interactive 2D explanation directly over the desktop. Required: title, summary, nodes, connections. Nodes have stable id, label, detail, x, y, width, height in a 1000x600 canvas (width 180–500, height 100–300); shape rectangle/ellipse/capsule, role input/process/output/concept, subtitle optional. No overlapping parts. One to twelve nodes, up to twenty-four connections (source/target IDs, optional label). Use meaningful detail for every clickable part. A figure stays visible across turns until dismiss_diagram. Updates replace the complete document and preserve unchanged IDs.",
+            riskLevel: .readOnly,
+            executionSummary: "Displays an interactive native diagram over the screen without changing other applications.",
+            observationSummary: "The user can select a part, read its explanation, and ask Pace about it.",
+            exampleUtterance: "explain how attention works with an interactive diagram"
+        ),
+        PaceLocalToolDefinition(
+            kind: .dismissDiagram,
+            canonicalName: "dismiss_diagram",
+            aliases: ["close_diagram", "hide_diagram"],
+            schemaExample: #"{"tool":"dismiss_diagram"}"#,
+            description: "close the current interactive diagram and all of its controls.",
+            riskLevel: .readOnly,
+            executionSummary: "Closes the native diagram overlay.",
+            observationSummary: "No observation.",
+            exampleUtterance: "close the diagram"
+        ),
+        PaceLocalToolDefinition(
             kind: .drawAnnotation,
             canonicalName: "draw_annotation",
             aliases: ["annotate", "draw"],
@@ -662,6 +686,10 @@ nonisolated enum PaceToolRegistry {
             return definition(forToolName: "run_flow")
         case .mcp:
             return nil
+        case .showDiagram:
+            return definition(forToolName: "show_diagram")
+        case .dismissDiagram:
+            return definition(forToolName: "dismiss_diagram")
         case .drawAnnotation:
             return definition(forToolName: "draw_annotation")
         case .clearAnnotations:
