@@ -598,8 +598,8 @@ private struct PaceMenuBarOverlayView: View {
 
     private var livingNotchHeader: some View {
         HStack(spacing: 0) {
-            Text(livingNotchPrimaryLabel == "Pace" ? "Pace" : livingNotchPrimaryLabel.lowercased())
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+            Text(livingNotchPrimaryLabel == "Pace" ? "pace" : livingNotchPrimaryLabel.lowercased())
+                .font(DS.Typography.captionStrong)
                 .foregroundStyle(Color.white.opacity(0.9))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -671,7 +671,7 @@ private struct PaceMenuBarOverlayView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(Color.white.opacity(0.72))
                 .frame(width: 24, height: 24)
-                .background(Circle().fill(Color.white.opacity(0.08)))
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.035)))
         }
         .buttonStyle(.plain)
         .paceControlHoverHighlight(cornerRadius: 12)
@@ -710,7 +710,8 @@ private struct PaceMenuBarOverlayView: View {
             if companionControlCenter.preferences.isCompanionModeEnabled {
                 return "Pace — \(companionControlCenter.runtimeStatusText)"
             }
-            return companionManager.isLMStudioReachable ? "Pace" : "Local offline"
+            return companionManager.activePlannerTierIsOffDevice || companionManager.isLMStudioReachable
+                ? "Pace" : "Local offline"
         case .listening:
             return "Listening"
         case .processing:
