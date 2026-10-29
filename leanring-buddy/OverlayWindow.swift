@@ -229,6 +229,23 @@ struct BlueCursorView: View {
             )
             .allowsHitTesting(false)
 
+            // The decorative buddy can land beside the control; this static,
+            // click-through mark identifies the exact requested point.
+            if companionManager.areCursorAnnotationsEnabled,
+                buddyNavigationMode == .pointingAtTarget,
+                let target = exactTargetInOverlay
+            {
+                ZStack {
+                    Circle().stroke(DS.Colors.overlayCursorBlue, lineWidth: 1)
+                        .frame(width: 14, height: 14)
+                    Circle().fill(DS.Colors.overlayCursorBlue)
+                        .frame(width: 3, height: 3)
+                }
+                .position(target)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+
             // Welcome speech bubble (first launch only)
             if companionManager.areCursorAnnotationsEnabled
                 && isCursorOnThisScreen
@@ -424,6 +441,7 @@ struct BlueCursorView: View {
             screenFrame.contains(CGPoint(x: displayFrame.midX, y: displayFrame.midY))
                 || displayFrame == screenFrame
         else {
+            resetNavigationPresentation()
             return
         }
         startNavigatingToElement(screenLocation: screenLocation)
@@ -527,9 +545,15 @@ struct BlueCursorView: View {
     /// Converts a macOS screen point (AppKit, bottom-left origin) to SwiftUI
     /// coordinates (top-left origin) relative to this screen's overlay window.
     private func convertScreenPointToSwiftUICoordinates(_ screenPoint: CGPoint) -> CGPoint {
-        let x = screenPoint.x - screenFrame.origin.x
-        let y = (screenFrame.origin.y + screenFrame.height) - screenPoint.y
-        return CGPoint(x: x, y: y)
+        PaceAnnotationCoordinateMapper.convertAppKitGlobalToOverlayLocal(screenPoint, screenFrame: screenFrame)
+    }
+
+    private var exactTargetInOverlay: CGPoint? {
+        guard let target = companionManager.detectedElementScreenLocation,
+            let displayFrame = companionManager.detectedElementDisplayFrame,
+            displayFrame == screenFrame || screenFrame.contains(CGPoint(x: displayFrame.midX, y: displayFrame.midY))
+        else { return nil }
+        return convertScreenPointToSwiftUICoordinates(target)
     }
 
     // MARK: - Element Navigation
@@ -770,6 +794,11 @@ struct BlueCursorView: View {
 
     /// Returns the buddy to normal cursor-following mode after navigation completes.
     private func finishNavigationAndResumeFollowing() {
+        resetNavigationPresentation()
+        companionManager.clearDetectedElementLocation()
+    }
+
+    private func resetNavigationPresentation() {
         navigationAnimationTimer?.invalidate()
         navigationAnimationTimer = nil
         buddyNavigationMode = .followingCursor
@@ -779,7 +808,6 @@ struct BlueCursorView: View {
         navigationBubbleText = ""
         navigationBubbleOpacity = 0.0
         navigationBubbleScale = 1.0
-        companionManager.clearDetectedElementLocation()
     }
 
     // MARK: - Welcome Animation

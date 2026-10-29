@@ -16,11 +16,87 @@
 //
 
 import Testing
+import Foundation
 import CoreGraphics
 @testable import Pace
 
 @MainActor
 struct PaceScreenContextScalerTests {
+
+    @Test func readerBoundaryScalesUnmodifiedAXPointsAcrossMixedDensityDisplays() throws {
+        let fixtures: [(primaryHeight: CGFloat, frame: CGRect, pixels: CGSize, axFrame: CGRect, expected: [Int])] = [
+            (
+                982, CGRect(x: 0, y: 0, width: 1512, height: 982), CGSize(width: 3024, height: 1964),
+                CGRect(x: 600, y: 200, width: 80, height: 24), [1200, 400, 160, 48]
+            ),
+            (
+                982, CGRect(x: 0, y: 0, width: 1512, height: 982), CGSize(width: 1280, height: 831),
+                CGRect(x: 600, y: 200, width: 80, height: 24), [507, 169, 67, 20]
+            ),
+            // A 1x display right of the 2x primary, top edges aligned.
+            (
+                982, CGRect(x: 1512, y: -98, width: 1920, height: 1080), CGSize(width: 1280, height: 720),
+                CGRect(x: 1600, y: 200, width: 80, height: 24), [58, 133, 53, 16]
+            ),
+            // Inverse density: a 2x display right of a 1x primary.
+            (
+                1080, CGRect(x: 1920, y: 98, width: 1512, height: 982), CGSize(width: 3024, height: 1964),
+                CGRect(x: 2000, y: 200, width: 80, height: 24), [160, 400, 160, 48]
+            ),
+            (
+                982, CGRect(x: 0, y: 982, width: 1920, height: 1080), CGSize(width: 1280, height: 720),
+                CGRect(x: 100, y: -880, width: 80, height: 24), [66, 133, 53, 16]
+            ),
+            (
+                982, CGRect(x: -1920, y: -98, width: 1920, height: 1080), CGSize(width: 1280, height: 720),
+                CGRect(x: -1800, y: 200, width: 80, height: 24), [80, 133, 53, 16]
+            ),
+        ]
+        for fixture in fixtures {
+            let rawElement = LocalVLMScreenElement(
+                label: "Target", role: "button",
+                bbox: PaceAXScreenReader.axPointBoundingBox(for: fixture.axFrame), text: nil)
+            let outsideElement = LocalVLMScreenElement(
+                label: "Other display", role: "button", bbox: [-9000, -9000, 80, 24], text: nil)
+            let reader = PaceAXScreenReader(
+                readAXPointElements: { [rawElement, outsideElement] }, primaryScreenHeight: { fixture.primaryHeight })
+            let capture = CompanionScreenCapture(
+                imageData: Data(), label: "Fixture", isCursorScreen: true,
+                displayWidthInPoints: Int(fixture.frame.width), displayHeightInPoints: Int(fixture.frame.height),
+                displayFrame: fixture.frame, screenshotWidthInPixels: Int(fixture.pixels.width),
+                screenshotHeightInPixels: Int(fixture.pixels.height))
+            #expect(
+                reader.readFocusedWindow().first?.bbox == [
+                    Int(fixture.axFrame.minX), Int(fixture.axFrame.minY), 80, 24,
+                ])
+            let elements = reader.readFocusedWindow(scalingToScreenshot: capture)
+            #expect(elements.count == 1)
+            let boundingBox = try #require(elements.first?.bbox)
+            #expect(boundingBox == fixture.expected)
+            let screenshotCenter = CGPoint(
+                x: CGFloat(boundingBox[0]) + CGFloat(boundingBox[2]) / 2,
+                y: CGFloat(boundingBox[1]) + CGFloat(boundingBox[3]) / 2)
+            let globalCenter = PaceAnnotationCoordinateMapper.convertScreenshotPixelToAppKitGlobal(
+                screenshotPixelPoint: screenshotCenter, on: capture)
+            #expect(abs(globalCenter.x - fixture.axFrame.midX) < 2)
+            #expect(abs(globalCenter.y - (fixture.primaryHeight - fixture.axFrame.midY)) < 2)
+            let overlayCenter = PaceAnnotationCoordinateMapper.convertAppKitGlobalToOverlayLocal(
+                globalCenter, screenFrame: fixture.frame)
+            #expect(abs(overlayCenter.x - (fixture.axFrame.midX - fixture.frame.minX)) < 2)
+            let axScreenOriginY = fixture.primaryHeight - fixture.frame.maxY
+            #expect(abs(overlayCenter.y - (fixture.axFrame.midY - axScreenOriginY)) < 2)
+        }
+    }
+
+    @Test func exactReticleCoordinatesRemainUnclampedAtDisplayEdges() {
+        let frame = CGRect(x: -1920, y: 982, width: 1920, height: 1080)
+        #expect(
+            PaceAnnotationCoordinateMapper.convertAppKitGlobalToOverlayLocal(
+                CGPoint(x: -1919, y: 2061), screenFrame: frame) == CGPoint(x: 1, y: 1))
+        #expect(
+            PaceAnnotationCoordinateMapper.convertAppKitGlobalToOverlayLocal(CGPoint(x: -1, y: 983), screenFrame: frame)
+                == CGPoint(x: 1919, y: 1079))
+    }
 
     // MARK: - The bug reproduction
 
