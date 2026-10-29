@@ -49,6 +49,18 @@ enum PaceLMStudioModelLoader {
     /// model on single-model runtimes.
     /// After warmup finishes, starts the periodic keepalive heartbeat.
     static func warmUpConfiguredModelsAsync() {
+        let selectedTier = PacePlannerTierStore.loadConfiguration().tier
+        let needsPlanner = shouldKeepPlannerWarm(
+            selectedTier: selectedTier, usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessPlanner())
+        let needsVLM = shouldKeepVLMWarm(
+            selectedTier: selectedTier,
+            screenContextEnabled: PaceUserPreferencesStore.boolWithInfoPlistSeed(
+                .useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext"),
+            usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessVLM())
+        guard needsPlanner || needsVLM else {
+            Task { @MainActor in stopKeepaliveLoop() }
+            return
+        }
         Task.detached(priority: .userInitiated) {
             await warmUpConfiguredModels()
             await startKeepaliveLoopIfNotRunning()
