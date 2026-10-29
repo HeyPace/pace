@@ -28,9 +28,14 @@ final class PaceDiagramOverlayController: ObservableObject {
         guard document.validationIssue == nil,
             expectedDismissalGeneration.map({ $0 == dismissalGeneration }) ?? true
         else { return false }
+        let previousFocusNodeID = self.document?.figure?.focusNodeID
         self.document = document
-        if !document.nodes.contains(where: { $0.id == selectedNodeID }) {
-            selectedNodeID = nil
+        if let focusNodeID = document.figure?.focusNodeID,
+            focusNodeID != previousFocusNodeID || selectedNodeID == nil
+        {
+            selectedNodeID = focusNodeID
+        } else if !document.nodes.contains(where: { $0.id == selectedNodeID }) {
+            selectedNodeID = document.figure?.focusNodeID
         }
         revision += 1
         onDidPresent?()

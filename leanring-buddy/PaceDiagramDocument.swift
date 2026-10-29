@@ -20,6 +20,60 @@ nonisolated struct PaceDiagramConnection: Codable, Equatable, Sendable {
     let source: String
     let target: String
     let label: String?
+
+    private enum CodingKeys: String, CodingKey { case source, target, label, from, to }
+    init(source: String, target: String, label: String?) {
+        self.source = source
+        self.target = target
+        self.label = label
+    }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        func endpoint(_ canonical: CodingKeys, alias: CodingKeys) throws -> String {
+            let primary = try values.decodeIfPresent(String.self, forKey: canonical)
+            let alternative = try values.decodeIfPresent(String.self, forKey: alias)
+            if let primary, let alternative, primary != alternative {
+                throw DecodingError.dataCorruptedError(
+                    forKey: canonical, in: values, debugDescription: "Conflicting connection endpoints")
+            }
+            guard let endpoint = primary ?? alternative else {
+                throw DecodingError.keyNotFound(
+                    canonical, .init(codingPath: decoder.codingPath, debugDescription: "Missing connection endpoint"))
+            }
+            return endpoint
+        }
+        self.init(
+            source: try endpoint(.source, alias: .from), target: try endpoint(.target, alias: .to),
+            label: try values.decodeIfPresent(String.self, forKey: .label))
+    }
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(source, forKey: .source)
+        try values.encode(target, forKey: .target)
+        try values.encodeIfPresent(label, forKey: .label)
+    }
+}
+
+extension PaceDiagramNode {
+    private enum CodingKeys: String, CodingKey {
+        case id, label, detail, x, y, width, height, shape, role, subtitle
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try values.decode(String.self, forKey: .id),
+            label: try values.decode(String.self, forKey: .label),
+            detail: try values.decode(String.self, forKey: .detail),
+            x: try values.decodeIfPresent(Double.self, forKey: .x) ?? 0,
+            y: try values.decodeIfPresent(Double.self, forKey: .y) ?? 0,
+            width: try values.decodeIfPresent(Double.self, forKey: .width) ?? 220,
+            height: try values.decodeIfPresent(Double.self, forKey: .height) ?? 130,
+            shape: try values.decodeIfPresent(Shape.self, forKey: .shape),
+            role: try values.decodeIfPresent(Role.self, forKey: .role),
+            subtitle: try values.decodeIfPresent(String.self, forKey: .subtitle)
+        )
+    }
 }
 
 nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
@@ -27,6 +81,7 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
     let summary: String
     let nodes: [PaceDiagramNode]
     let connections: [PaceDiagramConnection]
+    var figure: PaceFigureScene? = nil
 
     static let maximumNodeCount = 12
     static let maximumConnectionCount = 24
@@ -58,6 +113,14 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
             else {
                 return "requires bounded labels and a useful explanation for every part"
             }
+        }
+        if let figure {
+            guard connections.isEmpty else {
+                return "uses solid geometry rather than flowchart connections for a 3D figure"
+            }
+            return figure.validationIssue(nodeIDs: Set(identifiers))
+        }
+        for node in nodes {
             guard [node.x, node.y, node.width, node.height].allSatisfy(\.isFinite),
                 node.x >= 0, node.y >= 0, node.width >= 180, node.height >= 100,
                 node.width <= 500, node.height <= 300,
@@ -98,7 +161,7 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
             diagramArguments = arguments
         }
         guard let encodedArguments = try? JSONEncoder().encode(diagramArguments),
-            encodedArguments.count <= 40_000,
+            encodedArguments.count <= 64_000,
             let document = try? JSONDecoder().decode(Self.self, from: encodedArguments),
             document.validationIssue == nil
         else { return nil }
@@ -115,6 +178,7 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
             #"^(?:please\s+)?(?:explain|teach|help me understand)\s+.+\s+(?:with|using|as)\s+(?:an?\s+)?(?:interactive\s+)?(?:diagram|flowchart|concept map|mind map)[.!?]*$"#,
             #"^(?:please\s+)?(?:draw|show|generate)\s+(?:me\s+)?(?:an?\s+)?(?:interactive\s+)?(?:diagram|flowchart|concept map|mind map)\s+(?:of|about|showing|explaining)\s+.+[.!?]*$"#,
             #"^(?:please\s+)?(?:explain|walk me through|draw|visualize|visualise)\s+(?:this|that)\s+(?:diagram|figure)[.!?]*$"#,
+            #"^(?:please\s+)?(?:show|draw|create|generate|make|visualize|visualise)\s+(?:me\s+)?(?:an?\s+)?(?:detailed\s+)?(?:interactive|rotatable|3d|three-dimensional|cutaway)\s+.+[.!?]*$"#,
         ]
         if explicitLearningForms.contains(where: { normalized.range(of: $0, options: .regularExpression) != nil }) {
             return true

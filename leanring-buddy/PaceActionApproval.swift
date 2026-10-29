@@ -165,7 +165,7 @@ nonisolated enum PaceActionApprovalPolicy {
             .screenCapture, .meeting, .codexSession,
              .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
-            .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
+            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
             return false
         }
     }
@@ -197,7 +197,7 @@ nonisolated enum PaceActionApprovalPolicy {
             .openApplication, .openBrowser, .screenCapture, .meeting, .codexSession, .openURL, .controlMusic,
             .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
-            .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
+            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
             return false
         }
     }
@@ -259,7 +259,7 @@ nonisolated enum PaceActionApprovalPolicy {
         case .createCalendarEvent, .createReminder, .createNote, .appendNote,
              .composeMail, .createThingsToDo, .runShortcut, .downloadFile,
              .recordFlow, .runFlow, .mcp,
-            .showDiagram, .drawAnnotation:
+            .generateImage, .showDiagram, .drawAnnotation:
             // drawAnnotation: the spoken narration IS the teaching
             // value — the drawing alone isn't sufficient feedback. So
             // do NOT suppress initial spoken feedback for this action,

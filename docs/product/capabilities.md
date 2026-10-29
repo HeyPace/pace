@@ -49,20 +49,40 @@ replayed from the Command Center without clearing permissions or data.
 it, point the cursor at / click a named element. Backed by the local VLM +
 OCR + AX tree (`PaceScreenContextService`).
 
-**Interactive visual explanations** — ask “explain attention with a diagram” to
-create a native 2D figure directly over the desktop. Click a part to read its
+**Interactive visual explanations** — ask “show a rotatable 3D airplane and
+explain its parts” for a detailed native conceptual aircraft directly over the
+desktop. Drag to orbit, zoom, select physical surfaces and move its flight
+controls. Other objects can be authored by the planner using bounded solid and
+triangle-mesh geometry. Explicit flowchart requests retain the 2D node-and-connection
+renderer. Click a part to read its
 local explanation; “Explain this” continues through the normal selected-planner
 conversation. Voice follow-ups can replace the figure while retaining stable
 part selection. The figure remains across later turns. Closing it, resetting the conversation,
 changing planners or turning off Read My Screen clears its context.
 Escape while hovering the diagram, the close control, or “close the diagram”
-dismisses it. The spaces between
-parts stay clickable in the underlying app. This supports bounded diagrams of
-labelled shapes and connections, rather than arbitrary HTML, JavaScript or 3D.
+dismisses it. Flowchart gaps stay clickable in the underlying app; the transparent
+3D object's bounded interaction area receives its orbit and selection gestures.
+Geometry is typed data, with native rendering rather than model-authored executable
+code or remote assets. The aircraft demonstrates control movement; it is not a
+flight simulation or a certified aircraft model.
 Self-contained questions do not capture the screen. Explanations of a page,
 image or code on screen require Read My Screen and use the existing screen path.
 Codex/cloud planning still requires the selected tier's consent and audit path;
 rendering, selection and saved conversation storage remain local.
+
+**Image generation** — with Codex selected and its existing off-device consent
+accepted, ask “generate an image of a blue mug.” Pace uses the authenticated
+installed Codex CLI's native image tool and shows progress and the finished image
+directly over the desktop. Zoom in, zoom out, save through the native Save dialog,
+or close to cancel. A follow-up such as “make the image yellow” edits only the
+active Pace-generated image. Failed follow-ups keep the previous image visible.
+Creating an image replaces the active interactive diagram; showing a diagram
+closes the image. Images are raster artwork and cannot rotate like a 3D figure.
+Self-contained requests and active-image follow-ups do not capture the screen.
+Using a page or other screen content requires Read My Screen. Generation is
+explicitly off-device (amber indicator and local audit); image files and saved
+conversation remain local. Changing planner, revoking consent, resetting the
+thread or closing the image clears its active context.
 
 **Knowledge & chitchat** — pure-knowledge questions ("what is HTTP?") route to a
 fast text-only planner with no screen capture; chitchat gets a canned instant

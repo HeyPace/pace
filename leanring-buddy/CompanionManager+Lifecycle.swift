@@ -211,8 +211,21 @@ extension CompanionManager {
     }
 
     func start() {
-        diagramOverlayController.onDidPresent = {
+        diagramOverlayController.onDidPresent = { [weak self] in
+            self?.imageOverlayController.dismiss()
             NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+        }
+        imageOverlayController.authorizationCheck = { [weak self] in
+            guard let self else { return false }
+            return self.canGenerateImagesWithCodex
+        }
+        imageOverlayController.onWillGenerate = { [weak self] in
+            self?.diagramOverlayController.dismiss()
+            NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+        }
+        imageOverlayController.onGenerationProgress = { [weak self] message in
+            self?.currentTurnHUDState = .acting(message)
+            self?.responseOverlayManager.updateStreamingText(message)
         }
         diagramOverlayController.onAskAboutPart = { [weak self] transcript in
             self?.submitChatTranscriptFromDeepLink(transcript)
@@ -740,6 +753,7 @@ extension CompanionManager {
     }
 
     func stop() {
+        imageOverlayController.dismiss()
         diagramOverlayController.dismiss()
         PaceScreenRecordingController.shared.shutdown()
         stopCompanionRuntime()

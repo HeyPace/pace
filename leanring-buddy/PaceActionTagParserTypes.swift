@@ -166,6 +166,7 @@ nonisolated enum PaceParsedAction {
     /// polygon) on the overlay. Drained out of the plan by
     /// `PaceAnnotationActionDrainer` before the executor runs, so it never
     /// reaches the action dispatch switch in `PaceActionExecutor`.
+    case generateImage(PaceImageGenerationRequest)
     case showDiagram(PaceDiagramDocument)
     case dismissDiagram
     case drawAnnotation(PaceAnnotationRequest)
@@ -212,6 +213,7 @@ nonisolated enum PaceParsedAction {
         case .recordFlow: return "record_flow"
         case .runFlow: return "run_flow"
         case .mcp: return "mcp_call"
+        case .generateImage: return "generate_image"
         case .showDiagram: return "show_diagram"
         case .dismissDiagram: return "dismiss_diagram"
         case .drawAnnotation: return "draw_annotation"
@@ -380,6 +382,8 @@ nonisolated enum PaceParsedAction {
             return "Run recorded flow: \(flowRequest.name)"
         case .mcp(let mcpToolCall):
             return "Call MCP tool: \(mcpToolCall.approvalDescription)"
+        case .generateImage(let request):
+            return "Generate image with Codex: \(request.title)"
         case .showDiagram(let document):
             return "Show interactive diagram: \(document.title)"
         case .dismissDiagram:

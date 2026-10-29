@@ -25,6 +25,7 @@ import SwiftUI
 struct PacePanelChatView: View {
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject private var chatSession: PaceChatSession
+    @ObservedObject private var imageOverlayController: PaceImageOverlayController
     @ObservedObject private var diagramOverlayController: PaceDiagramOverlayController
     let isEmbeddedInLivingNotch: Bool
 
@@ -37,6 +38,7 @@ struct PacePanelChatView: View {
     ) {
         self.companionManager = companionManager
         self._chatSession = ObservedObject(wrappedValue: companionManager.chatSession)
+        self._imageOverlayController = ObservedObject(wrappedValue: companionManager.imageOverlayController)
         self._diagramOverlayController = ObservedObject(wrappedValue: companionManager.diagramOverlayController)
         self.isEmbeddedInLivingNotch = isEmbeddedInLivingNotch
     }
@@ -221,6 +223,18 @@ struct PacePanelChatView: View {
                                 toolChipRow(actionRecord).id(item.id)
                             }
                         }
+                    }
+                    if let imageStatus = imageOverlayController.statusText {
+                        Button {
+                            imageOverlayController.show()
+                        } label: {
+                            Label(imageStatus, systemImage: "photo")
+                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                                .background(.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+                        }.buttonStyle(.plain).onHover { hovering in
+                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                        }.accessibilityLabel("Show generated image: \(imageStatus)")
                     }
                     if let document = diagramOverlayController.document {
                         activeDiagramCard(document)

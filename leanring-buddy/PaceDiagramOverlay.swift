@@ -7,6 +7,7 @@ final class PaceDiagramOverlayManager {
     private var drawingPanel: PaceDiagramIslandPanel?
     private var headerPanel: PaceDiagramIslandPanel?
     private var detailPanel: PaceDiagramIslandPanel?
+    private var figurePanel: PaceDiagramIslandPanel?
     private var nodePanels: [String: PaceDiagramIslandPanel] = [:]
     private var displayIdentifier: NSNumber?
     private var screenObserver: NSObjectProtocol?
@@ -43,11 +44,28 @@ final class PaceDiagramOverlayManager {
             width: stageWidth, height: stageHeight
         )
 
-        let drawingPanel = self.drawingPanel ?? PaceDiagramIslandPanel(ignoresMouseEvents: true)
-        drawingPanel.contentView = NSHostingView(rootView: PaceDiagramConnectionsView(controller: controller))
-        drawingPanel.setFrame(stageFrame, display: true)
-        drawingPanel.orderFrontRegardless()
-        self.drawingPanel = drawingPanel
+        if document.figure != nil {
+            drawingPanel?.orderOut(nil)
+            for panel in nodePanels.values { panel.orderOut(nil) }
+            let panel = figurePanel ?? PaceDiagramIslandPanel()
+            panel.setAccessibilityLabel("Pace interactive 3D figure")
+            if figurePanel == nil {
+                panel.contentView = NSHostingView(rootView: PaceFigureView(controller: controller))
+            }
+            panel.setFrame(stageFrame, display: true)
+            panel.orderFrontRegardless()
+            figurePanel = panel
+        } else {
+            figurePanel?.orderOut(nil)
+            figurePanel?.contentView = nil
+            figurePanel?.close()
+            figurePanel = nil
+            let drawingPanel = self.drawingPanel ?? PaceDiagramIslandPanel(ignoresMouseEvents: true)
+            drawingPanel.contentView = NSHostingView(rootView: PaceDiagramConnectionsView(controller: controller))
+            drawingPanel.setFrame(stageFrame, display: true)
+            drawingPanel.orderFrontRegardless()
+            self.drawingPanel = drawingPanel
+        }
 
         let headerWidth = min(stageWidth, 860)
         let headerFrame = CGRect(
@@ -65,7 +83,7 @@ final class PaceDiagramOverlayManager {
             panel.orderOut(nil)
             nodePanels.removeValue(forKey: identifier)
         }
-        for node in document.nodes {
+        for node in document.nodes where document.figure == nil {
             let nodeFrame = CGRect(
                 x: stageFrame.minX + node.x / PaceDiagramDocument.canvasWidth * stageFrame.width,
                 y: stageFrame.maxY - (node.y + node.height) / PaceDiagramDocument.canvasHeight * stageFrame.height,
@@ -100,7 +118,7 @@ final class PaceDiagramOverlayManager {
     }
 
     func hide() {
-        let panels = Array(nodePanels.values) + [drawingPanel, headerPanel, detailPanel].compactMap { $0 }
+        let panels = Array(nodePanels.values) + [drawingPanel, headerPanel, detailPanel, figurePanel].compactMap { $0 }
         for panel in panels {
             panel.orderOut(nil)
             panel.contentView = nil
@@ -110,6 +128,7 @@ final class PaceDiagramOverlayManager {
         drawingPanel = nil
         headerPanel = nil
         detailPanel = nil
+        figurePanel = nil
         if let localKeyMonitor { NSEvent.removeMonitor(localKeyMonitor) }
         if let globalKeyMonitor { NSEvent.removeMonitor(globalKeyMonitor) }
         localKeyMonitor = nil
@@ -141,7 +160,9 @@ final class PaceDiagramOverlayManager {
     }
 
     private func dismissForEscapeIfPointerIsOverDiagram() {
-        let frames = nodePanels.values.map(\.frame) + [headerPanel?.frame, detailPanel?.frame].compactMap { $0 }
+        let frames =
+            nodePanels.values.filter(\.isVisible).map(\.frame)
+            + [headerPanel?.frame, detailPanel?.frame, figurePanel?.frame].compactMap { $0 }
         guard Self.shouldDismissForEscape(pointerLocation: NSEvent.mouseLocation, diagramFrames: frames) else { return }
         controller?.dismiss()
     }
@@ -331,7 +352,7 @@ private struct PaceDiagramHeaderView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Image(systemName: "point.3.connected.trianglepath.dotted")
+                Image(systemName: controller.document?.figure == nil ? "point.3.connected.trianglepath.dotted" : "cube")
                     .foregroundStyle(Color(hex: "#A6C5F0"))
                 Text("pace is explaining").font(DS.Typography.callout)
                 Spacer()
@@ -392,9 +413,13 @@ private struct PaceDiagramDetailView: View {
                 }
             } else {
                 Text(summary).font(DS.Typography.callout).lineLimit(2)
-                Text("Select a part. Hover here and press Escape to close.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(DS.Colors.textSecondary)
+                Text(
+                    controller.document?.figure == nil
+                        ? "Select a part. Hover here and press Escape to close."
+                        : "Drag to orbit. Click a physical part to explore it. Escape closes the figure."
+                )
+                .font(.system(size: 10))
+                .foregroundStyle(DS.Colors.textSecondary)
             }
         }
         .padding(18)

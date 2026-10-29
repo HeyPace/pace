@@ -64,6 +64,7 @@ nonisolated enum PaceLocalToolKind: String, CaseIterable {
     case startTimer
     case recordFlow
     case runFlow
+    case generateImage
     case showDiagram
     case dismissDiagram
     case drawAnnotation
@@ -445,18 +446,31 @@ nonisolated enum PaceToolRegistry {
             exampleUtterance: "run my standup setup flow"
         ),
         PaceLocalToolDefinition(
+            kind: .generateImage,
+            canonicalName: "generate_image",
+            aliases: [],
+            schemaExample:
+                #"{"tool":"generate_image","prompt":"A blue ceramic mug on a white background","title":"Blue mug","edit":false}"#,
+            description:
+                "Generate one raster image with the selected, consented Codex CLI and show it in Pace. Required prompt (up to8000 characters) and title (up to100). Use edit:true only for a requested change to the active Pace-generated image; Pace attaches that image alone. Never reference local files or ambient screens. Raster images support zoom and save, not rotation. Only use when the user explicitly requests image creation or editing.",
+            riskLevel: .readOnly,
+            executionSummary: "Generates an image off-device with Codex and opens the native Pace image overlay.",
+            observationSummary: "Reports the generated image or an honest failure.",
+            exampleUtterance: "generate an image of a blue mug"
+        ),
+        PaceLocalToolDefinition(
             kind: .showDiagram,
             canonicalName: "show_diagram",
             aliases: ["diagram"],
             schemaExample:
-                #"{"tool":"show_diagram","title":"How attention works","summary":"Select a part to explore how context changes meaning.","nodes":[{"id":"tokens","label":"Tokens","detail":"Each token begins as a learned vector.","x":70,"y":220,"width":220,"height":130,"role":"input"},{"id":"attention","label":"Attention","detail":"Queries compare with keys to weight values from other tokens.","x":600,"y":220,"width":260,"height":160,"role":"process"}],"connections":[{"source":"tokens","target":"attention","label":"context"}]}"#,
+                #"{"tool":"show_diagram","title":"How an airplane flies","summary":"Drag to orbit the conceptual aircraft. Select a physical part to explore it; the control slider illustrates surface movement.","nodes":[{"id":"fuselage","label":"Fuselage","detail":"The central body carries people, cargo and structural loads, joining the wings and tail."},{"id":"cockpit","label":"Flight deck","detail":"The flight deck contains controls and instruments. Pilot inputs command the aircraft control surfaces and engines."},{"id":"wings","label":"Wings","detail":"The wings produce aerodynamic lift. Their shape and angle guide the surrounding airflow; the resulting pressure distribution supports the aircraft."},{"id":"engines","label":"Engines","detail":"The engines produce forward thrust. The two underwing nacelles surround the fan and engine machinery."},{"id":"ailerons","label":"Ailerons","detail":"The outboard trailing-edge surfaces deflect in opposite directions to control roll. Select them and move the control slider."},{"id":"elevators","label":"Elevators","detail":"The horizontal-tail control surfaces change pitching moment to control nose-up and nose-down motion. Slider movement is illustrative."},{"id":"rudder","label":"Rudder","detail":"The movable trailing edge of the vertical tail controls yaw and helps coordinate turns."},{"id":"flaps","label":"Flaps","detail":"The inboard trailing-edge surfaces increase wing camber for lower-speed flight, while also increasing drag. The slider illustrates their hinged movement."}],"connections":[],"figure":{"template":"airplane","focusNodeID":"wings"}}"#,
             description:
-                "generate or replace an interactive 2D explanation directly over the desktop. Required: title, summary, nodes, connections. Nodes have stable id, label, detail, x, y, width, height in a 1000x600 canvas (width 180–500, height 100–300); shape rectangle/ellipse/capsule, role input/process/output/concept, subtitle optional. No overlapping parts. One to twelve nodes, up to twenty-four connections (source/target IDs, optional label). Use meaningful detail for every clickable part. A figure stays visible across turns until dismiss_diagram. Updates replace the complete document and preserve unchanged IDs.",
+                "generate or replace a detailed interactive figure directly over the desktop. Required: title, summary, nodes, connections. Prefer a 3D figure for physical objects: optional figure contains template airplane, or bounded solid parts (see interactive figure rules). For 3D, nodes need stable id,label,detail and connections must be empty; bounds are optional. For 2D flowcharts, nodes use x,y,width,height in a1000x600 canvas (width180–500,height100–300); shape rectangle/ellipse/capsule, role input/process/output/concept, subtitle optional. No overlapping 2D nodes. One to twelve explanation nodes, up to twenty-four 2D connections, each with source,target stable node IDs and optional label. Use meaningful detail for every clickable physical part. Figures stay visible across turns until dismiss_diagram. Updates replace the complete document and preserve unchanged IDs.",
             riskLevel: .readOnly,
             executionSummary:
                 "Displays an interactive native diagram over the screen without changing other applications.",
             observationSummary: "The user can select a part, read its explanation, and ask Pace about it.",
-            exampleUtterance: "explain how attention works with an interactive diagram"
+            exampleUtterance: "show me a rotatable 3D airplane and explain its parts"
         ),
         PaceLocalToolDefinition(
             kind: .dismissDiagram,
@@ -689,6 +703,8 @@ nonisolated enum PaceToolRegistry {
             return definition(forToolName: "run_flow")
         case .mcp:
             return nil
+        case .generateImage:
+            return definition(forToolName: "generate_image")
         case .showDiagram:
             return definition(forToolName: "show_diagram")
         case .dismissDiagram:

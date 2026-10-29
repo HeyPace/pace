@@ -171,6 +171,7 @@ final class CompanionManager: ObservableObject {
     /// timer. See PRD tuition-mode annotations.
     let annotationOverlayController = PaceAnnotationOverlayController()
     let diagramOverlayController = PaceDiagramOverlayController()
+    let imageOverlayController = PaceImageOverlayController()
 
     let buddyDictationManager = PacePushToTalkManager()
     /// Wave 2b — always-listening wake-word spotter (Apple Speech,
@@ -499,7 +500,10 @@ final class CompanionManager: ObservableObject {
         .boolWithInfoPlistSeed(.useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext")
     {
         didSet {
-            if oldValue && !useLocalVLMForScreenContext { diagramOverlayController.dismiss() }
+            if oldValue && !useLocalVLMForScreenContext {
+                diagramOverlayController.dismiss()
+                imageOverlayController.dismiss()
+            }
         }
     }
 

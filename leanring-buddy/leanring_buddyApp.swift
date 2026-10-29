@@ -83,7 +83,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         // talk. Detached + fire-and-forget; bails silently when Apple
         // Intelligence is unavailable. No new model RAM — FM is
         // in-process and bundled with macOS.
-        if #available(macOS 26.0, *) {
+        if companionManager.activePlannerTier == .appleFoundationModels, #available(macOS 26.0, *) {
             Task.detached(priority: .utility) {
                 await AppleFoundationModelsPlannerClient.warmUp()
             }
@@ -101,7 +101,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         // PaceAutoUpdateController.shared.checkForUpdatesManually().
         _ = PaceAutoUpdateController.shared
 
-        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync()
+        if companionManager.activePlannerTier == .local {
+            PaceLMStudioModelLoader.warmUpConfiguredModelsAsync()
+        }
         companionManager.prewarmTextOnlyPlannerInBackgroundIfNeeded()
         // Start Kokoro only when the user explicitly selected the sidecar
         // provider. The default Apple voice has no helper process to manage.

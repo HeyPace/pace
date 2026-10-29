@@ -466,6 +466,7 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
             "--disable", "shell_tool", "--disable", "hooks",
             "--disable", "apps", "--disable", "browser_use",
             "--disable", "computer_use", "--disable", "multi_agent",
+            "--disable", "image_generation",
             "--config", "web_search=\"\(isResearchTurn ? "live" : "disabled")\"",
         ]
         if let modelIdentifier, !modelIdentifier.isEmpty {

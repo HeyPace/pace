@@ -96,13 +96,19 @@ responsibilities live in [`../development/key-files.md`](../development/key-file
 
 **Cursor Overlay**: A full-screen transparent `NSPanel` hosts the blue cursor companion. It's non-activating, joins all Spaces, and never steals focus. Cursor flight, response text placement, and pointing animations render in this overlay via SwiftUI through `NSHostingView`; listening/thinking animation lives in the notch bar.
 
-**Interactive diagrams**: `PaceDiagramDocument` is a bounded typed 1000×600 scene
-of up to twelve nonoverlapping labelled parts and twenty-four connections. The
+**Interactive visual explanations**: `PaceDiagramDocument` contains up to twelve
+semantic explanation parts and either a 1000×600 flowchart or a typed 3D figure.
+`PaceFigureScene` accepts an authored aircraft template or at most 96 generated
+solid parts, with bounded transforms, triangle indices and custom vertices.
+The aircraft uses lofted/airfoil meshes and real control-surface hinge entities;
+custom scenes compose boxes, ellipsoids, cylinders, cones and triangle meshes.
+Native RealityKit owns lighting, projection, depth and collision-based selection.
+The
 `show_diagram` and `dismiss_diagram` read-only tools are available independently
 of `EnableActions`. Both the text-only and full planner paths drain these tools
 before the action executor. `PaceDiagramOverlayController` owns the persistent
-figure and selection; a complete replacement keeps selection only if its stable
-part ID survives. Its bounded document and selected part are included in later
+figure and selection; a complete replacement keeps surviving part selection unless
+the planner explicitly changes the figure's requested focus. Its bounded document and selected part are included in later
 planner context because spoken conversation history does not retain tool payloads.
 A per-turn dismissal generation prevents an in-flight reply from reopening a
 closed figure while allowing the turn’s own ordered close-and-replace actions.
@@ -110,7 +116,11 @@ Planner changes, Read My Screen revocation and thread reset clear the scene
 and its cached prompt context.
 `PaceDiagramOverlayManager` renders connectors in a click-through panel and each
 interactive node, heading and detail card in separate nonactivating native panels.
-The desktop remains interactive between these islands. Clicking a part reveals
+3D objects use a bounded transparent RealityKit `ARView` hosted in SwiftUI, with an
+explicit perspective camera, projected part callouts, native orbit, zoom,
+part selection and control-surface input. Mouse interaction inside that object's
+panel belongs to Pace; the desktop remains available outside it. Flowchart gaps
+remain click-through. Clicking a part reveals
 local detail without a model call; the deliberate “Explain this” button enters
 `submitChatTranscriptFromDeepLink`, preserving the normal queue, consent, audit,
 cancellation and action policy. Presentation collapses the quick panel, and
@@ -120,6 +130,37 @@ text-only path. Diagram instructions are enabled only for interactive planner
 callers. Part follow-ups use neutral intent text; generated labels remain context
 rather than becoming commands. Escape dismissal applies only to a focused diagram panel or while the pointer
 is over a visible diagram part or control. No generated code, external resources or web renderer execute.
+
+**Generated images**: Interactive planners can emit the typed read-only
+`generate_image` request (prompt, title, optional edit). Both planner paths await
+`PaceImageOverlayController` before final conversation feedback; ordinary actions
+in the same plan remain available to the executor. Creation requires the selected
+Codex direct CLI tier and its existing off-device consent. The capsule is amber
+while generation runs, and every attempted CLI generation writes a sizes-only
+`planner.cliDirect` audit event. Selecting another planner produces an explicit
+unsupported message rather than choosing a hidden provider.
+`PaceCodexImageGenerationClient` invokes the authenticated installed Codex CLI
+with an isolated temporary working directory, ignored user rules/configuration,
+no project docs, and shell, apps, browser, MCP/plugin discovery, skills and
+multi-agent capabilities disabled. Native image generation and its code-mode
+host remain enabled. Prompts arrive over stdin. The only supported reference is
+an explicitly requested edit of the current Pace-owned image, copied to a private
+per-job attachment and passed with `--image`; ambient screenshots and arbitrary
+model-authored paths never become image inputs.
+Codex can finish with no final text or typed image event. Pace reads only the
+validated `thread.started` UUID directory under Codex's generated-images store,
+checks containment and nonsymlink regular PNG/JPEG bytes through ImageIO, and
+requires one image within32MiB and32million pixels. File-descriptor traversal
+rejects symlink parents; validated bytes are copied to a private Pace-owned store
+before job cleanup. Output prose is never interpreted as a path or a command.
+The cancellable300-second job presents progress immediately in a native floating
+panel with transparent artwork and quiet graphite controls. Zoom and Save use
+native UI. A failed edit retains the previous successful image; explicit close,
+thread reset, planner/provider change, consent loss, Read My Screen revocation or
+shutdown invalidates in-flight results and clears active context. New diagrams
+and images replace one another. Later turns receive only the active image's
+bounded title and prompt as description data, never a file path. Raster images
+have no orbit or physical-part interaction.
 
 **Global Push-To-Talk Shortcut**: Background push-to-talk uses a listen-only `CGEvent` tap instead of an AppKit global monitor so modifier-based shortcuts like `ctrl + option` are detected more reliably while the app is running in the background.
 

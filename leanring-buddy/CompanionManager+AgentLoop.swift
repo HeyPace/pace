@@ -29,6 +29,27 @@ extension CompanionManager {
         !Task.isCancelled && turnLeaseRegistry.isCurrent(turnLease)
     }
 
+    var canGenerateImagesWithCodex: Bool {
+        activePlannerTier == .cliDirect && activePlannerTierCLIDirectUpstream == .codex
+            && PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+    }
+
+    private func drainGeneratedImages(parseResult: PaceActionTagParseResult, expectedDismissalGeneration: Int) async
+        -> PaceActionTagParseResult
+    {
+        guard
+            parseResult.actions.contains(where: {
+                if case .generateImage = $0 { return true }
+                return false
+            })
+        else { return parseResult }
+        let previousOffDeviceFlag = isOffDeviceTurnInFlight
+        isOffDeviceTurnInFlight = canGenerateImagesWithCodex
+        defer { isOffDeviceTurnInFlight = previousOffDeviceFlag }
+        return await imageOverlayController.drain(
+            parseResult: parseResult, expectedDismissalGeneration: expectedDismissalGeneration)
+    }
+
     // MARK: - AI Response Pipeline (plan-act-observe loop)
 
     func routeHUDDetail(for intentPrediction: PaceIntentPrediction) -> String {
@@ -532,8 +553,10 @@ extension CompanionManager {
                 }
 
                 var diagramDismissalGeneration = diagramOverlayController.dismissalGeneration
+                let imageDismissalGeneration = imageOverlayController.dismissalGeneration
                 let userPromptForPlanner = await appendLocalRetrievalContext(
-                    to: diagramOverlayController.appendingPlannerContext(to: transcript),
+                    to: imageOverlayController.appendingPlannerContext(
+                        to: diagramOverlayController.appendingPlannerContext(to: transcript)),
                     query: transcript,
                     route: .answerDirectly
                 )
@@ -579,6 +602,7 @@ extension CompanionManager {
                 // a query that the local model can't handle well.
                 let includesValidatedDiagram = actionParseResult.actions.contains { action in
                     if case .showDiagram = action { return true }
+                    if case .generateImage = action { return true }
                     return false
                 }
                 let qualityVerdict: PaceResponseQualityVerdict =
@@ -656,10 +680,13 @@ extension CompanionManager {
                     }
                 }
 
-                let finalizedParseResult = diagramOverlayController.drain(
+                let diagramParseResult = diagramOverlayController.drain(
                     parseResult: actionParseResult,
                     expectedDismissalGeneration: &diagramDismissalGeneration
                 )
+                let finalizedParseResult = await drainGeneratedImages(
+                    parseResult: diagramParseResult, expectedDismissalGeneration: imageDismissalGeneration)
+                guard !Task.isCancelled else { return }
                 if finalizedParseResult.spokenText != actionParseResult.spokenText {
                     spokenText = finalizedParseResult.spokenText
                 }
@@ -1110,6 +1137,12 @@ extension CompanionManager {
         // them here BEFORE any routing branch — every fast path
         // (watch-mode, automation, memory, fast-action) clears them too.
         annotationOverlayController.clearOnNextUserTurn()
+        if imageOverlayController.state != .idle, PaceImageGenerationRequest.requestsDismissal(transcript) {
+            imageOverlayController.dismiss()
+            currentTurnHUDState = .done("image closed")
+            voiceState = .idle
+            return
+        }
         if diagramOverlayController.document != nil, PaceDiagramDocument.requestsDismissal(transcript) {
             diagramOverlayController.dismiss()
             currentTurnHUDState = .done("diagram closed")
@@ -1345,6 +1378,29 @@ extension CompanionManager {
             return
         }
 
+        let hasActiveImage = imageOverlayController.lastSuccessfulArtifact != nil
+        let requestsGeneratedImage = PaceImageGenerationRequest.requestsImage(
+            transcript, hasActiveImage: hasActiveImage)
+        let imageNeedsScreenContext =
+            requestsGeneratedImage
+            && PaceImageGenerationRequest.requiresScreenContext(transcript, hasActiveImage: hasActiveImage)
+        if requestsGeneratedImage && !canGenerateImagesWithCodex {
+            handleImmediateLocalModeResponse(
+                transcript: transcript, spokenText: PaceImageGenerationError.unavailable.localizedDescription)
+            return
+        }
+        if imageNeedsScreenContext && !useLocalVLMForScreenContext {
+            handleImmediateLocalModeResponse(
+                transcript: transcript,
+                spokenText: "Turn on Read My Screen or describe the image you'd like me to create.")
+            return
+        }
+        if !imageNeedsScreenContext
+            && PaceImageGenerationRequest.canUseImageOnlyFastPath(transcript, hasActiveImage: hasActiveImage)
+        {
+            handleTextOnlyPlannerFastPath(transcript: transcript)
+            return
+        }
         let hasActiveDiagram = diagramOverlayController.document != nil
         let requestsInteractiveDiagram = PaceDiagramDocument.requestsDiagram(
             transcript, hasActiveDiagram: hasActiveDiagram)
@@ -1593,7 +1649,7 @@ extension CompanionManager {
         // model, but an unavailable bridge must never turn it into a screen
         // request. The local text-only planner is a lower-quality answerer,
         // not a reason to capture the user's display or require permission.
-        if !requestsInteractiveDiagram,
+        if !requestsInteractiveDiagram && !requestsGeneratedImage,
             mutableIntentPrediction.route == .escalateToLargeModel,
             !escalationUsesLargeModelForThisTurn,
             mutableIntentPrediction.intent == .pureKnowledge
@@ -1608,14 +1664,15 @@ extension CompanionManager {
         // Fast paths use .route (not .intent) so a low-confidence
         // prediction whose intent happens to be .chitchat but whose
         // route is .escalateToLargeModel does NOT bypass escalation.
-        if !requestsInteractiveDiagram && mutableIntentPrediction.route == .chitchatFastPath {
+        if !requestsInteractiveDiagram && !requestsGeneratedImage && mutableIntentPrediction.route == .chitchatFastPath
+        {
             print(
                 "🎯 Intent: chitchat (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — fast-path"
             )
             handleChitchatFastPath(transcript: transcript)
             return
         }
-        if !requestsInteractiveDiagram && mutableIntentPrediction.route == .answerDirectly {
+        if !requestsInteractiveDiagram && !requestsGeneratedImage && mutableIntentPrediction.route == .answerDirectly {
             print(
                 "🎯 Intent: pureKnowledge (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — text-only planner"
             )
@@ -1625,7 +1682,7 @@ extension CompanionManager {
         // Fast local-action path is skipped for research turns —
         // research wants the heavyweight planner, not a deterministic
         // "open Music" shortcut.
-        if !requestsInteractiveDiagram,
+        if !requestsInteractiveDiagram && !requestsGeneratedImage,
             researchTurnPlannerOverride == nil,
             let fastActionParseResult = PaceFastActionCommandParser.parse(transcript: transcript)
         {
@@ -1709,7 +1766,9 @@ extension CompanionManager {
             var cumulativeOutputTokenEstimate = 0
             var stepIndex = 0
             var diagramDismissalGeneration = diagramOverlayController.dismissalGeneration
-            var currentTurnUserPrompt = diagramOverlayController.appendingPlannerContext(to: transcript)
+            let imageDismissalGeneration = imageOverlayController.dismissalGeneration
+            var currentTurnUserPrompt = imageOverlayController.appendingPlannerContext(
+                to: diagramOverlayController.appendingPlannerContext(to: transcript))
             if let physicalSceneContext = consumePacePadPhysicalSceneContext() {
                 currentTurnUserPrompt +=
                     "\n\nPhysical scene observed locally from the paired iPad for this turn only:\n"
@@ -1741,7 +1800,9 @@ extension CompanionManager {
                     let screenCaptureStartedAt = Date()
                     var prewarmedContextForStep: PaceScreenContextPrewarmedSnapshot?
                     let screenCaptures: [CompanionScreenCapture]
-                    if isResearchTurn || !useLocalVLMForScreenContext {
+                    if isResearchTurn || !useLocalVLMForScreenContext
+                        || (requestsGeneratedImage && !imageNeedsScreenContext)
+                    {
                         screenCaptures = []
                     } else if isFirstStep,
                         !(plannerClientForThisTurn is PaceLocalCLIPlannerClient),
@@ -2079,10 +2140,13 @@ extension CompanionManager {
                         into: annotationOverlayController,
                         screenCaptures: screenCaptures
                     )
-                    let actionParseResult = diagramOverlayController.drain(
+                    let diagramParseResult = diagramOverlayController.drain(
                         parseResult: annotationDrainOutcome.drainedParseResult,
                         expectedDismissalGeneration: &diagramDismissalGeneration
                     )
+                    let actionParseResult = await drainGeneratedImages(
+                        parseResult: diagramParseResult, expectedDismissalGeneration: imageDismissalGeneration)
+                    guard !Task.isCancelled else { return }
                     let streamedMailDraftForFinalization =
                         PaceStreamingMailDraftDetector
                         .firstMailDraft(in: actionParseResult.executionPlan)

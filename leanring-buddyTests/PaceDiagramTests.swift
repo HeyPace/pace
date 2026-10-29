@@ -48,6 +48,25 @@ struct PaceDiagramTests {
         }
     }
 
+    @Test func waterCycleFromToEndpointsDecodeWithoutChangingValidation() throws {
+        let response = try Self.response(document: Self.document())
+            .replacingOccurrences(of: "\"source\":", with: "\"from\":")
+            .replacingOccurrences(of: "\"target\":", with: "\"to\":")
+        let parsed = PaceActionTagParser.parseActions(from: response)
+        try #require(parsed.actions.count == 1)
+        guard case .showDiagram(let document) = parsed.actions[0] else {
+            Issue.record("Expected water cycle")
+            return
+        }
+        #expect(document.connections[0].source == "evaporation")
+        #expect(document.connections[0].target == "condensation")
+        #expect(document.nodes[0].role == .process)
+        #expect(document.validationIssue == nil)
+        let conflicting = response.replacingOccurrences(
+            of: "\"from\":\"evaporation\"", with: "\"from\":\"evaporation\",\"source\":\"condensation\"")
+        #expect(PaceActionTagParser.parseActions(from: conflicting).actions.isEmpty)
+    }
+
     @Test func parsesDiagramCloseAndLegacyToolCalls() throws {
         let close = PaceActionTagParser.parseActions(
             from: #"{"spokenText":"","intent":"action","payload":{"name":"dismiss_diagram","args":{}}}"#)
@@ -265,7 +284,7 @@ struct PaceDiagramTests {
         let client = PaceLocalCLIPlannerClient(upstream: .codex, modelIdentifier: nil)
         let prompt = CompanionSystemPrompt.buildTextOnly(includeInteractiveDiagrams: true)
         let question =
-            "Create an interactive diagram explaining the water cycle. Include evaporation, condensation, precipitation and collection, with a useful explanation for every clickable part. Use show_diagram."
+            "Create an interactive 2D flowchart explaining the water cycle. Include evaporation, condensation, precipitation and collection, with a useful explanation for every clickable part. Use show_diagram without figure geometry."
         let initialResponse = try await client.generateResponseStreaming(
             images: [], systemPrompt: prompt, conversationHistory: [], userPrompt: question, onTextChunk: { _ in }
         )
@@ -274,7 +293,9 @@ struct PaceDiagramTests {
         var generation = controller.dismissalGeneration
         _ = controller.drain(parseResult: initialPlan, expectedDismissalGeneration: &generation)
         let document = try #require(
-            controller.document, "The authenticated Codex response must produce a valid interactive diagram")
+            controller.document,
+            "The authenticated Codex response must produce a valid interactive diagram: \(String(initialResponse.text.prefix(8000)))"
+        )
         #expect(document.nodes.count >= 3)
         #expect(!initialPlan.spokenText.isEmpty)
         let part = try #require(document.nodes.first)

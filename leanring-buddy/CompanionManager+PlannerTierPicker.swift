@@ -14,7 +14,10 @@ extension CompanionManager {
     // MARK: - Planner tier picker state
 
     func setActivePlannerTier(_ newTier: PacePlannerTier) {
-        if newTier != activePlannerTier { diagramOverlayController.dismiss() }
+        if newTier != activePlannerTier {
+            diagramOverlayController.dismiss()
+            imageOverlayController.dismiss()
+        }
         activePlannerTier = newTier
         PacePlannerTierStore.saveTier(newTier)
         // Rebuild planner so the next turn uses the freshly-picked tier
@@ -76,21 +79,28 @@ extension CompanionManager {
     /// planner so the next turn spawns the freshly-picked CLI without an
     /// app restart.
     func setCLIDirectUpstream(_ newUpstream: PaceLocalCLIUpstream) {
-        if newUpstream != activePlannerTierCLIDirectUpstream { diagramOverlayController.dismiss() }
+        if newUpstream != activePlannerTierCLIDirectUpstream {
+            diagramOverlayController.dismiss()
+            imageOverlayController.dismiss()
+        }
         activePlannerTierCLIDirectUpstream = newUpstream
         PacePlannerTierStore.saveCLIDirectUpstream(newUpstream)
         plannerClient = BuddyPlannerClientFactory.makeDefault()
     }
 
     func setDirectAPIProvider(_ newProvider: PaceDirectAPIProvider) {
-        if newProvider != directAPIProvider { diagramOverlayController.dismiss() }
+        if newProvider != directAPIProvider {
+            diagramOverlayController.dismiss()
+            imageOverlayController.dismiss()
+        }
         directAPIProvider = newProvider
         PacePlannerTierStore.saveDirectAPIProvider(newProvider)
         // When the provider changes, also seed the model field with that
         // provider's default — the user can immediately overwrite it but
         // most users want a sensible starting model identifier.
         let savedModelForProvider = PacePlannerTierStore.loadConfiguration().directAPIModelIdentifier
-        let modelIdentifierLooksEmptyOrStale = savedModelForProvider
+        let modelIdentifierLooksEmptyOrStale =
+            savedModelForProvider
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty
         if modelIdentifierLooksEmptyOrStale {

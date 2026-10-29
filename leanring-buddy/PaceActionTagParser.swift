@@ -276,6 +276,9 @@ nonisolated enum PaceActionTagParser {
         if let plannerResponseParseResult = parsePlannerResponseJSON(from: responseText) {
             return plannerResponseParseResult
         }
+        if let visualToolParseResult = parseStandaloneVisualToolJSON(from: responseText) {
+            return visualToolParseResult
+        }
 
         let toolCallBlocks = parseToolCallBlocks(in: responseText)
         let toolCallRanges = toolCallBlocks.map(\.range)
@@ -348,13 +351,32 @@ nonisolated enum PaceActionTagParser {
         )
     }
 
+    private static func parseStandaloneVisualToolJSON(from responseText: String) -> PaceActionTagParseResult? {
+        guard responseText.utf8.count <= 64_000,
+            let data = responseText.data(using: .utf8),
+            let toolCall = try? JSONDecoder().decode(ToolCallDTO.self, from: data),
+            let kind = PaceToolRegistry.kind(forToolName: toolCall.tool),
+            [.generateImage, .showDiagram, .dismissDiagram].contains(kind)
+        else { return nil }
+        // The registry advertises these flat visual examples as well as v10
+        // envelopes. Accept the same bounded visual payload without expanding
+        // standalone JSON into a general action-execution format.
+        let action = parseToolCall(toolCall)
+        let actions = action.map { [$0] } ?? []
+        return .init(
+            spokenText: action == nil
+                ? "I couldn't create that visual because its request wasn't valid. Please try again." : "",
+            actions: actions, executionPlan: .serial(actions: actions), firstClickVisualisationLocation: nil)
+    }
+
     private static func parsePlannerResponseJSON(from responseText: String) -> PaceActionTagParseResult? {
         let trimmedResponseText = responseText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedResponseText.hasPrefix("{"), trimmedResponseText.hasSuffix("}") else {
             return nil
         }
         guard let responseData = trimmedResponseText.data(using: .utf8),
-              let plannerResponseObject = try? JSONDecoder().decode([String: PaceMCPJSONValue].self, from: responseData) else {
+            let plannerResponseObject = try? JSONDecoder().decode([String: PaceMCPJSONValue].self, from: responseData)
+        else {
             return nil
         }
         guard plannerResponseObject.keys.contains(where: { ["spokenText", "intent", "payload"].contains($0) }) else {
@@ -367,11 +389,19 @@ nonisolated enum PaceActionTagParser {
         {
             envelopeValidationIssues.append("show_diagram requires a valid document")
         }
+        let imageCalls = imageToolCalls(in: plannerResponseObject["payload"])
+        if imageCalls.contains(where: {
+            PaceImageGenerationRequest.parse(arguments: objectValue(for: "args", in: $0) ?? [:]) == nil
+        }) {
+            envelopeValidationIssues.append("generate_image requires a valid image request")
+        }
         guard envelopeValidationIssues.isEmpty else {
             print("⚠️ Rejected invalid v10 planner response before execution: \(envelopeValidationIssues.joined(separator: "; "))")
             return PaceActionTagParseResult(
                 spokenText: containsDiagramToolRequest(in: plannerResponseObject["payload"])
                     ? "I couldn't draw that diagram because its structure wasn't valid. Please ask me to try again."
+                    : !imageCalls.isEmpty
+                        ? "I couldn't generate that image because the request was invalid. Please ask me to try again."
                     : strictStringValue(for: "spokenText", in: plannerResponseObject) ?? "",
                 actions: [],
                 executionPlan: PaceActionExecutionPlan(steps: []),
@@ -407,6 +437,13 @@ nonisolated enum PaceActionTagParser {
             executionPlan: executionPlan,
             firstClickVisualisationLocation: firstClickVisualisationLocation(in: plannerActions)
         )
+    }
+
+    private static func imageToolCalls(in value: PaceMCPJSONValue?) -> [[String: PaceMCPJSONValue]] {
+        guard case .object(let payload) = value else { return [] }
+        return (actionCallObjects(from: payload) ?? [payload]).filter {
+            strictStringValue(for: "name", in: $0).map(normalizedParameterizedActionName) == "generate.image"
+        }
     }
 
     private static func diagramToolCalls(in value: PaceMCPJSONValue?) -> [[String: PaceMCPJSONValue]] {
@@ -781,6 +818,8 @@ nonisolated enum PaceActionTagParser {
             let path = firstStringValue(for: ["path", "url"], in: arguments)
             guard let path, !path.isEmpty else { return nil }
             return .finder(PaceFinderRequest(path: path, action: .open))
+        case "generate.image":
+            return PaceImageGenerationRequest.parse(arguments: arguments).map { .generateImage($0) }
         case "show.diagram", "diagram":
             return PaceDiagramDocument.parse(arguments: arguments).map { .showDiagram($0) }
         case "dismiss.diagram", "close.diagram", "hide.diagram":
@@ -907,6 +946,10 @@ nonisolated enum PaceActionTagParser {
         case "finder.reveal", "finder.open":
             if !hasNonEmptyString(for: ["path", "url"], in: arguments) {
                 issues.append("requires path")
+            }
+        case "generate.image":
+            if PaceImageGenerationRequest.parse(arguments: arguments) == nil {
+                issues.append("requires image prompt, title and optional boolean edit")
             }
         case "show.diagram", "diagram":
             if PaceDiagramDocument.parse(arguments: arguments) == nil {
@@ -1403,6 +1446,10 @@ nonisolated enum PaceActionTagParser {
             return parseFlowToolCall(toolCall, action: .record)
         case .runFlow:
             return parseFlowToolCall(toolCall, action: .run)
+        case .generateImage:
+            return PaceImageGenerationRequest.parse(arguments: mergeMCPArguments(from: toolCall)).map {
+                .generateImage($0)
+            }
         case .showDiagram:
             return PaceDiagramDocument.parse(arguments: mergeMCPArguments(from: toolCall)).map { .showDiagram($0) }
         case .dismissDiagram:
@@ -1589,6 +1636,10 @@ nonisolated enum PaceActionTagParser {
         case .recordFlow, .runFlow:
             if !hasNonEmptyString(for: ["name", "title", "flow", "label"], in: mergedArguments) {
                 issues.append("requires flow name")
+            }
+        case .generateImage:
+            if PaceImageGenerationRequest.parse(arguments: mergedArguments) == nil {
+                issues.append("requires image prompt, title and optional boolean edit")
             }
         case .showDiagram:
             if PaceDiagramDocument.parse(arguments: mergedArguments) == nil {
