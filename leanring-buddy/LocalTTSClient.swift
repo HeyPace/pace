@@ -214,19 +214,17 @@ private struct LocalTTSProsody {
     let postUtteranceDelay: TimeInterval
 
     static func fromBundleConfiguration() -> LocalTTSProsody {
-        // The defaults are tuned for the compact macOS voices this machine
-        // currently has installed: a touch slower, lower pitched, and less
-        // piercing than AVSpeechUtterance's stock conversational setting.
+        // Let high-quality Apple voices use their natural pitch and conversational rate.
         return LocalTTSProsody(
             rate: configuredFloat(
                 forKey: "LocalTTSSpeechRate",
-                defaultValue: 0.48,
+                defaultValue: AVSpeechUtteranceDefaultSpeechRate,
                 minimumValue: 0.35,
                 maximumValue: 0.58
             ),
             pitchMultiplier: configuredFloat(
                 forKey: "LocalTTSPitchMultiplier",
-                defaultValue: 0.94,
+                defaultValue: 1.0,
                 minimumValue: 0.75,
                 maximumValue: 1.15
             ),
