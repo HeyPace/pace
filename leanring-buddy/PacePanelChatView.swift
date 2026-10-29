@@ -86,6 +86,12 @@ struct PacePanelChatView: View {
             chatSession.loadHistoryWithoutBlockingInterface()
             isInputFocused = true
         }
+        .onChange(of: companionManager.voiceState) { _, voiceState in
+            if voiceState == .listening {
+                selectedQuestionIdentifier = nil
+                showsHistory = false
+            }
+        }
     }
 
     // MARK: - Header
