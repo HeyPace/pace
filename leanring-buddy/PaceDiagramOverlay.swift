@@ -125,13 +125,23 @@ final class PaceDiagramOverlayManager {
         guard localKeyMonitor == nil else { return }
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.keyCode == 53 else { return event }
-            Task { @MainActor in self?.controller?.dismiss() }
+            Task { @MainActor in self?.dismissForEscapeIfPointerIsOverDiagram() }
             return event
         }
         globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.keyCode == 53 else { return }
-            Task { @MainActor in self?.controller?.dismiss() }
+            Task { @MainActor in self?.dismissForEscapeIfPointerIsOverDiagram() }
         }
+    }
+
+    private func dismissForEscapeIfPointerIsOverDiagram() {
+        let frames = [stageFrame, headerPanel?.frame, detailPanel?.frame].compactMap { $0 }
+        guard Self.shouldDismissForEscape(pointerLocation: NSEvent.mouseLocation, diagramFrames: frames) else { return }
+        controller?.dismiss()
+    }
+
+    static func shouldDismissForEscape(pointerLocation: CGPoint, diagramFrames: [CGRect]) -> Bool {
+        diagramFrames.contains { $0.contains(pointerLocation) }
     }
 }
 
@@ -300,7 +310,7 @@ private struct PaceDiagramHeaderView: View {
                     .help("Select the next diagram part")
                 Button("Close diagram", systemImage: "xmark") { controller.dismiss() }
                     .labelStyle(.iconOnly)
-                    .help("Close diagram · Escape")
+                    .help("Close diagram · Escape while hovering the diagram")
                     .accessibilityIdentifier("pace.diagram.close")
             }
             .font(.system(size: 12))
@@ -352,7 +362,7 @@ private struct PaceDiagramDetailView: View {
                 }
             } else {
                 Text(summary).font(DS.Typography.callout).lineLimit(2)
-                Text("Select a part to explore. Escape to close.")
+                Text("Select a part. Hover here and press Escape to close.")
                     .font(.system(size: 10))
                     .foregroundStyle(DS.Colors.textSecondary)
             }

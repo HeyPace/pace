@@ -96,8 +96,8 @@ struct PaceDiagramTests {
         #expect(controller.revision == 2)
         #expect(controller.askAboutSelectedNode())
         #expect(submitted.count == 1)
-        #expect(submitted[0].contains("Evaporation"))
-        #expect(submitted[0].contains("A closer view"))
+        #expect(submitted[0].contains("selected diagram part"))
+        #expect(!submitted[0].contains("A closer view"))
         #expect(PaceDiagramDocument.requestsDiagram(submitted[0], hasActiveDiagram: true))
         let context = controller.appendingPlannerContext(to: "Why does it cool?")
         #expect(context.contains("Selected part ID: evaporation"))
@@ -154,9 +154,98 @@ struct PaceDiagramTests {
     }
 
     @Test func visualToolsAreAvailableWithoutActionsAndInScreenlessLearning() {
-        #expect(CompanionSystemPrompt.build(includeAgentMode: false).contains("show_diagram"))
-        #expect(CompanionSystemPrompt.buildTextOnly().contains("show_diagram"))
-        #expect(CompanionSystemPrompt.buildForResearchTurn().contains("show_diagram"))
+        #expect(CompanionSystemPrompt.build(includeAgentMode: false, includeInteractiveDiagrams: true).contains("show_diagram"))
+        #expect(CompanionSystemPrompt.buildTextOnly(includeInteractiveDiagrams: true).contains("show_diagram"))
+        #expect(CompanionSystemPrompt.buildForResearchTurn(includeInteractiveDiagrams: true).contains("show_diagram"))
         #expect(PaceToolRegistry.definition(forToolName: "show_diagram")?.riskLevel == .readOnly)
     }
+
+    @Test func diagramRoutingLeavesUnrelatedActionsAndAnnotationsAlone() {
+        for transcript in [
+            "open Sketch", "draw me a circle around the Save button", "email the diagram to Sam",
+            "open the diagram in Preview", "walk me through setting up wifi", "change that to 50% volume",
+            "draw a diagram then email Sam", "expand that node and type hello"
+        ] {
+            #expect(!PaceDiagramDocument.requestsDiagram(transcript, hasActiveDiagram: true), "Unexpected diagram fast path: \(transcript)")
+        }
+        #expect(PaceDiagramDocument.requestsDiagram("Create a figure showing the water cycle", hasActiveDiagram: false))
+        #expect(PaceDiagramDocument.requestsDiagram("Walk me through this diagram", hasActiveDiagram: true))
+    }
+
+    @Test func headlessPromptsDoNotAdvertiseInteractiveFigures() {
+        #expect(!CompanionSystemPrompt.build(includeAgentMode: false).contains("show_diagram"))
+        #expect(!CompanionSystemPrompt.buildTextOnly().contains("show_diagram"))
+        #expect(!CompanionSystemPrompt.buildForResearchTurn().contains("show_diagram"))
+    }
+
+    @Test @MainActor func partQuestionsKeepGeneratedLabelsOutOfRoutingIntent() {
+        let controller = PaceDiagramOverlayController(showsWindows: false)
+        let document = Self.document(title: "How this code works")
+        controller.present(document)
+        controller.selectNode(id: "evaporation")
+        var question = ""
+        controller.onAskAboutPart = { question = $0 }
+        #expect(controller.askAboutSelectedNode())
+        #expect(!question.contains(document.title))
+        #expect(!PaceDiagramDocument.requiresScreenContext(question, hasActiveDiagram: true))
+        #expect(controller.appendingPlannerContext(to: question).contains(document.title))
+    }
+
+    @Test @MainActor func escapeOutsideTheDiagramPreservesTheLearningSession() {
+        let frames = [CGRect(x: 200, y: 100, width: 500, height: 300)]
+        #expect(!PaceDiagramOverlayManager.shouldDismissForEscape(pointerLocation: CGPoint(x: 50, y: 50), diagramFrames: frames))
+        #expect(PaceDiagramOverlayManager.shouldDismissForEscape(pointerLocation: CGPoint(x: 400, y: 250), diagramFrames: frames))
+    }
+
+    @Test func deterministicAutomationsRejectInteractiveDiagramTools() {
+        for tool in ["show_diagram", "dismiss_diagram", "diagram", "close_diagram"] {
+            let definition = PaceAutomationDefinition(
+                schemaVersion: 1, identifier: "diagram-test", name: "Diagram", description: "Visual", category: "test",
+                source: .user, executionMode: .deterministicLocal, requiredPreferences: [],
+                steps: [.init(toolCalls: [.init(tool: tool, arguments: [:])])]
+            )
+            #expect(PaceAutomationDefinitionValidator.validationIssues(for: definition).contains { $0.message.contains("forbidden tool") })
+            do {
+                _ = try PaceAutomationCompiler.compile(definition)
+                Issue.record("Interactive figures must not compile into unattended automations")
+            } catch {
+                #expect(String(describing: error).contains("forbidden tool"))
+            }
+        }
+    }
+
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["PACE_RUN_CODEX_DIAGRAM_INTEGRATION"] == "1"), .timeLimit(.minutes(2)))
+    @MainActor func authenticatedCodexCreatesAndRevisesAnInteractiveDiagram() async throws {
+        let client = PaceLocalCLIPlannerClient(upstream: .codex, modelIdentifier: nil)
+        let prompt = CompanionSystemPrompt.buildTextOnly(includeInteractiveDiagrams: true)
+        let question = "Create an interactive diagram explaining the water cycle. Include evaporation, condensation, precipitation and collection, with a useful explanation for every clickable part. Use show_diagram."
+        let initialResponse = try await client.generateResponseStreaming(
+            images: [], systemPrompt: prompt, conversationHistory: [], userPrompt: question, onTextChunk: { _ in }
+        )
+        let initialPlan = PaceActionTagParser.parseActions(from: initialResponse.text)
+        let controller = PaceDiagramOverlayController(showsWindows: false)
+        _ = controller.drain(parseResult: initialPlan, expectedDismissalGeneration: controller.dismissalGeneration)
+        let document = try #require(controller.document, "The authenticated Codex response must produce a valid interactive diagram")
+        #expect(document.nodes.count >= 3)
+        #expect(!initialPlan.spokenText.isEmpty)
+        let part = try #require(document.nodes.first)
+        controller.selectNode(id: part.id)
+        let followUp = controller.appendingPlannerContext(to: "Simplify this diagram to three main parts. Keep the selected part ID and explain it more clearly. Return the updated show_diagram document.")
+        client.resetForNewTurn()
+        let revisedResponse = try await client.generateResponseStreaming(
+            images: [], systemPrompt: prompt,
+            conversationHistory: [(userPlaceholder: question, assistantResponse: initialPlan.spokenText)],
+            userPrompt: followUp, onTextChunk: { _ in }
+        )
+        let revisedPlan = PaceActionTagParser.parseActions(from: revisedResponse.text)
+        _ = controller.drain(parseResult: revisedPlan, expectedDismissalGeneration: controller.dismissalGeneration)
+        #expect(controller.revision == 2)
+        #expect(controller.document?.nodes.count == 3)
+        #expect(controller.selectedNodeID == part.id)
+        #expect(controller.selectedNode?.detail.isEmpty == false)
+        controller.dismiss()
+        #expect(controller.document == nil)
+    }
+
 }

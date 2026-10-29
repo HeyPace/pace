@@ -547,7 +547,8 @@ extension CompanionManager {
                     images: [],
                     systemPrompt: CompanionSystemPrompt.buildTextOnly(
                         threadSummaryInjection: threadSummaryInjectionForTurn,
-                        ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment
+                        ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment,
+                        includeInteractiveDiagrams: true
                     ),
                     conversationHistory: historyForPlanner,
                     userPrompt: userPromptForPlanner,
@@ -617,12 +618,15 @@ extension CompanionManager {
                                 images: [],
                                 systemPrompt: CompanionSystemPrompt.buildTextOnly(
                                     threadSummaryInjection: threadSummaryInjectionForTurn,
-                                    ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment
+                                    ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment,
+                                    includeInteractiveDiagrams: true
                                 ),
                                 conversationHistory: historyForPlanner,
                                 userPrompt: userPromptForPlanner,
                                 onTextChunk: { [weak self] accumulatedText in
-                                    self?.responseOverlayManager.updateStreamingText(accumulatedText)
+                                    self?.responseOverlayManager.updateStreamingText(
+                                        Self.streamedPlannerTextIsStructuredEnvelope(accumulatedText) ? "…" : accumulatedText
+                                    )
                                     Task { @MainActor [weak self] in
                                         await self?.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedText)
                                     }
@@ -678,7 +682,8 @@ extension CompanionManager {
                         userPrompt: userPromptForPlanner
                     ),
                     systemPromptForExport: CompanionSystemPrompt.buildTextOnly(
-                        threadSummaryInjection: threadSummaryInjectionForTurn
+                        threadSummaryInjection: threadSummaryInjectionForTurn,
+                        includeInteractiveDiagrams: true
                     ))
 
                 recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
@@ -1773,7 +1778,8 @@ extension CompanionManager {
                     let systemPromptForTurn: String
                     if isResearchTurn {
                         systemPromptForTurn = CompanionSystemPrompt.buildForResearchTurn(
-                            threadSummaryInjection: threadSummaryInjectionForTurn
+                            threadSummaryInjection: threadSummaryInjectionForTurn,
+                            includeInteractiveDiagrams: true
                         )
                     } else {
                         systemPromptForTurn = CompanionSystemPrompt.build(
@@ -1781,7 +1787,8 @@ extension CompanionManager {
                             isTuitionModeEnabled: isTuitionModeEnabled,
                             threadSummaryInjection: threadSummaryInjectionForTurn,
                             ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment,
-                            usesIterativeComputerUse: plannerClientForThisTurn is PaceLocalCLIPlannerClient
+                            usesIterativeComputerUse: plannerClientForThisTurn is PaceLocalCLIPlannerClient,
+                            includeInteractiveDiagrams: true
                         )
                     }
                     // Mark this turn as off-device for the amber-tint

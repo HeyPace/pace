@@ -99,14 +99,25 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
     }
 
     static func requestsDiagram(_ transcript: String, hasActiveDiagram: Bool) -> Bool {
-        let normalized = transcript.lowercased()
-        if ["diagram", "flowchart", "visualize", "visualise", "concept map", "mind map", "draw me", "sketch"].contains(where: normalized.contains) {
-            return true
-        }
-        return hasActiveDiagram && [
-            "expand that", "expand this", "simplify", "show more detail", "explain this part",
-            "explain that part", "walk me through", "change this", "change that", "add to this"
-        ].contains(where: normalized.contains)
+        let normalized = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let actionCommand = #"^(?:(?:please|can you|could you|would you)\s+)?(?:open|launch|email|send|share|export|save|copy|paste|delete|move|rename|download|close|hide|dismiss)\b"#
+        if normalized.range(of: actionCommand, options: .regularExpression) != nil { return false }
+        let additionalAction = #"\b(?:and|then|also)\s+(?:open|launch|email|send|share|export|save|copy|paste|delete|move|rename|download|type)\b"#
+        if normalized.range(of: additionalAction, options: .regularExpression) != nil { return false }
+        let annotationRequest = #"\b(?:around|highlight|circle|point at|box)\b.*\b(?:button|window|menu|screen|toolbar)\b"#
+        if normalized.range(of: annotationRequest, options: .regularExpression) != nil { return false }
+        let diagramNoun = #"\b(?:diagrams?|flowcharts?|figures?|illustrations?|concept maps?|mind maps?|visual explanations?)\b"#
+        let creationVerb = #"\b(?:show|draw|create|make|generate|build|sketch|explain|teach|illustrate|understand)\b"#
+        if normalized.range(of: diagramNoun, options: .regularExpression) != nil,
+           normalized.range(of: creationVerb, options: .regularExpression) != nil { return true }
+        if normalized.range(of: #"^(?:please\s+)?(?:visualize|visualise)\s+\S"#, options: .regularExpression) != nil { return true }
+        guard hasActiveDiagram else { return false }
+        let partQuestion = #"\b(?:explain|expand|simplify|change|add|detail|walk me through)\b.*\b(?:diagram|figure|part|node|connection)\b"#
+        if normalized.range(of: partQuestion, options: .regularExpression) != nil { return true }
+        return normalized.range(
+            of: #"^(?:please\s+)?(?:(?:expand|simplify|explain)\s+(?:this|that)|show more detail|walk me through (?:this|that))[.!?]*$"#,
+            options: .regularExpression
+        ) != nil
     }
 
     static func requiresScreenContext(_ transcript: String, hasActiveDiagram: Bool) -> Bool {

@@ -54,8 +54,8 @@ final class PaceDiagramOverlayController: ObservableObject {
 
     @discardableResult
     func askAboutSelectedNode() -> Bool {
-        guard let document, let selectedNode, let onAskAboutPart else { return false }
-        onAskAboutPart("Explain the selected part “\(selectedNode.label)” in the active diagram “\(document.title)”. Use the active diagram context. Walk me through what it does and how it connects to the other parts; update the diagram if a closer view would help.")
+        guard document != nil, selectedNode != nil, let onAskAboutPart else { return false }
+        onAskAboutPart("Explain the selected diagram part using the active diagram context. Walk me through what it does and how it connects to the other parts; update the diagram if a closer view would help.")
         return true
     }
 

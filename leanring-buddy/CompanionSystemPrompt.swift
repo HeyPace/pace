@@ -62,9 +62,11 @@ enum CompanionSystemPrompt {
         isTuitionModeEnabled: Bool = false,
         threadSummaryInjection: String? = nil,
         ambientContextInjection: String? = nil,
-        usesIterativeComputerUse: Bool = false
+        usesIterativeComputerUse: Bool = false,
+        includeInteractiveDiagrams: Bool = false
     ) -> String {
-        var assembledPrompt = baseVoiceRules + "\n\n" + diagramRules + "\n\n" + pointingRules
+        var assembledPrompt = baseVoiceRules + "\n\n" + pointingRules
+        if includeInteractiveDiagrams { assembledPrompt += "\n\n" + diagramRules }
         if includeAgentMode {
             assembledPrompt += "\n\n" + agentModeRules
             // Tuition mode is a per-user preference, so the prompt
@@ -106,9 +108,11 @@ enum CompanionSystemPrompt {
     ///   threadSummaryInjection:)`.
     static func buildTextOnly(
         threadSummaryInjection: String? = nil,
-        ambientContextInjection: String? = nil
+        ambientContextInjection: String? = nil,
+        includeInteractiveDiagrams: Bool = false
     ) -> String {
-        var prompt = baseVoiceRules + "\n\n" + diagramRules
+        var prompt = baseVoiceRules
+        if includeInteractiveDiagrams { prompt += "\n\n" + diagramRules }
         if let ambient = ambientContextInjection, !ambient.isEmpty {
             prompt += "\n\n" + ambient
         }
@@ -141,9 +145,11 @@ enum CompanionSystemPrompt {
     /// - Parameter threadSummaryInjection: see `build(includeAgentMode:
     ///   threadSummaryInjection:)`.
     static func buildForResearchTurn(
-        threadSummaryInjection: String? = nil
+        threadSummaryInjection: String? = nil,
+        includeInteractiveDiagrams: Bool = false
     ) -> String {
-        let assembledPrompt = baseVoiceRules + "\n\n" + researchTurnRules + "\n\n" + diagramRules
+        var assembledPrompt = baseVoiceRules + "\n\n" + researchTurnRules
+        if includeInteractiveDiagrams { assembledPrompt += "\n\n" + diagramRules }
         return prependingThreadSummaryInjection(
             threadSummaryInjection,
             to: assembledPrompt
