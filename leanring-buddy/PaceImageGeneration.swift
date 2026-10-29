@@ -62,9 +62,8 @@ nonisolated struct PaceImageGenerationRequest: Codable, Equatable, Sendable {
         else { return false }
         let imageReference = #"(?:this image|that image|the image)"#
         let setAsPattern =
-            introduction + #"(?:make|set|use|change)\s+(?:it|this image|that image|the image)\s+"#
-            + #"(?:(?:as|for|into|to be|be)\s+(?:(?:my|the|a|an|your|our)\s+)?|(?:to\s+)?(?:my|the|a|an|your|our)\s+)"#
-            + #"(?:desktop|wallpaper|background|(?:lock|home)\s+screen|profile\s+(?:picture|photo|image)|avatar)\b"#
+            introduction + #"(?:make|change|update)\s+(?:it|this image|that image|the image)\s+"#
+            + #"(?:(?:my|your|our|their|his|her|its|as|for|into|be)\b|to\s+(?:be|my|your|our|their|his|her|its)\b)"#
         guard normalized.range(of: setAsPattern, options: .regularExpression) == nil else { return false }
         let imageAppearance =
             #"(?:to\s+)?(?:blue|red|green|yellow|purple|orange|pink|black|white|brighter|darker|colorful|monochrome|(?:more|less)\s+(?:colorful|saturated|detailed|vivid|realistic|bright|dark))\b"#

@@ -379,6 +379,28 @@ struct PaceImageGenerationTests {
         #expect(PaceImageGenerationRequest.requestsImage("change the image background to blue", hasActiveImage: true))
     }
 
+    @Test func possessiveAndSetAsImagePrefixesRemainWithGeneralPlanner() {
+        for transcript in [
+            "make the image my new background", "make this image my new profile picture",
+            "make the image my brand new bright playful summer profile picture",
+            "make it your next profile picture", "update this image our carefully chosen new profile picture",
+            "make the image as my new avatar", "make the image for a bright new background",
+            "make the image into a new background", "make the image to be a new profile picture",
+            "make the image be my preferred background", "change it to my favorite new profile picture",
+        ] {
+            #expect(!PaceImageGenerationRequest.requestsImage(transcript, hasActiveImage: true), "\(transcript)")
+            #expect(
+                !PaceImageGenerationRequest.canUseImageOnlyFastPath(transcript, hasActiveImage: true), "\(transcript)")
+        }
+        for transcript in [
+            "change it to blue", "make this image blue", "make it more colorful",
+            "change the image background to blue", "remove the background from the image",
+        ] {
+            #expect(
+                PaceImageGenerationRequest.canUseImageOnlyFastPath(transcript, hasActiveImage: true), "\(transcript)")
+        }
+    }
+
     @Test @MainActor func pendingSaveSnapshotSurvivesWorkingCopyDismissal() async throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
