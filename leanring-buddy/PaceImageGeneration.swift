@@ -173,7 +173,10 @@ nonisolated enum PaceGeneratedImageStore {
             directory == directory.resolvingSymlinksInPath().standardizedFileURL,
             fileURL == fileURL.resolvingSymlinksInPath().standardizedFileURL
         else { return }
-        try? FileManager.default.removeItem(at: fileURL)
+        let directoryDescriptor = openWithoutSymlinkParents(directory, isDirectory: true)
+        guard directoryDescriptor >= 0 else { return }
+        defer { close(directoryDescriptor) }
+        unlinkat(directoryDescriptor, fileURL.lastPathComponent, 0)
     }
 
     static func importArtifact(

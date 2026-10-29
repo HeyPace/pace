@@ -16,6 +16,7 @@ final class PaceImageOverlayController: ObservableObject {
         @MainActor (PaceImageGenerationRequest, PaceGeneratedImageArtifact?) async throws -> PaceGeneratedImageArtifact
     private var generationTask: Task<PaceGeneratedImageArtifact, Error>?
     private var generationIdentifier: UUID?
+    private var explicitlySavedWorkingArtifactIdentifiers: Set<UUID> = []
     private var overlay: PaceImageOverlayManager?
 
     init(
@@ -55,10 +56,23 @@ final class PaceImageOverlayController: ObservableObject {
         generationIdentifier = nil
         generationTask?.cancel()
         generationTask = nil
-        if let lastSuccessfulArtifact { discardArtifact(lastSuccessfulArtifact) }
+        if let lastSuccessfulArtifact { discardWorkingArtifactIfUnsaved(lastSuccessfulArtifact) }
         lastSuccessfulArtifact = nil
         state = .idle
         overlay?.hide()
+    }
+
+    func preserveExplicitlySavedArtifact(_ artifact: PaceGeneratedImageArtifact, at destination: URL) {
+        if destination.resolvingSymlinksInPath().standardizedFileURL
+            == artifact.fileURL.resolvingSymlinksInPath().standardizedFileURL
+        {
+            explicitlySavedWorkingArtifactIdentifiers.insert(artifact.id)
+        }
+    }
+
+    private func discardWorkingArtifactIfUnsaved(_ artifact: PaceGeneratedImageArtifact) {
+        if explicitlySavedWorkingArtifactIdentifiers.remove(artifact.id) != nil { return }
+        discardArtifact(artifact)
     }
 
     func show() {
@@ -124,11 +138,14 @@ final class PaceImageOverlayController: ObservableObject {
         do {
             let artifact = try await withTaskCancellationHandler(
                 operation: { try await task.value }, onCancel: { task.cancel() })
+            let stillAuthorized = authorizationCheck()
             guard !Task.isCancelled, generationIdentifier == identifier,
-                dismissalGeneration == expectedDismissalGeneration, authorizationCheck()
+                dismissalGeneration == expectedDismissalGeneration, stillAuthorized
             else {
-                discardArtifact(artifact)
-                if generationIdentifier == identifier {
+                discardWorkingArtifactIfUnsaved(artifact)
+                if generationIdentifier == identifier && !stillAuthorized {
+                    dismiss()
+                } else if generationIdentifier == identifier {
                     generationTask = nil
                     generationIdentifier = nil
                     state = lastSuccessfulArtifact.map { .ready($0) } ?? .idle
@@ -138,7 +155,7 @@ final class PaceImageOverlayController: ObservableObject {
             }
             generationTask = nil
             generationIdentifier = nil
-            if let previous, previous.id != artifact.id { discardArtifact(previous) }
+            if let previous, previous.id != artifact.id { discardWorkingArtifactIfUnsaved(previous) }
             lastSuccessfulArtifact = artifact
             state = .ready(artifact)
             return "Your image is ready: \(request.title)."

@@ -135,6 +135,7 @@ private struct PaceImageOverlayView: View {
             do {
                 let validated = try PaceGeneratedImageStore.validatedImageData(at: artifact.fileURL)
                 try validated.data.write(to: destination, options: .atomic)
+                controller.preserveExplicitlySavedArtifact(artifact, at: destination)
                 saveError = nil
             } catch { saveError = "Couldn't save image. \(error.localizedDescription)" }
         }

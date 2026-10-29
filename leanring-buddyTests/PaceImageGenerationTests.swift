@@ -153,6 +153,32 @@ struct PaceImageGenerationTests {
         #expect(permissions == 0o600)
     }
 
+    @Test func workingCopyDiscardRequiresTheExactOwnedArtifactAndPreservesSavedCopies() throws {
+        let directory = PaceGeneratedImageStore.defaultDirectory
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let identifier = UUID()
+        let workingCopy = directory.appendingPathComponent(identifier.uuidString).appendingPathExtension("png")
+        defer { try? FileManager.default.removeItem(at: workingCopy) }
+        try Self.writePNG(to: workingCopy)
+        let savedDirectory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: savedDirectory) }
+        let savedCopy = savedDirectory.appendingPathComponent("saved.png")
+        try FileManager.default.copyItem(at: workingCopy, to: savedCopy)
+        let savedArtifact = PaceGeneratedImageArtifact(
+            id: identifier, fileURL: savedCopy, width: 2, height: 2, request: Self.request)
+        PaceGeneratedImageStore.discardWorkingArtifact(savedArtifact)
+        #expect(FileManager.default.fileExists(atPath: savedCopy.path))
+        let mismatchedArtifact = PaceGeneratedImageArtifact(
+            id: UUID(), fileURL: workingCopy, width: 2, height: 2, request: Self.request)
+        PaceGeneratedImageStore.discardWorkingArtifact(mismatchedArtifact)
+        #expect(FileManager.default.fileExists(atPath: workingCopy.path))
+        let ownedArtifact = PaceGeneratedImageArtifact(
+            id: identifier, fileURL: workingCopy, width: 2, height: 2, request: Self.request)
+        PaceGeneratedImageStore.discardWorkingArtifact(ownedArtifact)
+        #expect(!FileManager.default.fileExists(atPath: workingCopy.path))
+        #expect(FileManager.default.fileExists(atPath: savedCopy.path))
+    }
+
     @Test func rejectsWrongThreadSymlinksNonImageAndOversizedFiles() throws {
         let root = try Self.directory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -305,6 +331,43 @@ struct PaceImageGenerationTests {
         #expect(
             await controller.generate(Self.request, expectedDismissalGeneration: lease) == "I kept the image closed.")
         #expect(calls == 2)
+    }
+
+    @Test @MainActor func consentRevokedAtProviderReturnClosesPriorImageAndDiscardsLateCopy() async {
+        var authorized = true
+        var discarded: [UUID] = []
+        let first = Self.artifact()
+        let late = Self.artifact()
+        var calls = 0
+        let controller = PaceImageOverlayController(showsWindows: false, discardArtifact: { discarded.append($0.id) }) {
+            _, _ in
+            calls += 1
+            if calls == 1 { return first }
+            authorized = false
+            return late
+        }
+        controller.authorizationCheck = { authorized }
+        _ = await controller.generate(Self.request, expectedDismissalGeneration: 0)
+        #expect(
+            await controller.generate(Self.request, expectedDismissalGeneration: 0) == "Image generation was cancelled."
+        )
+        #expect(controller.state == .idle)
+        #expect(controller.lastSuccessfulArtifact == nil)
+        #expect(Set(discarded) == [first.id, late.id])
+    }
+
+    @Test @MainActor func savingAtTheWorkingURLProtectsThatExplicitUserDestination() async {
+        var discarded: [UUID] = []
+        let artifact = Self.artifact()
+        let controller = PaceImageOverlayController(showsWindows: false, discardArtifact: { discarded.append($0.id) }) {
+            _, _ in artifact
+        }
+        controller.authorizationCheck = { true }
+        _ = await controller.generate(Self.request, expectedDismissalGeneration: 0)
+        controller.preserveExplicitlySavedArtifact(artifact, at: artifact.fileURL)
+        controller.dismiss()
+        #expect(discarded.isEmpty)
+        #expect(controller.lastSuccessfulArtifact == nil)
     }
 
     @Test @MainActor func successfulReplacementDiscardsPriorCopyAndFailedEditKeepsCurrentCopy() async {

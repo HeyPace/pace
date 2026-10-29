@@ -165,8 +165,8 @@ bounded title and prompt as description data, never a file path. Raster images
 have no orbit or physical-part interaction. Only the controller's exact tracked
 unsaved Pace working copies are discarded on successful replacement, dismissal,
 reset or a late cancelled result; a failed edit keeps the previous working copy.
-Saved user destinations and the shared Codex generated-images directory are never
-removed by Pace. Resetting thread memory clears Pace's thread snapshot and active
+Saved user destinations (including an explicit save at the working-copy URL)
+and the shared Codex generated-images directory are never removed by Pace. Resetting thread memory clears Pace's thread snapshot and active
 image context, not Codex-managed artifacts or the separate conversation history.
 
 **Global Push-To-Talk Shortcut**: Background push-to-talk uses a listen-only `CGEvent` tap instead of an AppKit global monitor so modifier-based shortcuts like `ctrl + option` are detected more reliably while the app is running in the background.
