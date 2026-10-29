@@ -387,6 +387,8 @@ struct PaceImageGenerationTests {
             "make the image as my new avatar", "make the image for a bright new background",
             "make the image into a new background", "make the image to be a new profile picture",
             "make the image be my preferred background", "change it to my favorite new profile picture",
+            "make the image the background", "make the image a background", "make this image a new profile picture",
+            "make the image as a painting", "make this image to an illustration",
         ] {
             #expect(!PaceImageGenerationRequest.requestsImage(transcript, hasActiveImage: true), "\(transcript)")
             #expect(

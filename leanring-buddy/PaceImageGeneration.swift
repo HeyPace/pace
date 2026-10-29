@@ -28,6 +28,10 @@ nonisolated struct PaceImageGenerationRequest: Codable, Equatable, Sendable {
         let normalized = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         let introduction =
             #"^(?:(?:hey |okay |ok )?pace[, ]+)?(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?"#
+        let setAsPattern =
+            introduction + #"(?:make|change|update)\s+(?:it|this image|that image|the image)\s+"#
+            + #"(?:(?:my|your|our|their|his|her|its|a|an|the|as|for|into|be)\b|to\s+(?:be|my|your|our|their|his|her|its|a|an|the)\b)"#
+        guard normalized.range(of: setAsPattern, options: .regularExpression) == nil else { return false }
         // Only a direct image object is eligible for the consent/fast path.
         // Instructions about diagrams, reminders or existing desktop images
         // must reach the general planner instead of being reinterpreted here.
@@ -61,10 +65,6 @@ nonisolated struct PaceImageGenerationRequest: Codable, Equatable, Sendable {
                 == nil
         else { return false }
         let imageReference = #"(?:this image|that image|the image)"#
-        let setAsPattern =
-            introduction + #"(?:make|change|update)\s+(?:it|this image|that image|the image)\s+"#
-            + #"(?:(?:my|your|our|their|his|her|its|as|for|into|be)\b|to\s+(?:be|my|your|our|their|his|her|its)\b)"#
-        guard normalized.range(of: setAsPattern, options: .regularExpression) == nil else { return false }
         let imageAppearance =
             #"(?:to\s+)?(?:blue|red|green|yellow|purple|orange|pink|black|white|brighter|darker|colorful|monochrome|(?:more|less)\s+(?:colorful|saturated|detailed|vivid|realistic|bright|dark))\b"#
         let editPattern =
