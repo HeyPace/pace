@@ -10,7 +10,7 @@ import Foundation
 
 nonisolated enum PaceQuickPanelMetrics {
     static let width: CGFloat = 520
-    static let height: CGFloat = 420
+    static let height: CGFloat = 540
 }
 
 nonisolated enum PaceAmbientHomePresentation: Equatable {

@@ -108,7 +108,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         )
         XCTAssertEqual(
             panelOpenGeometry?.presentationFrame,
-            CGRect(x: 604, y: 665, width: 520, height: 452)
+            CGRect(x: 604, y: 545, width: 520, height: 572)
         )
     }
 

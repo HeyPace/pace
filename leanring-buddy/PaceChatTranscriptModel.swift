@@ -125,6 +125,21 @@ nonisolated enum PaceChatThreadRowModel: Identifiable, Equatable {
 /// and side-effect free; no instance state.
 nonisolated enum PaceChatTranscriptModel {
 
+    static func quickPanelMessages(
+        _ messages: [PaceChatMessage], selectedQuestionIdentifier: String?, recentQuestionCount: Int = 3
+    ) -> [PaceChatMessage] {
+        if let selectedQuestionIdentifier,
+            let start = messages.firstIndex(where: { $0.id == selectedQuestionIdentifier && $0.role == .user })
+        {
+            let following = messages.index(after: start)
+            let end = messages[following...].firstIndex(where: { $0.role == .user }) ?? messages.endIndex
+            return Array(messages[start..<end])
+        }
+        let questionIndices = messages.indices.filter { messages[$0].role == .user }
+        let start = questionIndices.suffix(max(1, recentQuestionCount)).first ?? messages.startIndex
+        return Array(messages[start...])
+    }
+
     // MARK: Conversation turns → message rows
 
     static func messageRowModel(

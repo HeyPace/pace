@@ -43,6 +43,28 @@ struct PaceChatTranscriptModelTests {
         )
     }
 
+    @Test func quickPanelKeepsRecentQuestionsWithTheirAnswersAndHistoryRemainsSelectable() {
+        let messages = (1...5).flatMap { turn in
+            [
+                makeChatMessage(id: "\(turn):user", body: "Question \(turn)"),
+                makeChatMessage(id: "\(turn):pace", role: .pace, body: "Answer \(turn)"),
+            ]
+        }
+        let recent = PaceChatTranscriptModel.quickPanelMessages(messages, selectedQuestionIdentifier: nil)
+        #expect(recent.map(\.id) == ["3:user", "3:pace", "4:user", "4:pace", "5:user", "5:pace"])
+        let selected = PaceChatTranscriptModel.quickPanelMessages(messages, selectedQuestionIdentifier: "2:user")
+        #expect(selected.map(\.id) == ["2:user", "2:pace"])
+        #expect(messages.count == 10)
+        #expect(PaceChatTranscriptModel.quickPanelMessages(messages, selectedQuestionIdentifier: "missing") == recent)
+    }
+
+    @Test func quickPanelHandlesEmptyHistoryAndAnUnansweredQuestion() {
+        #expect(PaceChatTranscriptModel.quickPanelMessages([], selectedQuestionIdentifier: nil).isEmpty)
+        let pending = makeChatMessage(id: "pending:user", body: "Still thinking")
+        #expect(
+            PaceChatTranscriptModel.quickPanelMessages([pending], selectedQuestionIdentifier: pending.id) == [pending])
+    }
+
     // MARK: - Conversation turns → message rows
 
     @Test func userChatMessageMapsToTrailingAccentTintedRow() {

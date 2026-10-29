@@ -598,67 +598,56 @@ private struct PaceMenuBarOverlayView: View {
 
     private var livingNotchHeader: some View {
         HStack(spacing: 0) {
-            Text(livingNotchPrimaryLabel == "Pace" ? "pace" : livingNotchPrimaryLabel.lowercased())
-                .font(DS.Typography.captionStrong)
-                .foregroundStyle(Color.white.opacity(0.9))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: .leading
-                )
+            Text("pace")
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(0.2)
+                .foregroundStyle(Color.white.opacity(0.88))
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            Color.clear
-                .frame(width: surfaceModel.physicalHousingWidth)
+            Color.clear.frame(width: surfaceModel.physicalHousingWidth)
 
             HStack(spacing: 5) {
-                if surfaceModel.displayMode != .panelOpen {
-                    PaceNotchBrandMark(
-                        signalState: signalState,
-                        isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
-                        audioPowerLevel: companionManager.currentAudioPowerLevel
+                Circle()
+                    .fill(
+                        companionManager.isOffDeviceTurnInFlight ? DS.Colors.offDeviceSignal : Color.white.opacity(0.55)
                     )
-
-                    PaceCompanionCaptureIndicators(controlCenter: companionControlCenter)
+                    .frame(width: 4, height: 4)
+                if companionManager.isOffDeviceTurnInFlight {
+                    Text("\(offDevicePlannerLabel) ↗")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(DS.Colors.offDeviceSignal)
+                        .help("This request uses the off-device planner you enabled.")
+                } else {
+                    Text(compactActivityLabel)
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.white.opacity(0.7))
+                        .lineLimit(1)
                 }
-
-                if surfaceModel.displayMode == .panelOpen {
-                    notchControlButton(
-                        systemName: "gearshape",
-                        help: "Open Pace settings"
-                    ) {
-                        PaceSettingsWindowManager.shared.show(companionManager: companionManager)
-                        onClose()
-                    }
-                    .keyboardShortcut(",", modifiers: [.command])
-
-                    notchControlButton(
-                        systemName: "xmark",
-                        help: "Close Pace"
-                    ) {
-                        onClose()
-                    }
-                    .keyboardShortcut(.escape, modifiers: [])
-                }
+                PaceCompanionCaptureIndicators(controlCenter: companionControlCenter)
             }
-            .frame(
-                maxWidth: .infinity,
-                alignment: .trailing
-            )
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .padding(.horizontal, surfaceModel.displayMode == .panelOpen ? 18 : 10)
+        .padding(.horizontal, 12)
         .pointerCursor()
     }
 
-    private var livingNotchPrimaryLabel: String {
-        guard surfaceModel.displayMode != .panelOpen else {
-            return "Pace"
+    private var offDevicePlannerLabel: String {
+        if companionManager.activePlannerTier == .cliDirect {
+            return companionManager.activePlannerTierCLIDirectUpstream.displayLabel
         }
+        return "Off-device"
+    }
 
-        guard companionManager.currentTurnHUDState.status != .idle else {
-            return "Pace"
+    private var compactActivityLabel: String {
+        if companionManager.voiceState == .idle {
+            return companionManager.allPermissionsGranted ? "Ready" : "Chat"
         }
-        return signalPresentation.compactLabel
+        switch companionManager.voiceState {
+        case .listening: return "Listening"
+        case .processing: return "Thinking"
+        case .responding: return "Speaking"
+        case .idle: return "Chat"
+        }
     }
 
     private func notchControlButton(

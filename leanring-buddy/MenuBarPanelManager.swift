@@ -336,10 +336,9 @@ final class MenuBarPanelManager: NSObject {
         } else {
             return
         }
-        // Let the panel tuck under the rounded Living Notch lip so the two
-        // AppKit windows read as one center-out expansion instead of a detached
-        // dropdown with desktop showing through between them.
-        let connectedNotchOverlap: CGFloat = 4
+        // Leave a small desktop gap so the conversation reads as an anchored
+        // panel, independent of the physical camera housing.
+        let anchorGap: CGFloat = 10
 
         // Calculate the panel's content height from the hosting view's fitting size
         // so the panel snugly wraps the SwiftUI content instead of using a fixed height.
@@ -347,7 +346,7 @@ final class MenuBarPanelManager: NSObject {
         let actualPanelHeight = fittingSize.height
 
         var panelOriginX = anchorFrame.midX - (panelWidth / 2)
-        let panelOriginY = anchorFrame.minY - actualPanelHeight + connectedNotchOverlap
+        let panelOriginY = anchorFrame.minY - actualPanelHeight - anchorGap
 
         // Keep the panel fully on-screen. A right-corner anchor (the mascot
         // perch) would otherwise center the panel under the mascot and push
@@ -367,9 +366,9 @@ final class MenuBarPanelManager: NSObject {
 
     private func defaultMenuBarAnchorFrame() -> NSRect? {
         if let livingNotchGeometry = PaceLivingNotchScreenGeometryResolver.geometry(
-            displayMode: .panelOpen
+            displayMode: .hardwareIdle
         ) {
-            return livingNotchGeometry.presentationFrame
+            return livingNotchGeometry.physicalHousingFrame
         }
 
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return nil }

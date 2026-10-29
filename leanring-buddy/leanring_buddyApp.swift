@@ -108,15 +108,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         PaceTTSSidecarLauncher.startIfNotRunning()
         prewarmMailForFastDraftsIfNeeded()
 
-        let menuBarPanelManager = MenuBarPanelManager(
-            companionManager: companionManager,
-            onVisibilityChanged: { [weak self] isVisible in
-                guard self?.menuBarOverlayManager?.canPresentLivingNotch == true else {
-                    return
-                }
-                self?.menuBarOverlayManager?.setQuickPanelPresented(isVisible)
-            }
-        )
+        let menuBarPanelManager = MenuBarPanelManager(companionManager: companionManager)
         self.menuBarPanelManager = menuBarPanelManager
 
         // The notch is Pace's primary ambient surface. Keep the former
@@ -130,20 +122,6 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             }
         )
         self.menuBarOverlayManager = menuBarOverlayManager
-        menuBarPanelManager.useIntegratedLivingNotchPresentation(
-            isAvailable: { [weak menuBarOverlayManager] in
-                menuBarOverlayManager?.canPresentLivingNotch == true
-            },
-            isPresented: { [weak menuBarOverlayManager] in
-                menuBarOverlayManager?.isQuickPanelOpen == true
-            },
-            show: { [weak menuBarOverlayManager] in
-                menuBarOverlayManager?.setQuickPanelPresented(true)
-            },
-            hide: { [weak menuBarOverlayManager] in
-                menuBarOverlayManager?.setQuickPanelPresented(false)
-            }
-        )
         if useRightCornerMascot {
             let mascot = PaceAvatarOverlayManager()
             mascot.attach(to: companionManager)
