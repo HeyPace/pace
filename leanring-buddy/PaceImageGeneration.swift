@@ -57,7 +57,7 @@ nonisolated struct PaceImageGenerationRequest: Codable, Equatable, Sendable {
         // requests into edits. Ambiguous language continues to the planner.
         guard
             normalized.range(
-                of: #"\b(?:reminder|calendar|email|volume|louder)\b"#, options: .regularExpression)
+                of: #"\b(?:wallpaper|desktop|reminder|calendar|email|volume|louder)\b"#, options: .regularExpression)
                 == nil
         else { return false }
         let imageReference = #"(?:this image|that image|the image)"#

@@ -30,7 +30,7 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `PaceImageGeneration.swift` | ~360 | Typed image request/artifact/state, isolated authenticated Codex native image client, process-thread-only output discovery, ImageIO size/type validation and private nonsymlink artifact storage. |
 | `PaceImageOverlayController.swift` | ~205 | Awaited image-tool draining, generation/dismissal leases, consent/cancellation, retained successful artwork and bounded follow-up context. |
 | `PaceImageOverlay.swift` | ~165 | Transparent native image panel, graphite progress/chrome, zoom, accessible pointer/hover controls and native Save dialog. |
-| `leanring-buddyTests/PaceImageGenerationTests.swift` | ~570 | Request/routing contracts, process isolation, artifact containment/type/size, stale dismissal and edit history, ordered drain and opt-in actual Codex generation/edit integration. |
+| `leanring-buddyTests/PaceImageGenerationTests.swift` | ~620 | Request/routing contracts, process isolation, artifact containment/type/size, stale dismissal and edit history, ordered drain and opt-in actual Codex generation/edit integration. |
 | `PaceDiagramDocument.swift` | ~200 | Validated typed visual explanation, stable part IDs, optional solid figure, 2D shape/connection bounds, overlap rejection and screen-aware request routing. |
 | `PaceDiagramOverlayController.swift` | ~130 | Persistent diagram and selected-part ownership, bounded planner context, visual-tool draining, normal-conversation follow-up and stale-presentation guard. |
 | `PaceDiagramOverlay.swift` | ~435 | Native screen diagram, click-through connectors and separate nonactivating interactive islands, local selection/detail, hover, reduced motion and Escape cleanup. |

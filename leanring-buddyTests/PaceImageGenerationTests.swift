@@ -365,6 +365,20 @@ struct PaceImageGenerationTests {
                 "draw me a picture of a cat and open Music", hasActiveImage: false))
     }
 
+    @Test func activeImageWallpaperAndDesktopOperationsRemainWithGeneralPlanner() {
+        for transcript in [
+            "make the image my new wallpaper", "make this image my mac wallpaper",
+            "make this image my new desktop background", "make this image wallpaper",
+            "change the image on my desktop",
+        ] {
+            #expect(!PaceImageGenerationRequest.requestsImage(transcript, hasActiveImage: true), "\(transcript)")
+            #expect(
+                !PaceImageGenerationRequest.canUseImageOnlyFastPath(transcript, hasActiveImage: true), "\(transcript)")
+        }
+        #expect(PaceImageGenerationRequest.requestsImage("remove the background from the image", hasActiveImage: true))
+        #expect(PaceImageGenerationRequest.requestsImage("change the image background to blue", hasActiveImage: true))
+    }
+
     @Test @MainActor func pendingSaveSnapshotSurvivesWorkingCopyDismissal() async throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
