@@ -40,6 +40,9 @@ enum PaceLMStudioModelLoader {
     /// configured model.
     private static var keepaliveTask: Task<Void, Never>?
 
+    private static var effectivePlannerUsesLMStudio = false
+    private static var effectivePlannerAllowsLocalVLM = false
+
     // MARK: - Launch: load + warm models
 
     /// Kick off warmup for the configured planner (and VLM, if
@@ -48,12 +51,12 @@ enum PaceLMStudioModelLoader {
     /// LM Studio embedding model because that can evict the conversational
     /// model on single-model runtimes.
     /// After warmup finishes, starts the periodic keepalive heartbeat.
-    static func warmUpConfiguredModelsAsync() {
-        let selectedTier = PacePlannerTierStore.loadConfiguration().tier
-        let needsPlanner = shouldKeepPlannerWarm(
-            selectedTier: selectedTier, usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessPlanner())
+    static func warmUpConfiguredModelsAsync(plannerClient: any BuddyPlannerClient) {
+        effectivePlannerUsesLMStudio = BuddyPlannerClientFactory.requiresLMStudioPlannerWarmup(for: plannerClient)
+        effectivePlannerAllowsLocalVLM = !(plannerClient is PaceLocalCLIPlannerClient)
+        let needsPlanner = effectivePlannerUsesLMStudio
         let needsVLM = shouldKeepVLMWarm(
-            selectedTier: selectedTier,
+            effectivePlannerAllowsLocalVLM: effectivePlannerAllowsLocalVLM,
             screenContextEnabled: PaceUserPreferencesStore.boolWithInfoPlistSeed(
                 .useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext"),
             usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessVLM())
@@ -69,15 +72,13 @@ enum PaceLMStudioModelLoader {
 
     /// Awaitable version for tests / one-shot scripts.
     static func warmUpConfiguredModels() async {
-        let shouldWarmPlanner = shouldKeepPlannerWarm(
-            selectedTier: PacePlannerTierStore.loadConfiguration().tier,
-            usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessPlanner())
+        let shouldWarmPlanner = effectivePlannerUsesLMStudio
         let configuredPlannerIdentifier =
             AppBundleConfiguration
             .stringValue(forKey: "LocalPlannerModelIdentifier")
             ?? "qwen3-4b-instruct"
         let useLocalVLM = shouldKeepVLMWarm(
-            selectedTier: PacePlannerTierStore.loadConfiguration().tier,
+            effectivePlannerAllowsLocalVLM: effectivePlannerAllowsLocalVLM,
             screenContextEnabled: PaceUserPreferencesStore.boolWithInfoPlistSeed(
                 .useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext"),
             usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessVLM())
@@ -249,7 +250,7 @@ enum PaceLMStudioModelLoader {
             ?? AppBundleConfiguration.stringValue(forKey: "LocalPlannerModelIdentifier")
             ?? "qwen3-4b-instruct"
         let useLocalVLM = shouldKeepVLMWarm(
-            selectedTier: PacePlannerTierStore.loadConfiguration().tier,
+            effectivePlannerAllowsLocalVLM: effectivePlannerAllowsLocalVLM,
             screenContextEnabled: PaceUserPreferencesStore.boolWithInfoPlistSeed(
                 .useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext"),
             usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessVLM())
@@ -258,9 +259,7 @@ enum PaceLMStudioModelLoader {
             .stringValue(forKey: "LocalVLMModelIdentifier")
             ?? "ui-venus-1.5-2b"
 
-        let shouldPingPlanner = shouldKeepPlannerWarm(
-            selectedTier: PacePlannerTierStore.loadConfiguration().tier,
-            usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessPlanner())
+        let shouldPingPlanner = effectivePlannerUsesLMStudio
         async let plannerPing: Void = {
             guard shouldPingPlanner else { return }
             await sendSingleKeepalivePing(modelIdentifier: plannerIdentifier)
@@ -272,15 +271,11 @@ enum PaceLMStudioModelLoader {
         _ = await (plannerPing, vlmPing)
     }
 
-    nonisolated static func shouldKeepPlannerWarm(selectedTier: PacePlannerTier, usesMLX: Bool) -> Bool {
-        selectedTier == .local && !usesMLX
-    }
-
     nonisolated static func shouldKeepVLMWarm(
-        selectedTier: PacePlannerTier, screenContextEnabled: Bool, usesMLX: Bool
+        effectivePlannerAllowsLocalVLM: Bool, screenContextEnabled: Bool, usesMLX: Bool
     ) -> Bool {
         // Direct CLI screen turns explicitly bypass local VLM enrichment.
-        selectedTier != .cliDirect && screenContextEnabled && !usesMLX
+        effectivePlannerAllowsLocalVLM && screenContextEnabled && !usesMLX
     }
 
     private static func sendSingleKeepalivePing(modelIdentifier: String) async {

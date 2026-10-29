@@ -157,7 +157,9 @@ rejects symlink parents; validated bytes are copied to a private Pace-owned stor
 before job cleanup. Output prose is never interpreted as a path or a command.
 The cancellable300-second job presents progress immediately in a native floating
 panel with transparent artwork and quiet graphite controls. Zoom and Save use
-native UI. A failed edit retains the previous successful image; explicit close,
+native UI. Save snapshots the validated bytes before its chooser opens, so
+replacement or dismissal cannot invalidate a pending save. A failed edit retains
+the previous successful image; explicit close,
 thread reset, planner/provider change, consent loss, Read My Screen revocation or
 shutdown invalidates in-flight results and clears active context. New diagrams
 and images replace one another. Later turns receive only the active image's

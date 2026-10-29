@@ -44,16 +44,6 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             ),
             .active
         )
-
-        XCTAssertEqual(
-            PaceLivingNotchDisplayMode.resolve(
-                signalState: .blocked,
-                isHovering: false,
-                showsPersistentRuntimeIndicator: true,
-                isPanelOpen: true
-            ),
-            .panelOpen
-        )
     }
 
     func testLivingNotchGeometryMatchesReportedMacBookHousing() {
@@ -82,14 +72,6 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             auxiliaryTopRightArea: auxiliaryTopRightArea,
             displayMode: .active
         )
-        let panelOpenGeometry = PaceLivingNotchGeometry.resolve(
-            screenFrame: screenFrame,
-            safeAreaTopInset: 32,
-            auxiliaryTopLeftArea: auxiliaryTopLeftArea,
-            auxiliaryTopRightArea: auxiliaryTopRightArea,
-            displayMode: .panelOpen
-        )
-
         let expectedPhysicalHousingFrame = CGRect(
             x: 771.5,
             y: 1_085,
@@ -106,10 +88,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             activeGeometry?.presentationFrame,
             CGRect(x: 694, y: 1_085, width: 340, height: 32)
         )
-        XCTAssertEqual(
-            panelOpenGeometry?.presentationFrame,
-            CGRect(x: 604, y: 545, width: 520, height: 572)
-        )
+
     }
 
     func testLivingNotchExpansionKeepsTheHardwareHousingCenteredAndTopAligned() throws {
@@ -137,33 +116,6 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         XCTAssertGreaterThan(activeGeometry.presentationFrame.width, idleGeometry.presentationFrame.width)
         XCTAssertEqual(activeGeometry.presentationFrame.maxY, idleGeometry.presentationFrame.maxY)
         XCTAssertEqual(activeGeometry.presentationFrame.minY, idleGeometry.presentationFrame.minY)
-    }
-
-    func testOpenPanelExpandsEquallyFromTheHousingCenterAndStaysOnScreen() throws {
-        let screenFrame = CGRect(x: -1_200, y: 180, width: 1_728, height: 1_117)
-        let auxiliaryTopLeftArea = CGRect(x: -1_200, y: 1_265, width: 771.5, height: 32)
-        let auxiliaryTopRightArea = CGRect(x: -243.5, y: 1_265, width: 771.5, height: 32)
-
-        let openGeometry = try XCTUnwrap(PaceLivingNotchGeometry.resolve(
-            screenFrame: screenFrame,
-            safeAreaTopInset: 32,
-            auxiliaryTopLeftArea: auxiliaryTopLeftArea,
-            auxiliaryTopRightArea: auxiliaryTopRightArea,
-            displayMode: .panelOpen
-        ))
-
-        XCTAssertEqual(openGeometry.presentationFrame.width, PaceQuickPanelMetrics.width)
-        XCTAssertEqual(
-            openGeometry.presentationFrame.height,
-            openGeometry.physicalHousingFrame.height + PaceQuickPanelMetrics.height
-        )
-        XCTAssertEqual(
-            openGeometry.presentationFrame.midX,
-            openGeometry.physicalHousingFrame.midX
-        )
-        XCTAssertEqual(openGeometry.presentationFrame.maxY, screenFrame.maxY)
-        XCTAssertGreaterThanOrEqual(openGeometry.presentationFrame.minX, screenFrame.minX + 8)
-        XCTAssertLessThanOrEqual(openGeometry.presentationFrame.maxX, screenFrame.maxX - 8)
     }
 
     func testLivingNotchGeometryRejectsDisplaysWithoutReliableHousingBounds() {

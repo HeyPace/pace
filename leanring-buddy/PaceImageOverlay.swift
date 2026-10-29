@@ -126,6 +126,13 @@ private struct PaceImageOverlayView: View {
 
     private func save() {
         guard let artifact = controller.lastSuccessfulArtifact else { return }
+        let snapshot: PaceGeneratedImageSaveSnapshot
+        do {
+            snapshot = try PaceGeneratedImageSaveSnapshot(artifact: artifact)
+        } catch {
+            saveError = "Couldn't save image. \(error.localizedDescription)"
+            return
+        }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [artifact.fileURL.pathExtension == "png" ? .png : .jpeg]
         panel.nameFieldStringValue =
@@ -133,8 +140,7 @@ private struct PaceImageOverlayView: View {
         panel.begin { response in
             guard response == .OK, let destination = panel.url else { return }
             do {
-                let validated = try PaceGeneratedImageStore.validatedImageData(at: artifact.fileURL)
-                try validated.data.write(to: destination, options: .atomic)
+                try snapshot.write(to: destination)
                 controller.preserveExplicitlySavedArtifact(artifact, at: destination)
                 saveError = nil
             } catch { saveError = "Couldn't save image. \(error.localizedDescription)" }

@@ -20,10 +20,10 @@ extension CompanionManager {
         }
         activePlannerTier = newTier
         PacePlannerTierStore.saveTier(newTier)
-        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync()
         // Rebuild planner so the next turn uses the freshly-picked tier
         // without requiring an app restart.
         plannerClient = BuddyPlannerClientFactory.makeDefault()
+        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
 
     /// Selects a planner tier from any picker surface, running the SAME
@@ -87,6 +87,7 @@ extension CompanionManager {
         activePlannerTierCLIDirectUpstream = newUpstream
         PacePlannerTierStore.saveCLIDirectUpstream(newUpstream)
         plannerClient = BuddyPlannerClientFactory.makeDefault()
+        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
 
     func setDirectAPIProvider(_ newProvider: PaceDirectAPIProvider) {
@@ -108,18 +109,21 @@ extension CompanionManager {
             setDirectAPIModelIdentifier(newProvider.defaultModelIdentifier)
         }
         plannerClient = BuddyPlannerClientFactory.makeDefault()
+        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
 
     func setDirectAPIModelIdentifier(_ newModelIdentifier: String) {
         directAPIModelIdentifier = newModelIdentifier
         PacePlannerTierStore.saveDirectAPIModelIdentifier(newModelIdentifier)
         plannerClient = BuddyPlannerClientFactory.makeDefault()
+        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
 
     func setDirectAPICustomEndpointURLString(_ newCustomEndpointURLString: String) {
         directAPICustomEndpointURLString = newCustomEndpointURLString
         PacePlannerTierStore.saveDirectAPICustomEndpointURL(newCustomEndpointURLString)
         plannerClient = BuddyPlannerClientFactory.makeDefault()
+        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
 
     func setDirectAPIFallsBackToLocalOnCloudFailure(_ enabled: Bool) {
@@ -201,6 +205,7 @@ extension CompanionManager {
         let didStore = PaceKeychainStore.storeAPIKey(apiKey, for: provider)
         if didStore {
             plannerClient = BuddyPlannerClientFactory.makeDefault()
+            PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
         }
         return didStore
     }
@@ -213,6 +218,7 @@ extension CompanionManager {
         let didDelete = PaceKeychainStore.deleteAPIKey(for: provider)
         if didDelete {
             plannerClient = BuddyPlannerClientFactory.makeDefault()
+            PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
         }
         return didDelete
     }

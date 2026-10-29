@@ -48,21 +48,11 @@ final class MenuBarPanelManager: NSObject {
     private let usesChatPanelAsPrimarySurface: Bool
     private let panelWidth: CGFloat
     private let panelHeight: CGFloat
-    private let onVisibilityChanged: (Bool) -> Void
-    private var integratedPanelIsAvailable: (() -> Bool)?
-    private var integratedPanelIsPresented: (() -> Bool)?
-    private var showIntegratedPanel: (() -> Void)?
-    private var hideIntegratedPanel: (() -> Void)?
-
-    init(
-        companionManager: CompanionManager,
-        onVisibilityChanged: @escaping (Bool) -> Void = { _ in }
-    ) {
+    init(companionManager: CompanionManager) {
         let shouldUseChatPanelAsPrimarySurface = PaceUserPreferencesStore.bool(
             for: .useChatPanelAsPrimarySurface
         )
         self.companionManager = companionManager
-        self.onVisibilityChanged = onVisibilityChanged
         self.usesChatPanelAsPrimarySurface = shouldUseChatPanelAsPrimarySurface
         if shouldUseChatPanelAsPrimarySurface {
             self.panelWidth = 320
@@ -112,19 +102,6 @@ final class MenuBarPanelManager: NSObject {
     }
 
     func togglePanel() {
-        if shouldUseIntegratedLivingNotch,
-            let integratedPanelIsPresented,
-            let showIntegratedPanel,
-            let hideIntegratedPanel
-        {
-            if integratedPanelIsPresented() {
-                hideIntegratedPanel()
-            } else {
-                showIntegratedPanel()
-            }
-            return
-        }
-
         if let panel, panel.isVisible {
             hidePanel()
         } else {
@@ -142,10 +119,6 @@ final class MenuBarPanelManager: NSObject {
     /// already-open panel mid-turn).
     func showPanel(anchoredTo anchorFrame: NSRect) {
         panelAnchorFrameOverride = anchorFrame
-        if shouldUseIntegratedLivingNotch, let showIntegratedPanel {
-            showIntegratedPanel()
-            return
-        }
 
         if panel?.isVisible != true {
             showPanel()
@@ -167,26 +140,9 @@ final class MenuBarPanelManager: NSObject {
         hidePanel()
     }
 
-    func useIntegratedLivingNotchPresentation(
-        isAvailable: @escaping () -> Bool,
-        isPresented: @escaping () -> Bool,
-        show: @escaping () -> Void,
-        hide: @escaping () -> Void
-    ) {
-        integratedPanelIsAvailable = isAvailable
-        integratedPanelIsPresented = isPresented
-        showIntegratedPanel = show
-        hideIntegratedPanel = hide
-    }
-
     // MARK: - Panel Lifecycle
 
     private func showPanel() {
-        if shouldUseIntegratedLivingNotch, let showIntegratedPanel {
-            showIntegratedPanel()
-            return
-        }
-
         if panel == nil {
             createPanel()
         }
@@ -196,7 +152,6 @@ final class MenuBarPanelManager: NSObject {
         positionPanelBelowAnchor()
         let expandedPanelFrame = panel.frame
         visibilityAnimationGeneration += 1
-        onVisibilityChanged(true)
 
         if wasVisible == false,
             NSWorkspace.shared.accessibilityDisplayShouldReduceMotion == false
@@ -228,11 +183,6 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func hidePanel() {
-        if shouldUseIntegratedLivingNotch, let hideIntegratedPanel {
-            hideIntegratedPanel()
-            return
-        }
-
         guard let panel, panel.isVisible else {
             removeClickOutsideMonitor()
             return
@@ -242,7 +192,6 @@ final class MenuBarPanelManager: NSObject {
         let animationGeneration = visibilityAnimationGeneration
         let expandedPanelFrame = panel.frame
         removeClickOutsideMonitor()
-        onVisibilityChanged(false)
 
         guard NSWorkspace.shared.accessibilityDisplayShouldReduceMotion == false else {
             panel.orderOut(nil)
@@ -273,10 +222,6 @@ final class MenuBarPanelManager: NSObject {
                 panel.alphaValue = 1
             }
         }
-    }
-
-    private var shouldUseIntegratedLivingNotch: Bool {
-        integratedPanelIsAvailable?() == true
     }
 
     private func createPanel() {

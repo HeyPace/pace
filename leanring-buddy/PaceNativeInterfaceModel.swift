@@ -38,32 +38,17 @@ nonisolated enum PaceLivingNotchDisplayMode: Equatable {
     case hardwareIdle
     case hover
     case active
-    case panelOpen
 
     static func resolve(
         signalState: PaceSignalState,
         isHovering: Bool,
-        showsPersistentRuntimeIndicator: Bool,
-        isPanelOpen: Bool = false
+        showsPersistentRuntimeIndicator: Bool
     ) -> PaceLivingNotchDisplayMode {
-        if isPanelOpen {
-            return .panelOpen
-        }
-
         if signalState != .ready || showsPersistentRuntimeIndicator {
             return .active
         }
 
         return isHovering ? .hover : .hardwareIdle
-    }
-
-    var additionalHeight: CGFloat {
-        switch self {
-        case .hardwareIdle, .hover, .active:
-            return 0
-        case .panelOpen:
-            return PaceQuickPanelMetrics.height
-        }
     }
 
     var preferredWidth: CGFloat? {
@@ -74,8 +59,6 @@ nonisolated enum PaceLivingNotchDisplayMode: Equatable {
             return 300
         case .active:
             return 340
-        case .panelOpen:
-            return PaceQuickPanelMetrics.width
         }
     }
 }
@@ -115,7 +98,7 @@ nonisolated struct PaceLivingNotchGeometry: Equatable {
             width: physicalHousingWidth,
             height: safeAreaTopInset
         )
-        let presentationHeight = safeAreaTopInset + displayMode.additionalHeight
+        let presentationHeight = safeAreaTopInset
         let maximumPresentationWidth = max(physicalHousingWidth, screenFrame.width - 16)
         let presentationWidth = min(
             max(physicalHousingWidth, displayMode.preferredWidth ?? physicalHousingWidth),

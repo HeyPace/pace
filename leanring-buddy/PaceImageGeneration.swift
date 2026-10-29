@@ -32,19 +32,41 @@ nonisolated struct PaceImageGenerationRequest: Codable, Equatable, Sendable {
         // Instructions about diagrams, reminders or existing desktop images
         // must reach the general planner instead of being reinterpreted here.
         let imageObject =
-            #"(?:an? |one |the |this |that )?(?:(?:new|beautiful|detailed|realistic|photorealistic|stylized|digital|watercolor|labelled|labeled|blue|red|green|small|large)\s+){0,4}(?:image|illustration|picture|painting|photo|artwork)\b"#
-        if normalized.range(
-            of: introduction + #"(?:generate|create|draw|make|paint)\s+"# + imageObject
-                + #"(?:\s+(?:of|showing|depicting|for|from|with)\b|[.!?]?$)"#,
-            options: .regularExpression) != nil
+            #"(?:an? |one |the |this |that )?((?:[a-z][a-z'-]{0,23}\s+){0,4})(?:image|illustration|picture|painting|photo|artwork)\b"#
+        let creationPattern =
+            introduction + #"(?:generate|create|draw|make|paint)\s+(?:(?:me|us)\s+)?"#
+            + imageObject + #"(?:\s+(?:of|showing|depicting|for|from|with)\b|[.!?]?$)"#
+        if let expression = try? NSRegularExpression(pattern: creationPattern),
+            let match = expression.firstMatch(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)),
+            let modifiersRange = Range(match.range(at: 1), in: normalized)
         {
-            return true
+            let modifiers = normalized[modifiersRange].split(whereSeparator: \.isWhitespace).map(String.init)
+            let otherObjects: Set<String> = [
+                "diagram", "flowchart", "reminder", "note", "email", "mail", "message", "calendar", "event",
+                "task", "list", "playlist", "document", "folder", "wallpaper", "desktop", "frame",
+                "of", "to", "for", "from", "in", "on", "around", "through", "about", "with", "into", "over", "under",
+                "by",
+            ]
+            if modifiers.allSatisfy({ !otherObjects.contains($0) }) { return true }
         }
         guard hasActiveImage else { return false }
-        return normalized.range(
-            of: introduction
-                + #"(?:(?:edit|regenerate|repaint)\s+(?:it|this image|that image|the image)\b|(?:change|update|make)\s+(?:this image|that image|the image)\s+(?!my desktop|my wallpaper|the wallpaper|my background)|(?:change|make)\s+it\s+(?:blue|red|green|yellow|brighter|darker|more detailed|less detailed)\b|add\s+(?:labels|text)\b|remove\s+.+\s+from\s+(?:it|the image)\b)"#,
-            options: .regularExpression) != nil
+        // A displayed image does not make unrelated app, volume or reminder
+        // requests into edits. Ambiguous language continues to the planner.
+        guard
+            normalized.range(
+                of: #"\b(?:wallpaper|desktop|reminder|calendar|email|volume|louder)\b"#, options: .regularExpression)
+                == nil
+        else { return false }
+        let imageReference = #"(?:this image|that image|the image)"#
+        let imageAppearance =
+            #"(?:to\s+)?(?:blue|red|green|yellow|purple|orange|pink|black|white|brighter|darker|colorful|monochrome|(?:more|less)\s+(?:colorful|saturated|detailed|vivid|realistic|bright|dark))\b"#
+        let editPattern =
+            introduction
+            + #"(?:(?:edit|regenerate|repaint)\s+(?:it|"# + imageReference + #")\b|(?:change|update|make)\s+"#
+            + imageReference + #"(?:\s+|[.!?]?$)|(?:change|make)\s+it\s+"# + imageAppearance
+            + #"|add\s+(?:labels|text)(?:[.!?]?$|\s+(?:to|on)\s+(?:it|"# + imageReference
+            + #")[.!?]?$)|remove\s+.+\s+from\s+(?:it|"# + imageReference + #")\b)"#
+        return normalized.range(of: editPattern, options: .regularExpression) != nil
     }
 
     static func requiresScreenContext(_ transcript: String, hasActiveImage: Bool) -> Bool {
@@ -75,6 +97,18 @@ nonisolated struct PaceGeneratedImageArtifact: Equatable, Sendable, Identifiable
     let width: Int
     let height: Int
     let request: PaceImageGenerationRequest
+}
+
+nonisolated struct PaceGeneratedImageSaveSnapshot: Sendable {
+    private let imageData: Data
+
+    init(artifact: PaceGeneratedImageArtifact) throws {
+        imageData = try PaceGeneratedImageStore.validatedImageData(at: artifact.fileURL).data
+    }
+
+    func write(to destination: URL) throws {
+        try imageData.write(to: destination, options: .atomic)
+    }
 }
 
 nonisolated enum PaceImageGenerationState: Equatable, Sendable {

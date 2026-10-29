@@ -273,19 +273,80 @@ struct PaceImageGenerationTests {
                 "create a detailed illustration of a camera", hasActiveImage: false))
     }
 
-    @Test func localModelWarmupFollowsTheExecutedPlannerAndScreenPath() {
-        #expect(!PaceLMStudioModelLoader.shouldKeepPlannerWarm(selectedTier: .cliDirect, usesMLX: false))
-        #expect(PaceLMStudioModelLoader.shouldKeepPlannerWarm(selectedTier: .local, usesMLX: false))
-        #expect(!PaceLMStudioModelLoader.shouldKeepPlannerWarm(selectedTier: .local, usesMLX: true))
-        #expect(
-            !PaceLMStudioModelLoader.shouldKeepVLMWarm(
-                selectedTier: .cliDirect, screenContextEnabled: true, usesMLX: false))
+    @Test @MainActor func localModelWarmupUsesTheActualFactoryFallbackWithoutLoadingModels() {
+        let dispatch = BuddyPlannerClientFactory.cliDirectDispatchDecision(
+            hasAcceptedDirectSpawnConsent: false, canRunDirectSpawnTurn: false)
+        #expect(dispatch == .fallBackToLocal(reason: "direct-spawn consent not accepted"))
+        let localFallback = LocalPlannerClient(
+            baseURL: URL(string: "http://127.0.0.1:1234/v1")!, modelIdentifier: "fixture")
+        let directCLI = PaceLocalCLIPlannerClient(upstream: .codex, modelIdentifier: nil)
+        #expect(BuddyPlannerClientFactory.requiresLMStudioPlannerWarmup(for: localFallback))
+        #expect(!BuddyPlannerClientFactory.requiresLMStudioPlannerWarmup(for: directCLI))
         #expect(
             PaceLMStudioModelLoader.shouldKeepVLMWarm(
-                selectedTier: .appleFoundationModels, screenContextEnabled: true, usesMLX: false))
+                effectivePlannerAllowsLocalVLM: true, screenContextEnabled: true, usesMLX: false))
         #expect(
             !PaceLMStudioModelLoader.shouldKeepVLMWarm(
-                selectedTier: .local, screenContextEnabled: false, usesMLX: false))
+                effectivePlannerAllowsLocalVLM: false, screenContextEnabled: true, usesMLX: false))
+        #expect(
+            !PaceLMStudioModelLoader.shouldKeepVLMWarm(
+                effectivePlannerAllowsLocalVLM: true, screenContextEnabled: true, usesMLX: true))
+        #expect(
+            !PaceLMStudioModelLoader.shouldKeepVLMWarm(
+                effectivePlannerAllowsLocalVLM: true, screenContextEnabled: false, usesMLX: false))
+    }
+
+    @Test func commonImageCreationAndSpecificEditsStayInsideTheirDirectObjectBoundary() {
+        for transcript in [
+            "draw me a picture of a cat", "can you make me an image of a fox",
+            "create a cute image of a dog", "make a cat picture", "paint us a watercolor illustration of the sea",
+        ] {
+            #expect(
+                PaceImageGenerationRequest.canUseImageOnlyFastPath(transcript, hasActiveImage: false), "\(transcript)")
+        }
+        for transcript in [
+            "change it to blue", "make it more colorful", "change the image", "add labels to the image",
+            "add text on it",
+        ] {
+            #expect(PaceImageGenerationRequest.requestsImage(transcript, hasActiveImage: true), "\(transcript)")
+            #expect(!PaceImageGenerationRequest.requestsImage(transcript, hasActiveImage: false), "\(transcript)")
+        }
+        for transcript in [
+            "pace, add text to my reminder", "add labels to my calendar", "add text to my note",
+            "draw me a diagram of a photo", "create a reminder to buy a picture frame",
+            "draw a circle around the image", "make this image my desktop wallpaper", "change it to dark mode",
+            "make it louder",
+        ] {
+            #expect(!PaceImageGenerationRequest.requestsImage(transcript, hasActiveImage: true), "\(transcript)")
+            #expect(!PaceImageGenerationRequest.requestsImage(transcript, hasActiveImage: false), "\(transcript)")
+        }
+        #expect(
+            !PaceImageGenerationRequest.canUseImageOnlyFastPath(
+                "draw me a picture of a cat and open Music", hasActiveImage: false))
+    }
+
+    @Test @MainActor func pendingSaveSnapshotSurvivesWorkingCopyDismissal() async throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let workingCopy = directory.appendingPathComponent("working.png")
+        try Self.writePNG(to: workingCopy)
+        let originalData = try Data(contentsOf: workingCopy)
+        let artifact = PaceGeneratedImageArtifact(
+            id: UUID(), fileURL: workingCopy, width: 2, height: 2, request: Self.request)
+        let controller = PaceImageOverlayController(
+            showsWindows: false,
+            discardArtifact: { artifact in
+                try? FileManager.default.removeItem(at: artifact.fileURL)
+            }, generateImage: { _, _ in artifact })
+        controller.authorizationCheck = { true }
+        _ = await controller.generate(Self.request, expectedDismissalGeneration: 0)
+        let snapshot = try PaceGeneratedImageSaveSnapshot(artifact: artifact)
+        controller.dismiss()
+        #expect(!FileManager.default.fileExists(atPath: workingCopy.path))
+        let selectedDestination = directory.appendingPathComponent("saved.png")
+        try snapshot.write(to: selectedDestination)
+        #expect(try Data(contentsOf: selectedDestination) == originalData)
+        #expect(try PaceGeneratedImageStore.validatedImageData(at: selectedDestination).width == 2)
     }
 
     @Test @MainActor func lateParentCancellationRestoresIdleAndDiscardsOnlyLateArtifact() async {
