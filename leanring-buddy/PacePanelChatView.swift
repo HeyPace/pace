@@ -98,7 +98,9 @@ struct PacePanelChatView: View {
 
             Text(companionManager.isOffDeviceTurnInFlight ? "off-device" : plannerLabel)
                 .font(DS.Typography.caption)
-                .foregroundStyle(companionManager.isOffDeviceTurnInFlight ? DS.Colors.offDeviceSignal : DS.Colors.textSecondary)
+                .foregroundStyle(
+                    companionManager.isOffDeviceTurnInFlight ? DS.Colors.offDeviceSignal : DS.Colors.textSecondary
+                )
                 .help(boundaryHelpText)
 
             Spacer()
@@ -131,7 +133,9 @@ struct PacePanelChatView: View {
                 if companionManager.allPermissionsGranted {
                     Text(companionManager.isOffDeviceTurnInFlight ? "off-device" : plannerLabel)
                         .font(DS.Typography.caption)
-                        .foregroundStyle(companionManager.isOffDeviceTurnInFlight ? DS.Colors.offDeviceSignal : DS.Colors.textTertiary)
+                        .foregroundStyle(
+                            companionManager.isOffDeviceTurnInFlight
+                                ? DS.Colors.offDeviceSignal : DS.Colors.textTertiary)
                 }
             }
 
@@ -147,7 +151,7 @@ struct PacePanelChatView: View {
             }
 
             if showsActiveSignal,
-               companionManager.allPermissionsGranted,
+                companionManager.allPermissionsGranted,
                let currentTurnDetail {
                 Text(currentTurnDetail)
                     .font(DS.Typography.callout)
@@ -299,7 +303,8 @@ struct PacePanelChatView: View {
                 .foregroundStyle(DS.Colors.textSecondary)
             HStack(spacing: 8) {
                 suggestionButton("Show me a diagram", systemImage: "point.3.connected.trianglepath.dotted") {
-                    chatSession.submitUserMessage("Explain how transformer attention works with an interactive diagram.")
+                    chatSession.submitUserMessage(
+                        "Explain how transformer attention works with an interactive diagram.")
                 }
                 suggestionButton("What can Pace do?", systemImage: "arrow.up.right") {
                     chatSession.submitUserMessage("What can you help me do on this Mac?")
@@ -349,7 +354,8 @@ struct PacePanelChatView: View {
             }
             .padding(14)
             .background(DS.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(DS.Colors.overlayCursorBlue.opacity(0.28), lineWidth: 0.7))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12).stroke(DS.Colors.overlayCursorBlue.opacity(0.28), lineWidth: 0.7))
         }
         .buttonStyle(.plain)
         .paceControlHoverHighlight(cornerRadius: 12)
@@ -597,7 +603,9 @@ struct PacePanelChatView: View {
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(isDraftEmpty ? DS.Colors.textTertiary : DS.Colors.textOnAccent)
                             .frame(width: 28, height: 28)
-                            .background(isDraftEmpty ? DS.Colors.surfaceRaised : DS.Colors.localSignal, in: RoundedRectangle(cornerRadius: 8))
+                            .background(
+                                isDraftEmpty ? DS.Colors.surfaceRaised : DS.Colors.localSignal,
+                                in: RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
                     .paceControlHoverHighlight(cornerRadius: 8, isEnabled: !isDraftEmpty)
@@ -629,7 +637,9 @@ struct PacePanelChatView: View {
                     Text("Hold ⌃⌥ to speak")
                     Spacer()
                     Text(companionManager.isOffDeviceTurnInFlight ? "off-device request" : "voice stays on your Mac")
-                        .foregroundStyle(companionManager.isOffDeviceTurnInFlight ? DS.Colors.offDeviceSignal : DS.Colors.textTertiary)
+                        .foregroundStyle(
+                            companionManager.isOffDeviceTurnInFlight
+                                ? DS.Colors.offDeviceSignal : DS.Colors.textTertiary)
                 }
                 .font(DS.Typography.caption)
                 .foregroundStyle(DS.Colors.textTertiary)
@@ -638,14 +648,19 @@ struct PacePanelChatView: View {
             .background(DS.Colors.background.opacity(0.45), in: RoundedRectangle(cornerRadius: 13))
             .overlay {
                 RoundedRectangle(cornerRadius: 13)
-                    .stroke(isInputFocused ? DS.Colors.overlayCursorBlue.opacity(0.5) : DS.Colors.borderSubtle, lineWidth: 0.7)
+                    .stroke(
+                        isInputFocused ? DS.Colors.overlayCursorBlue.opacity(0.5) : DS.Colors.borderSubtle,
+                        lineWidth: 0.7)
             }
 
             if companionManager.queuedChatTurnCount > 0 {
                 HStack(spacing: 8) {
-                    Text(companionManager.queuedChatTurnCount == 1 ? "1 message queued" : "\(companionManager.queuedChatTurnCount) messages queued")
-                        .font(DS.Typography.caption)
-                        .foregroundStyle(DS.Colors.textSecondary)
+                    Text(
+                        companionManager.queuedChatTurnCount == 1
+                            ? "1 message queued" : "\(companionManager.queuedChatTurnCount) messages queued"
+                    )
+                    .font(DS.Typography.caption)
+                    .foregroundStyle(DS.Colors.textSecondary)
                     Spacer()
                     Button("clear") { companionManager.clearQueuedChatTurns() }
                         .buttonStyle(.plain)

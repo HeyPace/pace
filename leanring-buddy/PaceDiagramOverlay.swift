@@ -30,7 +30,8 @@ final class PaceDiagramOverlayManager {
 
     func show() {
         guard let controller, let document = controller.document,
-              let screen = targetScreen() else { return }
+            let screen = targetScreen()
+        else { return }
         displayIdentifier = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
         visibleFrame = screen.visibleFrame
         let maximumWidth = max(300, min(1120, visibleFrame.width - 80))
@@ -86,12 +87,14 @@ final class PaceDiagramOverlayManager {
         let panel = detailPanel ?? PaceDiagramIslandPanel()
         let width = min(450, visibleFrame.width - 64)
         let height: CGFloat = controller.selectedNode == nil ? 76 : 174
-        panel.contentView = NSHostingView(rootView: PaceDiagramDetailView(controller: controller, summary: document.summary))
-        panel.setFrame(CGRect(
-            x: visibleFrame.midX - width / 2,
-            y: max(visibleFrame.minY + 24, stageFrame.minY - height - 10),
-            width: width, height: height
-        ), display: true)
+        panel.contentView = NSHostingView(
+            rootView: PaceDiagramDetailView(controller: controller, summary: document.summary))
+        panel.setFrame(
+            CGRect(
+                x: visibleFrame.midX - width / 2,
+                y: max(visibleFrame.minY + 24, stageFrame.minY - height - 10),
+                width: width, height: height
+            ), display: true)
         panel.orderFrontRegardless()
         detailPanel = panel
     }
@@ -115,17 +118,20 @@ final class PaceDiagramOverlayManager {
 
     private func targetScreen() -> NSScreen? {
         if let displayIdentifier,
-           let screen = NSScreen.screens.first(where: {
-               $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber == displayIdentifier
-           }) { return screen }
+            let screen = NSScreen.screens.first(where: {
+                $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber == displayIdentifier
+            })
+        {
+            return screen
+        }
         return NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main
     }
 
     private func installEscapeMonitorsIfNeeded() {
         guard localKeyMonitor == nil else { return }
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53 else { return event }
-            Task { @MainActor in self?.dismissForEscapeIfPointerIsOverDiagram() }
+            guard event.keyCode == 53, event.window is PaceDiagramIslandPanel else { return event }
+            Task { @MainActor in self?.controller?.dismiss() }
             return event
         }
         globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -135,7 +141,7 @@ final class PaceDiagramOverlayManager {
     }
 
     private func dismissForEscapeIfPointerIsOverDiagram() {
-        let frames = [stageFrame, headerPanel?.frame, detailPanel?.frame].compactMap { $0 }
+        let frames = nodePanels.values.map(\.frame) + [headerPanel?.frame, detailPanel?.frame].compactMap { $0 }
         guard Self.shouldDismissForEscape(pointerLocation: NSEvent.mouseLocation, diagramFrames: frames) else { return }
         controller?.dismiss()
     }
@@ -162,7 +168,7 @@ private final class PaceDiagramIslandPanel: NSPanel {
         setAccessibilityLabel("Pace diagram")
     }
 
-    override var canBecomeKey: Bool { false }
+    override var canBecomeKey: Bool { !ignoresMouseEvents }
     override var canBecomeMain: Bool { false }
 }
 
@@ -204,14 +210,17 @@ private struct PaceDiagramNodeView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .background {
                     PaceDiagramNodeOutline(shape: node.shape ?? .rectangle)
-                        .fill(LinearGradient(
-                            colors: [Color(hex: isSelected ? "#223754" : "#182333"), Color(hex: "#101820")],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        ))
+                        .fill(
+                            LinearGradient(
+                                colors: [Color(hex: isSelected ? "#223754" : "#182333"), Color(hex: "#101820")],
+                                startPoint: .topLeading, endPoint: .bottomTrailing
+                            ))
                 }
                 .overlay {
                     PaceDiagramNodeOutline(shape: node.shape ?? .rectangle)
-                        .stroke(Color(hex: isSelected || isHovered ? "#80ABEC" : "#405B7F").opacity(isSelected ? 1 : 0.8), lineWidth: isSelected ? 1.5 : 1)
+                        .stroke(
+                            Color(hex: isSelected || isHovered ? "#80ABEC" : "#405B7F").opacity(isSelected ? 1 : 0.8),
+                            lineWidth: isSelected ? 1.5 : 1)
                 }
                 .contentShape(PaceDiagramNodeOutline(shape: node.shape ?? .rectangle))
             }
@@ -252,40 +261,61 @@ private struct PaceDiagramConnectionsView: View {
             guard let document = controller.document else { return }
             let nodesByID = Dictionary(uniqueKeysWithValues: document.nodes.map { ($0.id, $0) })
             for connection in document.connections {
-                guard let source = nodesByID[connection.source], let target = nodesByID[connection.target] else { continue }
+                guard let source = nodesByID[connection.source], let target = nodesByID[connection.target] else {
+                    continue
+                }
                 let horizontal = abs(target.x - source.x) >= abs(target.y - source.y)
                 let forward = horizontal ? target.x > source.x : target.y > source.y
                 let start = CGPoint(
-                    x: (horizontal ? source.x + (forward ? source.width : 0) : source.x + source.width / 2) / 1000 * size.width,
-                    y: (horizontal ? source.y + source.height / 2 : source.y + (forward ? source.height : 0)) / 600 * size.height
+                    x: (horizontal ? source.x + (forward ? source.width : 0) : source.x + source.width / 2) / 1000
+                        * size.width,
+                    y: (horizontal ? source.y + source.height / 2 : source.y + (forward ? source.height : 0)) / 600
+                        * size.height
                 )
                 let end = CGPoint(
-                    x: (horizontal ? target.x + (forward ? 0 : target.width) : target.x + target.width / 2) / 1000 * size.width,
-                    y: (horizontal ? target.y + target.height / 2 : target.y + (forward ? 0 : target.height)) / 600 * size.height
+                    x: (horizontal ? target.x + (forward ? 0 : target.width) : target.x + target.width / 2) / 1000
+                        * size.width,
+                    y: (horizontal ? target.y + target.height / 2 : target.y + (forward ? 0 : target.height)) / 600
+                        * size.height
                 )
                 let controlOffset = horizontal ? (end.x - start.x) / 2 : (end.y - start.y) / 2
                 var path = Path()
                 path.move(to: start)
                 path.addCurve(
                     to: end,
-                    control1: CGPoint(x: start.x + (horizontal ? controlOffset : 0), y: start.y + (horizontal ? 0 : controlOffset)),
-                    control2: CGPoint(x: end.x - (horizontal ? controlOffset : 0), y: end.y - (horizontal ? 0 : controlOffset))
+                    control1: CGPoint(
+                        x: start.x + (horizontal ? controlOffset : 0), y: start.y + (horizontal ? 0 : controlOffset)),
+                    control2: CGPoint(
+                        x: end.x - (horizontal ? controlOffset : 0), y: end.y - (horizontal ? 0 : controlOffset))
                 )
-                let isSelected = controller.selectedNodeID == connection.source || controller.selectedNodeID == connection.target
+                let isSelected =
+                    controller.selectedNodeID == connection.source || controller.selectedNodeID == connection.target
                 let color = Color(hex: isSelected ? "#B2CFF8" : "#7395C3")
-                context.stroke(path, with: .color(color.opacity(isSelected ? 1 : 0.72)), lineWidth: isSelected ? 1.8 : 1.2)
+                context.stroke(
+                    path, with: .color(color.opacity(isSelected ? 1 : 0.72)), lineWidth: isSelected ? 1.8 : 1.2)
                 let direction: CGFloat = forward ? 1 : -1
                 var arrow = Path()
-                arrow.move(to: CGPoint(x: end.x - (horizontal ? 7 * direction : -4), y: end.y - (horizontal ? 4 : 7 * direction)))
+                arrow.move(
+                    to: CGPoint(
+                        x: end.x - (horizontal ? 7 * direction : -4), y: end.y - (horizontal ? 4 : 7 * direction)))
                 arrow.addLine(to: end)
-                arrow.addLine(to: CGPoint(x: end.x - (horizontal ? 7 * direction : 4), y: end.y + (horizontal ? 4 : -7 * direction)))
-                context.stroke(arrow, with: .color(color), style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
+                arrow.addLine(
+                    to: CGPoint(
+                        x: end.x - (horizontal ? 7 * direction : 4), y: end.y + (horizontal ? 4 : -7 * direction)))
+                context.stroke(
+                    arrow, with: .color(color), style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
                 if let label = connection.label {
-                    let text = Text(label).font(.system(size: 10, weight: .medium)).foregroundColor(Color(hex: "#C1CEE0"))
+                    let text = Text(label).font(.system(size: 10, weight: .medium)).foregroundColor(
+                        Color(hex: "#C1CEE0"))
                     let position = CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 - 13)
                     let resolvedText = context.resolve(text)
                     let bounds = resolvedText.measure(in: CGSize(width: 170, height: 36))
-                    context.fill(Path(roundedRect: CGRect(x: position.x - bounds.width / 2 - 5, y: position.y - bounds.height / 2 - 3, width: bounds.width + 10, height: bounds.height + 6), cornerRadius: 4), with: .color(Color(hex: "#101820").opacity(0.94)))
+                    context.fill(
+                        Path(
+                            roundedRect: CGRect(
+                                x: position.x - bounds.width / 2 - 5, y: position.y - bounds.height / 2 - 3,
+                                width: bounds.width + 10, height: bounds.height + 6), cornerRadius: 4),
+                        with: .color(Color(hex: "#101820").opacity(0.94)))
                     context.draw(resolvedText, at: position)
                 }
             }
@@ -393,7 +423,9 @@ private struct DiagramQuietButtonBody: View {
         label
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(Color.white.opacity(isPressed ? 0.14 : isHovered ? 0.09 : 0.035), in: RoundedRectangle(cornerRadius: 7))
+            .background(
+                Color.white.opacity(isPressed ? 0.14 : isHovered ? 0.09 : 0.035), in: RoundedRectangle(cornerRadius: 7)
+            )
             .opacity(isEnabled ? 1 : 0.4)
             .pointerCursor(isEnabled: isEnabled)
             .onHover { isHovered = $0 }

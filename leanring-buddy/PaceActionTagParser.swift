@@ -413,7 +413,9 @@ nonisolated enum PaceActionTagParser {
             if ["name", "tool"].contains(where: {
                 guard case .string(let name) = arguments[$0] else { return false }
                 return ["show.diagram", "diagram"].contains(normalizedParameterizedActionName(name))
-            }) { return true }
+            }) {
+                return true
+            }
             return arguments.values.contains { containsDiagramToolRequest(in: $0) }
         case .array(let values):
             return values.contains { containsDiagramToolRequest(in: $0) }
@@ -430,7 +432,8 @@ nonisolated enum PaceActionTagParser {
                 return ["show.diagram", "diagram"].contains(normalizedParameterizedActionName(name))
             }
             if isDiagramCall {
-                let documentArguments = objectValue(for: "args", in: arguments)
+                let documentArguments =
+                    objectValue(for: "args", in: arguments)
                     ?? objectValue(for: "arguments", in: arguments)
                     ?? arguments
                 return PaceDiagramDocument.parse(arguments: documentArguments) == nil

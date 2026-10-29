@@ -448,10 +448,13 @@ nonisolated enum PaceToolRegistry {
             kind: .showDiagram,
             canonicalName: "show_diagram",
             aliases: ["diagram"],
-            schemaExample: #"{"tool":"show_diagram","title":"How attention works","summary":"Select a part to explore how context changes meaning.","nodes":[{"id":"tokens","label":"Tokens","detail":"Each token begins as a learned vector.","x":70,"y":220,"width":220,"height":130,"role":"input"},{"id":"attention","label":"Attention","detail":"Queries compare with keys to weight values from other tokens.","x":600,"y":220,"width":260,"height":160,"role":"process"}],"connections":[{"source":"tokens","target":"attention","label":"context"}]}"#,
-            description: "generate or replace an interactive 2D explanation directly over the desktop. Required: title, summary, nodes, connections. Nodes have stable id, label, detail, x, y, width, height in a 1000x600 canvas (width 180–500, height 100–300); shape rectangle/ellipse/capsule, role input/process/output/concept, subtitle optional. No overlapping parts. One to twelve nodes, up to twenty-four connections (source/target IDs, optional label). Use meaningful detail for every clickable part. A figure stays visible across turns until dismiss_diagram. Updates replace the complete document and preserve unchanged IDs.",
+            schemaExample:
+                #"{"tool":"show_diagram","title":"How attention works","summary":"Select a part to explore how context changes meaning.","nodes":[{"id":"tokens","label":"Tokens","detail":"Each token begins as a learned vector.","x":70,"y":220,"width":220,"height":130,"role":"input"},{"id":"attention","label":"Attention","detail":"Queries compare with keys to weight values from other tokens.","x":600,"y":220,"width":260,"height":160,"role":"process"}],"connections":[{"source":"tokens","target":"attention","label":"context"}]}"#,
+            description:
+                "generate or replace an interactive 2D explanation directly over the desktop. Required: title, summary, nodes, connections. Nodes have stable id, label, detail, x, y, width, height in a 1000x600 canvas (width 180–500, height 100–300); shape rectangle/ellipse/capsule, role input/process/output/concept, subtitle optional. No overlapping parts. One to twelve nodes, up to twenty-four connections (source/target IDs, optional label). Use meaningful detail for every clickable part. A figure stays visible across turns until dismiss_diagram. Updates replace the complete document and preserve unchanged IDs.",
             riskLevel: .readOnly,
-            executionSummary: "Displays an interactive native diagram over the screen without changing other applications.",
+            executionSummary:
+                "Displays an interactive native diagram over the screen without changing other applications.",
             observationSummary: "The user can select a part, read its explanation, and ask Pace about it.",
             exampleUtterance: "explain how attention works with an interactive diagram"
         ),

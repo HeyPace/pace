@@ -38,35 +38,40 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
             return "requires a title up to 100 characters and summary up to 500 characters"
         }
         guard (1...Self.maximumNodeCount).contains(nodes.count),
-              connections.count <= Self.maximumConnectionCount else {
+            connections.count <= Self.maximumConnectionCount
+        else {
             return "requires one to twelve parts and at most twenty-four connections"
         }
         let identifiers = nodes.map(\.id)
         guard Set(identifiers).count == identifiers.count,
-              identifiers.allSatisfy({ identifier in
-                  !identifier.isEmpty && identifier.count <= 40
+            identifiers.allSatisfy({ identifier in
+                !identifier.isEmpty && identifier.count <= 40
                     && identifier.unicodeScalars.allSatisfy {
                         CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_"
                     }
-              }) else { return "requires unique short alphanumeric part IDs" }
+            })
+        else { return "requires unique short alphanumeric part IDs" }
         for node in nodes {
             guard Self.validText(node.label, maximum: 80),
-                  Self.validText(node.detail, maximum: 1200),
-                  node.subtitle.map({ Self.validText($0, maximum: 100) }) ?? true else {
+                Self.validText(node.detail, maximum: 1200),
+                node.subtitle.map({ Self.validText($0, maximum: 100) }) ?? true
+            else {
                 return "requires bounded labels and a useful explanation for every part"
             }
             guard [node.x, node.y, node.width, node.height].allSatisfy(\.isFinite),
-                  node.x >= 0, node.y >= 0, node.width >= 180, node.height >= 100,
-                  node.width <= 500, node.height <= 300,
-                  node.x + node.width <= Self.canvasWidth,
-                  node.y + node.height <= Self.canvasHeight else {
+                node.x >= 0, node.y >= 0, node.width >= 180, node.height >= 100,
+                node.width <= 500, node.height <= 300,
+                node.x + node.width <= Self.canvasWidth,
+                node.y + node.height <= Self.canvasHeight
+            else {
                 return "requires finite part bounds inside a 1000 by 600 canvas, width 180–500 and height 100–300"
             }
         }
         for (index, node) in nodes.enumerated() {
             for other in nodes.dropFirst(index + 1) {
                 if node.x < other.x + other.width && node.x + node.width > other.x
-                    && node.y < other.y + other.height && node.y + node.height > other.y {
+                    && node.y < other.y + other.height && node.y + node.height > other.y
+                {
                     return "requires nonoverlapping parts so every part remains visible and clickable"
                 }
             }
@@ -75,9 +80,10 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
         var connectionIdentifiers = Set<String>()
         for connection in connections {
             guard knownIdentifiers.contains(connection.source), knownIdentifiers.contains(connection.target),
-                  connection.source != connection.target,
-                  connection.label.map({ Self.validText($0, maximum: 80) }) ?? true,
-                  connectionIdentifiers.insert(connection.source + ":" + connection.target).inserted else {
+                connection.source != connection.target,
+                connection.label.map({ Self.validText($0, maximum: 80) }) ?? true,
+                connectionIdentifiers.insert(connection.source + ":" + connection.target).inserted
+            else {
                 return "requires unique connections between existing, distinct parts with short labels"
             }
         }
@@ -92,30 +98,33 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
             diagramArguments = arguments
         }
         guard let encodedArguments = try? JSONEncoder().encode(diagramArguments),
-              encodedArguments.count <= 40_000,
-              let document = try? JSONDecoder().decode(Self.self, from: encodedArguments),
-              document.validationIssue == nil else { return nil }
+            encodedArguments.count <= 40_000,
+            let document = try? JSONDecoder().decode(Self.self, from: encodedArguments),
+            document.validationIssue == nil
+        else { return nil }
         return document
     }
 
+    static let selectedPartQuestion =
+        "Explain the selected diagram part using the active diagram context. Walk me through what it does and how it connects to the other parts; update the diagram if a closer view would help."
+
     static func requestsDiagram(_ transcript: String, hasActiveDiagram: Bool) -> Bool {
         let normalized = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let actionCommand = #"^(?:(?:please|can you|could you|would you)\s+)?(?:open|launch|email|send|share|export|save|copy|paste|delete|move|rename|download|close|hide|dismiss)\b"#
-        if normalized.range(of: actionCommand, options: .regularExpression) != nil { return false }
-        let additionalAction = #"\b(?:and|then|also)\s+(?:open|launch|email|send|share|export|save|copy|paste|delete|move|rename|download|type)\b"#
-        if normalized.range(of: additionalAction, options: .regularExpression) != nil { return false }
-        let annotationRequest = #"\b(?:around|highlight|circle|point at|box)\b.*\b(?:button|window|menu|screen|toolbar)\b"#
-        if normalized.range(of: annotationRequest, options: .regularExpression) != nil { return false }
-        let diagramNoun = #"\b(?:diagrams?|flowcharts?|figures?|illustrations?|concept maps?|mind maps?|visual explanations?)\b"#
-        let creationVerb = #"\b(?:show|draw|create|make|generate|build|sketch|explain|teach|illustrate|understand)\b"#
-        if normalized.range(of: diagramNoun, options: .regularExpression) != nil,
-           normalized.range(of: creationVerb, options: .regularExpression) != nil { return true }
-        if normalized.range(of: #"^(?:please\s+)?(?:visualize|visualise)\s+\S"#, options: .regularExpression) != nil { return true }
+        if hasActiveDiagram && transcript == selectedPartQuestion { return true }
+        let explicitLearningForms = [
+            #"^(?:please\s+)?(?:explain|teach|help me understand)\s+.+\s+(?:with|using|as)\s+(?:an?\s+)?(?:interactive\s+)?(?:diagram|flowchart|concept map|mind map)[.!?]*$"#,
+            #"^(?:please\s+)?(?:draw|show|generate)\s+(?:me\s+)?(?:an?\s+)?(?:interactive\s+)?(?:diagram|flowchart|concept map|mind map)\s+(?:of|about|showing|explaining)\s+.+[.!?]*$"#,
+            #"^(?:please\s+)?(?:explain|walk me through|draw|visualize|visualise)\s+(?:this|that)\s+(?:diagram|figure)[.!?]*$"#,
+        ]
+        if explicitLearningForms.contains(where: { normalized.range(of: $0, options: .regularExpression) != nil }) {
+            let additionalWork =
+                #"\b(?:and|then|also)\s+(?:open|launch|email|send|share|export|save|copy|paste|delete|move|rename|download|type|create|set|remind)\b"#
+            return normalized.range(of: additionalWork, options: .regularExpression) == nil
+        }
         guard hasActiveDiagram else { return false }
-        let partQuestion = #"\b(?:explain|expand|simplify|change|add|detail|walk me through)\b.*\b(?:diagram|figure|part|node|connection)\b"#
-        if normalized.range(of: partQuestion, options: .regularExpression) != nil { return true }
         return normalized.range(
-            of: #"^(?:please\s+)?(?:(?:expand|simplify|explain)\s+(?:this|that)|show more detail|walk me through (?:this|that))[.!?]*$"#,
+            of:
+                #"^(?:please\s+)?(?:(?:expand|simplify|explain)\s+(?:this|that)(?:\s+(?:diagram|figure|part))?|show more detail|walk me through (?:this|that)(?:\s+(?:diagram|figure|part))?)[.!?]*$"#,
             options: .regularExpression
         ) != nil
     }
@@ -125,23 +134,29 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
         let screenReferences = [
             "on my screen", "on the screen", "this screen", "this page", "this webpage",
             "this code", "this chart", "this image", "this window",
-            "looking at", "this article", "this document", "selected text"
+            "looking at", "this article", "this document", "selected text",
         ]
         if screenReferences.contains(where: normalized.contains) { return true }
-        return !hasActiveDiagram && [
-            "this diagram", "that diagram", "this figure", "that figure", "explain this", "explain that",
-            "draw this", "draw that", "visualize this", "visualise this", "turn this"
-        ].contains(where: normalized.contains)
+        return !hasActiveDiagram
+            && [
+                "this diagram", "that diagram", "this figure", "that figure", "explain this", "explain that",
+                "draw this", "draw that", "visualize this", "visualise this", "turn this",
+            ].contains(where: normalized.contains)
     }
 
     static func requestsDismissal(_ transcript: String) -> Bool {
         let normalized = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: ".!?"))
-        return ["close diagram", "close the diagram", "hide diagram", "hide the diagram", "dismiss diagram", "dismiss the diagram", "clear diagram", "clear the diagram"].contains(normalized)
+        return [
+            "close diagram", "close the diagram", "hide diagram", "hide the diagram", "dismiss diagram",
+            "dismiss the diagram", "clear diagram", "clear the diagram",
+        ].contains(normalized)
     }
 
     private static func validText(_ text: String, maximum: Int) -> Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.count <= maximum
-            && !text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) && $0 != "\n" && $0 != "\t" })
+            && !text.unicodeScalars.contains(where: {
+                CharacterSet.controlCharacters.contains($0) && $0 != "\n" && $0 != "\t"
+            })
     }
 }

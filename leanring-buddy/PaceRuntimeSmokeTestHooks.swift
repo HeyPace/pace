@@ -52,26 +52,29 @@ final class PaceRuntimeSmokeTestHooks {
 
     private func installObservers() {
         #if DEBUG
-        observe(.paceSmokeShowDiagram) { [weak self] in
-            guard let self,
-                  let example = PaceToolRegistry.definition(forToolName: "show_diagram")?.schemaExample,
-                  let data = example.data(using: .utf8),
-                  var arguments = try? JSONDecoder().decode([String: PaceMCPJSONValue].self, from: data) else { return }
-            arguments.removeValue(forKey: "tool")
-            guard let document = PaceDiagramDocument.parse(arguments: arguments) else { return }
-            companionManager.diagramOverlayController.present(document)
-            PaceSmokeTestStateStore.recordDiagramState(document.nodes.count, selectedPart: nil)
-        }
-        observe(.paceSmokeSelectDiagramPart) { [weak self] in
-            guard let controller = self?.companionManager.diagramOverlayController,
-                  let node = controller.document?.nodes.last else { return }
-            controller.selectNode(id: node.id)
-            PaceSmokeTestStateStore.recordDiagramState(controller.document?.nodes.count ?? 0, selectedPart: controller.selectedNodeID)
-        }
-        observe(.paceSmokeDismissDiagram) { [weak self] in
-            self?.companionManager.diagramOverlayController.dismiss()
-            PaceSmokeTestStateStore.recordDiagramState(0, selectedPart: nil)
-        }
+            observe(.paceSmokeShowDiagram) { [weak self] in
+                guard let self,
+                    let example = PaceToolRegistry.definition(forToolName: "show_diagram")?.schemaExample,
+                    let data = example.data(using: .utf8),
+                    var arguments = try? JSONDecoder().decode([String: PaceMCPJSONValue].self, from: data)
+                else { return }
+                arguments.removeValue(forKey: "tool")
+                guard let document = PaceDiagramDocument.parse(arguments: arguments) else { return }
+                companionManager.diagramOverlayController.present(document)
+                PaceSmokeTestStateStore.recordDiagramState(document.nodes.count, selectedPart: nil)
+            }
+            observe(.paceSmokeSelectDiagramPart) { [weak self] in
+                guard let controller = self?.companionManager.diagramOverlayController,
+                    let node = controller.document?.nodes.last
+                else { return }
+                controller.selectNode(id: node.id)
+                PaceSmokeTestStateStore.recordDiagramState(
+                    controller.document?.nodes.count ?? 0, selectedPart: controller.selectedNodeID)
+            }
+            observe(.paceSmokeDismissDiagram) { [weak self] in
+                self?.companionManager.diagramOverlayController.dismiss()
+                PaceSmokeTestStateStore.recordDiagramState(0, selectedPart: nil)
+            }
         #endif
         observe(.paceSmokeShowPanel) { [weak self] in
             self?.menuBarPanelManager.showPanelForSmokeTest()

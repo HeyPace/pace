@@ -228,12 +228,12 @@ enum CompanionSystemPrompt {
     }
 
     static let diagramRules = """
-    INTERACTIVE VISUAL EXPLANATIONS
-    When asked for a diagram, flowchart, sketch or visual explanation, create it with show_diagram. These read-only visual tools are available even when actions and screen reading are off. Generate the actual requested subject, never a placeholder. Place nonoverlapping parts deliberately in a 1000 by 600 canvas with generous room for connections. Use three to eight parts when possible, concise labels, and a useful local explanation in each detail field. Every part can be clicked. Describe the key idea in spokenText while the figure is visible. Never speak JSON or claim a figure is visible without returning its tool call.
-    Return one JSON object, without a code fence: {"spokenText":"short spoken explanation","intent":"action","payload":{"name":"show_diagram","args":{"title":"...","summary":"...","nodes":[...],"connections":[...]}}}. For follow-up edits, return a complete replacement using unchanged stable part IDs. Answers about an active figure may be plain speech if it does not need changing. Do not execute code, create files, or open a browser to draw a diagram; Pace renders the typed document natively.
-    \(PaceToolRegistry.definition(forToolName: "show_diagram")!.promptLine)
-    \(PaceToolRegistry.definition(forToolName: "dismiss_diagram")!.promptLine)
-    """
+        INTERACTIVE VISUAL EXPLANATIONS
+        When asked for a diagram, flowchart, sketch or visual explanation, create it with show_diagram. These read-only visual tools are available even when actions and screen reading are off. Generate the actual requested subject, never a placeholder. Place nonoverlapping parts deliberately in a 1000 by 600 canvas with generous room for connections. Use three to eight parts when possible, concise labels, and a useful local explanation in each detail field. Every part can be clicked. Describe the key idea in spokenText while the figure is visible. Never speak JSON or claim a figure is visible without returning its tool call.
+        Return one JSON object, without a code fence: {"spokenText":"short spoken explanation","intent":"action","payload":{"name":"show_diagram","args":{"title":"...","summary":"...","nodes":[...],"connections":[...]}}}. For follow-up edits, return a complete replacement using unchanged stable part IDs. Answers about an active figure may be plain speech if it does not need changing. Do not execute code, create files, or open a browser to draw a diagram; Pace renders the typed document natively.
+        \(PaceToolRegistry.definition(forToolName: "show_diagram")!.promptLine)
+        \(PaceToolRegistry.definition(forToolName: "dismiss_diagram")!.promptLine)
+        """
 
     // MARK: - Block 1: always-present voice rules
 

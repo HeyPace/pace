@@ -555,7 +555,8 @@ extension CompanionManager {
                     onTextChunk: { [weak self] accumulatedPlannerText in
                         PaceLatencyBudget.shared.mark(.plannerFirstToken)
                         self?.responseOverlayManager.updateStreamingText(
-                            Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText) ? "…" : accumulatedPlannerText
+                            Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText)
+                                ? "…" : accumulatedPlannerText
                         )
                         Task { @MainActor [weak self] in
                             await self?.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedPlannerText)
@@ -565,10 +566,7 @@ extension CompanionManager {
                 guard !Task.isCancelled else { return }
                 PaceLatencyBudget.shared.mark(.plannerComplete)
 
-                let actionParseResult = diagramOverlayController.drain(
-                    parseResult: PaceActionTagParser.parseActions(from: fullResponseText),
-                    expectedDismissalGeneration: diagramDismissalGeneration
-                )
+                var actionParseResult = PaceActionTagParser.parseActions(from: fullResponseText)
                 let (_, textAfterDoneStrip) = PaceTagParsers.parseAndStripDoneSignal(from: actionParseResult.spokenText)
                 let pointingParseResult = PaceTagParsers.parsePointingCoordinates(from: textAfterDoneStrip)
                 var spokenText = pointingParseResult.spokenText
@@ -625,7 +623,8 @@ extension CompanionManager {
                                 userPrompt: userPromptForPlanner,
                                 onTextChunk: { [weak self] accumulatedText in
                                     self?.responseOverlayManager.updateStreamingText(
-                                        Self.streamedPlannerTextIsStructuredEnvelope(accumulatedText) ? "…" : accumulatedText
+                                        Self.streamedPlannerTextIsStructuredEnvelope(accumulatedText)
+                                            ? "…" : accumulatedText
                                     )
                                     Task { @MainActor [weak self] in
                                         await self?.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedText)
@@ -633,10 +632,8 @@ extension CompanionManager {
                                 }
                             )
                             guard !Task.isCancelled else { return }
-                            let reRoutedActions = diagramOverlayController.drain(
-                                parseResult: PaceActionTagParser.parseActions(from: reRoutedResponseText),
-                                expectedDismissalGeneration: diagramDismissalGeneration
-                            )
+                            let reRoutedActions = PaceActionTagParser.parseActions(from: reRoutedResponseText)
+                            actionParseResult = reRoutedActions
                             let (_, reRoutedAfterDone) = PaceTagParsers.parseAndStripDoneSignal(
                                 from: reRoutedActions.spokenText)
                             let reRoutedPointing = PaceTagParsers.parsePointingCoordinates(from: reRoutedAfterDone)
@@ -654,6 +651,15 @@ extension CompanionManager {
                         )
                     }
                 }
+
+                let finalizedParseResult = diagramOverlayController.drain(
+                    parseResult: actionParseResult,
+                    expectedDismissalGeneration: diagramDismissalGeneration
+                )
+                if finalizedParseResult.spokenText != actionParseResult.spokenText {
+                    spokenText = finalizedParseResult.spokenText
+                }
+                actionParseResult = finalizedParseResult
 
                 // Settings → Debug capture: pure-knowledge turns never run a
                 // screenshot/VLM and never execute actions here — surfaced so
@@ -1100,7 +1106,7 @@ extension CompanionManager {
         // them here BEFORE any routing branch — every fast path
         // (watch-mode, automation, memory, fast-action) clears them too.
         annotationOverlayController.clearOnNextUserTurn()
-        if PaceDiagramDocument.requestsDismissal(transcript) {
+        if diagramOverlayController.document != nil, PaceDiagramDocument.requestsDismissal(transcript) {
             diagramOverlayController.dismiss()
             currentTurnHUDState = .done("diagram closed")
             voiceState = .idle
@@ -1329,14 +1335,17 @@ extension CompanionManager {
         }
 
         let hasActiveDiagram = diagramOverlayController.document != nil
-        let requestsInteractiveDiagram = PaceDiagramDocument.requestsDiagram(transcript, hasActiveDiagram: hasActiveDiagram)
-        let diagramNeedsScreenContext = requestsInteractiveDiagram
+        let requestsInteractiveDiagram = PaceDiagramDocument.requestsDiagram(
+            transcript, hasActiveDiagram: hasActiveDiagram)
+        let diagramNeedsScreenContext =
+            requestsInteractiveDiagram
             && PaceDiagramDocument.requiresScreenContext(transcript, hasActiveDiagram: hasActiveDiagram)
         if diagramNeedsScreenContext && !useLocalVLMForScreenContext {
             handleUnsupportedTurn(
                 transcript: transcript,
                 unsupportedResponse: .init(
-                    spokenText: "Turn on Read My Screen so I can use what you're looking at, or describe the subject you'd like me to draw.",
+                    spokenText:
+                        "Turn on Read My Screen so I can use what you're looking at, or describe the subject you'd like me to draw.",
                     reason: "This visual explanation needs screen context, and Read My Screen is off."
                 )
             )

@@ -1,14 +1,19 @@
 import CoreGraphics
 import Foundation
 import Testing
+
 @testable import Pace
 
 struct PaceDiagramTests {
     private static func node(id: String = "evaporation", x: Double = 60, y: Double = 220) -> PaceDiagramNode {
-        .init(id: id, label: "Evaporation", detail: "Heat turns liquid water into water vapor.", x: x, y: y, width: 230, height: 140, shape: .rectangle, role: .process, subtitle: "Liquid becomes vapor")
+        .init(
+            id: id, label: "Evaporation", detail: "Heat turns liquid water into water vapor.", x: x, y: y, width: 230,
+            height: 140, shape: .rectangle, role: .process, subtitle: "Liquid becomes vapor")
     }
 
-    private static func document(title: String = "The water cycle", nodes: [PaceDiagramNode]? = nil) -> PaceDiagramDocument {
+    private static func document(title: String = "The water cycle", nodes: [PaceDiagramNode]? = nil)
+        -> PaceDiagramDocument
+    {
         .init(
             title: title, summary: "Water changes state as it moves through the environment.",
             nodes: nodes ?? [node(), node(id: "condensation", x: 650)],
@@ -22,14 +27,15 @@ struct PaceDiagramTests {
         let call: [String: Any] = ["name": "show_diagram", "args": arguments]
         let payload: [String: Any] = multipleCalls ? ["calls": [call]] : call
         let data = try JSONSerialization.data(withJSONObject: [
-            "spokenText": "Watch water change state as it moves.", "intent": "action", "payload": payload
+            "spokenText": "Watch water change state as it moves.", "intent": "action", "payload": payload,
         ])
         return String(decoding: data, as: UTF8.self)
     }
 
     @Test func parsesGeneratedDocumentInSingleAndMultipleCallEnvelopes() throws {
         for multipleCalls in [false, true] {
-            let parsed = PaceActionTagParser.parseActions(from: try Self.response(document: Self.document(), multipleCalls: multipleCalls))
+            let parsed = PaceActionTagParser.parseActions(
+                from: try Self.response(document: Self.document(), multipleCalls: multipleCalls))
             try #require(parsed.actions.count == 1)
             guard case .showDiagram(let document) = parsed.actions[0] else {
                 Issue.record("Expected a generated diagram action")
@@ -43,7 +49,8 @@ struct PaceDiagramTests {
     }
 
     @Test func parsesDiagramCloseAndLegacyToolCalls() throws {
-        let close = PaceActionTagParser.parseActions(from: #"{"spokenText":"","intent":"action","payload":{"name":"dismiss_diagram","args":{}}}"#)
+        let close = PaceActionTagParser.parseActions(
+            from: #"{"spokenText":"","intent":"action","payload":{"name":"dismiss_diagram","args":{}}}"#)
         try #require(close.actions.count == 1)
         guard case .dismissDiagram = close.actions[0] else {
             Issue.record("Expected close diagram")
@@ -53,7 +60,8 @@ struct PaceDiagramTests {
         var arguments = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         arguments["tool"] = "show_diagram"
         let calls = try JSONSerialization.data(withJSONObject: [[arguments]])
-        let legacy = PaceActionTagParser.parseActions(from: "<tool_calls>" + String(decoding: calls, as: UTF8.self) + "</tool_calls>")
+        let legacy = PaceActionTagParser.parseActions(
+            from: "<tool_calls>" + String(decoding: calls, as: UTF8.self) + "</tool_calls>")
         #expect(legacy.actions.count == 1)
     }
 
@@ -63,11 +71,13 @@ struct PaceDiagramTests {
             nodes: [Self.node()], connections: [.init(source: "evaporation", target: "missing", label: nil)]
         )
         for multipleCalls in [false, true] {
-            let parsed = PaceActionTagParser.parseActions(from: try Self.response(document: missingEndpoint, multipleCalls: multipleCalls))
+            let parsed = PaceActionTagParser.parseActions(
+                from: try Self.response(document: missingEndpoint, multipleCalls: multipleCalls))
             #expect(parsed.actions.isEmpty)
             #expect(parsed.spokenText.contains("couldn't draw"))
         }
-        let mixedCalls = #"{"spokenText":"Here is your diagram.","intent":"action","payload":{"calls":[{"name":"show_diagram","args":{"title":"Broken"}},{"name":"type","args":{"text":"must not type"}}]}}"#
+        let mixedCalls =
+            #"{"spokenText":"Here is your diagram.","intent":"action","payload":{"calls":[{"name":"show_diagram","args":{"title":"Broken"}},{"name":"type","args":{"text":"must not type"}}]}}"#
         let rejectedPlan = PaceActionTagParser.parseActions(from: mixedCalls)
         #expect(rejectedPlan.actions.isEmpty)
         #expect(rejectedPlan.spokenText.contains("couldn't draw"))
@@ -111,7 +121,8 @@ struct PaceDiagramTests {
         controller.onDidPresent = { presentationCount += 1 }
         controller.present(Self.document())
         controller.selectNode(id: "evaporation")
-        let replacement = PaceDiagramDocument(title: "One part", summary: "A different part.", nodes: [Self.node(id: "new")], connections: [])
+        let replacement = PaceDiagramDocument(
+            title: "One part", summary: "A different part.", nodes: [Self.node(id: "new")], connections: [])
         controller.present(replacement)
         #expect(controller.selectedNode == nil)
         let generation = controller.dismissalGeneration
@@ -129,7 +140,9 @@ struct PaceDiagramTests {
     @Test @MainActor func drainingVisualToolsPreservesOtherActionsAndTheirApprovalPolicy() {
         let controller = PaceDiagramOverlayController(showsWindows: false)
         let actions: [PaceParsedAction] = [.showDiagram(Self.document()), .type("User-requested input")]
-        let parsed = PaceActionTagParseResult(spokenText: "Here is the diagram.", actions: actions, executionPlan: .serial(actions: actions), firstClickVisualisationLocation: nil)
+        let parsed = PaceActionTagParseResult(
+            spokenText: "Here is the diagram.", actions: actions, executionPlan: .serial(actions: actions),
+            firstClickVisualisationLocation: nil)
         let drained = controller.drain(parseResult: parsed, expectedDismissalGeneration: controller.dismissalGeneration)
         #expect(controller.document != nil)
         #expect(drained.actions.count == 1)
@@ -137,13 +150,17 @@ struct PaceDiagramTests {
         #expect(drained.executionPlan.flattenedActions.count == 1)
         #expect(!PaceActionApprovalPolicy.permitsObservationOnly(drained.executionPlan))
         #expect(PaceActionApprovalPolicy.permitsObservationOnly(.serial(actions: [.showDiagram(Self.document())])))
-        #expect(!PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(for: .serial(actions: [.showDiagram(Self.document())])))
+        #expect(
+            !PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
+                for: .serial(actions: [.showDiagram(Self.document())])))
     }
 
     @Test func routesScreenGroundedLearningWithoutUploadingUnrelatedScreens() {
         #expect(PaceDiagramDocument.requestsDiagram("Explain attention with a diagram", hasActiveDiagram: false))
         #expect(!PaceDiagramDocument.requiresScreenContext("Explain attention with a diagram", hasActiveDiagram: false))
-        #expect(PaceDiagramDocument.requiresScreenContext("Explain what's on my screen with a diagram", hasActiveDiagram: false))
+        #expect(
+            PaceDiagramDocument.requiresScreenContext(
+                "Explain what's on my screen with a diagram", hasActiveDiagram: false))
         #expect(PaceDiagramDocument.requiresScreenContext("Explain this diagram", hasActiveDiagram: false))
         #expect(PaceDiagramDocument.requiresScreenContext("Explain this with a diagram", hasActiveDiagram: false))
         #expect(!PaceDiagramDocument.requiresScreenContext("Explain this diagram", hasActiveDiagram: true))
@@ -155,7 +172,9 @@ struct PaceDiagramTests {
     }
 
     @Test func visualToolsAreAvailableWithoutActionsAndInScreenlessLearning() {
-        #expect(CompanionSystemPrompt.build(includeAgentMode: false, includeInteractiveDiagrams: true).contains("show_diagram"))
+        #expect(
+            CompanionSystemPrompt.build(includeAgentMode: false, includeInteractiveDiagrams: true).contains(
+                "show_diagram"))
         #expect(CompanionSystemPrompt.buildTextOnly(includeInteractiveDiagrams: true).contains("show_diagram"))
         #expect(CompanionSystemPrompt.buildForResearchTurn(includeInteractiveDiagrams: true).contains("show_diagram"))
         #expect(PaceToolRegistry.definition(forToolName: "show_diagram")?.riskLevel == .readOnly)
@@ -165,11 +184,16 @@ struct PaceDiagramTests {
         for transcript in [
             "open Sketch", "draw me a circle around the Save button", "email the diagram to Sam",
             "open the diagram in Preview", "walk me through setting up wifi", "change that to 50% volume",
-            "draw a diagram then email Sam", "expand that node and type hello"
+            "draw a diagram then email Sam", "expand that node and type hello",
+            "help me figure out a time and create a reminder", "can you figure out how to make a pivot table",
+            "show me the sales figures", "create a flowchart in Figma", "change my wifi connection to Home",
+            "add a reminder to order the replacement part", "change the node version in my project",
         ] {
-            #expect(!PaceDiagramDocument.requestsDiagram(transcript, hasActiveDiagram: true), "Unexpected diagram fast path: \(transcript)")
+            #expect(
+                !PaceDiagramDocument.requestsDiagram(transcript, hasActiveDiagram: true),
+                "Unexpected diagram fast path: \(transcript)")
         }
-        #expect(PaceDiagramDocument.requestsDiagram("Create a figure showing the water cycle", hasActiveDiagram: false))
+        #expect(PaceDiagramDocument.requestsDiagram("Show a diagram of the water cycle", hasActiveDiagram: false))
         #expect(PaceDiagramDocument.requestsDiagram("Walk me through this diagram", hasActiveDiagram: true))
     }
 
@@ -194,8 +218,12 @@ struct PaceDiagramTests {
 
     @Test @MainActor func escapeOutsideTheDiagramPreservesTheLearningSession() {
         let frames = [CGRect(x: 200, y: 100, width: 500, height: 300)]
-        #expect(!PaceDiagramOverlayManager.shouldDismissForEscape(pointerLocation: CGPoint(x: 50, y: 50), diagramFrames: frames))
-        #expect(PaceDiagramOverlayManager.shouldDismissForEscape(pointerLocation: CGPoint(x: 400, y: 250), diagramFrames: frames))
+        #expect(
+            !PaceDiagramOverlayManager.shouldDismissForEscape(
+                pointerLocation: CGPoint(x: 50, y: 50), diagramFrames: frames))
+        #expect(
+            PaceDiagramOverlayManager.shouldDismissForEscape(
+                pointerLocation: CGPoint(x: 400, y: 250), diagramFrames: frames))
     }
 
     @Test func deterministicAutomationsRejectInteractiveDiagramTools() {
@@ -205,7 +233,10 @@ struct PaceDiagramTests {
                 source: .user, executionMode: .deterministicLocal, requiredPreferences: [],
                 steps: [.init(toolCalls: [.init(tool: tool, arguments: [:])])]
             )
-            #expect(PaceAutomationDefinitionValidator.validationIssues(for: definition).contains { $0.message.contains("forbidden tool") })
+            #expect(
+                PaceAutomationDefinitionValidator.validationIssues(for: definition).contains {
+                    $0.message.contains("forbidden tool")
+                })
             do {
                 _ = try PaceAutomationCompiler.compile(definition)
                 Issue.record("Interactive figures must not compile into unattended automations")
@@ -215,24 +246,30 @@ struct PaceDiagramTests {
         }
     }
 
-
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["PACE_RUN_CODEX_DIAGRAM_INTEGRATION"] == "1"), .timeLimit(.minutes(2)))
+    @Test(
+        .enabled(if: ProcessInfo.processInfo.environment["PACE_RUN_CODEX_DIAGRAM_INTEGRATION"] == "1"),
+        .timeLimit(.minutes(2)))
     @MainActor func authenticatedCodexCreatesAndRevisesAnInteractiveDiagram() async throws {
         let client = PaceLocalCLIPlannerClient(upstream: .codex, modelIdentifier: nil)
         let prompt = CompanionSystemPrompt.buildTextOnly(includeInteractiveDiagrams: true)
-        let question = "Create an interactive diagram explaining the water cycle. Include evaporation, condensation, precipitation and collection, with a useful explanation for every clickable part. Use show_diagram."
+        let question =
+            "Create an interactive diagram explaining the water cycle. Include evaporation, condensation, precipitation and collection, with a useful explanation for every clickable part. Use show_diagram."
         let initialResponse = try await client.generateResponseStreaming(
             images: [], systemPrompt: prompt, conversationHistory: [], userPrompt: question, onTextChunk: { _ in }
         )
         let initialPlan = PaceActionTagParser.parseActions(from: initialResponse.text)
         let controller = PaceDiagramOverlayController(showsWindows: false)
         _ = controller.drain(parseResult: initialPlan, expectedDismissalGeneration: controller.dismissalGeneration)
-        let document = try #require(controller.document, "The authenticated Codex response must produce a valid interactive diagram")
+        let document = try #require(
+            controller.document, "The authenticated Codex response must produce a valid interactive diagram")
         #expect(document.nodes.count >= 3)
         #expect(!initialPlan.spokenText.isEmpty)
         let part = try #require(document.nodes.first)
         controller.selectNode(id: part.id)
-        let followUp = controller.appendingPlannerContext(to: "Simplify this diagram to three main parts. Keep the selected part ID and explain it more clearly. Return the updated show_diagram document.")
+        let followUp = controller.appendingPlannerContext(
+            to:
+                "Simplify this diagram to three main parts. Keep the selected part ID and explain it more clearly. Return the updated show_diagram document."
+        )
         client.resetForNewTurn()
         let revisedResponse = try await client.generateResponseStreaming(
             images: [], systemPrompt: prompt,
@@ -247,6 +284,23 @@ struct PaceDiagramTests {
         #expect(controller.selectedNode?.detail.isEmpty == false)
         controller.dismiss()
         #expect(controller.document == nil)
+    }
+
+    @Test @MainActor func aPlanCanReplaceItsOwnDismissedFigureWithoutDefeatingExternalDismissal() {
+        let controller = PaceDiagramOverlayController(showsWindows: false)
+        controller.present(Self.document())
+        let actions: [PaceParsedAction] = [.dismissDiagram, .showDiagram(Self.document(title: "Replacement"))]
+        let plan = PaceActionTagParseResult(
+            spokenText: "Updated.", actions: actions, executionPlan: .serial(actions: actions),
+            firstClickVisualisationLocation: nil)
+        let result = controller.drain(parseResult: plan, expectedDismissalGeneration: controller.dismissalGeneration)
+        #expect(controller.document?.title == "Replacement")
+        #expect(result.spokenText == "Updated.")
+        let oldGeneration = controller.dismissalGeneration
+        controller.dismiss()
+        controller.present(Self.document(title: "Newer user request"))
+        _ = controller.drain(parseResult: plan, expectedDismissalGeneration: oldGeneration)
+        #expect(controller.document?.title == "Newer user request")
     }
 
 }

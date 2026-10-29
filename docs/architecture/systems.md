@@ -115,8 +115,8 @@ shutdown/dismissal closes every diagram panel. Screen-referential diagram reques
 use the existing screen-enabled planner path; self-contained subjects use the
 text-only path. Diagram instructions are enabled only for interactive planner
 callers. Part follow-ups use neutral intent text; generated labels remain context
-rather than becoming commands. Escape dismissal applies only while the pointer
-is over the diagram. No generated code, external resources or web renderer execute.
+rather than becoming commands. Escape dismissal applies only to a focused diagram panel or while the pointer
+is over a visible diagram part or control. No generated code, external resources or web renderer execute.
 
 **Global Push-To-Talk Shortcut**: Background push-to-talk uses a listen-only `CGEvent` tap instead of an AppKit global monitor so modifier-based shortcuts like `ctrl + option` are detected more reliably while the app is running in the background.
 
