@@ -1593,7 +1593,8 @@ extension CompanionManager {
         // model, but an unavailable bridge must never turn it into a screen
         // request. The local text-only planner is a lower-quality answerer,
         // not a reason to capture the user's display or require permission.
-        if mutableIntentPrediction.route == .escalateToLargeModel,
+        if !requestsInteractiveDiagram,
+            mutableIntentPrediction.route == .escalateToLargeModel,
             !escalationUsesLargeModelForThisTurn,
             mutableIntentPrediction.intent == .pureKnowledge
                 || mutableIntentPrediction.intent == .chitchat
@@ -1607,14 +1608,14 @@ extension CompanionManager {
         // Fast paths use .route (not .intent) so a low-confidence
         // prediction whose intent happens to be .chitchat but whose
         // route is .escalateToLargeModel does NOT bypass escalation.
-        if mutableIntentPrediction.route == .chitchatFastPath {
+        if !requestsInteractiveDiagram && mutableIntentPrediction.route == .chitchatFastPath {
             print(
                 "🎯 Intent: chitchat (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — fast-path"
             )
             handleChitchatFastPath(transcript: transcript)
             return
         }
-        if mutableIntentPrediction.route == .answerDirectly {
+        if !requestsInteractiveDiagram && mutableIntentPrediction.route == .answerDirectly {
             print(
                 "🎯 Intent: pureKnowledge (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — text-only planner"
             )
@@ -1624,7 +1625,8 @@ extension CompanionManager {
         // Fast local-action path is skipped for research turns —
         // research wants the heavyweight planner, not a deterministic
         // "open Music" shortcut.
-        if researchTurnPlannerOverride == nil,
+        if !requestsInteractiveDiagram,
+            researchTurnPlannerOverride == nil,
             let fastActionParseResult = PaceFastActionCommandParser.parse(transcript: transcript)
         {
             print("🎯 Intent: fastLocalAction — skipping screenshot, VLM, and planner")
