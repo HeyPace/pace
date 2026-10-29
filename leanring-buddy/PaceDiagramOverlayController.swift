@@ -85,7 +85,7 @@ final class PaceDiagramOverlayController: ObservableObject {
 
     func drain(
         parseResult: PaceActionTagParseResult,
-        expectedDismissalGeneration: Int
+        expectedDismissalGeneration: inout Int
     ) -> PaceActionTagParseResult {
         var remainingSteps: [PaceActionExecutionStep] = []
         var ignoredStalePresentation = false
@@ -117,6 +117,7 @@ final class PaceDiagramOverlayController: ObservableObject {
             default: return true
             }
         }
+        expectedDismissalGeneration = permittedDismissalGeneration
         return .init(
             spokenText: ignoredStalePresentation
                 ? (document == nil ? "I kept the diagram closed." : "I kept the current diagram unchanged.")

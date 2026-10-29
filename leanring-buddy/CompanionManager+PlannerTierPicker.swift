@@ -14,6 +14,7 @@ extension CompanionManager {
     // MARK: - Planner tier picker state
 
     func setActivePlannerTier(_ newTier: PacePlannerTier) {
+        if newTier != activePlannerTier { diagramOverlayController.dismiss() }
         activePlannerTier = newTier
         PacePlannerTierStore.saveTier(newTier)
         // Rebuild planner so the next turn uses the freshly-picked tier
@@ -75,12 +76,14 @@ extension CompanionManager {
     /// planner so the next turn spawns the freshly-picked CLI without an
     /// app restart.
     func setCLIDirectUpstream(_ newUpstream: PaceLocalCLIUpstream) {
+        if newUpstream != activePlannerTierCLIDirectUpstream { diagramOverlayController.dismiss() }
         activePlannerTierCLIDirectUpstream = newUpstream
         PacePlannerTierStore.saveCLIDirectUpstream(newUpstream)
         plannerClient = BuddyPlannerClientFactory.makeDefault()
     }
 
     func setDirectAPIProvider(_ newProvider: PaceDirectAPIProvider) {
+        if newProvider != directAPIProvider { diagramOverlayController.dismiss() }
         directAPIProvider = newProvider
         PacePlannerTierStore.saveDirectAPIProvider(newProvider)
         // When the provider changes, also seed the model field with that

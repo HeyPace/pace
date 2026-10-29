@@ -497,6 +497,11 @@ final class CompanionManager: ObservableObject {
     /// `UseLocalVLMForScreenContext`. Wired to a Switch in CompanionPanelView.
     @Published var useLocalVLMForScreenContext: Bool = PaceUserPreferencesStore
         .boolWithInfoPlistSeed(.useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext")
+    {
+        didSet {
+            if oldValue && !useLocalVLMForScreenContext { diagramOverlayController.dismiss() }
+        }
+    }
 
     func setUseLocalVLMForScreenContext(_ enabled: Bool) {
         useLocalVLMForScreenContext = enabled

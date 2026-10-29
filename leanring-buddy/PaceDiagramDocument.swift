@@ -118,7 +118,7 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
         ]
         if explicitLearningForms.contains(where: { normalized.range(of: $0, options: .regularExpression) != nil }) {
             let additionalWork =
-                #"\b(?:and|then|also)\s+(?:open|launch|email|send|share|export|save|copy|paste|delete|move|rename|download|type|create|set|remind)\b"#
+                #"\b(?:and|then|also|plus)\b"#
             return normalized.range(of: additionalWork, options: .regularExpression) == nil
         }
         guard hasActiveDiagram else { return false }

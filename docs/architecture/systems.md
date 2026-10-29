@@ -104,7 +104,10 @@ before the action executor. `PaceDiagramOverlayController` owns the persistent
 figure and selection; a complete replacement keeps selection only if its stable
 part ID survives. Its bounded document and selected part are included in later
 planner context because spoken conversation history does not retain tool payloads.
-A dismissal generation prevents an in-flight reply from reopening a closed figure.
+A per-turn dismissal generation prevents an in-flight reply from reopening a
+closed figure while allowing the turn’s own ordered close-and-replace actions.
+Planner changes, Read My Screen revocation and thread reset clear the scene
+and its cached prompt context.
 `PaceDiagramOverlayManager` renders connectors in a click-through panel and each
 interactive node, heading and detail card in separate nonactivating native panels.
 The desktop remains interactive between these islands. Clicking a part reveals

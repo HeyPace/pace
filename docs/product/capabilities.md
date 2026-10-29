@@ -53,7 +53,8 @@ OCR + AX tree (`PaceScreenContextService`).
 create a native 2D figure directly over the desktop. Click a part to read its
 local explanation; “Explain this” continues through the normal selected-planner
 conversation. Voice follow-ups can replace the figure while retaining stable
-part selection. The figure remains until closed, including across later turns.
+part selection. The figure remains across later turns. Closing it, resetting the conversation,
+changing planners or turning off Read My Screen clears its context.
 Escape while hovering the diagram, the close control, or “close the diagram”
 dismisses it. The spaces between
 parts stay clickable in the underlying app. This supports bounded diagrams of

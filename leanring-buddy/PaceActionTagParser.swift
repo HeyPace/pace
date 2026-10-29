@@ -362,7 +362,9 @@ nonisolated enum PaceActionTagParser {
         }
 
         var envelopeValidationIssues = validatePlannerResponseEnvelope(plannerResponseObject)
-        if containsInvalidDiagramToolRequest(in: plannerResponseObject["payload"]) {
+        if strictStringValue(for: "intent", in: plannerResponseObject)?.lowercased() == "action",
+            containsInvalidDiagramToolRequest(in: plannerResponseObject["payload"])
+        {
             envelopeValidationIssues.append("show_diagram requires a valid document")
         }
         guard envelopeValidationIssues.isEmpty else {
@@ -407,42 +409,23 @@ nonisolated enum PaceActionTagParser {
         )
     }
 
-    private static func containsDiagramToolRequest(in value: PaceMCPJSONValue?) -> Bool {
-        switch value {
-        case .object(let arguments):
-            if ["name", "tool"].contains(where: {
-                guard case .string(let name) = arguments[$0] else { return false }
-                return ["show.diagram", "diagram"].contains(normalizedParameterizedActionName(name))
-            }) {
-                return true
-            }
-            return arguments.values.contains { containsDiagramToolRequest(in: $0) }
-        case .array(let values):
-            return values.contains { containsDiagramToolRequest(in: $0) }
-        default:
-            return false
+    private static func diagramToolCalls(in value: PaceMCPJSONValue?) -> [[String: PaceMCPJSONValue]] {
+        guard case .object(let payload) = value else { return [] }
+        let calls = actionCallObjects(from: payload) ?? [payload]
+        return calls.filter { call in
+            guard let name = strictStringValue(for: "name", in: call) else { return false }
+            return ["show.diagram", "diagram"].contains(normalizedParameterizedActionName(name))
         }
     }
 
+    private static func containsDiagramToolRequest(in value: PaceMCPJSONValue?) -> Bool {
+        !diagramToolCalls(in: value).isEmpty
+    }
+
     private static func containsInvalidDiagramToolRequest(in value: PaceMCPJSONValue?) -> Bool {
-        switch value {
-        case .object(let arguments):
-            let isDiagramCall = ["name", "tool"].contains {
-                guard case .string(let name) = arguments[$0] else { return false }
-                return ["show.diagram", "diagram"].contains(normalizedParameterizedActionName(name))
-            }
-            if isDiagramCall {
-                let documentArguments =
-                    objectValue(for: "args", in: arguments)
-                    ?? objectValue(for: "arguments", in: arguments)
-                    ?? arguments
-                return PaceDiagramDocument.parse(arguments: documentArguments) == nil
-            }
-            return arguments.values.contains { containsInvalidDiagramToolRequest(in: $0) }
-        case .array(let values):
-            return values.contains { containsInvalidDiagramToolRequest(in: $0) }
-        default:
-            return false
+        diagramToolCalls(in: value).contains { call in
+            let documentArguments = objectValue(for: "args", in: call) ?? [:]
+            return PaceDiagramDocument.parse(arguments: documentArguments) == nil
         }
     }
 

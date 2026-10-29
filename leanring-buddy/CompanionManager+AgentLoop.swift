@@ -531,7 +531,7 @@ extension CompanionManager {
                     (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
                 }
 
-                let diagramDismissalGeneration = diagramOverlayController.dismissalGeneration
+                var diagramDismissalGeneration = diagramOverlayController.dismissalGeneration
                 let userPromptForPlanner = await appendLocalRetrievalContext(
                     to: diagramOverlayController.appendingPlannerContext(to: transcript),
                     query: transcript,
@@ -577,8 +577,12 @@ extension CompanionManager {
                 // CLI or a larger LM Studio model) before speaking.
                 // This catches cases where complexity estimation missed
                 // a query that the local model can't handle well.
+                let includesValidatedDiagram = actionParseResult.actions.contains { action in
+                    if case .showDiagram = action { return true }
+                    return false
+                }
                 let qualityVerdict: PaceResponseQualityVerdict =
-                    usesOffDeviceTextPlanner
+                    usesOffDeviceTextPlanner || includesValidatedDiagram
                     ? .adequate
                     : await responseQualityChecker.check(query: transcript, response: spokenText)
                 var qualityReRouted = false
@@ -654,7 +658,7 @@ extension CompanionManager {
 
                 let finalizedParseResult = diagramOverlayController.drain(
                     parseResult: actionParseResult,
-                    expectedDismissalGeneration: diagramDismissalGeneration
+                    expectedDismissalGeneration: &diagramDismissalGeneration
                 )
                 if finalizedParseResult.spokenText != actionParseResult.spokenText {
                     spokenText = finalizedParseResult.spokenText
@@ -1120,6 +1124,13 @@ extension CompanionManager {
         // sweep timer so the menu-bar surface drops "session live"
         // indicators without needing a new turn.
         evaluateThreadIdleAndResetIfNeeded(now: Date())
+        if transcript == PaceDiagramDocument.selectedPartQuestion, diagramOverlayController.document == nil {
+            handleImmediateLocalModeResponse(
+                transcript: transcript,
+                spokenText: "That diagram is closed. Ask me to draw another to keep exploring."
+            )
+            return
+        }
 
         // Tell the planner this is a fresh user turn. Stateful conformers
         // (Apple Foundation Models) wipe their cross-call session state
@@ -1693,7 +1704,7 @@ extension CompanionManager {
             // loop can't blow the user's bill.
             var cumulativeOutputTokenEstimate = 0
             var stepIndex = 0
-            let diagramDismissalGeneration = diagramOverlayController.dismissalGeneration
+            var diagramDismissalGeneration = diagramOverlayController.dismissalGeneration
             var currentTurnUserPrompt = diagramOverlayController.appendingPlannerContext(to: transcript)
             if let physicalSceneContext = consumePacePadPhysicalSceneContext() {
                 currentTurnUserPrompt +=
@@ -1845,6 +1856,7 @@ extension CompanionManager {
                         && !isResearchTurn
                         && !activePlannerTierIsOffDevice
                         && diagramOverlayController.document == nil
+                        && !requestsInteractiveDiagram
                         && thermalAllowsSpeculativeRace
                         && speculativeRaceShouldFire(
                             intent: intentPrediction.intent,
@@ -2065,7 +2077,7 @@ extension CompanionManager {
                     )
                     let actionParseResult = diagramOverlayController.drain(
                         parseResult: annotationDrainOutcome.drainedParseResult,
-                        expectedDismissalGeneration: diagramDismissalGeneration
+                        expectedDismissalGeneration: &diagramDismissalGeneration
                     )
                     let streamedMailDraftForFinalization =
                         PaceStreamingMailDraftDetector

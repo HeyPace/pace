@@ -125,10 +125,10 @@ struct PaceDiagramTests {
             title: "One part", summary: "A different part.", nodes: [Self.node(id: "new")], connections: [])
         controller.present(replacement)
         #expect(controller.selectedNode == nil)
-        let generation = controller.dismissalGeneration
+        var generation = controller.dismissalGeneration
         controller.dismiss()
         let parsed = PaceActionTagParser.parseActions(from: try Self.response(document: Self.document()))
-        let drained = controller.drain(parseResult: parsed, expectedDismissalGeneration: generation)
+        let drained = controller.drain(parseResult: parsed, expectedDismissalGeneration: &generation)
         #expect(controller.document == nil)
         #expect(presentationCount == 2)
         #expect(drained.actions.isEmpty)
@@ -143,7 +143,8 @@ struct PaceDiagramTests {
         let parsed = PaceActionTagParseResult(
             spokenText: "Here is the diagram.", actions: actions, executionPlan: .serial(actions: actions),
             firstClickVisualisationLocation: nil)
-        let drained = controller.drain(parseResult: parsed, expectedDismissalGeneration: controller.dismissalGeneration)
+        var generation = controller.dismissalGeneration
+        let drained = controller.drain(parseResult: parsed, expectedDismissalGeneration: &generation)
         #expect(controller.document != nil)
         #expect(drained.actions.count == 1)
         #expect(drained.actions.first?.auditOperationName == "type")
@@ -185,6 +186,8 @@ struct PaceDiagramTests {
             "open Sketch", "draw me a circle around the Save button", "email the diagram to Sam",
             "open the diagram in Preview", "walk me through setting up wifi", "change that to 50% volume",
             "draw a diagram then email Sam", "expand that node and type hello",
+            "draw a diagram of my week then add it to Notes", "draw a diagram of my week and put it in Keynote",
+            "show a diagram of the plan plus print it",
             "help me figure out a time and create a reminder", "can you figure out how to make a pivot table",
             "show me the sales figures", "create a flowchart in Figma", "change my wifi connection to Home",
             "add a reminder to order the replacement part", "change the node version in my project",
@@ -259,7 +262,8 @@ struct PaceDiagramTests {
         )
         let initialPlan = PaceActionTagParser.parseActions(from: initialResponse.text)
         let controller = PaceDiagramOverlayController(showsWindows: false)
-        _ = controller.drain(parseResult: initialPlan, expectedDismissalGeneration: controller.dismissalGeneration)
+        var generation = controller.dismissalGeneration
+        _ = controller.drain(parseResult: initialPlan, expectedDismissalGeneration: &generation)
         let document = try #require(
             controller.document, "The authenticated Codex response must produce a valid interactive diagram")
         #expect(document.nodes.count >= 3)
@@ -277,7 +281,7 @@ struct PaceDiagramTests {
             userPrompt: followUp, onTextChunk: { _ in }
         )
         let revisedPlan = PaceActionTagParser.parseActions(from: revisedResponse.text)
-        _ = controller.drain(parseResult: revisedPlan, expectedDismissalGeneration: controller.dismissalGeneration)
+        _ = controller.drain(parseResult: revisedPlan, expectedDismissalGeneration: &generation)
         #expect(controller.revision == 2)
         #expect(controller.document?.nodes.count == 3)
         #expect(controller.selectedNodeID == part.id)
@@ -293,14 +297,49 @@ struct PaceDiagramTests {
         let plan = PaceActionTagParseResult(
             spokenText: "Updated.", actions: actions, executionPlan: .serial(actions: actions),
             firstClickVisualisationLocation: nil)
-        let result = controller.drain(parseResult: plan, expectedDismissalGeneration: controller.dismissalGeneration)
+        var generation = controller.dismissalGeneration
+        let result = controller.drain(parseResult: plan, expectedDismissalGeneration: &generation)
         #expect(controller.document?.title == "Replacement")
         #expect(result.spokenText == "Updated.")
-        let oldGeneration = controller.dismissalGeneration
+        var oldGeneration = controller.dismissalGeneration
         controller.dismiss()
         controller.present(Self.document(title: "Newer user request"))
-        _ = controller.drain(parseResult: plan, expectedDismissalGeneration: oldGeneration)
+        _ = controller.drain(parseResult: plan, expectedDismissalGeneration: &oldGeneration)
         #expect(controller.document?.title == "Newer user request")
+    }
+
+    @Test func nonDiagramActionArgumentsNamedDiagramDoNotTriggerFigureValidation() {
+        for payload in [
+            #"{"name":"run_shortcut","args":{"name":"Diagram"}}"#,
+            #"{"calls":[{"name":"run_shortcut","args":{"name":"Diagram"}}]}"#,
+        ] {
+            let response =
+                "{\"spokenText\":\"Running the shortcut.\",\"intent\":\"action\",\"payload\":" + payload + "}"
+            let result = PaceActionTagParser.parseActions(from: response)
+            #expect(result.actions.count == 1)
+            #expect(result.spokenText == "Running the shortcut.")
+        }
+    }
+
+    @Test @MainActor func aTurnCarriesItsOwnDismissalGenerationAcrossPlannerSteps() {
+        let controller = PaceDiagramOverlayController(showsWindows: false)
+        controller.present(Self.document())
+        var generation = controller.dismissalGeneration
+        let closeActions: [PaceParsedAction] = [.dismissDiagram]
+        let closePlan = PaceActionTagParseResult(
+            spokenText: "", actions: closeActions, executionPlan: .serial(actions: closeActions),
+            firstClickVisualisationLocation: nil)
+        _ = controller.drain(parseResult: closePlan, expectedDismissalGeneration: &generation)
+        #expect(generation == controller.dismissalGeneration)
+        let showActions: [PaceParsedAction] = [.showDiagram(Self.document(title: "Next step"))]
+        let showPlan = PaceActionTagParseResult(
+            spokenText: "Updated.", actions: showActions, executionPlan: .serial(actions: showActions),
+            firstClickVisualisationLocation: nil)
+        _ = controller.drain(parseResult: showPlan, expectedDismissalGeneration: &generation)
+        #expect(controller.document?.title == "Next step")
+        controller.dismiss()
+        _ = controller.drain(parseResult: showPlan, expectedDismissalGeneration: &generation)
+        #expect(controller.document == nil)
     }
 
 }

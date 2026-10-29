@@ -285,6 +285,7 @@ extension CompanionManager {
             return
         }
         let endingSessionId = threadMemory.currentSessionId
+        diagramOverlayController.dismiss()
         threadMemory.resetSession(cause: sessionEndCause, now: now)
         // Mirror the now-empty live state to disk so a relaunch after an
         // idle-while-running reset starts fresh rather than resurrecting
@@ -309,6 +310,7 @@ extension CompanionManager {
     func resetThreadMemoryNow() {
         let now = Date()
         let endingSessionId = threadMemory.currentSessionId
+        diagramOverlayController.dismiss()
         threadMemory.resetSession(cause: .userReset, now: now)
         // "Until I reset" — an explicit reset wipes the on-disk copy too,
         // so the conversation does not come back on the next launch.
