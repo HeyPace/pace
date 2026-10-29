@@ -15,9 +15,9 @@
 //  NSScreen — so the math is verifiable without launching the app.
 //
 
-import Testing
-import Foundation
 import CoreGraphics
+import Foundation
+import Testing
 @testable import Pace
 
 @MainActor

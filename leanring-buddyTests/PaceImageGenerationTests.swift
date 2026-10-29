@@ -292,10 +292,12 @@ struct PaceImageGenerationTests {
         var continuation: CheckedContinuation<PaceGeneratedImageArtifact, Never>?
         var discarded: [UUID] = []
         let artifact = Self.artifact()
-        let controller = PaceImageOverlayController(showsWindows: false, discardArtifact: { discarded.append($0.id) }) {
-            _, _ in
-            await withCheckedContinuation { continuation = $0 }
-        }
+        let controller = PaceImageOverlayController(
+            showsWindows: false, discardArtifact: { discarded.append($0.id) },
+            generateImage: {
+                _, _ in
+                await withCheckedContinuation { continuation = $0 }
+            })
         controller.authorizationCheck = { true }
         let task = Task { await controller.generate(Self.request, expectedDismissalGeneration: 0) }
         while continuation == nil { await Task.yield() }
@@ -312,11 +314,13 @@ struct PaceImageGenerationTests {
         let first = Self.artifact()
         let second = Self.artifact()
         var calls = 0
-        let controller = PaceImageOverlayController(showsWindows: false, discardArtifact: { discarded.append($0.id) }) {
-            _, _ in
-            calls += 1
-            return calls == 1 ? first : second
-        }
+        let controller = PaceImageOverlayController(
+            showsWindows: false, discardArtifact: { discarded.append($0.id) },
+            generateImage: {
+                _, _ in
+                calls += 1
+                return calls == 1 ? first : second
+            })
         controller.authorizationCheck = { true }
         let lease = controller.dismissalGeneration
         _ = await controller.generate(Self.request, expectedDismissalGeneration: lease)
@@ -339,13 +343,15 @@ struct PaceImageGenerationTests {
         let first = Self.artifact()
         let late = Self.artifact()
         var calls = 0
-        let controller = PaceImageOverlayController(showsWindows: false, discardArtifact: { discarded.append($0.id) }) {
-            _, _ in
-            calls += 1
-            if calls == 1 { return first }
-            authorized = false
-            return late
-        }
+        let controller = PaceImageOverlayController(
+            showsWindows: false, discardArtifact: { discarded.append($0.id) },
+            generateImage: {
+                _, _ in
+                calls += 1
+                if calls == 1 { return first }
+                authorized = false
+                return late
+            })
         controller.authorizationCheck = { authorized }
         _ = await controller.generate(Self.request, expectedDismissalGeneration: 0)
         #expect(
@@ -359,9 +365,11 @@ struct PaceImageGenerationTests {
     @Test @MainActor func savingAtTheWorkingURLProtectsThatExplicitUserDestination() async {
         var discarded: [UUID] = []
         let artifact = Self.artifact()
-        let controller = PaceImageOverlayController(showsWindows: false, discardArtifact: { discarded.append($0.id) }) {
-            _, _ in artifact
-        }
+        let controller = PaceImageOverlayController(
+            showsWindows: false, discardArtifact: { discarded.append($0.id) },
+            generateImage: {
+                _, _ in artifact
+            })
         controller.authorizationCheck = { true }
         _ = await controller.generate(Self.request, expectedDismissalGeneration: 0)
         controller.preserveExplicitlySavedArtifact(artifact, at: artifact.fileURL)
@@ -375,12 +383,14 @@ struct PaceImageGenerationTests {
         let first = Self.artifact()
         let second = Self.artifact()
         var calls = 0
-        let controller = PaceImageOverlayController(showsWindows: false, discardArtifact: { discarded.append($0.id) }) {
-            request, _ in
-            calls += 1
-            if request.edit { throw PaceImageGenerationError.missingArtifact }
-            return calls == 1 ? first : second
-        }
+        let controller = PaceImageOverlayController(
+            showsWindows: false, discardArtifact: { discarded.append($0.id) },
+            generateImage: {
+                request, _ in
+                calls += 1
+                if request.edit { throw PaceImageGenerationError.missingArtifact }
+                return calls == 1 ? first : second
+            })
         controller.authorizationCheck = { true }
         _ = await controller.generate(Self.request, expectedDismissalGeneration: 0)
         _ = await controller.generate(Self.request, expectedDismissalGeneration: 0)

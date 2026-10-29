@@ -402,7 +402,7 @@ nonisolated enum PaceActionTagParser {
                     ? "I couldn't draw that diagram because its structure wasn't valid. Please ask me to try again."
                     : !imageCalls.isEmpty
                         ? "I couldn't generate that image because the request was invalid. Please ask me to try again."
-                    : strictStringValue(for: "spokenText", in: plannerResponseObject) ?? "",
+                        : strictStringValue(for: "spokenText", in: plannerResponseObject) ?? "",
                 actions: [],
                 executionPlan: PaceActionExecutionPlan(steps: []),
                 firstClickVisualisationLocation: nil
