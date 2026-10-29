@@ -8,10 +8,8 @@
 //  CompanionManager TTS pipeline consumes it unchanged.
 //
 //  When TTSKit is linked AND the user has opted into bundled TTS,
-//  this client takes over speech synthesis. Otherwise the factory
-//  falls back to `LocalServerTTSClient` (the Kokoro sidecar) →
-//  `LocalTTSClient` (Apple AVSpeechSynthesizer) — pre-Phase-D
-//  behaviour intact.
+//  this client takes over speech synthesis. Otherwise the factory uses
+//  the configured provider; Apple speech is the repository default.
 //
 //  Why Qwen3 TTS over Kokoro: TTSKit is already shipped as a
 //  product in the WhisperKit package Pace already depends on. No
@@ -19,10 +17,9 @@
 //  Qwen3 TTS comes with a finished Swift implementation, voice
 //  selection, ANE inference, and audio output.
 //
-//  Failure posture: any TTSKit load or generation failure flows
-//  through `BuddyTTSClientFactory`'s normal fallback chain so the
-//  user always hears SOMETHING (AVSpeechSynthesizer is the
-//  universal floor).
+//  Experimental opt-in provider. Load errors reach the caller; generation
+//  errors currently stop this utterance without an automatic Apple retry.
+//  Streaming sentence queueing and cancellation still need qualification.
 //
 
 import Foundation
@@ -175,7 +172,7 @@ final class PaceQwen3TTSClient: BuddyTTSClient {
 
     #if canImport(TTSKit)
     /// One shared TTSKit instance per process. TTSKit's model assets
-    /// (~250 MB) load once then stay resident; constructing it twice
+        /// load on first use and stay resident; constructing it twice
     /// would double-pay the load cost.
     private static let sessionLock = NSLock()
     private static var cachedTTSSession: TTSKit?
