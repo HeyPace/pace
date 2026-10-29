@@ -61,9 +61,15 @@ struct PaceDiagramTests {
             title: "Bad graph", summary: "A missing part should not disappear silently.",
             nodes: [Self.node()], connections: [.init(source: "evaporation", target: "missing", label: nil)]
         )
-        let parsed = PaceActionTagParser.parseActions(from: try Self.response(document: missingEndpoint))
-        #expect(parsed.actions.isEmpty)
-        #expect(parsed.spokenText.contains("couldn't draw"))
+        for multipleCalls in [false, true] {
+            let parsed = PaceActionTagParser.parseActions(from: try Self.response(document: missingEndpoint, multipleCalls: multipleCalls))
+            #expect(parsed.actions.isEmpty)
+            #expect(parsed.spokenText.contains("couldn't draw"))
+        }
+        let mixedCalls = #"{"spokenText":"Here is your diagram.","intent":"action","payload":{"calls":[{"name":"show_diagram","args":{"title":"Broken"}},{"name":"type","args":{"text":"must not type"}}]}}"#
+        let rejectedPlan = PaceActionTagParser.parseActions(from: mixedCalls)
+        #expect(rejectedPlan.actions.isEmpty)
+        #expect(rejectedPlan.spokenText.contains("couldn't draw"))
     }
 
     @Test func validatesDuplicateIDsBoundsOverlapsAndSizeLimits() {

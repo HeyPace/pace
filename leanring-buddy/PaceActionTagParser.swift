@@ -361,7 +361,10 @@ nonisolated enum PaceActionTagParser {
             return nil
         }
 
-        let envelopeValidationIssues = validatePlannerResponseEnvelope(plannerResponseObject)
+        var envelopeValidationIssues = validatePlannerResponseEnvelope(plannerResponseObject)
+        if containsInvalidDiagramToolRequest(in: plannerResponseObject["payload"]) {
+            envelopeValidationIssues.append("show_diagram requires a valid document")
+        }
         guard envelopeValidationIssues.isEmpty else {
             print("⚠️ Rejected invalid v10 planner response before execution: \(envelopeValidationIssues.joined(separator: "; "))")
             return PaceActionTagParseResult(
@@ -414,6 +417,27 @@ nonisolated enum PaceActionTagParser {
             return arguments.values.contains { containsDiagramToolRequest(in: $0) }
         case .array(let values):
             return values.contains { containsDiagramToolRequest(in: $0) }
+        default:
+            return false
+        }
+    }
+
+    private static func containsInvalidDiagramToolRequest(in value: PaceMCPJSONValue?) -> Bool {
+        switch value {
+        case .object(let arguments):
+            let isDiagramCall = ["name", "tool"].contains {
+                guard case .string(let name) = arguments[$0] else { return false }
+                return ["show.diagram", "diagram"].contains(normalizedParameterizedActionName(name))
+            }
+            if isDiagramCall {
+                let documentArguments = objectValue(for: "args", in: arguments)
+                    ?? objectValue(for: "arguments", in: arguments)
+                    ?? arguments
+                return PaceDiagramDocument.parse(arguments: documentArguments) == nil
+            }
+            return arguments.values.contains { containsInvalidDiagramToolRequest(in: $0) }
+        case .array(let values):
+            return values.contains { containsInvalidDiagramToolRequest(in: $0) }
         default:
             return false
         }
