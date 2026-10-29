@@ -100,6 +100,7 @@ struct PaceDiagramTests {
         controller.onAskAboutPart = { submitted.append($0) }
         #expect(controller.present(Self.document()))
         controller.selectNode(id: "evaporation")
+        #expect(controller.lastUserInteractionAt != nil)
         #expect(controller.selectedNode?.detail.contains("water vapor") == true)
         #expect(submitted.isEmpty)
         #expect(controller.present(Self.document(title: "A closer view")))
@@ -127,6 +128,7 @@ struct PaceDiagramTests {
         #expect(controller.selectedNode == nil)
         var generation = controller.dismissalGeneration
         controller.dismiss()
+        #expect(controller.lastUserInteractionAt == nil)
         let parsed = PaceActionTagParser.parseActions(from: try Self.response(document: Self.document()))
         let drained = controller.drain(parseResult: parsed, expectedDismissalGeneration: &generation)
         #expect(controller.document == nil)
@@ -193,11 +195,18 @@ struct PaceDiagramTests {
             "add a reminder to order the replacement part", "change the node version in my project",
         ] {
             #expect(
-                !PaceDiagramDocument.requestsDiagram(transcript, hasActiveDiagram: true),
+                !PaceDiagramDocument.canUseDiagramOnlyFastPath(transcript, hasActiveDiagram: true),
                 "Unexpected diagram fast path: \(transcript)")
         }
         #expect(PaceDiagramDocument.requestsDiagram("Show a diagram of the water cycle", hasActiveDiagram: false))
         #expect(PaceDiagramDocument.requestsDiagram("Walk me through this diagram", hasActiveDiagram: true))
+        for transcript in [
+            "Explain supply and demand with a diagram", "Draw a diagram of TCP and UDP",
+            "draw a diagram of my week then add it to Notes",
+        ] {
+            #expect(PaceDiagramDocument.requestsDiagram(transcript, hasActiveDiagram: false))
+            #expect(!PaceDiagramDocument.canUseDiagramOnlyFastPath(transcript, hasActiveDiagram: false))
+        }
     }
 
     @Test func headlessPromptsDoNotAdvertiseInteractiveFigures() {
@@ -310,8 +319,8 @@ struct PaceDiagramTests {
 
     @Test func nonDiagramActionArgumentsNamedDiagramDoNotTriggerFigureValidation() {
         for payload in [
-            #"{"name":"run_shortcut","args":{"name":"Diagram"}}"#,
-            #"{"calls":[{"name":"run_shortcut","args":{"name":"Diagram"}}]}"#,
+            #"{"name":"shortcut.run","args":{"name":"Diagram"}}"#,
+            #"{"calls":[{"name":"shortcut.run","args":{"name":"Diagram"}}]}"#,
         ] {
             let response =
                 "{\"spokenText\":\"Running the shortcut.\",\"intent\":\"action\",\"payload\":" + payload + "}"

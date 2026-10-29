@@ -8,6 +8,7 @@ final class PaceDiagramOverlayController: ObservableObject {
     @Published private(set) var selectedNodeID: String?
     @Published private(set) var revision = 0
     private(set) var dismissalGeneration = 0
+    private(set) var lastUserInteractionAt: Date?
     var onAskAboutPart: ((String) -> Void)?
     var onDidPresent: (() -> Void)?
 
@@ -42,6 +43,7 @@ final class PaceDiagramOverlayController: ObservableObject {
 
     func selectNode(id: String) {
         guard document?.nodes.contains(where: { $0.id == id }) == true else { return }
+        lastUserInteractionAt = Date()
         selectedNodeID = id
         overlayManager?.refreshSelection()
     }
@@ -62,6 +64,7 @@ final class PaceDiagramOverlayController: ObservableObject {
 
     func dismiss() {
         dismissalGeneration += 1
+        lastUserInteractionAt = nil
         document = nil
         selectedNodeID = nil
         overlayManager?.hide()

@@ -281,7 +281,11 @@ extension CompanionManager {
     /// text itself is NEVER journaled — only the session id and the
     /// lifecycle cause.
     func evaluateThreadIdleAndResetIfNeeded(now: Date) {
-        guard let sessionEndCause = threadMemory.sessionDidIdle(now: now) else {
+        guard
+            let sessionEndCause = threadMemory.sessionDidIdle(
+                now: now, lastUserInteractionAt: diagramOverlayController.lastUserInteractionAt
+            )
+        else {
             return
         }
         let endingSessionId = threadMemory.currentSessionId

@@ -117,9 +117,7 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
             #"^(?:please\s+)?(?:explain|walk me through|draw|visualize|visualise)\s+(?:this|that)\s+(?:diagram|figure)[.!?]*$"#,
         ]
         if explicitLearningForms.contains(where: { normalized.range(of: $0, options: .regularExpression) != nil }) {
-            let additionalWork =
-                #"\b(?:and|then|also|plus)\b"#
-            return normalized.range(of: additionalWork, options: .regularExpression) == nil
+            return true
         }
         guard hasActiveDiagram else { return false }
         return normalized.range(
@@ -127,6 +125,14 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
                 #"^(?:please\s+)?(?:(?:expand|simplify|explain)\s+(?:this|that)(?:\s+(?:diagram|figure|part))?|show more detail|walk me through (?:this|that)(?:\s+(?:diagram|figure|part))?)[.!?]*$"#,
             options: .regularExpression
         ) != nil
+    }
+
+    static func canUseDiagramOnlyFastPath(_ transcript: String, hasActiveDiagram: Bool) -> Bool {
+        guard requestsDiagram(transcript, hasActiveDiagram: hasActiveDiagram) else { return false }
+        if hasActiveDiagram && transcript == selectedPartQuestion { return true }
+        // Ambiguous conjunctions use the full planner so an additional action cannot be lost.
+        return transcript.range(of: #"\b(?:and|then|also|plus)\b"#, options: [.regularExpression, .caseInsensitive])
+            == nil
     }
 
     static func requiresScreenContext(_ transcript: String, hasActiveDiagram: Bool) -> Bool {

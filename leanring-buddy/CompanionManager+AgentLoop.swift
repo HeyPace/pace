@@ -1362,7 +1362,9 @@ extension CompanionManager {
             )
             return
         }
-        if requestsInteractiveDiagram && !diagramNeedsScreenContext {
+        if !diagramNeedsScreenContext
+            && PaceDiagramDocument.canUseDiagramOnlyFastPath(transcript, hasActiveDiagram: hasActiveDiagram)
+        {
             handleTextOnlyPlannerFastPath(transcript: transcript)
             return
         }
