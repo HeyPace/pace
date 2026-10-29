@@ -212,7 +212,7 @@ extension CompanionManager {
 
     func start() {
         diagramOverlayController.onDidPresent = { [weak self] in
-            self?.imageOverlayController.dismiss()
+            self?.imageOverlayController.hideForDiagramReplacement()
             NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
         }
         imageOverlayController.authorizationCheck = { [weak self] in

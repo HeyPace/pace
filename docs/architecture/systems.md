@@ -146,7 +146,9 @@ multi-agent capabilities disabled. Native image generation and its code-mode
 host remain enabled. Prompts arrive over stdin. The only supported reference is
 an explicitly requested edit of the current Pace-owned image, copied to a private
 per-job attachment and passed with `--image`; ambient screenshots and arbitrary
-model-authored paths never become image inputs.
+model-authored paths never become image inputs. A brief may still be derived
+from a screen the user explicitly asked Pace to read through the normal planner
+consent path; the image audit does not claim that such a brief has no screen context.
 Codex can finish with no final text or typed image event. Pace reads only the
 validated `thread.started` UUID directory under Codex's generated-images store,
 checks containment and nonsymlink regular PNG/JPEG bytes through ImageIO, and
@@ -160,7 +162,12 @@ thread reset, planner/provider change, consent loss, Read My Screen revocation o
 shutdown invalidates in-flight results and clears active context. New diagrams
 and images replace one another. Later turns receive only the active image's
 bounded title and prompt as description data, never a file path. Raster images
-have no orbit or physical-part interaction.
+have no orbit or physical-part interaction. Only the controller's exact tracked
+unsaved Pace working copies are discarded on successful replacement, dismissal,
+reset or a late cancelled result; a failed edit keeps the previous working copy.
+Saved user destinations and the shared Codex generated-images directory are never
+removed by Pace. Resetting thread memory clears Pace's thread snapshot and active
+image context, not Codex-managed artifacts or the separate conversation history.
 
 **Global Push-To-Talk Shortcut**: Background push-to-talk uses a listen-only `CGEvent` tap instead of an AppKit global monitor so modifier-based shortcuts like `ctrl + option` are detected more reliably while the app is running in the background.
 

@@ -25,19 +25,26 @@ nonisolated struct PaceImageGenerationRequest: Codable, Equatable, Sendable {
     }
 
     static func requestsImage(_ transcript: String, hasActiveImage: Bool) -> Bool {
-        let normalized = transcript.lowercased()
+        let normalized = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let introduction =
+            #"^(?:(?:hey |okay |ok )?pace[, ]+)?(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?"#
+        // Only a direct image object is eligible for the consent/fast path.
+        // Instructions about diagrams, reminders or existing desktop images
+        // must reach the general planner instead of being reinterpreted here.
+        let imageObject =
+            #"(?:an? |one |the |this |that )?(?:(?:new|beautiful|detailed|realistic|photorealistic|stylized|digital|watercolor|labelled|labeled|blue|red|green|small|large)\s+){0,4}(?:image|illustration|picture|painting|photo|artwork)\b"#
         if normalized.range(
-            of:
-                #"^(?:(?:hey |okay |ok )?pace[, ]+)?(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?(?:generate|create|draw|make|paint)\b.{0,60}\b(?:image|illustration|picture|painting|photo|artwork)\b"#,
+            of: introduction + #"(?:generate|create|draw|make|paint)\s+"# + imageObject
+                + #"(?:\s+(?:of|showing|depicting|for|from|with)\b|[.!?]?$)"#,
             options: .regularExpression) != nil
         {
             return true
         }
-        return hasActiveImage
-            && normalized.range(
-                of:
-                    #"^(?:please )?(?:(?:edit|change|update|regenerate|repaint|make) (?:it|this|that|the image)|add (?:labels|text)|remove .+ from (?:it|the image))\b"#,
-                options: .regularExpression) != nil
+        guard hasActiveImage else { return false }
+        return normalized.range(
+            of: introduction
+                + #"(?:(?:edit|regenerate|repaint)\s+(?:it|this image|that image|the image)\b|(?:change|update|make)\s+(?:this image|that image|the image)\s+(?!my desktop|my wallpaper|the wallpaper|my background)|(?:change|make)\s+it\s+(?:blue|red|green|yellow|brighter|darker|more detailed|less detailed)\b|add\s+(?:labels|text)\b|remove\s+.+\s+from\s+(?:it|the image)\b)"#,
+            options: .regularExpression) != nil
     }
 
     static func requiresScreenContext(_ transcript: String, hasActiveImage: Bool) -> Bool {
@@ -153,6 +160,20 @@ nonisolated enum PaceGeneratedImageStore {
                 ] as CFDictionary) != nil
         else { throw PaceImageGenerationError.invalidArtifact }
         return (data, width, height)
+    }
+
+    /// Remove only the exact unsaved working copy owned by this controller.
+    /// Saved destinations and Codex's shared output directory remain untouched.
+    static func discardWorkingArtifact(_ artifact: PaceGeneratedImageArtifact) {
+        let directory = defaultDirectory.standardizedFileURL
+        let fileURL = artifact.fileURL.standardizedFileURL
+        guard fileURL.deletingLastPathComponent() == directory,
+            fileURL.deletingPathExtension().lastPathComponent == artifact.id.uuidString,
+            ["png", "jpg", "jpeg"].contains(fileURL.pathExtension.lowercased()),
+            directory == directory.resolvingSymlinksInPath().standardizedFileURL,
+            fileURL == fileURL.resolvingSymlinksInPath().standardizedFileURL
+        else { return }
+        try? FileManager.default.removeItem(at: fileURL)
     }
 
     static func importArtifact(
@@ -326,6 +347,6 @@ final class PaceCodexImageGenerationClient {
             subsystem: "planner.cliDirect", operation: "image.generate", target: "codex",
             durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1_000), outcome: outcome,
             inputCharacterCount: inputBytes, outputCharacterCount: nil,
-            detail: "native image generation; no ambient screen")
+            detail: "native image generation; explicit brief and optional Pace image")
     }
 }

@@ -49,12 +49,6 @@ enum PaceLMStudioModelLoader {
     /// model on single-model runtimes.
     /// After warmup finishes, starts the periodic keepalive heartbeat.
     static func warmUpConfiguredModelsAsync() {
-        guard !PaceBundledModelsSettings.isUsingMLXInProcessPlanner() else {
-            print(
-                "🔥 LM Studio warmup: skipped — in-process MLX owns the planner; optional screen analysis loads on demand"
-            )
-            return
-        }
         Task.detached(priority: .userInitiated) {
             await warmUpConfiguredModels()
             await startKeepaliveLoopIfNotRunning()
@@ -63,21 +57,23 @@ enum PaceLMStudioModelLoader {
 
     /// Awaitable version for tests / one-shot scripts.
     static func warmUpConfiguredModels() async {
-        guard !PaceBundledModelsSettings.isUsingMLXInProcessPlanner() else {
-            return
-        }
+        let shouldWarmPlanner = shouldKeepPlannerWarm(
+            selectedTier: PacePlannerTierStore.loadConfiguration().tier,
+            usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessPlanner())
         let configuredPlannerIdentifier =
             AppBundleConfiguration
             .stringValue(forKey: "LocalPlannerModelIdentifier")
             ?? "qwen3-4b-instruct"
-        let useLocalVLM =
-            AppBundleConfiguration
-            .stringValue(forKey: "UseLocalVLMForScreenContext")?
-            .lowercased() == "true"
+        let useLocalVLM = shouldKeepVLMWarm(
+            selectedTier: PacePlannerTierStore.loadConfiguration().tier,
+            screenContextEnabled: PaceUserPreferencesStore.boolWithInfoPlistSeed(
+                .useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext"),
+            usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessVLM())
         let vlmModelIdentifier =
             AppBundleConfiguration
             .stringValue(forKey: "LocalVLMModelIdentifier")
             ?? "ui-venus-1.5-2b"
+        guard shouldWarmPlanner || useLocalVLM else { return }
         print(
             "🔥 LM Studio warmup: starting (planner=\(configuredPlannerIdentifier), vlm=\(useLocalVLM ? vlmModelIdentifier : "off"))"
         )
@@ -95,18 +91,22 @@ enum PaceLMStudioModelLoader {
         // caches that for the rest of the session — every subsequent
         // LocalPlannerClient picks it up via PacePlannerModelResolver
         // .resolvedIdentifier instead of 404ing.
-        let plannerModelIdentifier = await PacePlannerModelResolver.resolveAndCache(
-            configuredIdentifier: configuredPlannerIdentifier,
-            plannerBaseURL: lmStudioBaseURL.appendingPathComponent("v1")
-        )
+        let plannerModelIdentifier: String?
+        if shouldWarmPlanner {
+            plannerModelIdentifier = await PacePlannerModelResolver.resolveAndCache(
+                configuredIdentifier: configuredPlannerIdentifier,
+                plannerBaseURL: lmStudioBaseURL.appendingPathComponent("v1"))
+        } else {
+            plannerModelIdentifier = nil
+        }
 
         // Run independent model warmups concurrently. When one multimodal
         // model serves both roles, warm it only once; duplicate concurrent
         // requests make LM Studio create a wasteful `:2` instance.
-        async let plannerWarmup: Void = sendChatCompletionWarmup(
-            modelIdentifier: plannerModelIdentifier,
-            role: "planner"
-        )
+        async let plannerWarmup: Void = {
+            guard let plannerModelIdentifier else { return }
+            await sendChatCompletionWarmup(modelIdentifier: plannerModelIdentifier, role: "planner")
+        }()
         async let vlmWarmup: Void = {
             guard useLocalVLM, vlmModelIdentifier != plannerModelIdentifier else { return }
             await sendChatCompletionWarmup(
@@ -236,21 +236,39 @@ enum PaceLMStudioModelLoader {
             PacePlannerModelResolver.resolvedIdentifier
             ?? AppBundleConfiguration.stringValue(forKey: "LocalPlannerModelIdentifier")
             ?? "qwen3-4b-instruct"
-        let useLocalVLM =
-            AppBundleConfiguration
-            .stringValue(forKey: "UseLocalVLMForScreenContext")?
-            .lowercased() == "true"
+        let useLocalVLM = shouldKeepVLMWarm(
+            selectedTier: PacePlannerTierStore.loadConfiguration().tier,
+            screenContextEnabled: PaceUserPreferencesStore.boolWithInfoPlistSeed(
+                .useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext"),
+            usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessVLM())
         let vlmIdentifier =
             AppBundleConfiguration
             .stringValue(forKey: "LocalVLMModelIdentifier")
             ?? "ui-venus-1.5-2b"
 
-        async let plannerPing: Void = sendSingleKeepalivePing(modelIdentifier: plannerIdentifier)
+        let shouldPingPlanner = shouldKeepPlannerWarm(
+            selectedTier: PacePlannerTierStore.loadConfiguration().tier,
+            usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessPlanner())
+        async let plannerPing: Void = {
+            guard shouldPingPlanner else { return }
+            await sendSingleKeepalivePing(modelIdentifier: plannerIdentifier)
+        }()
         async let vlmPing: Void = {
-            guard useLocalVLM, vlmIdentifier != plannerIdentifier else { return }
+            guard useLocalVLM, !shouldPingPlanner || vlmIdentifier != plannerIdentifier else { return }
             await sendSingleKeepalivePing(modelIdentifier: vlmIdentifier)
         }()
         _ = await (plannerPing, vlmPing)
+    }
+
+    nonisolated static func shouldKeepPlannerWarm(selectedTier: PacePlannerTier, usesMLX: Bool) -> Bool {
+        selectedTier == .local && !usesMLX
+    }
+
+    nonisolated static func shouldKeepVLMWarm(
+        selectedTier: PacePlannerTier, screenContextEnabled: Bool, usesMLX: Bool
+    ) -> Bool {
+        // Direct CLI screen turns explicitly bypass local VLM enrichment.
+        selectedTier != .cliDirect && screenContextEnabled && !usesMLX
     }
 
     private static func sendSingleKeepalivePing(modelIdentifier: String) async {

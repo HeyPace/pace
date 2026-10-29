@@ -101,9 +101,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         // PaceAutoUpdateController.shared.checkForUpdatesManually().
         _ = PaceAutoUpdateController.shared
 
-        if companionManager.activePlannerTier == .local {
-            PaceLMStudioModelLoader.warmUpConfiguredModelsAsync()
-        }
+        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync()
         companionManager.prewarmTextOnlyPlannerInBackgroundIfNeeded()
         // Start Kokoro only when the user explicitly selected the sidecar
         // provider. The default Apple voice has no helper process to manage.

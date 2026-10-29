@@ -20,6 +20,7 @@ extension CompanionManager {
         }
         activePlannerTier = newTier
         PacePlannerTierStore.saveTier(newTier)
+        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync()
         // Rebuild planner so the next turn uses the freshly-picked tier
         // without requiring an app restart.
         plannerClient = BuddyPlannerClientFactory.makeDefault()

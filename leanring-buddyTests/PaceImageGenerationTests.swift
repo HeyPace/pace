@@ -230,6 +230,104 @@ struct PaceImageGenerationTests {
                 "Could you please draw an illustration of a mug?", hasActiveImage: false))
     }
 
+    @Test func ambiguousImageMentionsRemainGeneralPlannerRequests() {
+        for transcript in [
+            "draw a diagram of how a camera captures a photo",
+            "create a flowchart of image processing",
+            "create a reminder to buy a picture frame",
+            "make this image my desktop wallpaper",
+            "draw a circle around the image", "make it louder", "change it to dark mode",
+        ] {
+            #expect(!PaceImageGenerationRequest.requestsImage(transcript, hasActiveImage: false), "\(transcript)")
+            #expect(!PaceImageGenerationRequest.requestsImage(transcript, hasActiveImage: true), "\(transcript)")
+        }
+        #expect(PaceImageGenerationRequest.requestsImage("make it blue", hasActiveImage: true))
+        #expect(
+            PaceImageGenerationRequest.requestsImage(
+                "create a detailed illustration of a camera", hasActiveImage: false))
+    }
+
+    @Test func localModelWarmupFollowsTheExecutedPlannerAndScreenPath() {
+        #expect(!PaceLMStudioModelLoader.shouldKeepPlannerWarm(selectedTier: .cliDirect, usesMLX: false))
+        #expect(PaceLMStudioModelLoader.shouldKeepPlannerWarm(selectedTier: .local, usesMLX: false))
+        #expect(!PaceLMStudioModelLoader.shouldKeepPlannerWarm(selectedTier: .local, usesMLX: true))
+        #expect(
+            !PaceLMStudioModelLoader.shouldKeepVLMWarm(
+                selectedTier: .cliDirect, screenContextEnabled: true, usesMLX: false))
+        #expect(
+            PaceLMStudioModelLoader.shouldKeepVLMWarm(
+                selectedTier: .appleFoundationModels, screenContextEnabled: true, usesMLX: false))
+        #expect(
+            !PaceLMStudioModelLoader.shouldKeepVLMWarm(
+                selectedTier: .local, screenContextEnabled: false, usesMLX: false))
+    }
+
+    @Test @MainActor func lateParentCancellationRestoresIdleAndDiscardsOnlyLateArtifact() async {
+        var continuation: CheckedContinuation<PaceGeneratedImageArtifact, Never>?
+        var discarded: [UUID] = []
+        let artifact = Self.artifact()
+        let controller = PaceImageOverlayController(showsWindows: false, discardArtifact: { discarded.append($0.id) }) {
+            _, _ in
+            await withCheckedContinuation { continuation = $0 }
+        }
+        controller.authorizationCheck = { true }
+        let task = Task { await controller.generate(Self.request, expectedDismissalGeneration: 0) }
+        while continuation == nil { await Task.yield() }
+        task.cancel()
+        continuation?.resume(returning: artifact)
+        #expect(await task.value == "Image generation was cancelled.")
+        #expect(controller.state == .idle)
+        #expect(controller.lastSuccessfulArtifact == nil)
+        #expect(discarded == [artifact.id])
+    }
+
+    @Test @MainActor func orderedDiagramReplacementPreservesPlanLeaseButManualCloseRevokesIt() async {
+        var discarded: [UUID] = []
+        let first = Self.artifact()
+        let second = Self.artifact()
+        var calls = 0
+        let controller = PaceImageOverlayController(showsWindows: false, discardArtifact: { discarded.append($0.id) }) {
+            _, _ in
+            calls += 1
+            return calls == 1 ? first : second
+        }
+        controller.authorizationCheck = { true }
+        let lease = controller.dismissalGeneration
+        _ = await controller.generate(Self.request, expectedDismissalGeneration: lease)
+        controller.hideForDiagramReplacement()
+        #expect(controller.dismissalGeneration == lease)
+        #expect(discarded == [first.id])
+        #expect(
+            await controller.generate(Self.request, expectedDismissalGeneration: lease).contains("Your image is ready:")
+        )
+        controller.dismiss()
+        #expect(discarded == [first.id, second.id])
+        #expect(
+            await controller.generate(Self.request, expectedDismissalGeneration: lease) == "I kept the image closed.")
+        #expect(calls == 2)
+    }
+
+    @Test @MainActor func successfulReplacementDiscardsPriorCopyAndFailedEditKeepsCurrentCopy() async {
+        var discarded: [UUID] = []
+        let first = Self.artifact()
+        let second = Self.artifact()
+        var calls = 0
+        let controller = PaceImageOverlayController(showsWindows: false, discardArtifact: { discarded.append($0.id) }) {
+            request, _ in
+            calls += 1
+            if request.edit { throw PaceImageGenerationError.missingArtifact }
+            return calls == 1 ? first : second
+        }
+        controller.authorizationCheck = { true }
+        _ = await controller.generate(Self.request, expectedDismissalGeneration: 0)
+        _ = await controller.generate(Self.request, expectedDismissalGeneration: 0)
+        #expect(discarded == [first.id])
+        _ = await controller.generate(
+            .init(prompt: "Add labels", title: "Labels", edit: true), expectedDismissalGeneration: 0)
+        #expect(discarded == [first.id])
+        #expect(controller.lastSuccessfulArtifact == second)
+    }
+
     @Test @MainActor func successEditAndFailurePreserveOnlyActiveImageContext() async throws {
         var receivedPrevious: [PaceGeneratedImageArtifact?] = []
         let artifact = Self.artifact()

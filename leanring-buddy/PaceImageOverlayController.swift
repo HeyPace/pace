@@ -10,6 +10,7 @@ final class PaceImageOverlayController: ObservableObject {
     var authorizationCheck: () -> Bool = { false }
     var onWillGenerate: (() -> Void)?
     var onGenerationProgress: ((String) -> Void)?
+    private let discardArtifact: (PaceGeneratedImageArtifact) -> Void
     private let showsWindows: Bool
     private let generateImage:
         @MainActor (PaceImageGenerationRequest, PaceGeneratedImageArtifact?) async throws -> PaceGeneratedImageArtifact
@@ -19,12 +20,15 @@ final class PaceImageOverlayController: ObservableObject {
 
     init(
         showsWindows: Bool = true,
+        discardArtifact: @escaping (PaceGeneratedImageArtifact) -> Void = PaceGeneratedImageStore
+            .discardWorkingArtifact,
         generateImage: (
             @MainActor (PaceImageGenerationRequest, PaceGeneratedImageArtifact?) async throws ->
                 PaceGeneratedImageArtifact
         )? = nil
     ) {
         self.showsWindows = showsWindows
+        self.discardArtifact = discardArtifact
         self.generateImage =
             generateImage ?? { request, previous in
                 try await PaceCodexImageGenerationClient().generate(request: request, previous: previous)
@@ -42,9 +46,16 @@ final class PaceImageOverlayController: ObservableObject {
 
     func dismiss() {
         dismissalGeneration += 1
+        hideForDiagramReplacement()
+    }
+
+    // Ordered visual replacement does not revoke later image actions in the
+    // same plan. The job identity still fences any earlier in-flight result.
+    func hideForDiagramReplacement() {
         generationIdentifier = nil
         generationTask?.cancel()
         generationTask = nil
+        if let lastSuccessfulArtifact { discardArtifact(lastSuccessfulArtifact) }
         lastSuccessfulArtifact = nil
         state = .idle
         overlay?.hide()
@@ -115,9 +126,19 @@ final class PaceImageOverlayController: ObservableObject {
                 operation: { try await task.value }, onCancel: { task.cancel() })
             guard !Task.isCancelled, generationIdentifier == identifier,
                 dismissalGeneration == expectedDismissalGeneration, authorizationCheck()
-            else { return "Image generation was cancelled." }
+            else {
+                discardArtifact(artifact)
+                if generationIdentifier == identifier {
+                    generationTask = nil
+                    generationIdentifier = nil
+                    state = lastSuccessfulArtifact.map { .ready($0) } ?? .idle
+                    if state == .idle { overlay?.hide() }
+                }
+                return "Image generation was cancelled."
+            }
             generationTask = nil
             generationIdentifier = nil
+            if let previous, previous.id != artifact.id { discardArtifact(previous) }
             lastSuccessfulArtifact = artifact
             state = .ready(artifact)
             return "Your image is ready: \(request.title)."
