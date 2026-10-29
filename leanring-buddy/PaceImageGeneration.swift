@@ -44,6 +44,9 @@ nonisolated struct PaceImageGenerationRequest: Codable, Equatable, Sendable {
             let otherObjects: Set<String> = [
                 "diagram", "flowchart", "reminder", "note", "email", "mail", "message", "calendar", "event",
                 "task", "list", "playlist", "document", "folder", "wallpaper", "desktop", "frame",
+                "it", "my", "your", "his", "her", "our", "their", "its", "me", "us",
+                "mine", "yours", "hers", "ours", "theirs", "this", "that", "these", "those", "he", "she", "they", "we",
+                "you",
                 "of", "to", "for", "from", "in", "on", "around", "through", "about", "with", "into", "over", "under",
                 "by",
             ]
@@ -54,10 +57,15 @@ nonisolated struct PaceImageGenerationRequest: Codable, Equatable, Sendable {
         // requests into edits. Ambiguous language continues to the planner.
         guard
             normalized.range(
-                of: #"\b(?:wallpaper|desktop|reminder|calendar|email|volume|louder)\b"#, options: .regularExpression)
+                of: #"\b(?:reminder|calendar|email|volume|louder)\b"#, options: .regularExpression)
                 == nil
         else { return false }
         let imageReference = #"(?:this image|that image|the image)"#
+        let setAsPattern =
+            introduction + #"(?:make|set|use|change)\s+(?:it|this image|that image|the image)\s+"#
+            + #"(?:(?:as|for|into|to be|be)\s+(?:(?:my|the|a|an|your|our)\s+)?|(?:to\s+)?(?:my|the|a|an|your|our)\s+)"#
+            + #"(?:desktop|wallpaper|background|(?:lock|home)\s+screen|profile\s+(?:picture|photo|image)|avatar)\b"#
+        guard normalized.range(of: setAsPattern, options: .regularExpression) == nil else { return false }
         let imageAppearance =
             #"(?:to\s+)?(?:blue|red|green|yellow|purple|orange|pink|black|white|brighter|darker|colorful|monochrome|(?:more|less)\s+(?:colorful|saturated|detailed|vivid|realistic|bright|dark))\b"#
         let editPattern =

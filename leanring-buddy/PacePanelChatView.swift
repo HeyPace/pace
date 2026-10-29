@@ -27,7 +27,6 @@ struct PacePanelChatView: View {
     @ObservedObject private var chatSession: PaceChatSession
     @ObservedObject private var imageOverlayController: PaceImageOverlayController
     @ObservedObject private var diagramOverlayController: PaceDiagramOverlayController
-    let isEmbeddedInLivingNotch: Bool
 
     @State private var showsHistory = false
     @State private var selectedQuestionIdentifier: String?
@@ -35,14 +34,12 @@ struct PacePanelChatView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
-        companionManager: CompanionManager,
-        isEmbeddedInLivingNotch: Bool = false
+        companionManager: CompanionManager
     ) {
         self.companionManager = companionManager
         self._chatSession = ObservedObject(wrappedValue: companionManager.chatSession)
         self._imageOverlayController = ObservedObject(wrappedValue: companionManager.imageOverlayController)
         self._diagramOverlayController = ObservedObject(wrappedValue: companionManager.diagramOverlayController)
-        self.isEmbeddedInLivingNotch = isEmbeddedInLivingNotch
     }
 
     var body: some View {
@@ -63,24 +60,22 @@ struct PacePanelChatView: View {
             height: PaceQuickPanelMetrics.height
         )
         .background(DS.Colors.surface)
-        .paceRootTheme(isRoot: !isEmbeddedInLivingNotch)
+        .paceRootTheme(isRoot: true)
         .clipShape(
             RoundedRectangle(
-                cornerRadius: isEmbeddedInLivingNotch ? 0 : DS.Radius.window,
+                cornerRadius: DS.Radius.window,
                 style: .continuous
             )
         )
         .overlay {
-            if isEmbeddedInLivingNotch == false {
-                RoundedRectangle(cornerRadius: DS.Radius.window, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-            }
+            RoundedRectangle(cornerRadius: DS.Radius.window, style: .continuous)
+                .stroke(DS.Colors.borderSubtle, lineWidth: 1)
         }
         .shadow(
-            color: Color.black.opacity(isEmbeddedInLivingNotch ? 0 : 0.46),
-            radius: isEmbeddedInLivingNotch ? 0 : 22,
+            color: Color.black.opacity(0.46),
+            radius: 22,
             x: 0,
-            y: isEmbeddedInLivingNotch ? 0 : 12
+            y: 12
         )
         .onAppear {
             chatSession.loadHistoryWithoutBlockingInterface()

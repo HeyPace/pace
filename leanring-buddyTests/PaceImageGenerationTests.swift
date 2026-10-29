@@ -296,17 +296,56 @@ struct PaceImageGenerationTests {
                 effectivePlannerAllowsLocalVLM: true, screenContextEnabled: false, usesMLX: false))
     }
 
+    @Test @MainActor func replacedAndStoppedWarmupsCannotLoadOrStartLateKeepalive() async {
+        defer { PaceLMStudioModelLoader.stopKeepaliveLoop() }
+        var firstResume: CheckedContinuation<Void, Never>?
+        var firstGeneration: Int?
+        var firstWasCancelled = false
+        var events: [String] = []
+        let firstTask = PaceLMStudioModelLoader.startOwnedWarmup(
+            operation: { generation in
+                firstGeneration = generation
+                await withCheckedContinuation { firstResume = $0 }
+                firstWasCancelled = Task.isCancelled
+                if PaceLMStudioModelLoader.warmupIsCurrent(generation) { events.append("stale load") }
+            }, completion: { events.append("stale keepalive") })
+        while firstResume == nil { await Task.yield() }
+        let currentTask = PaceLMStudioModelLoader.startOwnedWarmup(
+            operation: { generation in
+                if PaceLMStudioModelLoader.warmupIsCurrent(generation) { events.append("current load") }
+            }, completion: { events.append("current keepalive") })
+        await currentTask.value
+        #expect(firstGeneration.map { !PaceLMStudioModelLoader.warmupIsCurrent($0) } == true)
+        firstResume?.resume()
+        await firstTask.value
+        #expect(firstWasCancelled)
+        #expect(events == ["current load", "current keepalive"])
+
+        var stoppedResume: CheckedContinuation<Void, Never>?
+        let stoppedTask = PaceLMStudioModelLoader.startOwnedWarmup(
+            operation: { generation in
+                await withCheckedContinuation { stoppedResume = $0 }
+                if PaceLMStudioModelLoader.warmupIsCurrent(generation) { events.append("stopped load") }
+            }, completion: { events.append("stopped keepalive") })
+        while stoppedResume == nil { await Task.yield() }
+        PaceLMStudioModelLoader.stopKeepaliveLoop()
+        stoppedResume?.resume()
+        await stoppedTask.value
+        #expect(events == ["current load", "current keepalive"])
+    }
+
     @Test func commonImageCreationAndSpecificEditsStayInsideTheirDirectObjectBoundary() {
         for transcript in [
             "draw me a picture of a cat", "can you make me an image of a fox",
             "create a cute image of a dog", "make a cat picture", "paint us a watercolor illustration of the sea",
+            "create a profile picture", "draw us a profile picture",
         ] {
             #expect(
                 PaceImageGenerationRequest.canUseImageOnlyFastPath(transcript, hasActiveImage: false), "\(transcript)")
         }
         for transcript in [
             "change it to blue", "make it more colorful", "change the image", "add labels to the image",
-            "add text on it",
+            "add text on it", "remove the background from the image", "change the image background to blue",
         ] {
             #expect(PaceImageGenerationRequest.requestsImage(transcript, hasActiveImage: true), "\(transcript)")
             #expect(!PaceImageGenerationRequest.requestsImage(transcript, hasActiveImage: false), "\(transcript)")
@@ -315,7 +354,8 @@ struct PaceImageGenerationTests {
             "pace, add text to my reminder", "add labels to my calendar", "add text to my note",
             "draw me a diagram of a photo", "create a reminder to buy a picture frame",
             "draw a circle around the image", "make this image my desktop wallpaper", "change it to dark mode",
-            "make it louder",
+            "make it louder", "make this my profile picture", "make it my lock screen photo",
+            "make this image my background", "make the image my lock screen",
         ] {
             #expect(!PaceImageGenerationRequest.requestsImage(transcript, hasActiveImage: true), "\(transcript)")
             #expect(!PaceImageGenerationRequest.requestsImage(transcript, hasActiveImage: false), "\(transcript)")
