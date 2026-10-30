@@ -136,6 +136,18 @@ struct PaceSeamNotchHeader: View {
                 .frame(width: wingWidth, height: physicalHousingHeight)
                 Color.clear.frame(width: physicalHousingWidth)
                 HStack(spacing: 7) {
+                    Text(isExpanded ? "Close" : "Chat")
+                        .font(.system(size: 13, weight: .medium))
+                    Image(systemName: isExpanded ? "xmark" : statusSymbolName)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 15, height: 15)
+                        .accessibilityHidden(true)
+                }
+                .foregroundStyle(isOffDeviceTurn ? DS.Colors.offDeviceSignal : Color.white.opacity(0.94))
+                .fixedSize()
+                .frame(width: wingWidth, height: physicalHousingHeight)
+                .overlay(alignment: .bottomTrailing) {
                     HStack(spacing: 4) {
                         if let companionStatusColor {
                             Circle().fill(companionStatusColor).frame(width: 4, height: 4)
@@ -150,15 +162,10 @@ struct PaceSeamNotchHeader: View {
                                 .accessibilityLabel("Screen active")
                         }
                     }
-                    Text(isExpanded ? "Close" : "Chat")
-                        .font(.system(size: 13, weight: .medium))
-                    Image(systemName: isExpanded ? "xmark" : statusSymbolName)
-                        .font(.system(size: 13, weight: .regular))
-                        .accessibilityHidden(true)
+                    .fixedSize()
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 2)
                 }
-                .foregroundStyle(isOffDeviceTurn ? DS.Colors.offDeviceSignal : Color.white.opacity(0.94))
-                .fixedSize()
-                .frame(width: wingWidth, height: physicalHousingHeight)
             }
         }
         .frame(height: physicalHousingHeight)
