@@ -61,7 +61,7 @@ struct PaceFigureCameraFramingTests {
     @Test func invalidBoundsViewportOrOrientationCannotMoveTheCamera() {
         let bounds = PaceFigureCameraFraming.Bounds(minimum: [-1, -1, -1], maximum: [1, 1, 1])
         let orientation = simd_quatf(angle: 0, axis: [0, 1, 0])
-        for viewport in [CGSize.zero, CGSize(width: -1, height: 300), CGSize(width: .infinity, height: 300)] {
+        for viewport in [CGSize.zero, CGSize(width: -1, height: 300), CGSize(width: CGFloat.infinity, height: 300)] {
             #expect(
                 PaceFigureCameraFraming.cameraDistance(for: bounds, orientation: orientation, viewportSize: viewport)
                     == nil)
