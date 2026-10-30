@@ -11,11 +11,13 @@
 //
 
 import AppKit
+import Combine
 import QuartzCore
 import SwiftUI
 
 extension Notification.Name {
     static let paceDismissPanel = Notification.Name("paceDismissPanel")
+    static let paceNotchConversationVisibilityChanged = Notification.Name("paceNotchConversationVisibilityChanged")
     /// Posted by `CompanionManager` when the notch chat shortcut fires,
     /// so the panel manager can bring the panel forward without the
     /// manager needing a direct reference to it. Mirrors the existing
@@ -30,8 +32,91 @@ private class KeyablePanel: NSPanel {
 }
 
 @MainActor
+private final class PaceConversationPanelSurfaceModel: ObservableObject {
+    @Published var placement: PaceConversationPanelPlacement = .anchored(.zero)
+}
+
+private struct PaceConversationPanelSurface: View {
+    @ObservedObject var companionManager: CompanionManager
+    @ObservedObject var surfaceModel: PaceConversationPanelSurfaceModel
+    @ObservedObject var companionControlCenter: PaceCompanionControlCenter
+    let usesChatPanelAsPrimarySurface: Bool
+
+    var body: some View {
+        GeometryReader { geometry in
+            switch surfaceModel.placement {
+            case .physicalNotch(let notchGeometry):
+                VStack(spacing: 0) {
+                    Button {
+                        NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+                    } label: {
+                        PaceSeamNotchHeader(
+                            physicalHousingWidth: notchGeometry.physicalHousingFrame.width,
+                            physicalHousingHeight: notchGeometry.physicalHousingFrame.height,
+                            signalState: companionManager.nativeEffectiveSignalState,
+                            isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
+                            isExpanded: true,
+                            isCameraActive: companionControlCenter.activeSources.contains(.camera),
+                            isScreenActive: companionControlCenter.activeSources.contains(.screen),
+                            persistentStatus: companionControlCenter.runtimeStatusText,
+                            companionStatusColor: companionStatusColor
+                        )
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                    .accessibilityLabel("Close conversation")
+                    .accessibilityValue(headerAccessibilityValue)
+                    .keyboardShortcut(.escape, modifiers: [])
+                    PacePanelChatView(companionManager: companionManager, isEmbeddedInNotch: true)
+                        .frame(width: PaceQuickPanelMetrics.width, height: PaceQuickPanelMetrics.seamlessContentHeight)
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+                .background(Color.black)
+                .clipShape(PaceSeamNotchShape(topShoulderRadius: 10, bottomCornerRadius: 24))
+            case .anchored:
+                if usesChatPanelAsPrimarySurface {
+                    PaceChatPanelView(companionManager: companionManager)
+                } else {
+                    PacePanelChatView(companionManager: companionManager)
+                }
+            }
+        }
+    }
+
+    private var companionStatusColor: Color? {
+        guard companionControlCenter.preferences.isCompanionModeEnabled,
+            companionControlCenter.activeSources.isEmpty
+        else { return nil }
+        switch companionControlCenter.runtimeState {
+        case .observing: return .green
+        case .interpreting: return .cyan
+        case .paused: return .yellow
+        case .degraded: return .orange
+        case .privacyBlocked: return .red
+        case .off, .starting: return .gray
+        }
+    }
+
+    private var headerAccessibilityValue: String {
+        var descriptions: [String] = []
+        if companionControlCenter.activeSources.contains(.camera) { descriptions.append("Camera active") }
+        if companionControlCenter.activeSources.contains(.screen) { descriptions.append("Screen active") }
+        if companionControlCenter.preferences.isCompanionModeEnabled {
+            descriptions.append("Companion mode \(companionControlCenter.runtimeStatusText)")
+        }
+        if companionManager.isOffDeviceTurnInFlight { descriptions.append("Off-device request active") }
+        return descriptions.joined(separator: ". ")
+    }
+}
+
+@MainActor
 final class MenuBarPanelManager: NSObject {
     private var panel: NSPanel?
+    private let surfaceModel = PaceConversationPanelSurfaceModel()
+    private var isPanelPresented = false
+    private var screenParametersObserver: NSObjectProtocol?
+    private var workspaceWakeObserver: NSObjectProtocol?
     private var panelAnchorFrameOverride: NSRect?
     private var clickOutsideMonitor: Any?
     private var localClickOutsideMonitor: Any?
@@ -56,7 +141,7 @@ final class MenuBarPanelManager: NSObject {
         self.usesChatPanelAsPrimarySurface = shouldUseChatPanelAsPrimarySurface
         if shouldUseChatPanelAsPrimarySurface {
             self.panelWidth = 320
-            self.panelHeight = 380
+            self.panelHeight = 460
         } else {
             self.panelWidth = PaceQuickPanelMetrics.width
             self.panelHeight = PaceQuickPanelMetrics.height
@@ -84,9 +169,22 @@ final class MenuBarPanelManager: NSObject {
                 manager.showPanel()
             }
         }
+        screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.repositionVisiblePanel() }
+        }
+        workspaceWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.repositionVisiblePanel() }
+        }
+
     }
 
     deinit {
+        if let screenParametersObserver { NotificationCenter.default.removeObserver(screenParametersObserver) }
+        if let workspaceWakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(workspaceWakeObserver) }
         if let monitor = clickOutsideMonitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -102,7 +200,7 @@ final class MenuBarPanelManager: NSObject {
     }
 
     func togglePanel() {
-        if let panel, panel.isVisible {
+        if isPanelPresented {
             hidePanel()
         } else {
             showPanel()
@@ -120,10 +218,10 @@ final class MenuBarPanelManager: NSObject {
     func showPanel(anchoredTo anchorFrame: NSRect) {
         panelAnchorFrameOverride = anchorFrame
 
-        if panel?.isVisible != true {
+        if !isPanelPresented {
             showPanel()
         } else {
-            positionPanelBelowAnchor()
+            repositionVisiblePanel()
         }
     }
 
@@ -148,7 +246,8 @@ final class MenuBarPanelManager: NSObject {
         }
 
         guard let panel else { return }
-        let wasVisible = panel.isVisible
+        let wasVisible = isPanelPresented
+        isPanelPresented = true
         positionPanelBelowAnchor()
         let expandedPanelFrame = panel.frame
         visibilityAnimationGeneration += 1
@@ -156,21 +255,15 @@ final class MenuBarPanelManager: NSObject {
         if wasVisible == false,
             NSWorkspace.shared.accessibilityDisplayShouldReduceMotion == false
         {
-            let collapsedPanelFrame = NSRect(
-                x: expandedPanelFrame.minX,
-                y: expandedPanelFrame.maxY - 24,
-                width: expandedPanelFrame.width,
-                height: 24
-            )
-            panel.alphaValue = 0
+            let collapsedPanelFrame = surfaceModel.placement.collapsedFrame
+            panel.alphaValue = 1
             panel.setFrame(collapsedPanelFrame, display: false)
             panel.makeKeyAndOrderFront(nil)
             panel.orderFrontRegardless()
 
             NSAnimationContext.runAnimationGroup { animationContext in
-                animationContext.duration = 0.24
+                animationContext.duration = 0.26
                 animationContext.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel.animator().alphaValue = 1
                 panel.animator().setFrame(expandedPanelFrame, display: true)
             }
         } else {
@@ -178,72 +271,49 @@ final class MenuBarPanelManager: NSObject {
             panel.makeKeyAndOrderFront(nil)
             panel.orderFrontRegardless()
         }
+        updateNotchConversationVisibility()
         panelShownAt = Date()
         installClickOutsideMonitor()
     }
 
     private func hidePanel() {
-        guard let panel, panel.isVisible else {
+        guard let panel, isPanelPresented else {
             removeClickOutsideMonitor()
             return
         }
-
+        isPanelPresented = false
         visibilityAnimationGeneration += 1
         let animationGeneration = visibilityAnimationGeneration
-        let expandedPanelFrame = panel.frame
         removeClickOutsideMonitor()
-
-        guard NSWorkspace.shared.accessibilityDisplayShouldReduceMotion == false else {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             panel.orderOut(nil)
-            panel.alphaValue = 1
+            updateNotchConversationVisibility()
             return
         }
-
-        let collapsedPanelFrame = NSRect(
-            x: expandedPanelFrame.minX,
-            y: expandedPanelFrame.maxY - 24,
-            width: expandedPanelFrame.width,
-            height: 24
-        )
         NSAnimationContext.runAnimationGroup { animationContext in
             animationContext.duration = 0.18
-            animationContext.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            panel.animator().alphaValue = 0
-            panel.animator().setFrame(collapsedPanelFrame, display: true)
+            animationContext.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(surfaceModel.placement.collapsedFrame, display: true)
         } completionHandler: { [weak self, weak panel] in
             Task { @MainActor in
-                guard let self,
-                    let panel,
-                    self.visibilityAnimationGeneration == animationGeneration
-                else {
-                    return
-                }
+                guard let self, let panel,
+                    self.visibilityAnimationGeneration == animationGeneration,
+                    !self.isPanelPresented
+                else { return }
                 panel.orderOut(nil)
-                panel.alphaValue = 1
+                self.updateNotchConversationVisibility()
             }
         }
     }
 
     private func createPanel() {
-        // Feature flag (docs/prds/premium-chat-panel.md, phase 1): the
-        // redesigned PaceChatPanelView renders only when the user opted
-        // in via `useChatPanelAsPrimarySurface` (default OFF). Flag OFF
-        // keeps the shipped PacePanelChatView byte-identical. The flag
-        // is read once, at panel creation (first show after launch), so
-        // flipping it takes effect on the next app launch.
-        let hostingView: NSView
-        if usesChatPanelAsPrimarySurface {
-            let chatPanelView = PaceChatPanelView(companionManager: companionManager)
-                .frame(width: panelWidth)
-            hostingView = NSHostingView(rootView: chatPanelView)
-        } else {
-            // Premium chat surface (PacePanelChatView). The prior dashboard
-            // (CompanionPanelView) is kept in the tree, not deleted — swap this
-            // line back to revert.
-            let companionPanelView = PacePanelChatView(companionManager: companionManager)
-                .frame(width: panelWidth)
-            hostingView = NSHostingView(rootView: companionPanelView)
-        }
+        let hostingView = NSHostingView(
+            rootView: PaceConversationPanelSurface(
+                companionManager: companionManager,
+                surfaceModel: surfaceModel,
+                companionControlCenter: companionManager.companionControlCenter,
+                usesChatPanelAsPrimarySurface: usesChatPanelAsPrimarySurface))
+        hostingView.sizingOptions = []
         hostingView.frame = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
@@ -272,41 +342,39 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func positionPanelBelowAnchor() {
-        guard let panel else { return }
-        let anchorFrame: NSRect
-        if let panelAnchorFrameOverride {
-            anchorFrame = panelAnchorFrameOverride
-        } else if let defaultAnchorFrame = defaultMenuBarAnchorFrame() {
-            anchorFrame = defaultAnchorFrame
+        guard let panel,
+            let anchorFrame = panelAnchorFrameOverride ?? defaultMenuBarAnchorFrame(),
+            let anchorScreen = NSScreen.screens.first(where: { $0.frame.intersects(anchorFrame) }) ?? NSScreen.main
+        else { return }
+        let notchGeometry = PaceLivingNotchScreenGeometryResolver.geometry(displayMode: .hover)
+        surfaceModel.placement = PaceConversationPanelPlacement.resolve(
+            notchGeometry: notchGeometry,
+            anchorFrame: anchorFrame,
+            screenFrame: notchGeometry.flatMap { notchGeometry in
+                NSScreen.screens.first { $0.frame.contains(notchGeometry.physicalHousingFrame) }?.frame
+            } ?? anchorScreen.frame,
+            contentSize: CGSize(width: panelWidth, height: panelHeight))
+        panel.level = notchGeometry == nil ? .floating : PaceWindowLayering.livingNotch
+        panel.setFrame(surfaceModel.placement.frame, display: true)
+    }
+
+    private func repositionVisiblePanel() {
+        guard isPanelPresented else { return }
+        visibilityAnimationGeneration += 1
+        positionPanelBelowAnchor()
+        updateNotchConversationVisibility()
+    }
+
+    private func updateNotchConversationVisibility() {
+        let isNotchConversationVisible: Bool
+        if case .physicalNotch = surfaceModel.placement {
+            isNotchConversationVisible = panel?.isVisible == true
         } else {
-            return
+            isNotchConversationVisible = false
         }
-        // Reserve the active notch footprint so a voice turn cannot grow
-        // underneath the conversation or move it while the user is reading.
-        let anchorGap: CGFloat = 10
-
-        // Calculate the panel's content height from the hosting view's fitting size
-        // so the panel snugly wraps the SwiftUI content instead of using a fixed height.
-        let fittingSize = panel.contentView?.fittingSize ?? CGSize(width: panelWidth, height: panelHeight)
-        let actualPanelHeight = fittingSize.height
-
-        var panelOriginX = anchorFrame.midX - (panelWidth / 2)
-        let panelOriginY = anchorFrame.minY - actualPanelHeight - anchorGap
-
-        // Keep the panel fully on-screen. A right-corner anchor (the mascot
-        // perch) would otherwise center the panel under the mascot and push
-        // its right half off the screen edge; clamp so it drops down-left.
-        if let anchorScreen = NSScreen.screens.first(where: { $0.frame.intersects(anchorFrame) }) ?? NSScreen.main {
-            let horizontalMargin: CGFloat = 8
-            let maxOriginX = anchorScreen.frame.maxX - panelWidth - horizontalMargin
-            let minOriginX = anchorScreen.frame.minX + horizontalMargin
-            panelOriginX = min(max(panelOriginX, minOriginX), maxOriginX)
-        }
-
-        panel.setFrame(
-            NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: actualPanelHeight),
-            display: true
-        )
+        NotificationCenter.default.post(
+            name: .paceNotchConversationVisibilityChanged, object: nil,
+            userInfo: ["isVisible": isNotchConversationVisible])
     }
 
     private func defaultMenuBarAnchorFrame() -> NSRect? {
@@ -373,8 +441,11 @@ final class MenuBarPanelManager: NSObject {
         // permission dialog doesn't race the dismissal. Clicks inside the
         // panel already returned above; anything here is genuinely outside,
         // so dismiss like NSPopover.
+        let dismissalGeneration = visibilityAnimationGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            guard let self, panel.isVisible else { return }
+            guard let self, panel.isVisible, self.isPanelPresented,
+                self.visibilityAnimationGeneration == dismissalGeneration
+            else { return }
             self.hidePanel()
         }
     }

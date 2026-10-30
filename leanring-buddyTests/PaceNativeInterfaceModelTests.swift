@@ -114,11 +114,11 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         XCTAssertEqual(idleGeometry?.presentationFrame, expectedPhysicalHousingFrame)
         XCTAssertEqual(
             hoverGeometry?.presentationFrame,
-            CGRect(x: 724, y: 1_061, width: 280, height: 56)
+            CGRect(x: 680, y: 1_085, width: 368, height: 32)
         )
         XCTAssertEqual(
             activeGeometry?.presentationFrame,
-            CGRect(x: 699.5, y: 1_053, width: 329, height: 64)
+            CGRect(x: 681.5, y: 1_053, width: 365, height: 64)
         )
 
     }
@@ -160,9 +160,52 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
                 auxiliaryTopRightArea: CGRect(x: 976.5, y: 1_085, width: 751.5, height: 32),
                 displayMode: .active))
         XCTAssertEqual(geometry.physicalHousingFrame.width, 225)
-        XCTAssertEqual(geometry.presentationFrame.width, 369)
+        XCTAssertEqual(geometry.presentationFrame.width, 405)
         XCTAssertEqual(geometry.presentationFrame.midX, geometry.physicalHousingFrame.midX)
-        XCTAssertGreaterThanOrEqual((geometry.presentationFrame.width - geometry.physicalHousingFrame.width) / 2, 72)
+        XCTAssertGreaterThanOrEqual((geometry.presentationFrame.width - geometry.physicalHousingFrame.width) / 2, 90)
+    }
+
+    func testSeamlessConversationStaysConnectedToPhysicalHousing() throws {
+        let screenFrame = CGRect(x: -1_200, y: 180, width: 1_728, height: 1_117)
+        let housing = CGRect(x: -428.5, y: 1_265, width: 185, height: 32)
+        let placement = PaceConversationPanelPlacement.resolve(
+            notchGeometry: PaceLivingNotchGeometry(physicalHousingFrame: housing, presentationFrame: housing),
+            anchorFrame: housing,
+            screenFrame: screenFrame,
+            contentSize: CGSize(width: 520, height: 540))
+        guard case .physicalNotch = placement else { return XCTFail("Expected physical notch placement") }
+        XCTAssertEqual(placement.frame.width, 520)
+        XCTAssertEqual(placement.frame.height, 412)
+        XCTAssertEqual(placement.frame.midX, housing.midX)
+        XCTAssertEqual(placement.frame.maxY, housing.maxY)
+        XCTAssertTrue(placement.frame.contains(housing))
+        XCTAssertEqual(placement.collapsedFrame.midX, housing.midX)
+        XCTAssertEqual(placement.collapsedFrame.maxY, housing.maxY)
+        XCTAssertEqual(placement.collapsedFrame.height, housing.height)
+        XCTAssertEqual(placement.collapsedFrame.width, 368)
+    }
+
+    func testSeamlessConversationKeepsWideCameraReservationReadable() {
+        let housing = CGRect(x: 714, y: 1_085, width: 300, height: 32)
+        let placement = PaceConversationPanelPlacement.resolve(
+            notchGeometry: PaceLivingNotchGeometry(physicalHousingFrame: housing, presentationFrame: housing),
+            anchorFrame: housing,
+            screenFrame: CGRect(x: 0, y: 0, width: 1_728, height: 1_117),
+            contentSize: CGSize(width: 520, height: 540))
+        XCTAssertEqual(placement.collapsedFrame.width, 480)
+        XCTAssertEqual((placement.collapsedFrame.width - housing.width) / 2, 90)
+        XCTAssertEqual(placement.frame.maxY, housing.maxY)
+    }
+
+    func testConversationWithoutPhysicalHousingUsesClampedAnchorAndGap() {
+        let placement = PaceConversationPanelPlacement.resolve(
+            notchGeometry: nil,
+            anchorFrame: CGRect(x: 1_400, y: 876, width: 24, height: 24),
+            screenFrame: CGRect(x: 0, y: 0, width: 1_440, height: 900),
+            contentSize: CGSize(width: 520, height: 540))
+        XCTAssertEqual(placement, .anchored(CGRect(x: 912, y: 326, width: 520, height: 540)))
+        XCTAssertEqual(placement.collapsedFrame.maxY, placement.frame.maxY)
+        XCTAssertEqual(placement.collapsedFrame.height, 24)
     }
 
     @MainActor
@@ -187,7 +230,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         ]
         for (name, mode, signalState, label, isOffDeviceTurn, housingWidth) in examples {
             let width = max(
-                mode.preferredWidth ?? housingWidth, housingWidth + (mode == .active ? 144 : mode == .hover ? 88 : 0))
+                mode.preferredWidth ?? housingWidth, housingWidth + (mode == .hardwareIdle ? 0 : 180))
             let height = 32 + mode.additionalHeight
             let surface = PaceSeamNotchSurface(
                 displayMode: mode, physicalHousingWidth: housingWidth, physicalHousingHeight: 32,

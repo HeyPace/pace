@@ -11,6 +11,59 @@ import Foundation
 nonisolated enum PaceQuickPanelMetrics {
     static let width: CGFloat = 520
     static let height: CGFloat = 540
+    static let seamlessContentHeight: CGFloat = 380
+}
+
+nonisolated enum PaceConversationPanelPlacement: Equatable {
+    case physicalNotch(PaceLivingNotchGeometry)
+    case anchored(CGRect)
+
+    var frame: CGRect {
+        switch self {
+        case .physicalNotch(let geometry): return geometry.presentationFrame
+        case .anchored(let frame): return frame
+        }
+    }
+
+    var collapsedFrame: CGRect {
+        switch self {
+        case .physicalNotch(let geometry):
+            let width = min(geometry.presentationFrame.width, max(368, geometry.physicalHousingFrame.width + 180))
+            return CGRect(
+                x: geometry.physicalHousingFrame.midX - width / 2,
+                y: geometry.physicalHousingFrame.minY,
+                width: width,
+                height: geometry.physicalHousingFrame.height)
+        case .anchored(let frame):
+            return CGRect(x: frame.minX, y: frame.maxY - 24, width: frame.width, height: 24)
+        }
+    }
+
+    static func resolve(
+        notchGeometry: PaceLivingNotchGeometry?,
+        anchorFrame: CGRect,
+        screenFrame: CGRect,
+        contentSize: CGSize
+    ) -> PaceConversationPanelPlacement {
+        if let notchGeometry {
+            let housing = notchGeometry.physicalHousingFrame
+            let width = min(max(PaceQuickPanelMetrics.width, housing.width + 180), screenFrame.width - 16)
+            let height = min(housing.height + PaceQuickPanelMetrics.seamlessContentHeight, screenFrame.height - 16)
+            return .physicalNotch(
+                PaceLivingNotchGeometry(
+                    physicalHousingFrame: housing,
+                    presentationFrame: CGRect(
+                        x: housing.midX - width / 2, y: housing.maxY - height, width: width, height: height)))
+        }
+        let minimumX = screenFrame.minX + 8
+        let maximumX = max(minimumX, screenFrame.maxX - contentSize.width - 8)
+        return .anchored(
+            CGRect(
+                x: min(max(anchorFrame.midX - contentSize.width / 2, minimumX), maximumX),
+                y: anchorFrame.minY - contentSize.height - 10,
+                width: contentSize.width,
+                height: contentSize.height))
+    }
 }
 
 nonisolated enum PaceAmbientHomePresentation: Equatable {
@@ -67,7 +120,7 @@ nonisolated enum PaceLivingNotchDisplayMode: Equatable {
     var additionalHeight: CGFloat {
         switch self {
         case .hardwareIdle: return 0
-        case .hover: return 24
+        case .hover: return 0
         case .active: return 32
         }
     }
@@ -77,7 +130,7 @@ nonisolated enum PaceLivingNotchDisplayMode: Equatable {
         case .hardwareIdle:
             return nil
         case .hover:
-            return 280
+            return 368
         case .active:
             return 320
         }
@@ -123,7 +176,7 @@ nonisolated struct PaceLivingNotchGeometry: Equatable {
         let maximumPresentationWidth = max(physicalHousingWidth, screenFrame.width - 16)
         let presentationWidth = min(
             max(
-                physicalHousingWidth + (displayMode == .active ? 144 : displayMode == .hover ? 88 : 0),
+                physicalHousingWidth + (displayMode == .hardwareIdle ? 0 : 180),
                 displayMode.preferredWidth ?? physicalHousingWidth),
             maximumPresentationWidth
         )

@@ -33,11 +33,14 @@ struct PacePanelChatView: View {
     @State private var expandedOriginalResponseIdentifiers: Set<String> = []
     @FocusState private var isInputFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let isEmbeddedInNotch: Bool
 
     init(
-        companionManager: CompanionManager
+        companionManager: CompanionManager,
+        isEmbeddedInNotch: Bool = false
     ) {
         self.companionManager = companionManager
+        self.isEmbeddedInNotch = isEmbeddedInNotch
         self._chatSession = ObservedObject(wrappedValue: companionManager.chatSession)
         self._imageOverlayController = ObservedObject(wrappedValue: companionManager.imageOverlayController)
         self._diagramOverlayController = ObservedObject(wrappedValue: companionManager.diagramOverlayController)
@@ -58,22 +61,22 @@ struct PacePanelChatView: View {
         }
         .frame(
             width: PaceQuickPanelMetrics.width,
-            height: PaceQuickPanelMetrics.height
+            height: isEmbeddedInNotch ? PaceQuickPanelMetrics.seamlessContentHeight : PaceQuickPanelMetrics.height
         )
-        .background(DS.Colors.surface)
+        .background(conversationBackground)
         .paceRootTheme(isRoot: true)
         .clipShape(
             RoundedRectangle(
-                cornerRadius: DS.Radius.window,
+                cornerRadius: isEmbeddedInNotch ? 0 : DS.Radius.window,
                 style: .continuous
             )
         )
         .overlay {
             RoundedRectangle(cornerRadius: DS.Radius.window, style: .continuous)
-                .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                .stroke(isEmbeddedInNotch ? .clear : DS.Colors.borderSubtle, lineWidth: 1)
         }
         .shadow(
-            color: Color.black.opacity(0.46),
+            color: Color.black.opacity(isEmbeddedInNotch ? 0 : 0.46),
             radius: 22,
             x: 0,
             y: 12
@@ -92,16 +95,22 @@ struct PacePanelChatView: View {
 
     // MARK: - Header
 
+    private var conversationBackground: Color {
+        isEmbeddedInNotch ? .black : DS.Colors.surface
+    }
+
     private var header: some View {
         HStack(spacing: 9) {
-            PaceBrandMark()
-                .foregroundStyle(DS.Colors.textPrimary)
-                .frame(width: 19, height: 19)
-            Text("pace")
-                .font(.system(size: 14, weight: .semibold))
-                .tracking(0.2)
-                .foregroundStyle(DS.Colors.textPrimary)
-            Text(showsHistory ? "History" : "Quick chat")
+            if !isEmbeddedInNotch {
+                PaceBrandMark()
+                    .foregroundStyle(DS.Colors.textPrimary)
+                    .frame(width: 19, height: 19)
+                Text("pace")
+                    .font(.system(size: 14, weight: .semibold))
+                    .tracking(0.2)
+                    .foregroundStyle(DS.Colors.textPrimary)
+            }
+            Text(showsHistory ? "History" : isEmbeddedInNotch ? "Conversation" : "Quick chat")
                 .font(.system(size: 11))
                 .foregroundStyle(DS.Colors.textTertiary)
             Spacer()
@@ -126,13 +135,15 @@ struct PacePanelChatView: View {
                 PaceSettingsWindowManager.shared.show(companionManager: companionManager)
             }
             .keyboardShortcut(",", modifiers: [.command])
-            iconButton(systemName: "xmark", help: "Close conversation") {
-                NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+            if !isEmbeddedInNotch {
+                iconButton(systemName: "xmark", help: "Close conversation") {
+                    NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+                }
+                .keyboardShortcut(.escape, modifiers: [])
             }
-            .keyboardShortcut(.escape, modifiers: [])
         }
         .padding(.horizontal, 22)
-        .frame(height: 52)
+        .frame(height: isEmbeddedInNotch ? 36 : 52)
         .overlay(alignment: .bottom) {
             Rectangle().fill(DS.Colors.borderSubtle.opacity(0.6)).frame(height: 0.5)
         }
@@ -249,7 +260,7 @@ struct PacePanelChatView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .top) {
                 LinearGradient(
-                    colors: [DS.Colors.surface, DS.Colors.surface.opacity(0)],
+                    colors: [conversationBackground, conversationBackground.opacity(0)],
                     startPoint: .top,
                     endPoint: .bottom
                 )

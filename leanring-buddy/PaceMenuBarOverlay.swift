@@ -136,6 +136,8 @@ final class PaceMenuBarOverlayManager {
     private var fallbackMenuBarStatusItem: NSStatusItem?
     private var companionManagerObservation: AnyCancellable?
     private var companionControlCenterObservation: AnyCancellable?
+    private var notchConversationVisibilityObserver: NSObjectProtocol?
+    private var isNotchConversationVisible = false
     private var isHovering = false
     private var isVisible = false
     private var lastAppliedDisplayMode: PaceLivingNotchDisplayMode?
@@ -149,6 +151,18 @@ final class PaceMenuBarOverlayManager {
     ) {
         self.companionManager = companionManager
         self.onTap = onTap
+
+        notchConversationVisibilityObserver = NotificationCenter.default.addObserver(
+            forName: .paceNotchConversationVisibilityChanged, object: nil, queue: .main
+        ) { [weak self] notification in
+            let isVisible = notification.userInfo?["isVisible"] as? Bool ?? false
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.isNotchConversationVisible = isVisible
+                self.isHovering = false
+                self.refreshPresentation(animated: false)
+            }
+        }
 
         NotificationCenter.default.addObserver(
             self,
@@ -177,6 +191,9 @@ final class PaceMenuBarOverlayManager {
     }
 
     deinit {
+        if let notchConversationVisibilityObserver {
+            NotificationCenter.default.removeObserver(notchConversationVisibilityObserver)
+        }
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         if let fallbackMenuBarStatusItem {
@@ -241,6 +258,10 @@ final class PaceMenuBarOverlayManager {
 
     private func refreshPresentation(animated: Bool) {
         guard isVisible, let companionManager else { return }
+        if isNotchConversationVisible {
+            overlayPanel?.orderOut(nil)
+            return
+        }
 
         let signalState = PaceLivingNotchDisplayMode.ambientSignalState(
             panelSignalState: companionManager.nativePanelPresentation.signalState,

@@ -27,18 +27,7 @@ struct PaceSeamNotchSurface: View {
                 Color.clear.frame(height: physicalHousingHeight)
             } else {
                 header.frame(height: physicalHousingHeight)
-                if displayMode == .hover {
-                    HStack {
-                        Text("Open Pace")
-                            .foregroundStyle(Color.white.opacity(0.78))
-                        Spacer()
-                        Text("⌘⇧P")
-                            .foregroundStyle(Color.white.opacity(0.4))
-                    }
-                    .font(.system(size: 10.5))
-                    .padding(.horizontal, 22)
-                    .frame(height: displayMode.additionalHeight)
-                } else {
+                if displayMode == .active {
                     HStack(spacing: 12) {
                         Text(displayedActivityLabel)
                             .font(.system(size: 11.5, weight: .medium))
@@ -93,42 +82,15 @@ struct PaceSeamNotchSurface: View {
     }
 
     private var header: some View {
-        GeometryReader { geometry in
-            let wingWidth = max(0, (geometry.size.width - physicalHousingWidth) / 2)
-            HStack(spacing: 0) {
-                PaceBrandMark()
-                    .foregroundStyle(Color.white.opacity(0.9))
-                    .frame(width: 16, height: 16)
-                    .frame(width: wingWidth, height: physicalHousingHeight)
-                Color.clear.frame(width: physicalHousingWidth)
-                ZStack {
-                    Image(systemName: statusSymbolName)
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundStyle(isOffDeviceTurn ? DS.Colors.offDeviceSignal : Color.white.opacity(0.76))
-                        .frame(width: 20, height: 20)
-                        .accessibilityHidden(true)
-                    HStack(spacing: 4) {
-                        if let companionStatusColor {
-                            Circle().fill(companionStatusColor).frame(width: 4, height: 4)
-                                .accessibilityLabel(persistentStatus ?? "Companion status")
-                        }
-                        if isCameraActive {
-                            Circle().fill(.green).frame(width: 4, height: 4)
-                                .accessibilityLabel("Camera active")
-                        }
-                        if isScreenActive {
-                            Circle().fill(.cyan).frame(width: 4, height: 4)
-                                .accessibilityLabel("Screen active")
-                        }
-                    }
-                    .fixedSize()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .padding(.trailing, 13)
-                    .padding(.bottom, 3)
-                }
-                .frame(width: wingWidth, height: physicalHousingHeight)
-            }
-        }
+        PaceSeamNotchHeader(
+            physicalHousingWidth: physicalHousingWidth,
+            physicalHousingHeight: physicalHousingHeight,
+            signalState: signalState,
+            isOffDeviceTurn: isOffDeviceTurn,
+            isCameraActive: isCameraActive,
+            isScreenActive: isScreenActive,
+            persistentStatus: persistentStatus,
+            companionStatusColor: companionStatusColor)
     }
 
     private var plannerBadge: some View {
@@ -145,6 +107,61 @@ struct PaceSeamNotchSurface: View {
         .foregroundStyle(DS.Colors.offDeviceSignal)
         .frame(maxWidth: 96)
         .fixedSize(horizontal: true, vertical: false)
+    }
+
+}
+
+struct PaceSeamNotchHeader: View {
+    let physicalHousingWidth: CGFloat
+    let physicalHousingHeight: CGFloat
+    let signalState: PaceSignalState
+    let isOffDeviceTurn: Bool
+    var isExpanded = false
+    var isCameraActive = false
+    var isScreenActive = false
+    var persistentStatus: String? = nil
+    var companionStatusColor: Color? = nil
+
+    var body: some View {
+        GeometryReader { geometry in
+            let wingWidth = max(0, (geometry.size.width - physicalHousingWidth) / 2)
+            HStack(spacing: 0) {
+                HStack(spacing: 7) {
+                    Image(systemName: "mic")
+                        .font(.system(size: 14, weight: .regular))
+                    Text("Pace").font(.system(size: 13, weight: .medium))
+                }
+                .foregroundStyle(Color.white.opacity(0.94))
+                .fixedSize()
+                .frame(width: wingWidth, height: physicalHousingHeight)
+                Color.clear.frame(width: physicalHousingWidth)
+                HStack(spacing: 7) {
+                    HStack(spacing: 4) {
+                        if let companionStatusColor {
+                            Circle().fill(companionStatusColor).frame(width: 4, height: 4)
+                                .accessibilityLabel(persistentStatus ?? "Companion status")
+                        }
+                        if isCameraActive {
+                            Circle().fill(.green).frame(width: 4, height: 4)
+                                .accessibilityLabel("Camera active")
+                        }
+                        if isScreenActive {
+                            Circle().fill(.cyan).frame(width: 4, height: 4)
+                                .accessibilityLabel("Screen active")
+                        }
+                    }
+                    Text(isExpanded ? "Close" : "Chat")
+                        .font(.system(size: 13, weight: .medium))
+                    Image(systemName: isExpanded ? "xmark" : statusSymbolName)
+                        .font(.system(size: 13, weight: .regular))
+                        .accessibilityHidden(true)
+                }
+                .foregroundStyle(isOffDeviceTurn ? DS.Colors.offDeviceSignal : Color.white.opacity(0.94))
+                .fixedSize()
+                .frame(width: wingWidth, height: physicalHousingHeight)
+            }
+        }
+        .frame(height: physicalHousingHeight)
     }
 
     private var statusSymbolName: String {
