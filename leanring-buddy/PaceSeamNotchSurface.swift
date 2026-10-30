@@ -121,6 +121,7 @@ struct PaceSeamNotchHeader: View {
     var companionStatusColor: Color? = nil
     var onBrandTap: (() -> Void)? = nil
     var onChatTap: (() -> Void)? = nil
+    @State private var hoveredWingLabel: String?
 
     var body: some View {
         GeometryReader { geometry in
@@ -184,7 +185,17 @@ struct PaceSeamNotchHeader: View {
         if let action {
             Button(action: action) { content().contentShape(Rectangle()) }
                 .buttonStyle(.plain)
-                .paceControlHoverHighlight(cornerRadius: 8)
+                .background {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white.opacity(hoveredWingLabel == label ? 0.07 : 0))
+                }
+                .onHover { isHovered in
+                    if isHovered {
+                        hoveredWingLabel = label
+                    } else if hoveredWingLabel == label {
+                        hoveredWingLabel = nil
+                    }
+                }
                 .pointerCursor()
                 .accessibilityLabel(label)
         } else {
