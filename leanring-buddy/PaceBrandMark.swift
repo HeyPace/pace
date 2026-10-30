@@ -9,8 +9,8 @@ struct PaceBrandMark: View {
                 PaceBrandMarkOutline()
                     .stroke(style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round, lineJoin: .round))
                 Path { path in
-                    path.move(to: CGPoint(x: geometry.size.width * 14 / 32, y: geometry.size.height * 13 / 32))
-                    path.addLine(to: CGPoint(x: geometry.size.width * 19 / 32, y: geometry.size.height * 13 / 32))
+                    path.move(to: CGPoint(x: geometry.size.width * 15 / 32, y: geometry.size.height * 13.4 / 32))
+                    path.addLine(to: CGPoint(x: geometry.size.width * 19.7 / 32, y: geometry.size.height * 11.3 / 32))
                 }
                 .stroke(style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round))
                 .opacity(0.5)
@@ -40,7 +40,7 @@ private struct PaceBrandMarkOutline: Shape {
         path.addCurve(to: CGPoint(x: 25, y: 13), control1: CGPoint(x: 21.418, y: 5), control2: CGPoint(x: 25, y: 8.582))
         path.addCurve(
             to: CGPoint(x: 17, y: 21), control1: CGPoint(x: 25, y: 17.418), control2: CGPoint(x: 21.418, y: 21))
-        path.addLine(to: CGPoint(x: 14, y: 21))
+        path.addLine(to: CGPoint(x: 16, y: 21))
         return path.applying(
             CGAffineTransform(scaleX: rect.width / 32, y: rect.height / 32)
                 .concatenating(CGAffineTransform(translationX: rect.minX, y: rect.minY)))

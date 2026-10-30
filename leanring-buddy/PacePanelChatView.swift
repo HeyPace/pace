@@ -30,6 +30,7 @@ struct PacePanelChatView: View {
 
     @State private var showsHistory = false
     @State private var selectedQuestionIdentifier: String?
+    @State private var expandedOriginalResponseIdentifiers: Set<String> = []
     @FocusState private var isInputFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -488,14 +489,39 @@ struct PacePanelChatView: View {
 
     private func messageRow(_ message: PaceChatMessage) -> some View {
         let isFromUser = message.role == .user
-        return Text(readableMessage(message.body))
-            .font(.system(size: isFromUser ? 17 : 14, weight: isFromUser ? .medium : .regular))
-            .tracking(isFromUser ? -0.3 : 0)
-            .lineSpacing(isFromUser ? 4 : 6)
-            .foregroundStyle(isFromUser ? DS.Colors.textPrimary : DS.Colors.textPrimary.opacity(0.9))
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, isFromUser && message.id != visibleMessages.first?.id ? 16 : 0)
+        let displayedBody = PaceChatTranscriptModel.displayedBodyText(forChatMessage: message)
+        let hasOriginalResponse = !isFromUser && displayedBody != message.body
+        let showsOriginal = expandedOriginalResponseIdentifiers.contains(message.id)
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(readableMessage(displayedBody))
+                .font(.system(size: isFromUser ? 15 : 14, weight: isFromUser ? .medium : .regular))
+                .tracking(isFromUser ? -0.15 : 0)
+                .lineSpacing(isFromUser ? 4 : 5)
+                .foregroundStyle(isFromUser ? DS.Colors.textPrimary : DS.Colors.textPrimary.opacity(0.9))
+                .textSelection(.enabled)
+            if hasOriginalResponse {
+                Button(showsOriginal ? "Hide original response" : "View original response") {
+                    if showsOriginal {
+                        expandedOriginalResponseIdentifiers.remove(message.id)
+                    } else {
+                        expandedOriginalResponseIdentifiers.insert(message.id)
+                    }
+                }
+                .font(.system(size: 10.5))
+                .foregroundStyle(DS.Colors.textTertiary)
+                .buttonStyle(.plain)
+                .paceControlHoverHighlight(cornerRadius: 4)
+                .pointerCursor()
+                if showsOriginal {
+                    Text(message.body)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(DS.Colors.textSecondary)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, isFromUser && message.id != visibleMessages.first?.id ? 16 : 0)
     }
 
     private func readableMessage(_ text: String) -> AttributedString {

@@ -148,9 +148,40 @@ nonisolated enum PaceChatTranscriptModel {
         PaceChatTranscriptMessageRowModel(
             id: "message-\(chatMessage.id)",
             author: chatMessage.role == .user ? .user : .assistant,
-            bodyText: chatMessage.body,
+            bodyText: displayedBodyText(forChatMessage: chatMessage),
             createdAt: chatMessage.createdAt
         )
+    }
+
+    static func displayedBodyText(forChatMessage chatMessage: PaceChatMessage) -> String {
+        guard chatMessage.role == .pace else { return chatMessage.body }
+        let trimmedBody = chatMessage.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedBody.first == "{", trimmedBody.last == "}",
+            trimmedBody.utf8.count <= 65_536,
+            let data = trimmedBody.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let toolName = object["tool"] as? String
+        else { return chatMessage.body }
+
+        // Historical planner records are presentation data, never replayable
+        // commands. Keep the saved body intact and summarize only known visual
+        // payloads; ordinary prose, user JSON and fenced code remain verbatim.
+        let requestLabel: String
+        switch toolName {
+        case "generate_image":
+            guard object["prompt"] is String,
+                Set(object.keys).isSubset(of: ["tool", "prompt", "title", "edit"])
+            else { return chatMessage.body }
+            requestLabel = "Image request"
+        case "show_diagram": requestLabel = "Diagram request"
+        case "dismiss_diagram": requestLabel = "Close diagram request"
+        default: return chatMessage.body
+        }
+        let title =
+            (object["title"] as? String).map {
+                oneLineSummary(fromRawSummary: $0, maximumCharacterCount: 96)
+            } ?? ""
+        return title.isEmpty ? requestLabel : "\(requestLabel) · \(title)"
     }
 
     static func messageRowModels(
