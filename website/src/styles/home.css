@@ -21,7 +21,8 @@
   descent-override: 39.78%;
   line-gap-override: 0%;
 }
-.identity-copy h1 {
+.identity-copy h1,
+#on-device h2 {
   --font-display: "Instrument Serif", "Pace Display Fallback", Georgia, serif;
   --font-accent: var(--font-display);
 }
