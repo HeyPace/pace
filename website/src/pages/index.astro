@@ -5,6 +5,8 @@ import { WorkbenchPage } from "@saas-maker/templates/workbench-page";
 import { baseProps } from "@saas-maker/templates/page";
 import { productContent } from "@saas-maker/templates/schema";
 import commandCenter from "../assets/command-center-960.webp";
+import commandCenter480 from "../assets/command-center-480.webp";
+import commandCenter640 from "../assets/command-center-640.webp";
 import heroItalicFont from "@saas-maker/ui/fonts/instrument-serif-latin-italic.woff2?url";
 import bodyFont from "@saas-maker/ui/fonts/geist-latin-normal.woff2?url";
 import json from "../content/home.json";
@@ -13,6 +15,15 @@ import PageTracking from "../components/PageTracking.astro";
 import CtaTracking from "../components/CtaTracking.astro";
 import "../styles/home.css";
 const content = productContent.parse(json);
+const commandCenterVariants = [commandCenter480, commandCenter640];
+const commandCenterSrcset = [
+  ...commandCenterVariants.map((image) => `${image.src} ${image.width}w`),
+  `${commandCenter.src} ${commandCenter.width}w`,
+].join(", ");
+// Below 500px the existing hero has 20px outer padding, 16px stage padding
+// and a 1px frame border on each side. The split desktop image stays below
+// 40vw; wider single-column layouts conservatively retain the original asset.
+const commandCenterSizes = "(min-width: 768px) 40vw, (max-width: 500px) calc(100vw - 74px), 960px";
 if (content.template === "workbench" && content.hero.window) {
   content.hero.window.src = commandCenter.src;
   content.hero.window.width = commandCenter.width;
@@ -22,7 +33,7 @@ if (content.template === "workbench" && content.hero.window) {
 
 <Base {...baseProps(content)} footerScript={false}>
   <Fragment slot="head">
-    <link rel="preload" as="image" href={commandCenter.src} type="image/webp" fetchpriority="high" />
+    <link rel="preload" as="image" href={commandCenter.src} imagesrcset={commandCenterSrcset} imagesizes={commandCenterSizes} type="image/webp" fetchpriority="high" data-pace-hero-preload />
     <link rel="preload" as="font" href={heroItalicFont} type="font/woff2" crossorigin />
     <link rel="preload" as="font" href={bodyFont} type="font/woff2" crossorigin />
     <meta name="ai-summary" content={content.page.description} />

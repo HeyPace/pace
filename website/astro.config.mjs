@@ -25,17 +25,33 @@ export default defineConfig({
         "astro:build:done": async ({ dir }) => {
           const homePath = new URL("index.html", dir);
           const homeHTML = await readFile(homePath, "utf8");
+          // The pinned WindowFrame template does not expose responsive image
+          // attributes. Reuse the exact generated preload candidates on its img.
+          const heroPreload = homeHTML.match(/<link\b[^>]*data-pace-hero-preload[^>]*>/)?.[0];
+          const heroSrcset = heroPreload?.match(/imagesrcset="([^"]+)"/)?.[1];
+          const heroSizes = heroPreload?.match(/imagesizes="([^"]+)"/)?.[1];
+          const heroSource = heroPreload?.match(/\bhref="([^"]+)"/)?.[1];
+          if (!heroSrcset || !heroSizes || !heroSource) throw new Error("Missing responsive hero preload");
+          let heroImages = 0;
+          const responsiveHomeHTML = homeHTML.replace(/<img\b[^>]*>/g, (image) => {
+            if (!image.includes(`src="${heroSource}"`)) return image;
+            heroImages += 1;
+            // Integer-sized variants have slightly different natural ratios.
+            // Keep the original screenshot's reserved geometry after decoding.
+            return image.replace("<img ", `<img style="aspect-ratio:960 / 677" srcset="${heroSrcset}" sizes="${heroSizes}" `);
+          });
+          if (heroImages !== 1) throw new Error(`Expected one hero image, found ${heroImages}`);
           // Preserve every class in the rendered page, including responsive,
           // hover, focus and dialog variants, before removing unused utilities.
           const usedClasses = new Set(
-            [...homeHTML.matchAll(/\bclass="([^"]*)"/g)].flatMap((match) =>
+            [...responsiveHomeHTML.matchAll(/\bclass="([^"]*)"/g)].flatMap((match) =>
               match[1].replace(/&amp;/g, "&").split(/\s+/),
             ),
           );
           // The footer toggles these when selecting a feedback anchor.
           usedClasses.add("hidden");
           usedClasses.add("flex");
-          let homeHTMLWithTrimmedCSS = homeHTML.replace(
+          let homeHTMLWithTrimmedCSS = responsiveHomeHTML.replace(
             /<style\b([^>]*)>([\s\S]*?)<\/style>/g,
             (_, attributes, stylesheet) => {
               const stylesheetClasses = new Set();
