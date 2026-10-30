@@ -197,7 +197,10 @@ private struct PaceFigureRenderer: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(model: model, selectPart: selectPart) }
 
     func makeNSView(context: Context) -> ARView {
-        let view = ARView(frame: .zero)
+        let view = PaceFigureARView(frame: .zero)
+        view.onViewportSizeChanged = { [weak model] viewportSize in
+            model?.updateViewportSize(viewportSize)
+        }
         view.environment.background = .color(.clear)
         view.wantsLayer = true
         view.layer?.isOpaque = false
@@ -205,8 +208,10 @@ private struct PaceFigureRenderer: NSViewRepresentable {
         let world = AnchorEntity(world: .zero)
         world.addChild(model.sceneRoot)
         let camera = PerspectiveCamera()
-        camera.camera.fieldOfViewInDegrees = 35
-        camera.look(at: .zero, from: [0, 0, 2.6], relativeTo: nil)
+        camera.camera.fieldOfViewInDegrees = PaceFigureCameraFraming.verticalFieldOfViewInDegrees
+        camera.camera.fieldOfViewOrientation = .vertical
+        camera.look(at: .zero, from: [0, 0, PaceFigureCameraFraming.minimumCameraDistance], relativeTo: nil)
+        model.configureCamera(camera, viewportSize: view.bounds.size)
         world.addChild(camera)
         for light in model.makeLights() { world.addChild(light) }
         view.scene.addAnchor(world)
@@ -256,6 +261,16 @@ private struct PaceFigureRenderer: NSViewRepresentable {
             else { return }
             selectPart(entity.name)
         }
+    }
+}
+
+@MainActor
+private final class PaceFigureARView: ARView {
+    var onViewportSizeChanged: ((CGSize) -> Void)?
+
+    override func layout() {
+        super.layout()
+        onViewportSizeChanged?(bounds.size)
     }
 }
 
@@ -375,6 +390,21 @@ private final class PaceFigureViewModel: ObservableObject {
     private var selectedNodeID: String?
     private var previousControlValue: Float = .nan
     private var previousZoom: Float = .nan
+    private weak var framingCamera: PerspectiveCamera?
+    private var framingBounds: PaceFigureCameraFraming.Bounds?
+    private var viewportSize = CGSize.zero
+
+    func configureCamera(_ camera: PerspectiveCamera, viewportSize: CGSize) {
+        framingCamera = camera
+        self.viewportSize = viewportSize
+        refreshCameraFraming()
+    }
+
+    func updateViewportSize(_ viewportSize: CGSize) {
+        guard self.viewportSize != viewportSize else { return }
+        self.viewportSize = viewportSize
+        refreshCameraFraming()
+    }
 
     func update(document: PaceDiagramDocument?, selectedNodeID: String?) {
         guard let scene = document?.figure else { return }
@@ -384,7 +414,6 @@ private final class PaceFigureViewModel: ObservableObject {
                 let assembly =
                     try scene.template == .airplane
                     ? PaceAircraftFigureBuilder.makeAssembly() : Self.makeCustomAssembly(scene)
-                sceneRoot.children.removeAll()
                 let bounds = assembly.root.visualBounds(relativeTo: nil)
                 let largestDimension = max(bounds.extents.x, bounds.extents.y, bounds.extents.z)
                 guard largestDimension.isFinite, largestDimension > 0 else {
@@ -393,8 +422,10 @@ private final class PaceFigureViewModel: ObservableObject {
                 let scale = 1.8 / largestDimension
                 assembly.root.scale *= scale
                 assembly.root.position -= bounds.center * scale
+                sceneRoot.children.removeAll()
                 sceneRoot.addChild(assembly.root)
                 self.assembly = assembly
+                cacheFramingBounds(for: assembly)
                 anchors.removeAll()
                 for entity in assembly.selectableEntities {
                     let anchor = Entity()
@@ -414,7 +445,7 @@ private final class PaceFigureViewModel: ObservableObject {
                 previousZoom = .nan
                 hasMovingSurfaces = !assembly.movingSurfaces.isEmpty
                 renderingError = nil
-                if isFirstPresentation { resetOrientation() }
+                if isFirstPresentation { resetOrientation() } else { refreshCameraFraming() }
             } catch {
                 renderingError = "I couldn't render this object. Ask Pace to simplify its geometry."
                 return
@@ -492,18 +523,48 @@ private final class PaceFigureViewModel: ObservableObject {
 
     func rotate(by angle: Float) {
         sceneRoot.orientation = simd_quatf(angle: angle, axis: [0, 1, 0]) * sceneRoot.orientation
+        refreshCameraFraming()
     }
 
     func orbit(horizontal: Float, vertical: Float) {
         sceneRoot.orientation =
             simd_quatf(angle: vertical, axis: [1, 0, 0])
             * simd_quatf(angle: horizontal, axis: [0, 1, 0]) * sceneRoot.orientation
+        refreshCameraFraming()
     }
 
     func resetOrientation() {
         sceneRoot.orientation =
             simd_quatf(angle: .pi / 7, axis: [1, 0, 0])
             * simd_quatf(angle: -.pi / 5, axis: [0, 1, 0])
+        refreshCameraFraming()
+    }
+
+    private func cacheFramingBounds(for assembly: PaceFigureAssembly) {
+        let restingBounds = assembly.root.visualBounds(relativeTo: sceneRoot)
+        var bounds = PaceFigureCameraFraming.Bounds(minimum: restingBounds.min, maximum: restingBounds.max)
+        // Cache a full hinge envelope once, so animated control surfaces stay
+        // inside the fitted volume without walking the mesh tree every frame.
+        for surface in assembly.movingSurfaces {
+            let hingePosition = surface.entity.position(relativeTo: sceneRoot)
+            let surfaceBounds = surface.entity.visualBounds(relativeTo: sceneRoot)
+            let corners = PaceFigureCameraFraming.Bounds(
+                minimum: surfaceBounds.min, maximum: surfaceBounds.max
+            ).corners
+            let radius = corners.map { simd_length($0 - hingePosition) }.max() ?? 0
+            bounds.includeSphere(center: hingePosition, radius: radius)
+        }
+        framingBounds = bounds
+    }
+
+    private func refreshCameraFraming() {
+        guard let framingBounds, let framingCamera,
+            let distance = PaceFigureCameraFraming.cameraDistance(
+                for: framingBounds, orientation: sceneRoot.orientation, viewportSize: viewportSize)
+        else { return }
+        // Bounds are cached in the unzoomed scene-root coordinate space.
+        // Manual zoom therefore magnifies the fitted view instead of being cancelled.
+        framingCamera.look(at: .zero, from: [0, 0, distance], relativeTo: nil)
     }
 
     func makeLights() -> [Entity] {
