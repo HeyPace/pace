@@ -229,6 +229,23 @@ struct PaceDiagramTests {
         #expect(PaceToolRegistry.definition(forToolName: "show_diagram")?.riskLevel == .readOnly)
     }
 
+    @Test func explicitActiveFigureViewsUseTheDiagramPathWithoutWideningUnrelatedRequests() {
+        for transcript in ["Rotate this plane to top view", "Please turn the figure from the rear."] {
+            #expect(PaceDiagramDocument.requestsDiagram(transcript, hasActiveDiagram: true))
+            #expect(PaceDiagramDocument.canUseDiagramOnlyFastPath(transcript, hasActiveDiagram: true))
+            #expect(!PaceDiagramDocument.requiresScreenContext(transcript, hasActiveDiagram: true))
+            #expect(!PaceDiagramDocument.requestsDiagram(transcript, hasActiveDiagram: false))
+        }
+        for transcript in [
+            "rotate it to top view", "rotate the window to top view", "rotate this plane to top view and open Safari",
+        ] {
+            #expect(!PaceDiagramDocument.canUseDiagramOnlyFastPath(transcript, hasActiveDiagram: true))
+        }
+        #expect(
+            PaceDiagramDocument.canUseDiagramOnlyFastPath(
+                PaceDiagramDocument.selectedPartQuestion, hasActiveDiagram: true))
+    }
+
     @Test func diagramRoutingLeavesUnrelatedActionsAndAnnotationsAlone() {
         for transcript in [
             "open Sketch", "draw me a circle around the Save button", "email the diagram to Sam",

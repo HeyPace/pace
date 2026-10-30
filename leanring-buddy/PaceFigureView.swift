@@ -24,7 +24,6 @@ struct PaceFigureControlSurface {
 struct PaceFigureView: View {
     @ObservedObject var controller: PaceDiagramOverlayController
     @StateObject private var model = PaceFigureViewModel()
-    @State private var controlValue = 0.0
     @State private var zoom: Float = 1
     @State private var showsLabels = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -33,7 +32,8 @@ struct PaceFigureView: View {
         VStack(spacing: 12) {
             PaceFigureRenderer(
                 model: model, document: controller.document, selectedNodeID: controller.selectedNodeID,
-                controlValue: Float(controlValue), zoom: zoom, animated: !reduceMotion,
+                revision: controller.revision, controlValue: Float(controller.controlDeflection),
+                zoom: zoom, animated: !reduceMotion,
                 selectPart: controller.selectNode
             )
             .onHover { hovering in
@@ -94,7 +94,6 @@ struct PaceFigureView: View {
             .background(Color(hex: "#11151C").opacity(0.97), in: RoundedRectangle(cornerRadius: 18))
             .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.09), lineWidth: 1))
         }
-        .onChange(of: controller.selectedNodeID) { _, _ in controlValue = 0 }
         .onDisappear { model.stopProjection() }
     }
 
@@ -149,7 +148,7 @@ struct PaceFigureView: View {
             figureButton("Zoom in", symbol: "plus.magnifyingglass") { zoom = min(1.8, zoom * 1.15) }
             figureButton("Reset view", symbol: "arrow.counterclockwise") {
                 zoom = 1
-                controlValue = 0
+                controller.setControlDeflection(0)
                 model.resetOrientation()
             }
             figureButton(showsLabels ? "Hide part labels" : "Show part labels", symbol: "tag") {
@@ -162,7 +161,10 @@ struct PaceFigureView: View {
         HStack(spacing: 8) {
             Text("Deflection")
                 .foregroundStyle(DS.Colors.textSecondary)
-            Slider(value: $controlValue, in: -1...1)
+            Slider(
+                value: Binding(get: { controller.controlDeflection }, set: controller.setControlDeflection),
+                in: -1...1
+            )
                 .frame(width: 80)
                 .accessibilityLabel("Control surface deflection")
                 .help("Move the airplane's ailerons, elevators, rudder and flaps")
@@ -189,6 +191,7 @@ private struct PaceFigureRenderer: NSViewRepresentable {
     let model: PaceFigureViewModel
     let document: PaceDiagramDocument?
     let selectedNodeID: String?
+    let revision: Int
     let controlValue: Float
     let zoom: Float
     let animated: Bool
@@ -215,7 +218,9 @@ private struct PaceFigureRenderer: NSViewRepresentable {
         world.addChild(camera)
         for light in model.makeLights() { world.addChild(light) }
         view.scene.addAnchor(world)
-        model.update(document: document, selectedNodeID: selectedNodeID)
+        model.update(document: document, selectedNodeID: selectedNodeID, revision: revision)
+        model.setControlValue(controlValue, animated: false)
+        model.setZoom(zoom)
         model.startProjection(view: view)
         view.addGestureRecognizer(
             NSPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.drag(_:))))
@@ -225,7 +230,7 @@ private struct PaceFigureRenderer: NSViewRepresentable {
     }
 
     func updateNSView(_ view: ARView, context: Context) {
-        model.update(document: document, selectedNodeID: selectedNodeID)
+        model.update(document: document, selectedNodeID: selectedNodeID, revision: revision)
         model.setControlValue(controlValue, animated: animated)
         model.setZoom(zoom)
         context.coordinator.selectPart = selectPart
@@ -298,7 +303,15 @@ private struct PaceFigureCalloutsView: View {
                         context.stroke(
                             leader, with: .color(Color(hex: selected ? "#A5D1FF" : "#70A8E4")),
                             lineWidth: selected ? 1.5 : 1)
-                        let dot = CGRect(x: anchor.x - 3, y: anchor.y - 3, width: 6, height: 6)
+                        if selected {
+                            let reticle = CGRect(x: anchor.x - 7, y: anchor.y - 7, width: 14, height: 14)
+                            context.stroke(
+                                Path(ellipseIn: reticle), with: .color(Color(hex: "#C6E1FF")), lineWidth: 1.2)
+                        }
+                        let dotSize: CGFloat = selected ? 3 : 6
+                        let dot = CGRect(
+                            x: anchor.x - dotSize / 2, y: anchor.y - dotSize / 2,
+                            width: dotSize, height: dotSize)
                         context.fill(Path(ellipseIn: dot), with: .color(Color(hex: "#71B0FA")))
                         context.stroke(Path(ellipseIn: dot), with: .color(.white), lineWidth: 1)
                     }
@@ -385,6 +398,7 @@ private final class PaceFigureViewModel: ObservableObject {
     private var anchors: [String: [Entity]] = [:]
     private var projectionSubscription: (any Cancellable)?
     private var currentScene: PaceFigureScene?
+    private var appliedViewpointRevision: Int?
     private var assembly: PaceFigureAssembly?
     private var originalMaterials: [ObjectIdentifier: [any RealityKit.Material]] = [:]
     private var selectedNodeID: String?
@@ -406,9 +420,9 @@ private final class PaceFigureViewModel: ObservableObject {
         refreshCameraFraming()
     }
 
-    func update(document: PaceDiagramDocument?, selectedNodeID: String?) {
+    func update(document: PaceDiagramDocument?, selectedNodeID: String?, revision: Int) {
         guard let scene = document?.figure else { return }
-        if assembly == nil || currentScene?.template != scene.template || currentScene?.parts != scene.parts {
+        if assembly == nil || currentScene?.hasSameGeometry(as: scene) != true {
             do {
                 let isFirstPresentation = assembly == nil
                 let assembly =
@@ -451,8 +465,16 @@ private final class PaceFigureViewModel: ObservableObject {
                 return
             }
         }
+        if appliedViewpointRevision != revision {
+            appliedViewpointRevision = revision
+            if let viewpoint = scene.viewpoint {
+                sceneRoot.orientation = viewpoint.orientation
+                refreshCameraFraming()
+            }
+        }
         guard self.selectedNodeID != selectedNodeID, let assembly else { return }
         self.selectedNodeID = selectedNodeID
+        previousControlValue = .nan
         for entity in assembly.selectableEntities {
             if entity.name == selectedNodeID {
                 entity.model?.materials = [
@@ -534,9 +556,7 @@ private final class PaceFigureViewModel: ObservableObject {
     }
 
     func resetOrientation() {
-        sceneRoot.orientation =
-            simd_quatf(angle: .pi / 7, axis: [1, 0, 0])
-            * simd_quatf(angle: -.pi / 5, axis: [0, 1, 0])
+        sceneRoot.orientation = PaceFigureScene.Viewpoint.threeQuarter.orientation
         refreshCameraFraming()
     }
 

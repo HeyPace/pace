@@ -103,6 +103,17 @@ solid parts, with bounded transforms, triangle indices and custom vertices.
 The aircraft uses lofted/airfoil meshes and real control-surface hinge entities;
 custom scenes compose boxes, ellipsoids, cylinders, cones and triangle meshes.
 Native RealityKit owns lighting, projection, depth and collision-based selection.
+Optional figure presentation commands combine a stable `focusNodeID`, a named
+`viewpoint` (`three_quarter`, `side`, `top`, `front`, `rear`, `underside`) and
+aircraft `controlDeflection` from -1 to 1. A nonzero deflection requires an explicit
+aileron, elevator, rudder or flap focus. The controller owns the current slider
+value; planner context reports this live value and omits old presentation commands
+from its document copy so ordinary updates preserve manual orbit.
+The renderer reuses geometry for focus, view and control updates, applies an
+explicit viewpoint once per document revision, and preserves later manual orbit.
+The selected part's reticle follows its projected physical anchor without moving
+the system cursor. These controls illustrate conceptual mechanisms, not simulated
+flight dynamics.
 The
 `show_diagram` and `dismiss_diagram` read-only tools are available independently
 of `EnableActions`. Both the text-only and full planner paths drain these tools
@@ -121,7 +132,7 @@ explicit perspective camera, projected part callouts, native orbit, zoom,
 part selection and control-surface input. Mouse interaction inside that object's
 panel belongs to Pace; the desktop remains available outside it. Flowchart gaps
 remain click-through. Clicking a part reveals
-local detail without a model call; the deliberate “Explain this” button enters
+local detail without a model call; the deliberate “Explore this part” button enters
 `submitChatTranscriptFromDeepLink`, preserving the normal queue, consent, audit,
 cancellation and action policy. Presentation collapses the quick panel, and
 shutdown/dismissal closes every diagram panel. Screen-referential diagram requests

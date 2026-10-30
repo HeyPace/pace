@@ -1,9 +1,28 @@
 import Foundation
+import simd
 
 nonisolated struct PaceFigureScene: Codable, Equatable, Sendable {
     enum Template: String, Codable, Sendable { case airplane }
     enum Geometry: String, Codable, Sendable { case box, ellipsoid, cylinder, cone, mesh }
     enum Finish: String, Codable, Sendable { case shell, metal, glass, accent, dark }
+
+    enum Viewpoint: String, Codable, CaseIterable, Sendable {
+        case threeQuarter = "three_quarter"
+        case side, top, front, rear, underside
+
+        var orientation: simd_quatf {
+            switch self {
+            case .threeQuarter:
+                return simd_quatf(angle: .pi / 7, axis: [1, 0, 0])
+                    * simd_quatf(angle: -.pi / 5, axis: [0, 1, 0])
+            case .side: return simd_quatf(angle: 0, axis: [0, 1, 0])
+            case .top: return simd_quatf(angle: .pi / 2, axis: [1, 0, 0])
+            case .front: return simd_quatf(angle: -.pi / 2, axis: [0, 1, 0])
+            case .rear: return simd_quatf(angle: .pi / 2, axis: [0, 1, 0])
+            case .underside: return simd_quatf(angle: -.pi / 2, axis: [1, 0, 0])
+            }
+        }
+    }
 
     struct Part: Codable, Equatable, Sendable {
         let id: String
@@ -20,14 +39,29 @@ nonisolated struct PaceFigureScene: Codable, Equatable, Sendable {
     var template: Template? = nil
     var parts: [Part]? = nil
     var focusNodeID: String? = nil
+    var viewpoint: Viewpoint? = nil
+    var controlDeflection: Double? = nil
 
     static let airplaneNodeIDs: Set<String> = [
         "fuselage", "cockpit", "wings", "engines", "ailerons", "elevators", "rudder", "flaps",
     ]
+    static let airplaneControlSurfaceNodeIDs: Set<String> = ["ailerons", "elevators", "rudder", "flaps"]
+
+    func hasSameGeometry(as other: Self) -> Bool {
+        template == other.template && (parts ?? []) == (other.parts ?? [])
+    }
 
     func validationIssue(nodeIDs: Set<String>) -> String? {
         if let focusNodeID, !nodeIDs.contains(focusNodeID) {
             return "requires the figure focus to reference an existing part"
+        }
+        if let controlDeflection {
+            guard controlDeflection.isFinite, (-1...1).contains(controlDeflection), template == .airplane else {
+                return "requires a finite control deflection from -1 to 1 on the airplane template"
+            }
+            if controlDeflection != 0, !Self.airplaneControlSurfaceNodeIDs.contains(focusNodeID ?? "") {
+                return "requires a selected aileron, elevator, rudder or flap assembly for nonzero deflection"
+            }
         }
         if template == .airplane {
             guard nodeIDs == Self.airplaneNodeIDs, parts?.isEmpty ?? true else {

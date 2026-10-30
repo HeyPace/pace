@@ -169,7 +169,7 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
     }
 
     static let selectedPartQuestion =
-        "Explain the selected diagram part using the active diagram context. Walk me through what it does and how it connects to the other parts; update the diagram if a closer view would help."
+        "Explain the selected diagram part. Highlight it, choose a helpful view, and demonstrate moving controls when available. Show how it connects to the rest, with a closer diagram if useful."
 
     static func requestsDiagram(_ transcript: String, hasActiveDiagram: Bool) -> Bool {
         let normalized = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
@@ -184,6 +184,13 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
             return true
         }
         guard hasActiveDiagram else { return false }
+        if normalized.range(
+            of:
+                #"^(?:please\s+)?(?:rotate|turn)\s+(?:this|the)\s+(?:figure|diagram|plane|airplane|aircraft|model)\s+(?:to|from)\s+(?:the\s+)?(?:top|front|rear|side|underside|three[- ]quarter)(?:\s+view)?[.!?]*$"#,
+            options: .regularExpression
+        ) != nil {
+            return true
+        }
         return normalized.range(
             of:
                 #"^(?:please\s+)?(?:(?:expand|simplify|explain)\s+(?:this|that)(?:\s+(?:diagram|figure|part))?|show more detail|walk me through (?:this|that)(?:\s+(?:diagram|figure|part))?)[.!?]*$"#,

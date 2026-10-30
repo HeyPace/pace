@@ -15,6 +15,123 @@ struct PaceFigureSceneTests {
         #expect(document.connections.isEmpty)
     }
 
+    @Test func legacyFiguresDecodeWithoutPresentationCommandsAndUnknownViewsAreRejected() throws {
+        let legacy = try JSONDecoder().decode(
+            PaceFigureScene.self,
+            from: Data(#"{"template":"airplane","focusNodeID":"wings"}"#.utf8))
+        #expect(legacy.viewpoint == nil)
+        #expect(legacy.controlDeflection == nil)
+        #expect(legacy.validationIssue(nodeIDs: PaceFigureScene.airplaneNodeIDs) == nil)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(
+                PaceFigureScene.self, from: Data(#"{"template":"airplane","viewpoint":"execute_code"}"#.utf8))
+        }
+    }
+
+    @Test func presentationChangesDoNotReplaceTheUnderlyingGeometry() {
+        let original = PaceFigureScene(template: .airplane, focusNodeID: "wings")
+        let guided = PaceFigureScene(
+            template: .airplane, parts: [], focusNodeID: "flaps", viewpoint: .top, controlDeflection: 0.6)
+        #expect(original.hasSameGeometry(as: guided))
+        let custom = PaceFigureScene(parts: [part()])
+        #expect(!original.hasSameGeometry(as: custom))
+        let repositionedCustom = PaceFigureScene(parts: [part(position: [1, 0, 0])])
+        #expect(!custom.hasSameGeometry(as: repositionedCustom))
+    }
+
+    @Test func namedViewpointsExposeTheRequestedPhysicalSide() {
+        #expect(simd_length(PaceFigureScene.Viewpoint.side.orientation.act([1, 0, 0]) - [1, 0, 0]) < 0.0001)
+        #expect(simd_length(PaceFigureScene.Viewpoint.top.orientation.act([0, 1, 0]) - [0, 0, 1]) < 0.0001)
+        #expect(simd_length(PaceFigureScene.Viewpoint.front.orientation.act([1, 0, 0]) - [0, 0, 1]) < 0.0001)
+        #expect(simd_length(PaceFigureScene.Viewpoint.rear.orientation.act([1, 0, 0]) - [0, 0, -1]) < 0.0001)
+        #expect(simd_length(PaceFigureScene.Viewpoint.underside.orientation.act([0, -1, 0]) - [0, 0, 1]) < 0.0001)
+        for viewpoint in PaceFigureScene.Viewpoint.allCases {
+            #expect(abs(simd_length(viewpoint.orientation.vector) - 1) < 0.0001)
+        }
+    }
+
+    @Test func controlCommandsAreBoundedAndRequireAnAircraftWithHinges() {
+        for controlDeflection in [-1.0, 0, 0.6, 1] {
+            let scene = PaceFigureScene(template: .airplane, focusNodeID: "flaps", controlDeflection: controlDeflection)
+            #expect(scene.validationIssue(nodeIDs: PaceFigureScene.airplaneNodeIDs) == nil)
+        }
+        for controlDeflection in [Double.nan, Double.infinity, -1.01, 1.01] {
+            let scene = PaceFigureScene(template: .airplane, focusNodeID: "flaps", controlDeflection: controlDeflection)
+            #expect(scene.validationIssue(nodeIDs: PaceFigureScene.airplaneNodeIDs) != nil)
+        }
+        for focusNodeID in [nil, "engines", "wings"] as [String?] {
+            #expect(
+                PaceFigureScene(template: .airplane, focusNodeID: focusNodeID, controlDeflection: 0.6)
+                    .validationIssue(nodeIDs: PaceFigureScene.airplaneNodeIDs) != nil)
+            #expect(
+                PaceFigureScene(template: .airplane, focusNodeID: focusNodeID, controlDeflection: 0)
+                    .validationIssue(nodeIDs: PaceFigureScene.airplaneNodeIDs) == nil)
+        }
+        #expect(PaceFigureScene(parts: [part()], controlDeflection: 0.5).validationIssue(nodeIDs: ["body"]) != nil)
+    }
+
+    @Test @MainActor func guidedFocusAndDeflectionShareStateWithManualExploration() throws {
+        var document = try aircraftDocument()
+        document.figure?.focusNodeID = "flaps"
+        document.figure?.viewpoint = .top
+        document.figure?.controlDeflection = 0.6
+        let arguments = try JSONSerialization.jsonObject(with: JSONEncoder().encode(document))
+        let response = try JSONSerialization.data(withJSONObject: [
+            "spokenText": "The flaps move here.", "intent": "action",
+            "payload": ["name": "show_diagram", "args": arguments],
+        ])
+        let controller = PaceDiagramOverlayController(showsWindows: false)
+        var generation = controller.dismissalGeneration
+        _ = controller.drain(
+            parseResult: PaceActionTagParser.parseActions(from: String(decoding: response, as: UTF8.self)),
+            expectedDismissalGeneration: &generation)
+        #expect(controller.document?.figure?.viewpoint == .top)
+        #expect(controller.selectedNodeID == "flaps")
+        #expect(controller.controlDeflection == 0.6)
+        controller.setControlDeflection(-0.4)
+        #expect(controller.controlDeflection == -0.4)
+
+        document.figure?.viewpoint = nil
+        document.figure?.controlDeflection = nil
+        #expect(controller.present(document))
+        #expect(controller.controlDeflection == -0.4)
+        controller.selectNode(id: "ailerons")
+        #expect(controller.controlDeflection == 0)
+        controller.setControlDeflection(0.5)
+        controller.setControlDeflection(.nan)
+        controller.setControlDeflection(1.1)
+        #expect(controller.controlDeflection == 0.5)
+
+        document.figure?.viewpoint = .top
+        document.figure?.controlDeflection = 0.6
+        #expect(controller.present(document))
+        #expect(controller.selectedNodeID == "flaps")
+        #expect(controller.controlDeflection == 0.6)
+        #expect(
+            controller.appendingPlannerContext(to: "Explain this").contains("Current native control deflection: 0.6"))
+        controller.setControlDeflection(0.25)
+        let context = controller.appendingPlannerContext(to: "Explain this")
+        #expect(context.contains("Current native control deflection: 0.25"))
+        #expect(!context.contains("\"controlDeflection\":"))
+        #expect(!context.contains("\"viewpoint\":"))
+        #expect(controller.document?.figure?.viewpoint == .top)
+        #expect(controller.document?.figure?.controlDeflection == 0.6)
+
+        let flapsNode = try #require(document.nodes.first { $0.id == "flaps" })
+        let staticScene = PaceFigureScene(
+            parts: [.init(id: "static-flap", nodeID: "flaps", geometry: .box, position: [0, 0, 0], size: [1, 1, 1])],
+            focusNodeID: "flaps")
+        let staticDocument = PaceDiagramDocument(
+            title: "Static part", summary: "A solid without hinges.", nodes: [flapsNode], connections: [],
+            figure: staticScene)
+        #expect(controller.present(staticDocument))
+        #expect(controller.controlDeflection == 0)
+        controller.setControlDeflection(0.5)
+        #expect(controller.controlDeflection == 0)
+        controller.dismiss()
+        #expect(controller.controlDeflection == 0)
+    }
+
     @Test func customSolidsRequireEveryVisibleAssemblyToHaveAnExplanation() {
         let scene = PaceFigureScene(parts: [part()])
         #expect(scene.validationIssue(nodeIDs: ["body"]) == nil)
@@ -61,6 +178,7 @@ struct PaceFigureSceneTests {
 
     @Test @MainActor func figureUpdatesPreserveExplorationAndHonorANewRequestedFocus() throws {
         var document = try aircraftDocument()
+        document.figure?.viewpoint = nil
         let controller = PaceDiagramOverlayController(showsWindows: false)
         controller.present(document)
         #expect(controller.selectedNodeID == "wings")
@@ -101,7 +219,7 @@ struct PaceFigureSceneTests {
     @Test(
         .enabled(if: ProcessInfo.processInfo.environment["PACE_RUN_CODEX_DIAGRAM_INTEGRATION"] == "1"),
         .timeLimit(.minutes(2)))
-    @MainActor func authenticatedCodexAuthorsTheAircraftAndFocusesItsEngine() async throws {
+    @MainActor func authenticatedCodexAuthorsTheAircraftAndGuidesItsFlaps() async throws {
         let client = PaceLocalCLIPlannerClient(upstream: .codex, modelIdentifier: nil)
         let prompt = CompanionSystemPrompt.buildTextOnly(includeInteractiveDiagrams: true)
         let question = "Show a detailed rotatable 3D airplane and explain how it flies. Use the native aircraft figure."
@@ -123,7 +241,7 @@ struct PaceFigureSceneTests {
             conversationHistory: [(userPlaceholder: question, assistantResponse: parsed.spokenText)],
             userPrompt: controller.appendingPlannerContext(
                 to:
-                    "Focus the figure on engines instead. Return the complete updated aircraft figure with focusNodeID engines."
+                    "Show the aircraft from the top with flaps selected and at sixty percent illustrative deflection. Return the complete updated aircraft figure with focusNodeID flaps, viewpoint top and controlDeflection 0.6."
             ),
             onTextChunk: { _ in })
         _ = controller.drain(
@@ -131,7 +249,9 @@ struct PaceFigureSceneTests {
             expectedDismissalGeneration: &generation)
         #expect(controller.revision == 2)
         #expect(controller.document?.figure?.template == .airplane)
-        #expect(controller.selectedNodeID == "engines")
+        #expect(controller.selectedNodeID == "flaps")
+        #expect(controller.document?.figure?.viewpoint == .top)
+        #expect(controller.controlDeflection == 0.6)
         #expect(controller.selectedNode?.detail.isEmpty == false)
     }
 
