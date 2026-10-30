@@ -6,6 +6,7 @@ import { baseProps } from "@saas-maker/templates/page";
 import { productContent } from "@saas-maker/templates/schema";
 import commandCenter from "../assets/command-center-960.webp";
 import heroItalicFont from "@saas-maker/ui/fonts/instrument-serif-latin-italic.woff2?url";
+import bodyFont from "@saas-maker/ui/fonts/geist-latin-normal.woff2?url";
 import json from "../content/home.json";
 import ProductFooter from "../components/ProductFooter.astro";
 import PageTracking from "../components/PageTracking.astro";
@@ -23,6 +24,7 @@ if (content.template === "workbench" && content.hero.window) {
   <Fragment slot="head">
     <link rel="preload" as="image" href={commandCenter.src} type="image/webp" fetchpriority="high" />
     <link rel="preload" as="font" href={heroItalicFont} type="font/woff2" crossorigin />
+    <link rel="preload" as="font" href={bodyFont} type="font/woff2" crossorigin />
     <meta name="ai-summary" content={content.page.description} />
     <meta name="application-name" content="HeyPace" />
     <link rel="alternate" type="text/markdown" href="https://heypace.app/index.md" />

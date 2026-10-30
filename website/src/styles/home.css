@@ -1,4 +1,31 @@
 /* Home uses Workbench's utilities; these are Pace's plain CSS additions. */
+/* Match the narrow display face while its existing preloaded fonts arrive.
+   Georgia otherwise wraps the headline onto an extra line and moves the page. */
+@font-face {
+  font-family: "Pace Display Fallback";
+  font-style: normal;
+  font-weight: 400;
+  src: local("Georgia");
+  size-adjust: 75.47%;
+  ascent-override: 131.18%;
+  descent-override: 41.08%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "Pace Display Fallback";
+  font-style: italic;
+  font-weight: 400;
+  src: local("Georgia Italic");
+  size-adjust: 77.92%;
+  ascent-override: 127.05%;
+  descent-override: 39.78%;
+  line-gap-override: 0%;
+}
+.identity-copy h1 {
+  --font-display: "Instrument Serif", "Pace Display Fallback", Georgia, serif;
+  --font-accent: var(--font-display);
+}
+
 /* Keep the hero visible even when motion sets inline styles after load. */
 .identity-hero .motion-reveal,
 .identity-hero .motion-tilt,
