@@ -23,6 +23,10 @@ final class PaceDiagramOverlayController: ObservableObject {
         document?.nodes.first { $0.id == selectedNodeID }
     }
 
+    var canAskAboutSelectedNode: Bool {
+        document != nil && selectedNode != nil && onAskAboutPart != nil
+    }
+
     @discardableResult
     func present(_ document: PaceDiagramDocument, expectedDismissalGeneration: Int? = nil) -> Bool {
         guard document.validationIssue == nil,
@@ -62,7 +66,7 @@ final class PaceDiagramOverlayController: ObservableObject {
 
     @discardableResult
     func askAboutSelectedNode() -> Bool {
-        guard document != nil, selectedNode != nil, let onAskAboutPart else { return false }
+        guard canAskAboutSelectedNode, let onAskAboutPart else { return false }
         onAskAboutPart(PaceDiagramDocument.selectedPartQuestion)
         return true
     }

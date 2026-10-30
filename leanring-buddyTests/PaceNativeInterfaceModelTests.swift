@@ -208,6 +208,13 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             XCTAssertEqual(image.width, Int(width * 2))
             XCTAssertEqual(image.height, Int(height * 2))
             let bitmap = NSBitmapImageRep(cgImage: image)
+            if mode == .hardwareIdle {
+                for pixelY in 0..<bitmap.pixelsHigh {
+                    for pixelX in 0..<bitmap.pixelsWide {
+                        XCTAssertEqual(bitmap.colorAt(x: pixelX, y: pixelY)?.alphaComponent, 0)
+                    }
+                }
+            }
             let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
             try data.write(to: output.appendingPathComponent("\(name).png"))
         }

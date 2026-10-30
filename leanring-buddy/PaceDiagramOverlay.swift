@@ -407,8 +407,10 @@ private struct PaceDiagramDetailView: View {
                         .font(.system(size: 10))
                         .foregroundStyle(DS.Colors.textSecondary)
                     Spacer()
-                    Button("Explain this", systemImage: "waveform") { controller.askAboutSelectedNode() }
+                    Button("Explore this part", systemImage: "arrow.up.right") { controller.askAboutSelectedNode() }
                         .font(DS.Typography.callout)
+                        .disabled(!controller.canAskAboutSelectedNode)
+                        .help("Explain the selected part and update the diagram if a closer view would help")
                         .accessibilityIdentifier("pace.diagram.explain")
                 }
             } else {

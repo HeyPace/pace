@@ -75,7 +75,7 @@ struct PaceSeamNotchSurface: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .background(.black)
+        .background(displayMode == .hardwareIdle ? Color.clear : Color.black)
         .clipShape(PaceSeamNotchShape(topShoulderRadius: 6, bottomCornerRadius: displayMode == .hardwareIdle ? 11 : 15))
     }
 

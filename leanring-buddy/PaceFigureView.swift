@@ -62,54 +62,112 @@ struct PaceFigureView: View {
                 }
             }
 
-            HStack(spacing: 8) {
-                Menu {
-                    ForEach(controller.document?.nodes ?? []) { node in
-                        Button(node.label) { controller.selectNode(id: node.id) }
+            VStack(spacing: 8) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        partNavigation
+                        exploreSelectedPartButton
                     }
-                } label: {
-                    Label(controller.selectedNode?.label ?? "Explore a part", systemImage: "viewfinder")
-                        .lineLimit(1)
+                    VStack(spacing: 8) {
+                        partNavigation
+                        exploreSelectedPartButton
+                    }
                 }
-                .menuStyle(.borderlessButton)
-                .frame(maxWidth: 150)
-                .pointerCursor()
-                .help("Select a physical part to read its explanation")
-
-                Divider().frame(height: 18)
-                figureButton("Rotate left", symbol: "rotate.left") { model.rotate(by: -.pi / 6) }
-                figureButton("Rotate right", symbol: "rotate.right") { model.rotate(by: .pi / 6) }
-                figureButton("Zoom out", symbol: "minus.magnifyingglass") { zoom = max(0.55, zoom / 1.15) }
-                figureButton("Zoom in", symbol: "plus.magnifyingglass") { zoom = min(1.8, zoom * 1.15) }
-                figureButton("Reset view", symbol: "arrow.counterclockwise") {
-                    zoom = 1
-                    controlValue = 0
-                    model.resetOrientation()
-                }
-                figureButton(showsLabels ? "Hide part labels" : "Show part labels", symbol: "tag") {
-                    showsLabels.toggle()
-                }
-                if model.hasMovingSurfaces {
-                    Divider().frame(height: 18)
-                    Text("Deflection")
-                        .font(DS.Typography.caption)
-                        .foregroundStyle(DS.Colors.textSecondary)
-                    Slider(value: $controlValue, in: -1...1)
-                        .frame(width: 80)
-                        .accessibilityLabel("Control surface deflection")
-                        .help("Move the airplane's ailerons, elevators, rudder and flaps")
-                        .onHover { hovering in if hovering { NSCursor.pointingHand.set() } }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        viewControls
+                        if model.hasMovingSurfaces {
+                            Divider().frame(height: 18)
+                            deflectionControl
+                        }
+                    }
+                    VStack(spacing: 8) {
+                        viewControls
+                        if model.hasMovingSurfaces { deflectionControl }
+                    }
                 }
             }
             .font(DS.Typography.caption)
             .foregroundStyle(DS.Colors.textPrimary)
             .padding(.horizontal, 16)
             .padding(.vertical, 11)
-            .background(Color(hex: "#11151C").opacity(0.97), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.09), lineWidth: 1))
+            .background(Color(hex: "#11151C").opacity(0.97), in: RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.09), lineWidth: 1))
         }
         .onChange(of: controller.selectedNodeID) { _, _ in controlValue = 0 }
         .onDisappear { model.stopProjection() }
+    }
+
+    private var partNavigation: some View {
+        HStack(spacing: 8) {
+            Menu {
+                ForEach(controller.document?.nodes ?? []) { node in
+                    Button(node.label) { controller.selectNode(id: node.id) }
+                }
+            } label: {
+                Label(controller.selectedNode?.label ?? "Explore a part", systemImage: "viewfinder")
+                    .lineLimit(1)
+            }
+            .menuStyle(.borderlessButton)
+            .frame(maxWidth: 150)
+            .paceControlHoverHighlight(cornerRadius: 6)
+            .pointerCursor()
+            .help("Select a physical part to read its explanation")
+
+            figureButton("Next part", symbol: "arrow.right") { controller.selectNextNode() }
+                .disabled(controller.document?.nodes.isEmpty ?? true)
+                .help("Select the next part locally without starting an explanation")
+                .accessibilityIdentifier("pace.figure.next-part")
+        }
+    }
+
+    private var exploreSelectedPartButton: some View {
+        Button {
+            controller.askAboutSelectedNode()
+        } label: {
+            Label("Explore this part", systemImage: "arrow.up.right")
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!controller.canAskAboutSelectedNode)
+        .opacity(controller.canAskAboutSelectedNode ? 1 : 0.4)
+        .paceControlHoverHighlight(cornerRadius: 7, isEnabled: controller.canAskAboutSelectedNode)
+        .pointerCursor(isEnabled: controller.canAskAboutSelectedNode)
+        .help("Explain the selected part and update the diagram if a closer view would help")
+        .accessibilityIdentifier("pace.figure.explore-part")
+    }
+
+    private var viewControls: some View {
+        HStack(spacing: 8) {
+            figureButton("Rotate left", symbol: "rotate.left") { model.rotate(by: -.pi / 6) }
+            figureButton("Rotate right", symbol: "rotate.right") { model.rotate(by: .pi / 6) }
+            figureButton("Zoom out", symbol: "minus.magnifyingglass") { zoom = max(0.55, zoom / 1.15) }
+            figureButton("Zoom in", symbol: "plus.magnifyingglass") { zoom = min(1.8, zoom * 1.15) }
+            figureButton("Reset view", symbol: "arrow.counterclockwise") {
+                zoom = 1
+                controlValue = 0
+                model.resetOrientation()
+            }
+            figureButton(showsLabels ? "Hide part labels" : "Show part labels", symbol: "tag") {
+                showsLabels.toggle()
+            }
+        }
+    }
+
+    private var deflectionControl: some View {
+        HStack(spacing: 8) {
+            Text("Deflection")
+                .foregroundStyle(DS.Colors.textSecondary)
+            Slider(value: $controlValue, in: -1...1)
+                .frame(width: 80)
+                .accessibilityLabel("Control surface deflection")
+                .help("Move the airplane's ailerons, elevators, rudder and flaps")
+                .onHover { hovering in if hovering { NSCursor.pointingHand.set() } }
+        }
     }
 
     private func figureButton(_ label: String, symbol: String, action: @escaping () -> Void) -> some View {
@@ -117,6 +175,7 @@ struct PaceFigureView: View {
             Image(systemName: symbol).frame(width: 24, height: 24).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .paceControlHoverHighlight(cornerRadius: 6)
         .pointerCursor()
         .help(label)
         .accessibilityLabel(label)

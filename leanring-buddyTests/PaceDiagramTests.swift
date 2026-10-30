@@ -135,6 +135,33 @@ struct PaceDiagramTests {
         #expect(context.contains("water vapor"))
     }
 
+    @Test @MainActor func nextPartNavigationStaysLocalAndExplorationRequiresASelectedPartAndHandler() {
+        let controller = PaceDiagramOverlayController(showsWindows: false)
+        var submitted: [String] = []
+        #expect(!controller.canAskAboutSelectedNode)
+        #expect(!controller.askAboutSelectedNode())
+        #expect(controller.present(Self.document()))
+        controller.selectNextNode()
+        #expect(controller.selectedNodeID == "evaporation")
+        #expect(!controller.canAskAboutSelectedNode)
+        #expect(!controller.askAboutSelectedNode())
+
+        controller.onAskAboutPart = { submitted.append($0) }
+        #expect(controller.canAskAboutSelectedNode)
+        controller.selectNextNode()
+        #expect(controller.selectedNodeID == "condensation")
+        controller.selectNextNode()
+        #expect(controller.selectedNodeID == "evaporation")
+        #expect(submitted.isEmpty)
+        #expect(controller.askAboutSelectedNode())
+        #expect(submitted == [PaceDiagramDocument.selectedPartQuestion])
+
+        controller.dismiss()
+        #expect(!controller.canAskAboutSelectedNode)
+        #expect(!controller.askAboutSelectedNode())
+        #expect(submitted.count == 1)
+    }
+
     @Test @MainActor func removedPartsClearSelectionAndDismissalRejectsLateResults() throws {
         let controller = PaceDiagramOverlayController(showsWindows: false)
         var presentationCount = 0
