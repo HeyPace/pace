@@ -93,6 +93,9 @@ struct PacePanelChatView: View {
 
     private var header: some View {
         HStack(spacing: 9) {
+            PaceBrandMark()
+                .foregroundStyle(DS.Colors.textPrimary)
+                .frame(width: 19, height: 19)
             Text("pace")
                 .font(.system(size: 14, weight: .semibold))
                 .tracking(0.2)

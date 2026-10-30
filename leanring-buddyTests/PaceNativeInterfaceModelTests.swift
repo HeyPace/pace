@@ -1,8 +1,10 @@
+import AppKit
 //
 //  PaceNativeInterfaceModelTests.swift
 //  leanring-buddyTests
 //
 
+import SwiftUI
 import XCTest
 @testable import Pace
 
@@ -82,11 +84,11 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         XCTAssertEqual(idleGeometry?.presentationFrame, expectedPhysicalHousingFrame)
         XCTAssertEqual(
             hoverGeometry?.presentationFrame,
-            CGRect(x: 714, y: 1_085, width: 300, height: 32)
+            CGRect(x: 724, y: 1_061, width: 280, height: 56)
         )
         XCTAssertEqual(
             activeGeometry?.presentationFrame,
-            CGRect(x: 694, y: 1_085, width: 340, height: 32)
+            CGRect(x: 687.5, y: 1_045, width: 353, height: 72)
         )
 
     }
@@ -115,7 +117,57 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         XCTAssertEqual(activeGeometry.presentationFrame.midX, idleGeometry.presentationFrame.midX)
         XCTAssertGreaterThan(activeGeometry.presentationFrame.width, idleGeometry.presentationFrame.width)
         XCTAssertEqual(activeGeometry.presentationFrame.maxY, idleGeometry.presentationFrame.maxY)
-        XCTAssertEqual(activeGeometry.presentationFrame.minY, idleGeometry.presentationFrame.minY)
+        XCTAssertLessThan(activeGeometry.presentationFrame.minY, idleGeometry.presentationFrame.minY)
+        XCTAssertTrue(activeGeometry.presentationFrame.contains(activeGeometry.physicalHousingFrame))
+    }
+
+    func testSeamKeepsReadableWingsBesideWiderHardwareHousing() throws {
+        let geometry = try XCTUnwrap(
+            PaceLivingNotchGeometry.resolve(
+                screenFrame: CGRect(x: 0, y: 0, width: 1_728, height: 1_117),
+                safeAreaTopInset: 32,
+                auxiliaryTopLeftArea: CGRect(x: 0, y: 1_085, width: 751.5, height: 32),
+                auxiliaryTopRightArea: CGRect(x: 976.5, y: 1_085, width: 751.5, height: 32),
+                displayMode: .active))
+        XCTAssertEqual(geometry.physicalHousingFrame.width, 225)
+        XCTAssertEqual(geometry.presentationFrame.width, 393)
+        XCTAssertEqual(geometry.presentationFrame.midX, geometry.physicalHousingFrame.midX)
+        XCTAssertGreaterThanOrEqual((geometry.presentationFrame.width - geometry.physicalHousingFrame.width) / 2, 84)
+    }
+
+    @MainActor
+    func testSeamNativeRenderExamplesWhenRequested() throws {
+        guard ProcessInfo.processInfo.environment["PACE_RENDER_SEAM_PREVIEWS"] == "1" else {
+            throw XCTSkip("Native render export is an opt-in local visual check.")
+        }
+        let output = URL(fileURLWithPath: "/tmp/pace-seam-native-20261030", isDirectory: true)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let examples: [(String, PaceLivingNotchDisplayMode, PaceSignalState, String, Bool, CGFloat)] = [
+            ("idle", .hardwareIdle, .ready, "Ready", false, 185),
+            ("hover", .hover, .ready, "Ready", false, 185),
+            ("listening", .active, .listening, "Listening…", false, 185),
+            ("codex-image", .active, .acting, "Drawing a turbofan…", true, 185),
+            ("wide-housing-privacy", .active, .understanding, "Thinking…", true, 225),
+        ]
+        for (name, mode, signalState, label, isOffDeviceTurn, housingWidth) in examples {
+            let width = max(mode.preferredWidth ?? housingWidth, housingWidth + (mode == .active ? 168 : 0))
+            let height = 32 + mode.additionalHeight
+            let surface = PaceSeamNotchSurface(
+                displayMode: mode, physicalHousingWidth: housingWidth, physicalHousingHeight: 32,
+                signalState: signalState, activityLabel: label, isOffDeviceTurn: isOffDeviceTurn,
+                plannerLabel: "Codex", isCameraActive: name == "wide-housing-privacy",
+                isScreenActive: name == "wide-housing-privacy"
+            )
+            .frame(width: width, height: height)
+            let renderer = ImageRenderer(content: surface)
+            renderer.scale = 2
+            let image = try XCTUnwrap(renderer.cgImage)
+            XCTAssertEqual(image.width, Int(width * 2))
+            XCTAssertEqual(image.height, Int(height * 2))
+            let bitmap = NSBitmapImageRep(cgImage: image)
+            let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            try data.write(to: output.appendingPathComponent("\(name).png"))
+        }
     }
 
     func testLivingNotchGeometryRejectsDisplaysWithoutReliableHousingBounds() {

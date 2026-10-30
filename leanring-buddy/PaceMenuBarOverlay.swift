@@ -27,11 +27,6 @@ enum PaceWindowLayering {
     static let teachingOverlay = NSWindow.Level.screenSaver
 }
 
-private enum PaceLivingNotchMetrics {
-    static let hoverBottomCornerRadius: CGFloat = 12
-    static let activeBottomCornerRadius: CGFloat = 14
-}
-
 @MainActor
 enum PaceLivingNotchScreenGeometryResolver {
     static func targetScreen() -> NSScreen? {
@@ -247,12 +242,14 @@ final class PaceMenuBarOverlayManager {
     private func refreshPresentation(animated: Bool) {
         guard isVisible, let companionManager else { return }
 
-        let signalState = companionManager.nativeEffectiveSignalState
+        let signalState = companionManager.nativePanelPresentation.signalState
         let displayMode = PaceLivingNotchDisplayMode.resolve(
             signalState: signalState,
             isHovering: isHovering,
             showsPersistentRuntimeIndicator:
                 companionManager.companionControlCenter.preferences.isCompanionModeEnabled
+                || !companionManager.companionControlCenter.activeSources.isEmpty
+                || companionManager.isOffDeviceTurnInFlight
         )
 
         let geometry = PaceLivingNotchScreenGeometryResolver.geometry(
@@ -291,10 +288,11 @@ final class PaceMenuBarOverlayManager {
         let shouldAnimate =
             animated
             && overlayPanel.isVisible
+            && displayMode == .hover
             && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if shouldAnimate {
             NSAnimationContext.runAnimationGroup { animationContext in
-                animationContext.duration = 0.34
+                animationContext.duration = 0.14
                 animationContext.timingFunction = CAMediaTimingFunction(
                     name: .easeOut
                 )
@@ -326,12 +324,7 @@ final class PaceMenuBarOverlayManager {
             NSStatusBar.system.removeStatusItem(statusItem)
             return
         }
-        let statusImage = NSImage(
-            systemSymbolName: "waveform.path",
-            accessibilityDescription: "Pace"
-        )
-        statusImage?.isTemplate = true
-        button.image = statusImage
+        button.image = PaceBrandMark.menuBarImage()
         button.toolTip = "Open Pace conversations"
         button.target = self
         button.action = #selector(fallbackMenuBarStatusItemTapped)
@@ -356,7 +349,10 @@ final class PaceMenuBarOverlayManager {
 
     private func handleTap() {
         guard let overlayPanel else { return }
-        onTap(overlayPanel.frame)
+        let conversationAnchor =
+            PaceLivingNotchScreenGeometryResolver.geometry(displayMode: .active)?.presentationFrame
+            ?? overlayPanel.frame
+        onTap(conversationAnchor)
     }
 
     private func handleHoverChanged(_ isHovering: Bool) {
@@ -378,6 +374,7 @@ private struct PaceMenuBarOverlayView: View {
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject var surfaceModel: PaceLivingNotchSurfaceModel
     @ObservedObject private var companionControlCenter: PaceCompanionControlCenter
+    @ObservedObject private var imageOverlayController: PaceImageOverlayController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -389,30 +386,28 @@ private struct PaceMenuBarOverlayView: View {
         self._companionControlCenter = ObservedObject(
             wrappedValue: companionManager.companionControlCenter
         )
+        self._imageOverlayController = ObservedObject(wrappedValue: companionManager.imageOverlayController)
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if surfaceModel.displayMode != .hardwareIdle {
-                livingNotchHeader
-                    .frame(height: surfaceModel.physicalHousingHeight)
-                    .transition(
-                        reduceMotion
-                            ? .opacity
-                            : .move(edge: .top).combined(with: .opacity)
-                    )
-            } else {
-                Color.clear
-                    .frame(height: surfaceModel.physicalHousingHeight)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .smTheme(DS.palette)
-        .background(Color.black)
-        .clipShape(notchShape)
-        .contentShape(
-            notchShape
+        PaceSeamNotchSurface(
+            displayMode: surfaceModel.displayMode,
+            physicalHousingWidth: surfaceModel.physicalHousingWidth,
+            physicalHousingHeight: surfaceModel.physicalHousingHeight,
+            signalState: signalState,
+            activityLabel: compactActivityLabel,
+            isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
+            plannerLabel: offDevicePlannerLabel,
+            audioPowerLevel: companionManager.currentAudioPowerLevel,
+            colorRoleOverride: companionManager.nativeEffectiveSignalColorRoleOverride,
+            isCameraActive: companionControlCenter.activeSources.contains(.camera),
+            isScreenActive: companionControlCenter.activeSources.contains(.screen),
+            persistentStatus: companionControlCenter.preferences.isCompanionModeEnabled
+                ? companionControlCenter.runtimeStatusText : nil
         )
+        .smTheme(DS.palette)
+        .contentShape(Rectangle())
+        .pointerCursor()
         .help(
             companionControlCenter.preferences.isCompanionModeEnabled
                 ? companionControlCenter.runtimeStatusText
@@ -429,14 +424,6 @@ private struct PaceMenuBarOverlayView: View {
                 }
             )
         )
-        .animation(
-            reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.82),
-            value: surfaceModel.displayMode
-        )
-        .animation(
-            reduceMotion ? nil : .easeOut(duration: DS.Motion.stateChange),
-            value: signalState
-        )
         .onChange(of: signalState) { _, newSignalState in
             announceAccessibilityState(newSignalState)
         }
@@ -446,76 +433,28 @@ private struct PaceMenuBarOverlayView: View {
         }
     }
 
-    private var livingNotchHeader: some View {
-        HStack(spacing: 0) {
-            Text("pace")
-                .font(.system(size: 11, weight: .semibold))
-                .tracking(0.2)
-                .foregroundStyle(Color.white.opacity(0.88))
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Color.clear.frame(width: surfaceModel.physicalHousingWidth)
-
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(
-                        companionManager.isOffDeviceTurnInFlight ? DS.Colors.offDeviceSignal : Color.white.opacity(0.55)
-                    )
-                    .frame(width: 4, height: 4)
-                if companionManager.isOffDeviceTurnInFlight {
-                    Text("\(offDevicePlannerLabel) ↗")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(DS.Colors.offDeviceSignal)
-                        .help("This request uses the off-device planner you enabled.")
-                } else {
-                    Text(compactActivityLabel)
-                        .font(.system(size: 10))
-                        .foregroundStyle(Color.white.opacity(0.7))
-                        .lineLimit(1)
-                }
-                PaceCompanionCaptureIndicators(controlCenter: companionControlCenter)
-            }
-            .frame(maxWidth: .infinity, alignment: .trailing)
-        }
-        .padding(.horizontal, 12)
-        .pointerCursor()
-    }
-
     private var offDevicePlannerLabel: String {
         if companionManager.activePlannerTier == .cliDirect {
             return companionManager.activePlannerTierCLIDirectUpstream.displayLabel
         }
-        return "Off-device"
+        return "Cloud"
     }
 
     private var compactActivityLabel: String {
-        if companionManager.voiceState == .idle {
-            return companionManager.allPermissionsGranted ? "Ready" : "Chat"
+        if case .generating(let request) = imageOverlayController.state {
+            return "Drawing \(request.title)…"
         }
-        switch companionManager.voiceState {
-        case .listening: return "Listening"
-        case .processing: return "Thinking"
-        case .responding: return "Speaking"
-        case .idle: return "Chat"
+        switch signalState {
+        case .ready: return "Ready"
+        case .listening: return "Listening…"
+        case .understanding: return "Thinking…"
+        case .awaitingApproval: return "Waiting for approval"
+        case .acting: return companionManager.currentTurnHUDState.detail ?? "Working…"
+        case .speaking: return "Speaking…"
+        case .completed: return "Done"
+        case .blocked: return "Open Pace to continue"
+        case .failed: return "Something needs attention"
         }
-    }
-
-    private var bottomCornerRadius: CGFloat {
-        switch surfaceModel.displayMode {
-        case .hardwareIdle:
-            return 11
-        case .hover:
-            return PaceLivingNotchMetrics.hoverBottomCornerRadius
-        case .active:
-            return PaceLivingNotchMetrics.activeBottomCornerRadius
-        }
-    }
-
-    private var notchShape: PaceExtendedNotchShape {
-        PaceExtendedNotchShape(
-            topShoulderRadius: 6,
-            bottomCornerRadius: bottomCornerRadius
-        )
     }
 
     private var statusText: String {
@@ -540,7 +479,7 @@ private struct PaceMenuBarOverlayView: View {
     }
 
     private var signalState: PaceSignalState {
-        companionManager.nativeEffectiveSignalState
+        companionManager.nativePanelPresentation.signalState
     }
 
     private var signalPresentation: PaceSignalPresentation {
@@ -587,128 +526,5 @@ private struct PaceMenuBarOverlayView: View {
                 .priority: NSAccessibilityPriorityLevel.high.rawValue,
             ]
         )
-    }
-}
-
-private struct PaceCompanionCaptureIndicators: View {
-    @ObservedObject var controlCenter: PaceCompanionControlCenter
-
-    var body: some View {
-        HStack(spacing: 1.5) {
-            if controlCenter.activeSources.contains(.camera) {
-                indicator(color: .green, label: "Camera active")
-            }
-            if controlCenter.activeSources.contains(.screen) {
-                indicator(color: .cyan, label: "Screen active")
-            }
-            if controlCenter.preferences.isCompanionModeEnabled,
-                controlCenter.activeSources.contains(.camera) == false,
-                controlCenter.activeSources.contains(.screen) == false
-            {
-                indicator(color: runtimeColor, label: controlCenter.runtimeStatusText)
-            }
-        }
-        .help(controlCenter.runtimeStatusText)
-    }
-
-    private func indicator(color: Color, label: String) -> some View {
-        Circle()
-            .fill(color)
-            .frame(width: 5, height: 5)
-            .overlay(Circle().stroke(Color.black.opacity(0.8), lineWidth: 0.5))
-            .accessibilityLabel(label)
-    }
-
-    private var runtimeColor: Color {
-        switch controlCenter.runtimeState {
-        case .observing: return .green
-        case .interpreting: return .cyan
-        case .paused: return .yellow
-        case .degraded: return .orange
-        case .privacyBlocked: return .red
-        case .off, .starting: return .gray
-        }
-    }
-}
-
-private struct PaceExtendedNotchShape: Shape {
-    let topShoulderRadius: CGFloat
-    let bottomCornerRadius: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        let resolvedTopShoulderRadius = min(topShoulderRadius, rect.width / 4, rect.height / 2)
-        let resolvedBottomCornerRadius = min(
-            bottomCornerRadius,
-            rect.width / 4,
-            rect.height / 2
-        )
-
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addCurve(
-            to: CGPoint(
-                x: rect.minX + resolvedTopShoulderRadius,
-                y: rect.minY + resolvedTopShoulderRadius
-            ),
-            control1: CGPoint(
-                x: rect.minX + (resolvedTopShoulderRadius * 0.7),
-                y: rect.minY
-            ),
-            control2: CGPoint(
-                x: rect.minX + resolvedTopShoulderRadius,
-                y: rect.minY + (resolvedTopShoulderRadius * 0.35)
-            )
-        )
-        path.addLine(
-            to: CGPoint(
-                x: rect.minX + resolvedTopShoulderRadius,
-                y: rect.maxY - resolvedBottomCornerRadius
-            )
-        )
-        path.addQuadCurve(
-            to: CGPoint(
-                x: rect.minX + resolvedTopShoulderRadius + resolvedBottomCornerRadius,
-                y: rect.maxY
-            ),
-            control: CGPoint(
-                x: rect.minX + resolvedTopShoulderRadius,
-                y: rect.maxY
-            )
-        )
-        path.addLine(
-            to: CGPoint(
-                x: rect.maxX - resolvedTopShoulderRadius - resolvedBottomCornerRadius,
-                y: rect.maxY
-            )
-        )
-        path.addQuadCurve(
-            to: CGPoint(
-                x: rect.maxX - resolvedTopShoulderRadius,
-                y: rect.maxY - resolvedBottomCornerRadius
-            ),
-            control: CGPoint(
-                x: rect.maxX - resolvedTopShoulderRadius,
-                y: rect.maxY
-            )
-        )
-        path.addLine(
-            to: CGPoint(
-                x: rect.maxX - resolvedTopShoulderRadius,
-                y: rect.minY + resolvedTopShoulderRadius
-            )
-        )
-        path.addCurve(
-            to: CGPoint(x: rect.maxX, y: rect.minY),
-            control1: CGPoint(
-                x: rect.maxX - resolvedTopShoulderRadius,
-                y: rect.minY + (resolvedTopShoulderRadius * 0.35)
-            ),
-            control2: CGPoint(
-                x: rect.maxX - (resolvedTopShoulderRadius * 0.7),
-                y: rect.minY
-            )
-        )
-        path.closeSubpath()
-        return path
     }
 }

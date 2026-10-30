@@ -51,12 +51,20 @@ nonisolated enum PaceLivingNotchDisplayMode: Equatable {
         return isHovering ? .hover : .hardwareIdle
     }
 
+    var additionalHeight: CGFloat {
+        switch self {
+        case .hardwareIdle: return 0
+        case .hover: return 24
+        case .active: return 40
+        }
+    }
+
     var preferredWidth: CGFloat? {
         switch self {
         case .hardwareIdle:
             return nil
         case .hover:
-            return 300
+            return 280
         case .active:
             return 340
         }
@@ -98,10 +106,12 @@ nonisolated struct PaceLivingNotchGeometry: Equatable {
             width: physicalHousingWidth,
             height: safeAreaTopInset
         )
-        let presentationHeight = safeAreaTopInset
+        let presentationHeight = safeAreaTopInset + displayMode.additionalHeight
         let maximumPresentationWidth = max(physicalHousingWidth, screenFrame.width - 16)
         let presentationWidth = min(
-            max(physicalHousingWidth, displayMode.preferredWidth ?? physicalHousingWidth),
+            max(
+                physicalHousingWidth + (displayMode == .active ? 168 : 0),
+                displayMode.preferredWidth ?? physicalHousingWidth),
             maximumPresentationWidth
         )
         let centeredPresentationMinimumX = physicalHousingFrame.midX - (presentationWidth / 2)

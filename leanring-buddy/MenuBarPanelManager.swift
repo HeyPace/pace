@@ -281,8 +281,8 @@ final class MenuBarPanelManager: NSObject {
         } else {
             return
         }
-        // Leave a small desktop gap so the conversation reads as an anchored
-        // panel, independent of the physical camera housing.
+        // Reserve the active notch footprint so a voice turn cannot grow
+        // underneath the conversation or move it while the user is reading.
         let anchorGap: CGFloat = 10
 
         // Calculate the panel's content height from the hosting view's fitting size
@@ -311,9 +311,9 @@ final class MenuBarPanelManager: NSObject {
 
     private func defaultMenuBarAnchorFrame() -> NSRect? {
         if let livingNotchGeometry = PaceLivingNotchScreenGeometryResolver.geometry(
-            displayMode: .hardwareIdle
+            displayMode: .active
         ) {
-            return livingNotchGeometry.physicalHousingFrame
+            return livingNotchGeometry.presentationFrame
         }
 
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return nil }

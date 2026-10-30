@@ -198,3 +198,10 @@ Generated diagrams float directly over the desktop as separate interactive
 parts with click-through space between them. Selecting a part reveals its local
 explanation. A deliberate follow-up uses the normal planner path. There is no
 opaque full-screen diagram window.
+
+The ambient notch uses **Seam**, selected on 30 October 2026: hardware-exact and
+invisible at rest, with a compact lower row during voice/tool work. The shared
+identity is an open-loop P, rendered as a monochrome native vector at small
+sizes and used in the app icon and web marks. Hover expansion is brief; voice
+feedback is immediate. The housing stays clear, amber identifies off-device
+work, and capture indicators remain visible while sources are active.
