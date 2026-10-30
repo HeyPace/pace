@@ -242,7 +242,9 @@ final class PaceMenuBarOverlayManager {
     private func refreshPresentation(animated: Bool) {
         guard isVisible, let companionManager else { return }
 
-        let signalState = companionManager.nativePanelPresentation.signalState
+        let signalState = PaceLivingNotchDisplayMode.ambientSignalState(
+            panelSignalState: companionManager.nativePanelPresentation.signalState,
+            voicePhase: companionManager.voiceState.nativeRuntimePhase)
         let displayMode = PaceLivingNotchDisplayMode.resolve(
             signalState: signalState,
             isHovering: isHovering,
@@ -493,7 +495,9 @@ private struct PaceMenuBarOverlayView: View {
     }
 
     private var signalState: PaceSignalState {
-        companionManager.nativePanelPresentation.signalState
+        PaceLivingNotchDisplayMode.ambientSignalState(
+            panelSignalState: companionManager.nativePanelPresentation.signalState,
+            voicePhase: companionManager.voiceState.nativeRuntimePhase)
     }
 
     private var signalPresentation: PaceSignalPresentation {

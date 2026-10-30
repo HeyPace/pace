@@ -60,6 +60,24 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
                 signalState: .completed, isHovering: false, showsPersistentRuntimeIndicator: true), .active)
     }
 
+    func testCompletedPanelKeepsActualVoiceActivityVisibleInAmbientNotch() {
+        let examples: [(PaceRuntimeVoicePhase, PaceSignalState, PaceLivingNotchDisplayMode)] = [
+            (.idle, .completed, .hardwareIdle), (.listening, .listening, .active),
+            (.processing, .understanding, .active), (.responding, .speaking, .active),
+        ]
+        for (voicePhase, expectedSignal, expectedMode) in examples {
+            let signal = PaceLivingNotchDisplayMode.ambientSignalState(
+                panelSignalState: .completed, voicePhase: voicePhase)
+            XCTAssertEqual(signal, expectedSignal)
+            XCTAssertEqual(
+                PaceLivingNotchDisplayMode.resolve(
+                    signalState: signal, isHovering: false, showsPersistentRuntimeIndicator: false), expectedMode)
+        }
+        XCTAssertEqual(
+            PaceLivingNotchDisplayMode.ambientSignalState(
+                panelSignalState: .failed, voicePhase: .responding), .failed)
+    }
+
     func testLivingNotchGeometryMatchesReportedMacBookHousing() {
         let screenFrame = CGRect(x: 0, y: 0, width: 1_728, height: 1_117)
         let auxiliaryTopLeftArea = CGRect(x: 0, y: 1_085, width: 771.5, height: 32)
@@ -163,6 +181,8 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             ("wide-housing-privacy", .active, .understanding, "Thinking…", true, 225),
             ("claude-capture-privacy", .active, .acting, "Working…", true, 185),
             ("companion-paused", .active, .listening, "Listening…", false, 185),
+            ("companion-paused-hover", .hover, .ready, "Ready", false, 185),
+            ("companion-finishing", .active, .completed, "Finishing…", true, 185),
             ("wide-housing-hover", .hover, .ready, "Ready", false, 300),
         ]
         for (name, mode, signalState, label, isOffDeviceTurn, housingWidth) in examples {
@@ -174,11 +194,15 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
                 signalState: signalState, activityLabel: label, isOffDeviceTurn: isOffDeviceTurn,
                 plannerLabel: name == "claude-capture-privacy" ? "Claude Code" : "Codex",
                 isCameraActive: name.contains("privacy"), isScreenActive: name.contains("privacy"),
-                persistentStatus: name == "companion-paused" ? "Paused" : nil,
-                companionStatusColor: name == "companion-paused" ? Color.yellow : nil
+                persistentStatus: name == "companion-finishing"
+                    ? "Observing"
+                    : name.hasPrefix("companion-paused") ? "Paused" : nil,
+                companionStatusColor: name.hasPrefix("companion-paused") ? Color.yellow : nil
             )
-            .frame(width: width, height: height)
-            let renderer = ImageRenderer(content: surface)
+            if name == "companion-finishing" {
+                XCTAssertEqual(surface.displayedActivityLabel, "Finishing…")
+            }
+            let renderer = ImageRenderer(content: surface.frame(width: width, height: height))
             renderer.scale = 2
             let image = try XCTUnwrap(renderer.cgImage)
             XCTAssertEqual(image.width, Int(width * 2))

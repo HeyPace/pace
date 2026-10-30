@@ -15,6 +15,12 @@ struct PaceSeamNotchSurface: View {
     var persistentStatus: String? = nil
     var companionStatusColor: Color? = nil
 
+    var displayedActivityLabel: String {
+        if isOffDeviceTurn { return activityLabel }
+        if signalState == .ready || signalState == .completed { return persistentStatus ?? activityLabel }
+        return activityLabel
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if displayMode == .hardwareIdle {
@@ -34,14 +40,11 @@ struct PaceSeamNotchSurface: View {
                     .frame(height: displayMode.additionalHeight)
                 } else {
                     HStack(spacing: 16) {
-                        Text(
-                            (signalState == .ready || signalState == .completed)
-                                ? (persistentStatus ?? activityLabel) : activityLabel
-                        )
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(Color.white.opacity(0.9))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                        Text(displayedActivityLabel)
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(Color.white.opacity(0.9))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                         Spacer(minLength: 4)
                         if signalState == .understanding || signalState == .acting {
                             Circle()

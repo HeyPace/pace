@@ -51,6 +51,19 @@ nonisolated enum PaceLivingNotchDisplayMode: Equatable {
         return isHovering ? .hover : .hardwareIdle
     }
 
+    static func ambientSignalState(
+        panelSignalState: PaceSignalState,
+        voicePhase: PaceRuntimeVoicePhase
+    ) -> PaceSignalState {
+        guard panelSignalState == .completed else { return panelSignalState }
+        switch voicePhase {
+        case .idle: return .completed
+        case .listening: return .listening
+        case .processing: return .understanding
+        case .responding: return .speaking
+        }
+    }
+
     var additionalHeight: CGFloat {
         switch self {
         case .hardwareIdle: return 0
