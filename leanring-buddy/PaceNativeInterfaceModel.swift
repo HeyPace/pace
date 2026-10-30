@@ -68,7 +68,7 @@ nonisolated enum PaceLivingNotchDisplayMode: Equatable {
         switch self {
         case .hardwareIdle: return 0
         case .hover: return 24
-        case .active: return 40
+        case .active: return 32
         }
     }
 
@@ -79,7 +79,7 @@ nonisolated enum PaceLivingNotchDisplayMode: Equatable {
         case .hover:
             return 280
         case .active:
-            return 340
+            return 320
         }
     }
 }
@@ -123,7 +123,7 @@ nonisolated struct PaceLivingNotchGeometry: Equatable {
         let maximumPresentationWidth = max(physicalHousingWidth, screenFrame.width - 16)
         let presentationWidth = min(
             max(
-                physicalHousingWidth + (displayMode == .active ? 168 : displayMode == .hover ? 88 : 0),
+                physicalHousingWidth + (displayMode == .active ? 144 : displayMode == .hover ? 88 : 0),
                 displayMode.preferredWidth ?? physicalHousingWidth),
             maximumPresentationWidth
         )

@@ -36,23 +36,25 @@ struct PaceSeamNotchSurface: View {
                             .foregroundStyle(Color.white.opacity(0.4))
                     }
                     .font(.system(size: 10.5))
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 18)
                     .frame(height: displayMode.additionalHeight)
                 } else {
-                    HStack(spacing: 16) {
+                    HStack(spacing: 12) {
                         Text(displayedActivityLabel)
-                            .font(.system(size: 12.5, weight: .medium))
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Color.white.opacity(0.9))
                             .lineLimit(1)
                             .truncationMode(.tail)
-                        Spacer(minLength: 4)
-                        if signalState == .understanding || signalState == .acting {
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if isOffDeviceTurn {
+                            plannerBadge
+                        } else if signalState == .understanding || signalState == .acting {
                             Circle()
                                 .stroke(Color.white.opacity(0.14), lineWidth: 1)
                                 .overlay {
                                     Circle().trim(from: 0.05, to: 0.78)
                                         .stroke(
-                                            isOffDeviceTurn ? DS.Colors.offDeviceSignal : DS.Colors.localSignal,
+                                            DS.Colors.localSignal,
                                             style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
                                 }
                                 .frame(width: 13, height: 13)
@@ -68,7 +70,7 @@ struct PaceSeamNotchSurface: View {
                             .frame(width: 30, height: 15)
                         }
                     }
-                    .padding(.horizontal, 17)
+                    .padding(.horizontal, 18)
                     .padding(.bottom, 4)
                     .frame(height: displayMode.additionalHeight)
                 }
@@ -76,52 +78,77 @@ struct PaceSeamNotchSurface: View {
         }
         .frame(maxWidth: .infinity)
         .background(displayMode == .hardwareIdle ? Color.clear : Color.black)
-        .clipShape(PaceSeamNotchShape(topShoulderRadius: 6, bottomCornerRadius: displayMode == .hardwareIdle ? 11 : 15))
+        .clipShape(PaceSeamNotchShape(topShoulderRadius: 8, bottomCornerRadius: 18))
     }
 
     private var header: some View {
         GeometryReader { geometry in
-            let wingWidth = max(0, (geometry.size.width - physicalHousingWidth) / 2 - 14)
+            let wingWidth = max(0, (geometry.size.width - physicalHousingWidth) / 2)
             HStack(spacing: 0) {
                 PaceBrandMark()
                     .foregroundStyle(Color.white.opacity(0.9))
                     .frame(width: 18, height: 18)
-                    .frame(width: wingWidth, alignment: .leading)
+                    .frame(width: wingWidth, height: physicalHousingHeight)
                 Color.clear.frame(width: physicalHousingWidth)
-                HStack(spacing: 4) {
-                    if isOffDeviceTurn {
-                        Circle().fill(DS.Colors.offDeviceSignal).frame(width: 3, height: 3)
-                        Text(plannerLabel)
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(DS.Colors.offDeviceSignal)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .layoutPriority(-1)
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 7, weight: .semibold))
-                            .foregroundStyle(DS.Colors.offDeviceSignal)
-                            .fixedSize()
+                ZStack {
+                    Image(systemName: statusSymbolName)
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(isOffDeviceTurn ? DS.Colors.offDeviceSignal : Color.white.opacity(0.76))
+                        .frame(width: 20, height: 20)
+                        .accessibilityHidden(true)
+                    HStack(spacing: 4) {
+                        if let companionStatusColor {
+                            Circle().fill(companionStatusColor).frame(width: 4, height: 4)
+                                .accessibilityLabel(persistentStatus ?? "Companion status")
+                        }
+                        if isCameraActive {
+                            Circle().fill(.green).frame(width: 4, height: 4)
+                                .accessibilityLabel("Camera active")
+                        }
+                        if isScreenActive {
+                            Circle().fill(.cyan).frame(width: 4, height: 4)
+                                .accessibilityLabel("Screen active")
+                        }
                     }
-                    if let companionStatusColor {
-                        Circle().fill(companionStatusColor).frame(width: 4, height: 4)
-                            .accessibilityLabel(persistentStatus ?? "Companion status")
-                    }
-                    if isCameraActive {
-                        Circle().fill(.green).frame(width: 4, height: 4)
-                            .accessibilityLabel("Camera active")
-                    }
-                    if isScreenActive {
-                        Circle().fill(.cyan).frame(width: 4, height: 4)
-                            .accessibilityLabel("Screen active")
-                    }
+                    .fixedSize()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(.trailing, 13)
+                    .padding(.bottom, 3)
                 }
-                .frame(width: wingWidth, alignment: .trailing)
+                .frame(width: wingWidth, height: physicalHousingHeight)
             }
-            .padding(.horizontal, 14)
-            .frame(height: geometry.size.height)
         }
     }
 
+    private var plannerBadge: some View {
+        HStack(spacing: 4) {
+            Circle().fill(DS.Colors.offDeviceSignal).frame(width: 3, height: 3)
+            Text(plannerLabel)
+                .font(.system(size: 9, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(-1)
+            Image(systemName: "arrow.up.right")
+                .font(.system(size: 7, weight: .semibold))
+                .fixedSize()
+        }
+        .foregroundStyle(DS.Colors.offDeviceSignal)
+        .frame(maxWidth: 96)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var statusSymbolName: String {
+        if isOffDeviceTurn { return "arrow.up.right.circle" }
+        switch signalState {
+        case .ready, .completed: return "bubble.left"
+        case .listening: return "mic"
+        case .understanding, .acting: return "waveform"
+        case .speaking: return "speaker.wave.2"
+        case .awaitingApproval: return "hand.raised"
+        case .blocked: return "exclamationmark.circle"
+        case .failed: return "xmark.circle"
+        }
+    }
 }
 
 struct PaceSeamNotchShape: Shape {

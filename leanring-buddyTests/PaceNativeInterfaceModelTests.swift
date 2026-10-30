@@ -118,7 +118,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         )
         XCTAssertEqual(
             activeGeometry?.presentationFrame,
-            CGRect(x: 687.5, y: 1_045, width: 353, height: 72)
+            CGRect(x: 699.5, y: 1_053, width: 329, height: 64)
         )
 
     }
@@ -160,9 +160,9 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
                 auxiliaryTopRightArea: CGRect(x: 976.5, y: 1_085, width: 751.5, height: 32),
                 displayMode: .active))
         XCTAssertEqual(geometry.physicalHousingFrame.width, 225)
-        XCTAssertEqual(geometry.presentationFrame.width, 393)
+        XCTAssertEqual(geometry.presentationFrame.width, 369)
         XCTAssertEqual(geometry.presentationFrame.midX, geometry.physicalHousingFrame.midX)
-        XCTAssertGreaterThanOrEqual((geometry.presentationFrame.width - geometry.physicalHousingFrame.width) / 2, 84)
+        XCTAssertGreaterThanOrEqual((geometry.presentationFrame.width - geometry.physicalHousingFrame.width) / 2, 72)
     }
 
     @MainActor
@@ -187,7 +187,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         ]
         for (name, mode, signalState, label, isOffDeviceTurn, housingWidth) in examples {
             let width = max(
-                mode.preferredWidth ?? housingWidth, housingWidth + (mode == .active ? 168 : mode == .hover ? 88 : 0))
+                mode.preferredWidth ?? housingWidth, housingWidth + (mode == .active ? 144 : mode == .hover ? 88 : 0))
             let height = 32 + mode.additionalHeight
             let surface = PaceSeamNotchSurface(
                 displayMode: mode, physicalHousingWidth: housingWidth, physicalHousingHeight: 32,
