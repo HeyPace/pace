@@ -32,16 +32,16 @@ struct PaceSeamNotchSurface: View {
                         Text("Open Pace")
                             .foregroundStyle(Color.white.opacity(0.78))
                         Spacer()
-                        Text("Click to chat")
+                        Text("⌘⇧P")
                             .foregroundStyle(Color.white.opacity(0.4))
                     }
                     .font(.system(size: 10.5))
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, 22)
                     .frame(height: displayMode.additionalHeight)
                 } else {
                     HStack(spacing: 12) {
                         Text(displayedActivityLabel)
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 11.5, weight: .medium))
                             .foregroundStyle(Color.white.opacity(0.9))
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -70,15 +70,26 @@ struct PaceSeamNotchSurface: View {
                             .frame(width: 30, height: 15)
                         }
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.bottom, 4)
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 3)
                     .frame(height: displayMode.additionalHeight)
                 }
             }
         }
         .frame(maxWidth: .infinity)
         .background(displayMode == .hardwareIdle ? Color.clear : Color.black)
-        .clipShape(PaceSeamNotchShape(topShoulderRadius: 8, bottomCornerRadius: 18))
+        .overlay {
+            if displayMode != .hardwareIdle {
+                PaceSeamNotchShape(topShoulderRadius: 10, bottomCornerRadius: 22)
+                    .stroke(
+                        LinearGradient(
+                            colors: [.clear, .white.opacity(0.07)], startPoint: .top, endPoint: .bottom),
+                        lineWidth: 0.5
+                    )
+                    .allowsHitTesting(false)
+            }
+        }
+        .clipShape(PaceSeamNotchShape(topShoulderRadius: 10, bottomCornerRadius: 22))
     }
 
     private var header: some View {
@@ -87,12 +98,12 @@ struct PaceSeamNotchSurface: View {
             HStack(spacing: 0) {
                 PaceBrandMark()
                     .foregroundStyle(Color.white.opacity(0.9))
-                    .frame(width: 18, height: 18)
+                    .frame(width: 16, height: 16)
                     .frame(width: wingWidth, height: physicalHousingHeight)
                 Color.clear.frame(width: physicalHousingWidth)
                 ZStack {
                     Image(systemName: statusSymbolName)
-                        .font(.system(size: 17, weight: .medium))
+                        .font(.system(size: 15, weight: .regular))
                         .foregroundStyle(isOffDeviceTurn ? DS.Colors.offDeviceSignal : Color.white.opacity(0.76))
                         .frame(width: 20, height: 20)
                         .accessibilityHidden(true)
@@ -122,7 +133,6 @@ struct PaceSeamNotchSurface: View {
 
     private var plannerBadge: some View {
         HStack(spacing: 4) {
-            Circle().fill(DS.Colors.offDeviceSignal).frame(width: 3, height: 3)
             Text(plannerLabel)
                 .font(.system(size: 9, weight: .medium))
                 .lineLimit(1)
@@ -138,11 +148,11 @@ struct PaceSeamNotchSurface: View {
     }
 
     private var statusSymbolName: String {
-        if isOffDeviceTurn { return "arrow.up.right.circle" }
         switch signalState {
         case .ready, .completed: return "bubble.left"
         case .listening: return "mic"
-        case .understanding, .acting: return "waveform"
+        case .understanding: return "waveform.path"
+        case .acting: return "sparkle"
         case .speaking: return "speaker.wave.2"
         case .awaitingApproval: return "hand.raised"
         case .blocked: return "exclamationmark.circle"
@@ -185,13 +195,17 @@ struct PaceSeamNotchShape: Shape {
                 y: rect.maxY - resolvedBottomCornerRadius
             )
         )
-        path.addQuadCurve(
+        path.addCurve(
             to: CGPoint(
                 x: rect.minX + resolvedTopShoulderRadius + resolvedBottomCornerRadius,
                 y: rect.maxY
             ),
-            control: CGPoint(
+            control1: CGPoint(
                 x: rect.minX + resolvedTopShoulderRadius,
+                y: rect.maxY - resolvedBottomCornerRadius * 0.447_715
+            ),
+            control2: CGPoint(
+                x: rect.minX + resolvedTopShoulderRadius + resolvedBottomCornerRadius * 0.447_715,
                 y: rect.maxY
             )
         )
@@ -201,14 +215,18 @@ struct PaceSeamNotchShape: Shape {
                 y: rect.maxY
             )
         )
-        path.addQuadCurve(
+        path.addCurve(
             to: CGPoint(
                 x: rect.maxX - resolvedTopShoulderRadius,
                 y: rect.maxY - resolvedBottomCornerRadius
             ),
-            control: CGPoint(
-                x: rect.maxX - resolvedTopShoulderRadius,
+            control1: CGPoint(
+                x: rect.maxX - resolvedTopShoulderRadius - resolvedBottomCornerRadius * 0.447_715,
                 y: rect.maxY
+            ),
+            control2: CGPoint(
+                x: rect.maxX - resolvedTopShoulderRadius,
+                y: rect.maxY - resolvedBottomCornerRadius * 0.447_715
             )
         )
         path.addLine(
