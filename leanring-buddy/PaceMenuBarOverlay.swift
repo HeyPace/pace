@@ -247,8 +247,7 @@ final class PaceMenuBarOverlayManager {
             signalState: signalState,
             isHovering: isHovering,
             showsPersistentRuntimeIndicator:
-                companionManager.companionControlCenter.preferences.isCompanionModeEnabled
-                || !companionManager.companionControlCenter.activeSources.isEmpty
+                !companionManager.companionControlCenter.activeSources.isEmpty
                 || companionManager.isOffDeviceTurnInFlight
         )
 
@@ -403,7 +402,8 @@ private struct PaceMenuBarOverlayView: View {
             isCameraActive: companionControlCenter.activeSources.contains(.camera),
             isScreenActive: companionControlCenter.activeSources.contains(.screen),
             persistentStatus: companionControlCenter.preferences.isCompanionModeEnabled
-                ? companionControlCenter.runtimeStatusText : nil
+                ? companionControlCenter.runtimeStatusText : nil,
+            companionStatusColor: companionStatusColor
         )
         .smTheme(DS.palette)
         .contentShape(Rectangle())
@@ -451,9 +451,23 @@ private struct PaceMenuBarOverlayView: View {
         case .awaitingApproval: return "Waiting for approval"
         case .acting: return companionManager.currentTurnHUDState.detail ?? "Working…"
         case .speaking: return "Speaking…"
-        case .completed: return "Done"
+        case .completed: return companionManager.isOffDeviceTurnInFlight ? "Finishing…" : "Done"
         case .blocked: return "Open Pace to continue"
         case .failed: return "Something needs attention"
+        }
+    }
+
+    private var companionStatusColor: Color? {
+        guard companionControlCenter.preferences.isCompanionModeEnabled,
+            companionControlCenter.activeSources.isEmpty
+        else { return nil }
+        switch companionControlCenter.runtimeState {
+        case .observing: return .green
+        case .interpreting: return .cyan
+        case .paused: return .yellow
+        case .degraded: return .orange
+        case .privacyBlocked: return .red
+        case .off, .starting: return .gray
         }
     }
 

@@ -27,7 +27,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             .hover
         )
 
-        for signalState in PaceSignalState.allCases where signalState != .ready {
+        for signalState in PaceSignalState.allCases where signalState != .ready && signalState != .completed {
             XCTAssertEqual(
                 PaceLivingNotchDisplayMode.resolve(
                     signalState: signalState,
@@ -46,6 +46,18 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             ),
             .active
         )
+    }
+
+    func testCompletedNotchReturnsToRestUnlessCaptureOrOffDeviceWorkIsActive() {
+        XCTAssertEqual(
+            PaceLivingNotchDisplayMode.resolve(
+                signalState: .completed, isHovering: false, showsPersistentRuntimeIndicator: false), .hardwareIdle)
+        XCTAssertEqual(
+            PaceLivingNotchDisplayMode.resolve(
+                signalState: .completed, isHovering: true, showsPersistentRuntimeIndicator: false), .hover)
+        XCTAssertEqual(
+            PaceLivingNotchDisplayMode.resolve(
+                signalState: .completed, isHovering: false, showsPersistentRuntimeIndicator: true), .active)
     }
 
     func testLivingNotchGeometryMatchesReportedMacBookHousing() {
@@ -144,19 +156,26 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let examples: [(String, PaceLivingNotchDisplayMode, PaceSignalState, String, Bool, CGFloat)] = [
             ("idle", .hardwareIdle, .ready, "Ready", false, 185),
+            ("completed-rest", .hardwareIdle, .completed, "Done", false, 185),
             ("hover", .hover, .ready, "Ready", false, 185),
             ("listening", .active, .listening, "Listening…", false, 185),
             ("codex-image", .active, .acting, "Drawing a turbofan…", true, 185),
             ("wide-housing-privacy", .active, .understanding, "Thinking…", true, 225),
+            ("claude-capture-privacy", .active, .acting, "Working…", true, 185),
+            ("companion-paused", .active, .listening, "Listening…", false, 185),
+            ("wide-housing-hover", .hover, .ready, "Ready", false, 300),
         ]
         for (name, mode, signalState, label, isOffDeviceTurn, housingWidth) in examples {
-            let width = max(mode.preferredWidth ?? housingWidth, housingWidth + (mode == .active ? 168 : 0))
+            let width = max(
+                mode.preferredWidth ?? housingWidth, housingWidth + (mode == .active ? 168 : mode == .hover ? 88 : 0))
             let height = 32 + mode.additionalHeight
             let surface = PaceSeamNotchSurface(
                 displayMode: mode, physicalHousingWidth: housingWidth, physicalHousingHeight: 32,
                 signalState: signalState, activityLabel: label, isOffDeviceTurn: isOffDeviceTurn,
-                plannerLabel: "Codex", isCameraActive: name == "wide-housing-privacy",
-                isScreenActive: name == "wide-housing-privacy"
+                plannerLabel: name == "claude-capture-privacy" ? "Claude Code" : "Codex",
+                isCameraActive: name.contains("privacy"), isScreenActive: name.contains("privacy"),
+                persistentStatus: name == "companion-paused" ? "Paused" : nil,
+                companionStatusColor: name == "companion-paused" ? Color.yellow : nil
             )
             .frame(width: width, height: height)
             let renderer = ImageRenderer(content: surface)

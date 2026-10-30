@@ -13,6 +13,7 @@ struct PaceSeamNotchSurface: View {
     var isCameraActive = false
     var isScreenActive = false
     var persistentStatus: String? = nil
+    var companionStatusColor: Color? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -33,11 +34,14 @@ struct PaceSeamNotchSurface: View {
                     .frame(height: displayMode.additionalHeight)
                 } else {
                     HStack(spacing: 16) {
-                        Text(signalState == .ready ? (persistentStatus ?? activityLabel) : activityLabel)
-                            .font(.system(size: 12.5, weight: .medium))
-                            .foregroundStyle(Color.white.opacity(0.9))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                        Text(
+                            (signalState == .ready || signalState == .completed)
+                                ? (persistentStatus ?? activityLabel) : activityLabel
+                        )
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.9))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                         Spacer(minLength: 4)
                         if signalState == .understanding || signalState == .acting {
                             Circle()
@@ -84,11 +88,20 @@ struct PaceSeamNotchSurface: View {
                 HStack(spacing: 4) {
                     if isOffDeviceTurn {
                         Circle().fill(DS.Colors.offDeviceSignal).frame(width: 3, height: 3)
-                        Text("\(plannerLabel) ↗")
+                        Text(plannerLabel)
                             .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(DS.Colors.offDeviceSignal)
                             .lineLimit(1)
+                            .truncationMode(.tail)
+                            .layoutPriority(-1)
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 7, weight: .semibold))
+                            .foregroundStyle(DS.Colors.offDeviceSignal)
                             .fixedSize()
+                    }
+                    if let companionStatusColor {
+                        Circle().fill(companionStatusColor).frame(width: 4, height: 4)
+                            .accessibilityLabel(persistentStatus ?? "Companion status")
                     }
                     if isCameraActive {
                         Circle().fill(.green).frame(width: 4, height: 4)

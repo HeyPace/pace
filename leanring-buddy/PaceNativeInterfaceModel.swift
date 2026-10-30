@@ -44,7 +44,7 @@ nonisolated enum PaceLivingNotchDisplayMode: Equatable {
         isHovering: Bool,
         showsPersistentRuntimeIndicator: Bool
     ) -> PaceLivingNotchDisplayMode {
-        if signalState != .ready || showsPersistentRuntimeIndicator {
+        if (signalState != .ready && signalState != .completed) || showsPersistentRuntimeIndicator {
             return .active
         }
 
@@ -110,7 +110,7 @@ nonisolated struct PaceLivingNotchGeometry: Equatable {
         let maximumPresentationWidth = max(physicalHousingWidth, screenFrame.width - 16)
         let presentationWidth = min(
             max(
-                physicalHousingWidth + (displayMode == .active ? 168 : 0),
+                physicalHousingWidth + (displayMode == .active ? 168 : displayMode == .hover ? 88 : 0),
                 displayMode.preferredWidth ?? physicalHousingWidth),
             maximumPresentationWidth
         )
