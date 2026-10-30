@@ -31,13 +31,13 @@ enum PaceWindowLayering {
 enum PaceLivingNotchScreenGeometryResolver {
     static func targetScreen() -> NSScreen? {
         if let mainScreen = NSScreen.main,
-            geometry(for: mainScreen, displayMode: .hardwareIdle) != nil
+            geometry(for: mainScreen, displayMode: .resting) != nil
         {
             return mainScreen
         }
 
         return NSScreen.screens.first {
-            geometry(for: $0, displayMode: .hardwareIdle) != nil
+            geometry(for: $0, displayMode: .resting) != nil
         }
     }
 
@@ -110,22 +110,19 @@ private final class PaceMenuBarOverlayHostingView<Content: View>: NSHostingView<
 
 @MainActor
 private final class PaceLivingNotchSurfaceModel: ObservableObject {
-    @Published var displayMode: PaceLivingNotchDisplayMode = .hardwareIdle
+    @Published var displayMode: PaceLivingNotchDisplayMode = .resting
     @Published var physicalHousingWidth: CGFloat = 0
     @Published var physicalHousingHeight: CGFloat = 0
 }
 
 private struct PaceLivingNotchAccessibilityModifier: ViewModifier {
     let accessibilityValue: String
-    let openPanel: () -> Void
 
     func body(content: Content) -> some View {
         content
-            .accessibilityElement(children: .ignore)
+            .accessibilityElement(children: .contain)
             .accessibilityLabel("Pace")
             .accessibilityValue(accessibilityValue)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction { openPanel() }
     }
 }
 
@@ -426,7 +423,9 @@ private struct PaceMenuBarOverlayView: View {
             isScreenActive: companionControlCenter.activeSources.contains(.screen),
             persistentStatus: companionControlCenter.preferences.isCompanionModeEnabled
                 ? companionControlCenter.runtimeStatusText : nil,
-            companionStatusColor: companionStatusColor
+            companionStatusColor: companionStatusColor,
+            onBrandTap: openConversation,
+            onChatTap: openConversation
         )
         .smTheme(DS.palette)
         .contentShape(Rectangle())
@@ -441,10 +440,7 @@ private struct PaceMenuBarOverlayView: View {
                 accessibilityValue:
                     "\(signalPresentation.accessibilityValue)"
                     + "\(captureAccessibilityDescription) Press "
-                    + "\(PaceNotchChatShortcut.currentShortcutAccessibilityLabel) to open Pace.",
-                openPanel: {
-                    NotificationCenter.default.post(name: .paceShowPanel, object: nil)
-                }
+                    + "\(PaceNotchChatShortcut.currentShortcutAccessibilityLabel) to open Pace."
             )
         )
         .onChange(of: signalState) { _, newSignalState in
@@ -454,6 +450,10 @@ private struct PaceMenuBarOverlayView: View {
             guard isOffDeviceTurn else { return }
             announceAccessibilityState(signalState)
         }
+    }
+
+    private func openConversation() {
+        NotificationCenter.default.post(name: .paceShowPanel, object: nil)
     }
 
     private var offDevicePlannerLabel: String {

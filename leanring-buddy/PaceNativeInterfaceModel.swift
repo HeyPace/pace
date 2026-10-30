@@ -88,7 +88,7 @@ nonisolated enum PaceSignalState: String, CaseIterable, Equatable {
 }
 
 nonisolated enum PaceLivingNotchDisplayMode: Equatable {
-    case hardwareIdle
+    case resting
     case hover
     case active
 
@@ -101,7 +101,7 @@ nonisolated enum PaceLivingNotchDisplayMode: Equatable {
             return .active
         }
 
-        return isHovering ? .hover : .hardwareIdle
+        return isHovering ? .hover : .resting
     }
 
     static func ambientSignalState(
@@ -119,7 +119,7 @@ nonisolated enum PaceLivingNotchDisplayMode: Equatable {
 
     var additionalHeight: CGFloat {
         switch self {
-        case .hardwareIdle: return 0
+        case .resting: return 0
         case .hover: return 0
         case .active: return 32
         }
@@ -127,12 +127,12 @@ nonisolated enum PaceLivingNotchDisplayMode: Equatable {
 
     var preferredWidth: CGFloat? {
         switch self {
-        case .hardwareIdle:
-            return nil
+        case .resting:
+            return 368
         case .hover:
             return 368
         case .active:
-            return 320
+            return 368
         }
     }
 }
@@ -176,7 +176,7 @@ nonisolated struct PaceLivingNotchGeometry: Equatable {
         let maximumPresentationWidth = max(physicalHousingWidth, screenFrame.width - 16)
         let presentationWidth = min(
             max(
-                physicalHousingWidth + (displayMode == .hardwareIdle ? 0 : 180),
+                physicalHousingWidth + 180,
                 displayMode.preferredWidth ?? physicalHousingWidth),
             maximumPresentationWidth
         )

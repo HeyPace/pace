@@ -16,7 +16,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
                 isHovering: false,
                 showsPersistentRuntimeIndicator: false
             ),
-            .hardwareIdle
+            .resting
         )
         XCTAssertEqual(
             PaceLivingNotchDisplayMode.resolve(
@@ -51,7 +51,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
     func testCompletedNotchReturnsToRestUnlessCaptureOrOffDeviceWorkIsActive() {
         XCTAssertEqual(
             PaceLivingNotchDisplayMode.resolve(
-                signalState: .completed, isHovering: false, showsPersistentRuntimeIndicator: false), .hardwareIdle)
+                signalState: .completed, isHovering: false, showsPersistentRuntimeIndicator: false), .resting)
         XCTAssertEqual(
             PaceLivingNotchDisplayMode.resolve(
                 signalState: .completed, isHovering: true, showsPersistentRuntimeIndicator: false), .hover)
@@ -62,7 +62,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
 
     func testCompletedPanelKeepsActualVoiceActivityVisibleInAmbientNotch() {
         let examples: [(PaceRuntimeVoicePhase, PaceSignalState, PaceLivingNotchDisplayMode)] = [
-            (.idle, .completed, .hardwareIdle), (.listening, .listening, .active),
+            (.idle, .completed, .resting), (.listening, .listening, .active),
             (.processing, .understanding, .active), (.responding, .speaking, .active),
         ]
         for (voicePhase, expectedSignal, expectedMode) in examples {
@@ -88,7 +88,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             safeAreaTopInset: 32,
             auxiliaryTopLeftArea: auxiliaryTopLeftArea,
             auxiliaryTopRightArea: auxiliaryTopRightArea,
-            displayMode: .hardwareIdle
+            displayMode: .resting
         )
         let hoverGeometry = PaceLivingNotchGeometry.resolve(
             screenFrame: screenFrame,
@@ -111,14 +111,15 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             height: 32
         )
         XCTAssertEqual(idleGeometry?.physicalHousingFrame, expectedPhysicalHousingFrame)
-        XCTAssertEqual(idleGeometry?.presentationFrame, expectedPhysicalHousingFrame)
+        XCTAssertEqual(idleGeometry?.presentationFrame, hoverGeometry?.presentationFrame)
+        XCTAssertEqual(idleGeometry?.presentationFrame.height, expectedPhysicalHousingFrame.height)
         XCTAssertEqual(
             hoverGeometry?.presentationFrame,
             CGRect(x: 680, y: 1_085, width: 368, height: 32)
         )
         XCTAssertEqual(
             activeGeometry?.presentationFrame,
-            CGRect(x: 681.5, y: 1_053, width: 365, height: 64)
+            CGRect(x: 680, y: 1_053, width: 368, height: 64)
         )
 
     }
@@ -128,24 +129,26 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         let auxiliaryTopLeftArea = CGRect(x: -1_200, y: 1_265, width: 771.5, height: 32)
         let auxiliaryTopRightArea = CGRect(x: -243.5, y: 1_265, width: 771.5, height: 32)
 
-        let idleGeometry = try XCTUnwrap(PaceLivingNotchGeometry.resolve(
-            screenFrame: screenFrame,
-            safeAreaTopInset: 32,
-            auxiliaryTopLeftArea: auxiliaryTopLeftArea,
-            auxiliaryTopRightArea: auxiliaryTopRightArea,
-            displayMode: .hardwareIdle
-        ))
-        let activeGeometry = try XCTUnwrap(PaceLivingNotchGeometry.resolve(
-            screenFrame: screenFrame,
-            safeAreaTopInset: 32,
-            auxiliaryTopLeftArea: auxiliaryTopLeftArea,
-            auxiliaryTopRightArea: auxiliaryTopRightArea,
+        let idleGeometry = try XCTUnwrap(
+            PaceLivingNotchGeometry.resolve(
+                screenFrame: screenFrame,
+                safeAreaTopInset: 32,
+                auxiliaryTopLeftArea: auxiliaryTopLeftArea,
+                auxiliaryTopRightArea: auxiliaryTopRightArea,
+                displayMode: .resting
+            ))
+        let activeGeometry = try XCTUnwrap(
+            PaceLivingNotchGeometry.resolve(
+                screenFrame: screenFrame,
+                safeAreaTopInset: 32,
+                auxiliaryTopLeftArea: auxiliaryTopLeftArea,
+                auxiliaryTopRightArea: auxiliaryTopRightArea,
             displayMode: .active
         ))
 
         XCTAssertEqual(activeGeometry.physicalHousingFrame, idleGeometry.physicalHousingFrame)
         XCTAssertEqual(activeGeometry.presentationFrame.midX, idleGeometry.presentationFrame.midX)
-        XCTAssertGreaterThan(activeGeometry.presentationFrame.width, idleGeometry.presentationFrame.width)
+        XCTAssertEqual(activeGeometry.presentationFrame.width, idleGeometry.presentationFrame.width)
         XCTAssertEqual(activeGeometry.presentationFrame.maxY, idleGeometry.presentationFrame.maxY)
         XCTAssertLessThan(activeGeometry.presentationFrame.minY, idleGeometry.presentationFrame.minY)
         XCTAssertTrue(activeGeometry.presentationFrame.contains(activeGeometry.physicalHousingFrame))
@@ -216,8 +219,8 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         let output = URL(fileURLWithPath: "/tmp/pace-seam-native-20261030", isDirectory: true)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let examples: [(String, PaceLivingNotchDisplayMode, PaceSignalState, String, Bool, CGFloat)] = [
-            ("idle", .hardwareIdle, .ready, "Ready", false, 185),
-            ("completed-rest", .hardwareIdle, .completed, "Done", false, 185),
+            ("idle", .resting, .ready, "Ready", false, 185),
+            ("completed-rest", .resting, .completed, "Done", false, 185),
             ("hover", .hover, .ready, "Ready", false, 185),
             ("listening", .active, .listening, "Listening…", false, 185),
             ("codex-image", .active, .acting, "Drawing a turbofan…", true, 185),
@@ -230,7 +233,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         ]
         for (name, mode, signalState, label, isOffDeviceTurn, housingWidth) in examples {
             let width = max(
-                mode.preferredWidth ?? housingWidth, housingWidth + (mode == .hardwareIdle ? 0 : 180))
+                mode.preferredWidth ?? housingWidth, housingWidth + 180)
             let height = 32 + mode.additionalHeight
             let surface = PaceSeamNotchSurface(
                 displayMode: mode, physicalHousingWidth: housingWidth, physicalHousingHeight: 32,
@@ -251,12 +254,8 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             XCTAssertEqual(image.width, Int(width * 2))
             XCTAssertEqual(image.height, Int(height * 2))
             let bitmap = NSBitmapImageRep(cgImage: image)
-            if mode == .hardwareIdle {
-                for pixelY in 0..<bitmap.pixelsHigh {
-                    for pixelX in 0..<bitmap.pixelsWide {
-                        XCTAssertEqual(bitmap.colorAt(x: pixelX, y: pixelY)?.alphaComponent, 0)
-                    }
-                }
+            if mode == .resting {
+                XCTAssertEqual(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent, 1)
             }
             let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
             try data.write(to: output.appendingPathComponent("\(name).png"))
@@ -268,22 +267,25 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         let leftArea = CGRect(x: 0, y: 876, width: 620, height: 24)
         let rightArea = CGRect(x: 820, y: 876, width: 620, height: 24)
 
-        XCTAssertNil(PaceLivingNotchGeometry.resolve(
-            screenFrame: screenFrame,
-            safeAreaTopInset: 0,
-            auxiliaryTopLeftArea: leftArea,
-            auxiliaryTopRightArea: rightArea,
-            displayMode: .hardwareIdle
-        ))
-        XCTAssertNil(PaceLivingNotchGeometry.resolve(
-            screenFrame: screenFrame,
-            safeAreaTopInset: 24,
-            auxiliaryTopLeftArea: nil,
-            auxiliaryTopRightArea: nil,
-            displayMode: .hardwareIdle
-        ))
-        XCTAssertNil(PaceLivingNotchGeometry.resolve(
-            screenFrame: screenFrame,
+        XCTAssertNil(
+            PaceLivingNotchGeometry.resolve(
+                screenFrame: screenFrame,
+                safeAreaTopInset: 0,
+                auxiliaryTopLeftArea: leftArea,
+                auxiliaryTopRightArea: rightArea,
+                displayMode: .resting
+            ))
+        XCTAssertNil(
+            PaceLivingNotchGeometry.resolve(
+                screenFrame: screenFrame,
+                safeAreaTopInset: 24,
+                auxiliaryTopLeftArea: nil,
+                auxiliaryTopRightArea: nil,
+                displayMode: .resting
+            ))
+        XCTAssertNil(
+            PaceLivingNotchGeometry.resolve(
+                screenFrame: screenFrame,
             safeAreaTopInset: 24,
             auxiliaryTopLeftArea: rightArea,
             auxiliaryTopRightArea: leftArea,

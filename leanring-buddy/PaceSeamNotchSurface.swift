@@ -14,6 +14,8 @@ struct PaceSeamNotchSurface: View {
     var isScreenActive = false
     var persistentStatus: String? = nil
     var companionStatusColor: Color? = nil
+    var onBrandTap: (() -> Void)? = nil
+    var onChatTap: (() -> Void)? = nil
 
     var displayedActivityLabel: String {
         if isOffDeviceTurn { return activityLabel }
@@ -23,60 +25,54 @@ struct PaceSeamNotchSurface: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if displayMode == .hardwareIdle {
-                Color.clear.frame(height: physicalHousingHeight)
-            } else {
-                header.frame(height: physicalHousingHeight)
-                if displayMode == .active {
-                    HStack(spacing: 12) {
-                        Text(displayedActivityLabel)
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundStyle(Color.white.opacity(0.9))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        if isOffDeviceTurn {
-                            plannerBadge
-                        } else if signalState == .understanding || signalState == .acting {
-                            Circle()
-                                .stroke(Color.white.opacity(0.14), lineWidth: 1)
-                                .overlay {
-                                    Circle().trim(from: 0.05, to: 0.78)
-                                        .stroke(
-                                            DS.Colors.localSignal,
-                                            style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
-                                }
-                                .frame(width: 13, height: 13)
-                                .accessibilityHidden(true)
-                        } else {
-                            PaceSignalView(
-                                state: signalState,
-                                isOffDeviceTurn: isOffDeviceTurn,
-                                audioPowerLevel: audioPowerLevel,
-                                lineCount: 1,
-                                colorRoleOverride: colorRoleOverride
-                            )
-                            .frame(width: 30, height: 15)
-                        }
+            header.frame(height: physicalHousingHeight)
+            if displayMode == .active {
+                HStack(spacing: 12) {
+                    Text(displayedActivityLabel)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.9))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if isOffDeviceTurn {
+                        plannerBadge
+                    } else if signalState == .understanding || signalState == .acting {
+                        Circle()
+                            .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                            .overlay {
+                                Circle().trim(from: 0.05, to: 0.78)
+                                    .stroke(
+                                        DS.Colors.localSignal,
+                                        style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
+                            }
+                            .frame(width: 13, height: 13)
+                            .accessibilityHidden(true)
+                    } else {
+                        PaceSignalView(
+                            state: signalState,
+                            isOffDeviceTurn: isOffDeviceTurn,
+                            audioPowerLevel: audioPowerLevel,
+                            lineCount: 1,
+                            colorRoleOverride: colorRoleOverride
+                        )
+                        .frame(width: 30, height: 15)
                     }
-                    .padding(.horizontal, 22)
-                    .padding(.bottom, 3)
-                    .frame(height: displayMode.additionalHeight)
                 }
+                .padding(.horizontal, 22)
+                .padding(.bottom, 3)
+                .frame(height: displayMode.additionalHeight)
             }
         }
         .frame(maxWidth: .infinity)
-        .background(displayMode == .hardwareIdle ? Color.clear : Color.black)
+        .background(Color.black)
         .overlay {
-            if displayMode != .hardwareIdle {
-                PaceSeamNotchShape(topShoulderRadius: 10, bottomCornerRadius: 22)
-                    .stroke(
-                        LinearGradient(
-                            colors: [.clear, .white.opacity(0.07)], startPoint: .top, endPoint: .bottom),
-                        lineWidth: 0.5
-                    )
-                    .allowsHitTesting(false)
-            }
+            PaceSeamNotchShape(topShoulderRadius: 10, bottomCornerRadius: 22)
+                .stroke(
+                    LinearGradient(
+                        colors: [.clear, .white.opacity(0.07)], startPoint: .top, endPoint: .bottom),
+                    lineWidth: 0.5
+                )
+                .allowsHitTesting(false)
         }
         .clipShape(PaceSeamNotchShape(topShoulderRadius: 10, bottomCornerRadius: 22))
     }
@@ -90,7 +86,9 @@ struct PaceSeamNotchSurface: View {
             isCameraActive: isCameraActive,
             isScreenActive: isScreenActive,
             persistentStatus: persistentStatus,
-            companionStatusColor: companionStatusColor)
+            companionStatusColor: companionStatusColor,
+            onBrandTap: onBrandTap,
+            onChatTap: onChatTap)
     }
 
     private var plannerBadge: some View {
@@ -121,54 +119,77 @@ struct PaceSeamNotchHeader: View {
     var isScreenActive = false
     var persistentStatus: String? = nil
     var companionStatusColor: Color? = nil
+    var onBrandTap: (() -> Void)? = nil
+    var onChatTap: (() -> Void)? = nil
 
     var body: some View {
         GeometryReader { geometry in
             let wingWidth = max(0, (geometry.size.width - physicalHousingWidth) / 2)
             HStack(spacing: 0) {
-                HStack(spacing: 7) {
-                    Image(systemName: "mic")
-                        .font(.system(size: 14, weight: .regular))
-                    Text("Pace").font(.system(size: 13, weight: .medium))
-                }
-                .foregroundStyle(Color.white.opacity(0.94))
-                .fixedSize()
-                .frame(width: wingWidth, height: physicalHousingHeight)
-                Color.clear.frame(width: physicalHousingWidth)
-                HStack(spacing: 7) {
-                    Text(isExpanded ? "Close" : "Chat")
-                        .font(.system(size: 13, weight: .medium))
-                    Image(systemName: isExpanded ? "xmark" : statusSymbolName)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 15, height: 15)
-                        .accessibilityHidden(true)
-                }
-                .foregroundStyle(isOffDeviceTurn ? DS.Colors.offDeviceSignal : Color.white.opacity(0.94))
-                .fixedSize()
-                .frame(width: wingWidth, height: physicalHousingHeight)
-                .overlay(alignment: .bottomTrailing) {
-                    HStack(spacing: 4) {
-                        if let companionStatusColor {
-                            Circle().fill(companionStatusColor).frame(width: 4, height: 4)
-                                .accessibilityLabel(persistentStatus ?? "Companion status")
-                        }
-                        if isCameraActive {
-                            Circle().fill(.green).frame(width: 4, height: 4)
-                                .accessibilityLabel("Camera active")
-                        }
-                        if isScreenActive {
-                            Circle().fill(.cyan).frame(width: 4, height: 4)
-                                .accessibilityLabel("Screen active")
-                        }
+                wingButton(label: "Open Pace", action: onBrandTap) {
+                    HStack(spacing: 7) {
+                        Image(systemName: "mic")
+                            .font(.system(size: 14, weight: .regular))
+                        Text("Pace").font(.system(size: 13, weight: .medium))
                     }
+                    .foregroundStyle(Color.white.opacity(0.94))
                     .fixedSize()
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 2)
+                    .frame(width: wingWidth, height: physicalHousingHeight)
+                }
+                Color.clear.frame(width: physicalHousingWidth)
+                wingButton(label: "Open conversation", action: onChatTap) {
+                    HStack(spacing: 7) {
+                        Text(isExpanded ? "Close" : "Chat")
+                            .font(.system(size: 13, weight: .medium))
+                        Image(systemName: isExpanded ? "xmark" : statusSymbolName)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 15, height: 15)
+                            .accessibilityHidden(true)
+                    }
+                    .foregroundStyle(isOffDeviceTurn ? DS.Colors.offDeviceSignal : Color.white.opacity(0.94))
+                    .fixedSize()
+                    .frame(width: wingWidth, height: physicalHousingHeight)
+                    .overlay(alignment: .bottomTrailing) {
+                        HStack(spacing: 4) {
+                            if let companionStatusColor {
+                                Circle().fill(companionStatusColor).frame(width: 4, height: 4)
+                                    .accessibilityLabel(persistentStatus ?? "Companion status")
+                            }
+                            if isCameraActive {
+                                Circle().fill(.green).frame(width: 4, height: 4)
+                                    .accessibilityLabel("Camera active")
+                            }
+                            if isScreenActive {
+                                Circle().fill(.cyan).frame(width: 4, height: 4)
+                                    .accessibilityLabel("Screen active")
+                            }
+                        }
+                        .fixedSize()
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 2)
+                    }
                 }
             }
         }
         .frame(height: physicalHousingHeight)
+    }
+
+    @ViewBuilder
+    private func wingButton<Content: View>(
+        label: String,
+        action: (() -> Void)?,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if let action {
+            Button(action: action) { content().contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .paceControlHoverHighlight(cornerRadius: 8)
+                .pointerCursor()
+                .accessibilityLabel(label)
+        } else {
+            content()
+        }
     }
 
     private var statusSymbolName: String {
