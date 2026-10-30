@@ -64,17 +64,15 @@ struct PaceSeamNotchSurface: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .background(Color.black)
+        .background(displayMode == .active ? Color.black : Color.clear)
         .overlay {
-            PaceSeamNotchShape(topShoulderRadius: 10, bottomCornerRadius: 22)
-                .stroke(
-                    LinearGradient(
-                        colors: [.clear, .white.opacity(0.07)], startPoint: .top, endPoint: .bottom),
-                    lineWidth: 0.5
-                )
-                .allowsHitTesting(false)
+            if displayMode == .active {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.07), lineWidth: 0.5)
+                    .allowsHitTesting(false)
+            }
         }
-        .clipShape(PaceSeamNotchShape(topShoulderRadius: 10, bottomCornerRadius: 22))
+        .clipShape(RoundedRectangle(cornerRadius: displayMode == .active ? 16 : 0, style: .continuous))
     }
 
     private var header: some View {
@@ -128,25 +126,23 @@ struct PaceSeamNotchHeader: View {
             let wingWidth = max(0, (geometry.size.width - physicalHousingWidth) / 2)
             HStack(spacing: 0) {
                 wingButton(label: "Open Pace", action: onBrandTap) {
-                    HStack(spacing: 7) {
-                        Image(systemName: "mic")
-                            .font(.system(size: 14, weight: .regular))
-                        Text("Pace").font(.system(size: 13, weight: .medium))
-                    }
-                    .foregroundStyle(Color.white.opacity(0.94))
-                    .fixedSize()
-                    .frame(width: wingWidth, height: physicalHousingHeight)
+                    Image(systemName: "mic")
+                        .font(.system(size: 16, weight: .regular))
+                        .accessibilityHidden(true)
+                        .foregroundStyle(Color.white.opacity(0.94))
+                        .fixedSize()
+                        .frame(width: wingWidth, height: physicalHousingHeight)
                 }
                 Color.clear.frame(width: physicalHousingWidth)
                 wingButton(label: "Open conversation", action: onChatTap) {
-                    HStack(spacing: 7) {
-                        Text(isExpanded ? "Close" : "Chat")
-                            .font(.system(size: 13, weight: .medium))
-                        Image(systemName: isExpanded ? "xmark" : statusSymbolName)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 15, height: 15)
-                            .accessibilityHidden(true)
+                    Group {
+                        if isExpanded {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .medium))
+                                .accessibilityHidden(true)
+                        } else {
+                            PaceBrandMark().frame(width: 20, height: 20)
+                        }
                     }
                     .foregroundStyle(isOffDeviceTurn ? DS.Colors.offDeviceSignal : Color.white.opacity(0.94))
                     .fixedSize()
@@ -167,7 +163,7 @@ struct PaceSeamNotchHeader: View {
                             }
                         }
                         .fixedSize()
-                        .padding(.trailing, 20)
+                        .padding(.trailing, 12)
                         .padding(.bottom, 2)
                     }
                 }
@@ -182,13 +178,19 @@ struct PaceSeamNotchHeader: View {
         action: (() -> Void)?,
         @ViewBuilder content: () -> Content
     ) -> some View {
+        let cap = content()
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(white: hoveredWingLabel == label ? 0.16 : 0.08))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+                    }
+                    .frame(width: 32, height: 28)
+            }
         if let action {
-            Button(action: action) { content().contentShape(Rectangle()) }
+            Button(action: action) { cap.contentShape(Rectangle()) }
                 .buttonStyle(.plain)
-                .background {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.white.opacity(hoveredWingLabel == label ? 0.07 : 0))
-                }
                 .onHover { isHovered in
                     if isHovered {
                         hoveredWingLabel = label
@@ -199,22 +201,10 @@ struct PaceSeamNotchHeader: View {
                 .pointerCursor()
                 .accessibilityLabel(label)
         } else {
-            content()
+            cap
         }
     }
 
-    private var statusSymbolName: String {
-        switch signalState {
-        case .ready, .completed: return "bubble.left"
-        case .listening: return "mic"
-        case .understanding: return "waveform.path"
-        case .acting: return "sparkle"
-        case .speaking: return "speaker.wave.2"
-        case .awaitingApproval: return "hand.raised"
-        case .blocked: return "exclamationmark.circle"
-        case .failed: return "xmark.circle"
-        }
-    }
 }
 
 struct PaceSeamNotchShape: Shape {

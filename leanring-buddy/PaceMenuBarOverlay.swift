@@ -136,6 +136,8 @@ final class PaceMenuBarOverlayManager {
     private var notchConversationVisibilityObserver: NSObjectProtocol?
     private var isNotchConversationVisible = false
     private var isHovering = false
+    private var hoverOpenTask: Task<Void, Never>?
+    private var canOpenConversationOnHover = true
     private var isVisible = false
     private var lastAppliedDisplayMode: PaceLivingNotchDisplayMode?
     private var lastAppliedGeometry: PaceLivingNotchGeometry?
@@ -155,8 +157,12 @@ final class PaceMenuBarOverlayManager {
             let isVisible = notification.userInfo?["isVisible"] as? Bool ?? false
             MainActor.assumeIsolated {
                 guard let self else { return }
+                self.hoverOpenTask?.cancel()
                 self.isNotchConversationVisible = isVisible
                 self.isHovering = false
+                let restingFrame = PaceLivingNotchScreenGeometryResolver.geometry(displayMode: .resting)?
+                    .presentationFrame
+                self.canOpenConversationOnHover = !isVisible && restingFrame?.contains(NSEvent.mouseLocation) != true
                 self.refreshPresentation(animated: false)
             }
         }
@@ -188,6 +194,7 @@ final class PaceMenuBarOverlayManager {
     }
 
     deinit {
+        hoverOpenTask?.cancel()
         if let notchConversationVisibilityObserver {
             NotificationCenter.default.removeObserver(notchConversationVisibilityObserver)
         }
@@ -206,6 +213,7 @@ final class PaceMenuBarOverlayManager {
     }
 
     func hide() {
+        hoverOpenTask?.cancel()
         isVisible = false
         overlayPanel?.orderOut(nil)
         removeFallbackMenuBarStatusItem()
@@ -377,7 +385,25 @@ final class PaceMenuBarOverlayManager {
     private func handleHoverChanged(_ isHovering: Bool) {
         guard self.isHovering != isHovering else { return }
         self.isHovering = isHovering
+        hoverOpenTask?.cancel()
+        if !isHovering {
+            canOpenConversationOnHover = true
+        }
         refreshPresentation(animated: true)
+        guard isHovering, canOpenConversationOnHover, !isNotchConversationVisible else { return }
+        hoverOpenTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(200))
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled, self.isVisible, self.isHovering,
+                self.canOpenConversationOnHover, !self.isNotchConversationVisible,
+                self.overlayPanel?.frame.contains(NSEvent.mouseLocation) == true
+            else { return }
+            self.canOpenConversationOnHover = false
+            NotificationCenter.default.post(name: .paceShowPanel, object: nil)
+        }
     }
 
     @objc private func screenParametersDidChange() {

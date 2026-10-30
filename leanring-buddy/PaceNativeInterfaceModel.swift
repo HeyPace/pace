@@ -28,7 +28,7 @@ nonisolated enum PaceConversationPanelPlacement: Equatable {
     var collapsedFrame: CGRect {
         switch self {
         case .physicalNotch(let geometry):
-            let width = min(geometry.presentationFrame.width, max(368, geometry.physicalHousingFrame.width + 180))
+            let width = min(geometry.presentationFrame.width, geometry.physicalHousingFrame.width + 88)
             return CGRect(
                 x: geometry.physicalHousingFrame.midX - width / 2,
                 y: geometry.physicalHousingFrame.minY,
@@ -128,11 +128,11 @@ nonisolated enum PaceLivingNotchDisplayMode: Equatable {
     var preferredWidth: CGFloat? {
         switch self {
         case .resting:
-            return 368
+            return nil
         case .hover:
-            return 368
+            return nil
         case .active:
-            return 368
+            return nil
         }
     }
 }
@@ -176,7 +176,7 @@ nonisolated struct PaceLivingNotchGeometry: Equatable {
         let maximumPresentationWidth = max(physicalHousingWidth, screenFrame.width - 16)
         let presentationWidth = min(
             max(
-                physicalHousingWidth + 180,
+                physicalHousingWidth + 88,
                 displayMode.preferredWidth ?? physicalHousingWidth),
             maximumPresentationWidth
         )

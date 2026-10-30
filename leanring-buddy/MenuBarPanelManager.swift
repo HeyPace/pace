@@ -262,8 +262,8 @@ final class MenuBarPanelManager: NSObject {
             panel.orderFrontRegardless()
 
             NSAnimationContext.runAnimationGroup { animationContext in
-                animationContext.duration = 0.26
-                animationContext.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                animationContext.duration = 0.24
+                animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0, 0, 1)
                 panel.animator().setFrame(expandedPanelFrame, display: true)
             }
         } else {
@@ -292,7 +292,7 @@ final class MenuBarPanelManager: NSObject {
         }
         NSAnimationContext.runAnimationGroup { animationContext in
             animationContext.duration = 0.18
-            animationContext.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0, 0, 1)
             panel.animator().setFrame(surfaceModel.placement.collapsedFrame, display: true)
         } completionHandler: { [weak self, weak panel] in
             Task { @MainActor in

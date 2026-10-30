@@ -115,11 +115,11 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         XCTAssertEqual(idleGeometry?.presentationFrame.height, expectedPhysicalHousingFrame.height)
         XCTAssertEqual(
             hoverGeometry?.presentationFrame,
-            CGRect(x: 680, y: 1_085, width: 368, height: 32)
+            CGRect(x: 727.5, y: 1_085, width: 273, height: 32)
         )
         XCTAssertEqual(
             activeGeometry?.presentationFrame,
-            CGRect(x: 680, y: 1_053, width: 368, height: 64)
+            CGRect(x: 727.5, y: 1_053, width: 273, height: 64)
         )
 
     }
@@ -163,9 +163,9 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
                 auxiliaryTopRightArea: CGRect(x: 976.5, y: 1_085, width: 751.5, height: 32),
                 displayMode: .active))
         XCTAssertEqual(geometry.physicalHousingFrame.width, 225)
-        XCTAssertEqual(geometry.presentationFrame.width, 405)
+        XCTAssertEqual(geometry.presentationFrame.width, 313)
         XCTAssertEqual(geometry.presentationFrame.midX, geometry.physicalHousingFrame.midX)
-        XCTAssertGreaterThanOrEqual((geometry.presentationFrame.width - geometry.physicalHousingFrame.width) / 2, 90)
+        XCTAssertGreaterThanOrEqual((geometry.presentationFrame.width - geometry.physicalHousingFrame.width) / 2, 44)
     }
 
     func testSeamlessConversationStaysConnectedToPhysicalHousing() throws {
@@ -185,7 +185,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         XCTAssertEqual(placement.collapsedFrame.midX, housing.midX)
         XCTAssertEqual(placement.collapsedFrame.maxY, housing.maxY)
         XCTAssertEqual(placement.collapsedFrame.height, housing.height)
-        XCTAssertEqual(placement.collapsedFrame.width, 368)
+        XCTAssertEqual(placement.collapsedFrame.width, 273)
     }
 
     func testSeamlessConversationKeepsWideCameraReservationReadable() {
@@ -195,8 +195,8 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             anchorFrame: housing,
             screenFrame: CGRect(x: 0, y: 0, width: 1_728, height: 1_117),
             contentSize: CGSize(width: 520, height: 540))
-        XCTAssertEqual(placement.collapsedFrame.width, 480)
-        XCTAssertEqual((placement.collapsedFrame.width - housing.width) / 2, 90)
+        XCTAssertEqual(placement.collapsedFrame.width, 388)
+        XCTAssertEqual((placement.collapsedFrame.width - housing.width) / 2, 44)
         XCTAssertEqual(placement.frame.maxY, housing.maxY)
     }
 
@@ -233,7 +233,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         ]
         for (name, mode, signalState, label, isOffDeviceTurn, housingWidth) in examples {
             let width = max(
-                mode.preferredWidth ?? housingWidth, housingWidth + 180)
+                mode.preferredWidth ?? housingWidth, housingWidth + 88)
             let height = 32 + mode.additionalHeight
             let surface = PaceSeamNotchSurface(
                 displayMode: mode, physicalHousingWidth: housingWidth, physicalHousingHeight: 32,
@@ -255,7 +255,9 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             XCTAssertEqual(image.height, Int(height * 2))
             let bitmap = NSBitmapImageRep(cgImage: image)
             if mode == .resting {
-                XCTAssertEqual(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent, 1)
+                XCTAssertEqual(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent, 0)
+                XCTAssertGreaterThan(bitmap.colorAt(x: 44, y: 32)?.alphaComponent ?? 0, 0.9)
+                XCTAssertGreaterThan(bitmap.colorAt(x: bitmap.pixelsWide - 44, y: 32)?.alphaComponent ?? 0, 0.9)
             }
             let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
             try data.write(to: output.appendingPathComponent("\(name).png"))
