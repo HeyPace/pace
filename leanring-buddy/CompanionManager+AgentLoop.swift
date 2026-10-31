@@ -1982,7 +1982,9 @@ extension CompanionManager {
                                 transcript: currentTurnUserPrompt,
                                 screenCaptures: screenCaptures,
                                 prewarmedContext: prewarmedContextForStep,
-                                allowsLocalVLM: !(plannerClientForThisTurn is PaceLocalCLIPlannerClient)
+                                allowsLocalVLM: !(plannerClientForThisTurn is PaceLocalCLIPlannerClient),
+                                allowsNativeOCR: !(plannerClientForThisTurn is PaceLocalCLIPlannerClient)
+                                    || !plannerClientForThisTurn.supportsImageInput
                             )
                         PaceLatencyBudget.shared.mark(.vlmComplete)
                         let userPromptForPlanner = await appendLocalRetrievalContext(

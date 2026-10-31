@@ -27,6 +27,8 @@ import Foundation
 /// Moved out of CompanionManager so the service owns its own cache key.
 struct PaceScreenAnalysisCacheIdentity: Equatable {
     let analyzerDisplayName: String
+    let allowsLocalVLM: Bool
+    let allowsNativeOCR: Bool
     let screenshotWidthInPixels: Int
     let screenshotHeightInPixels: Int
     let displayWidthInPoints: Int
@@ -35,8 +37,12 @@ struct PaceScreenAnalysisCacheIdentity: Equatable {
 
     init(
         analyzerDisplayName: String,
-        capture: CompanionScreenCapture
+        capture: CompanionScreenCapture,
+        allowsLocalVLM: Bool = true,
+        allowsNativeOCR: Bool = true
     ) {
+        self.allowsLocalVLM = allowsLocalVLM
+        self.allowsNativeOCR = allowsNativeOCR
         self.analyzerDisplayName = analyzerDisplayName
         self.screenshotWidthInPixels = capture.screenshotWidthInPixels
         self.screenshotHeightInPixels = capture.screenshotHeightInPixels
@@ -49,7 +55,6 @@ struct PaceScreenAnalysisCacheIdentity: Equatable {
 struct PaceCachedScreenAnalysis {
     let identity: PaceScreenAnalysisCacheIdentity
     let pixelHash: String
-    let visualFingerprint: PaceScreenVisualFingerprint?
     let analysis: LocalVLMScreenAnalysis
     let capturedAt: Date
 }
@@ -162,7 +167,6 @@ final class PaceScreenContextService {
                 // hasn't changed since last turn. Cache lookups are
                 // MainActor-bound so we hop briefly.
                 let pixelHash = Self.computePixelHash(for: cursorScreenCapture.imageData)
-                let visualFingerprint = PaceScreenImageDiffer.fingerprint(for: cursorScreenCapture.imageData)
                 let cacheIdentity = PaceScreenAnalysisCacheIdentity(
                     analyzerDisplayName: vlmClient.displayName,
                     capture: cursorScreenCapture
@@ -173,28 +177,11 @@ final class PaceScreenContextService {
                         return nil
                     }
                     guard cached.identity == cacheIdentity else {
-                        print("👁️  Prewarm cache MISS for \(cursorScreenCapture.label) — analyzer or display changed")
+                        print("👁️  Prewarm cache MISS for \(cursorScreenCapture.label) — analyzer, capabilities, or display changed")
                         return nil
                     }
                     if cached.pixelHash == pixelHash {
                         print("👁️  Prewarm cache HIT for \(cursorScreenCapture.label)")
-                        return cached.analysis
-                    }
-                    if let cachedVisualFingerprint = cached.visualFingerprint,
-                       let visualFingerprint,
-                       let visualDiff = PaceScreenImageDiffer.diff(
-                        from: cachedVisualFingerprint,
-                        to: visualFingerprint
-                       ),
-                       !visualDiff.isMeaningful {
-                        self.perScreenAnalysisCache[cursorScreenCapture.label] = PaceCachedScreenAnalysis(
-                            identity: cacheIdentity,
-                            pixelHash: pixelHash,
-                            visualFingerprint: visualFingerprint,
-                            analysis: cached.analysis,
-                            capturedAt: Date()
-                        )
-                        print(String(format: "👁️  Prewarm visual diff cache HIT for %@ — %.3f changed, %.1f mean delta", cursorScreenCapture.label, visualDiff.changedPixelRatio, visualDiff.meanPixelDelta))
                         return cached.analysis
                     }
                     return nil
@@ -245,7 +232,6 @@ final class PaceScreenContextService {
                         self?.perScreenAnalysisCache[cursorScreenCapture.label] = PaceCachedScreenAnalysis(
                             identity: cacheIdentity,
                             pixelHash: pixelHash,
-                            visualFingerprint: visualFingerprint,
                             analysis: enrichedFromAX,
                             capturedAt: Date()
                         )
@@ -301,7 +287,6 @@ final class PaceScreenContextService {
                     self?.perScreenAnalysisCache[cursorScreenCapture.label] = PaceCachedScreenAnalysis(
                         identity: cacheIdentity,
                         pixelHash: pixelHash,
-                        visualFingerprint: visualFingerprint,
                         analysis: enriched,
                         capturedAt: Date()
                     )
@@ -352,14 +337,15 @@ final class PaceScreenContextService {
         transcript: String,
         screenCaptures: [CompanionScreenCapture],
         prewarmedContext: PaceScreenContextPrewarmedSnapshot? = nil,
-        allowsLocalVLM: Bool = true
+        allowsLocalVLM: Bool = true,
+        allowsNativeOCR: Bool = true
     ) async -> String {
         guard isReadMyScreenEnabled() else {
             print("👁️  VLM skipped — 'Read My Screen' toggle is off")
             return transcript
         }
 
-        if allowsLocalVLM, let prewarmedContext,
+        if allowsLocalVLM && allowsNativeOCR, let prewarmedContext,
            !prewarmedContext.screenCaptures.isEmpty {
             print("👁️  Pre-warm context supplied by first-step capture path")
             return buildPromptFromEnrichedAnalyses(
@@ -372,7 +358,7 @@ final class PaceScreenContextService {
         // First try: did the PTT-press pre-warm finish? If yes, we
         // consume its result and skip the synchronous VLM + OCR work
         // entirely — perceived VLM latency drops to ~0.
-        if allowsLocalVLM, let prewarmedTask = prewarmedScreenContextTask {
+        if allowsLocalVLM && allowsNativeOCR, let prewarmedTask = prewarmedScreenContextTask {
             print("👁️  Awaiting pre-warm result…")
             let awaitStartedAt = Date()
             let prewarmed = await prewarmedTask.value
@@ -411,19 +397,20 @@ final class PaceScreenContextService {
         // and misses (need a fresh VLM call). Hash is SHA256 of the JPEG
         // bytes — stable across runs, cheap (~5ms for 1MB).
         var perCaptureCachedAnalysis: [Int: LocalVLMScreenAnalysis] = [:]
-        var capturesToAnalyze: [(captureIndex: Int, capture: CompanionScreenCapture, pixelHash: String, visualFingerprint: PaceScreenVisualFingerprint?)] = []
+        var capturesToAnalyze: [(captureIndex: Int, capture: CompanionScreenCapture, pixelHash: String)] = []
 
         for (captureIndex, capture) in orderedCaptures.enumerated() {
             let pixelHash = Self.computePixelHash(for: capture.imageData)
-            let visualFingerprint = PaceScreenImageDiffer.fingerprint(for: capture.imageData)
             let cacheIdentity = PaceScreenAnalysisCacheIdentity(
                 analyzerDisplayName: screenAnalysisClient.displayName,
-                capture: capture
+                capture: capture,
+                allowsLocalVLM: allowsLocalVLM,
+                allowsNativeOCR: allowsNativeOCR
             )
             if let cached = perScreenAnalysisCache[capture.label] {
                 guard cached.identity == cacheIdentity else {
-                    print("👁️  Cache MISS for \(capture.label) — analyzer or display changed")
-                    capturesToAnalyze.append((captureIndex, capture, pixelHash, visualFingerprint))
+                    print("👁️  Cache MISS for \(capture.label) — analyzer, capabilities, or display changed")
+                    capturesToAnalyze.append((captureIndex, capture, pixelHash))
                     continue
                 }
                 if cached.pixelHash == pixelHash {
@@ -431,28 +418,9 @@ final class PaceScreenContextService {
                     print("👁️  Cache HIT for \(capture.label) — reusing \(cached.analysis.elements.count) elements")
                     continue
                 }
-
-                if let cachedVisualFingerprint = cached.visualFingerprint,
-                   let visualFingerprint,
-                   let visualDiff = PaceScreenImageDiffer.diff(
-                    from: cachedVisualFingerprint,
-                    to: visualFingerprint
-                   ),
-                   !visualDiff.isMeaningful {
-                    perCaptureCachedAnalysis[captureIndex] = cached.analysis
-                    perScreenAnalysisCache[capture.label] = PaceCachedScreenAnalysis(
-                        identity: cacheIdentity,
-                        pixelHash: pixelHash,
-                        visualFingerprint: visualFingerprint,
-                        analysis: cached.analysis,
-                        capturedAt: Date()
-                    )
-                    print(String(format: "👁️  Visual diff cache HIT for %@ — %.3f changed, %.1f mean delta", capture.label, visualDiff.changedPixelRatio, visualDiff.meanPixelDelta))
-                    continue
-                }
             }
 
-            capturesToAnalyze.append((captureIndex, capture, pixelHash, visualFingerprint))
+            capturesToAnalyze.append((captureIndex, capture, pixelHash))
         }
 
         // Try the AX-tree first on the cursor screen (cheap, ~50ms);
@@ -461,20 +429,20 @@ final class PaceScreenContextService {
         // 2B VLM was failing on every in-loop call last test run,
         // leaving the planner with no screen context and looping on
         // useless scrolls — AX fixes that.
-        var capturesStillNeedingVLM: [(captureIndex: Int, capture: CompanionScreenCapture, pixelHash: String, visualFingerprint: PaceScreenVisualFingerprint?)] = []
+        var capturesStillNeedingVLM: [(captureIndex: Int, capture: CompanionScreenCapture, pixelHash: String)] = []
         var freshAnalysesByCaptureIndex: [Int: LocalVLMScreenAnalysis] = [:]
         if !capturesToAnalyze.isEmpty {
             let axScreenReaderForLoopBody = self.axScreenReader
             let visionOCRClientForLoopBody = self.visionOCRClient
-            for (captureIndex, capture, pixelHash, visualFingerprint) in capturesToAnalyze {
+            for (captureIndex, capture, pixelHash) in capturesToAnalyze {
                 let axElements = axScreenReaderForLoopBody.readFocusedWindow(
                     scalingToScreenshot: capture
                 )
                 if !axElements.isEmpty || !allowsLocalVLM {
-                    // The consented CLI planner already receives the screenshot.
-                    // Give it AX context directly without waiting for native OCR.
+                    // Text-only planners need OCR even when local VLM is disabled.
+                    // Image-capable CLI planners can skip both and use the screenshot.
                     let ocrBoxes: [RecognizedTextBox]
-                    if allowsLocalVLM {
+                    if allowsNativeOCR {
                         ocrBoxes =
                             (try? await visionOCRClientForLoopBody.recognizeText(
                                 in: capture.imageData,
@@ -495,15 +463,16 @@ final class PaceScreenContextService {
                     perScreenAnalysisCache[capture.label] = PaceCachedScreenAnalysis(
                         identity: PaceScreenAnalysisCacheIdentity(
                             analyzerDisplayName: screenAnalysisClient.displayName,
-                            capture: capture
+                            capture: capture,
+                            allowsLocalVLM: allowsLocalVLM,
+                            allowsNativeOCR: allowsNativeOCR
                         ),
                         pixelHash: pixelHash,
-                        visualFingerprint: visualFingerprint,
                         analysis: axBackedAnalysis,
                         capturedAt: Date()
                     )
                 } else {
-                    capturesStillNeedingVLM.append((captureIndex, capture, pixelHash, visualFingerprint))
+                    capturesStillNeedingVLM.append((captureIndex, capture, pixelHash))
                 }
             }
         }
@@ -516,9 +485,9 @@ final class PaceScreenContextService {
             let screenAnalysisClientForGroup = screenAnalysisClient
             let visionOCRClientForGroup = visionOCRClient
             let analyses = await withTaskGroup(
-                of: (Int, String, LocalVLMScreenAnalysis?, String, PaceScreenVisualFingerprint?).self
+                of: (Int, String, LocalVLMScreenAnalysis?, String).self
             ) { taskGroup in
-                for (captureIndex, capture, pixelHash, visualFingerprint) in capturesStillNeedingVLM {
+                for (captureIndex, capture, pixelHash) in capturesStillNeedingVLM {
                     taskGroup.addTask { [screenAnalysisClientForGroup, visionOCRClientForGroup] in
                         // VLM + OCR concurrent. OCR finishes much faster
                         // (~100-200ms); we wait on the VLM and then merge.
@@ -526,11 +495,11 @@ final class PaceScreenContextService {
                             screenshotImageData: capture.imageData,
                             userIntent: transcript
                         )
-                        async let ocrBoxesFuture = visionOCRClientForGroup.recognizeText(
+                        async let ocrBoxesFuture = allowsNativeOCR ? visionOCRClientForGroup.recognizeText(
                             in: capture.imageData,
                             screenshotWidthInPixels: capture.screenshotWidthInPixels,
                             screenshotHeightInPixels: capture.screenshotHeightInPixels
-                        )
+                        ) : []
                         do {
                             let vlmAnalysis = try await vlmAnalysisFuture
                             let ocrBoxes = (try? await ocrBoxesFuture) ?? []
@@ -538,29 +507,38 @@ final class PaceScreenContextService {
                                 vlmAnalysis: vlmAnalysis,
                                 with: ocrBoxes
                             )
-                            return (captureIndex, capture.label, enriched, pixelHash, visualFingerprint)
+                            return (captureIndex, capture.label, enriched, pixelHash)
                         } catch {
                             print("⚠️ VLM failed for \(capture.label): \(error.localizedDescription)")
-                            return (captureIndex, capture.label, nil, pixelHash, visualFingerprint)
+                            let ocrBoxes = (try? await ocrBoxesFuture) ?? []
+                            guard !ocrBoxes.isEmpty else {
+                                return (captureIndex, capture.label, nil, pixelHash)
+                            }
+                            let ocrOnlyAnalysis = PaceScreenContextMerger.enrich(
+                                vlmAnalysis: LocalVLMScreenAnalysis(elements: [], description: "VLM failed; OCR text only."),
+                                with: ocrBoxes
+                            )
+                            return (captureIndex, capture.label, ocrOnlyAnalysis, pixelHash)
                         }
                     }
                 }
-                var collected: [(Int, String, LocalVLMScreenAnalysis?, String, PaceScreenVisualFingerprint?)] = []
+                var collected: [(Int, String, LocalVLMScreenAnalysis?, String)] = []
                 for await result in taskGroup {
                     collected.append(result)
                 }
                 return collected
             }
-            for (captureIndex, label, maybeAnalysis, pixelHash, visualFingerprint) in analyses {
+            for (captureIndex, label, maybeAnalysis, pixelHash) in analyses {
                 guard let analysis = maybeAnalysis else { continue }
                 freshAnalysesByCaptureIndex[captureIndex] = analysis
                 perScreenAnalysisCache[label] = PaceCachedScreenAnalysis(
                     identity: PaceScreenAnalysisCacheIdentity(
                         analyzerDisplayName: screenAnalysisClient.displayName,
-                        capture: orderedCaptures[captureIndex]
+                        capture: orderedCaptures[captureIndex],
+                        allowsLocalVLM: allowsLocalVLM,
+                        allowsNativeOCR: allowsNativeOCR
                     ),
                     pixelHash: pixelHash,
-                    visualFingerprint: visualFingerprint,
                     analysis: analysis,
                     capturedAt: Date()
                 )
