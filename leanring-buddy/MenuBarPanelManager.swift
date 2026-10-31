@@ -55,7 +55,7 @@ private struct PaceConversationPanelSurface: View {
                         isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
                         isExpanded: true,
                         isCameraActive: companionControlCenter.activeSources.contains(.camera),
-                        isScreenActive: companionControlCenter.activeSources.contains(.screen),
+                        isScreenActive: companionManager.isWatchModeEnabled || companionControlCenter.activeSources.contains(.screen),
                         persistentStatus: companionControlCenter.runtimeStatusText,
                         companionStatusColor: companionStatusColor,
                         onBrandTap: {

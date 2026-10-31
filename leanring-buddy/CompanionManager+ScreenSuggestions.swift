@@ -48,32 +48,69 @@ extension CompanionManager {
             setWatchModeEnabled(false)
             return false
         }
-        guard !activeCallDetector.isOnActiveCall, !focusModeMonitor.isCurrentlyInUserFocus,
-              thermalStateAdvisor.currentRecommendation != .suspendBackground,
-              thermalStateAdvisor.currentRecommendation != .dampenBackgroundLoops else {
+        guard !activeCallDetector.isOnActiveCall else {
             screenSuggestionCoordinator.invalidate()
-            latestWatchModeSummary = "Watch paused · call, Focus or thermal pressure"
+            latestWatchModeSummary = "Watch paused · active call"
             return false
         }
-        guard let application = NSWorkspace.shared.frontmostApplication,
-              application.processIdentifier != ProcessInfo.processInfo.processIdentifier,
-              !PaceScreenSuggestionPrivacy.isSensitiveApplication(application.bundleIdentifier) else {
+        guard !focusModeMonitor.isCurrentlyInUserFocus else {
             screenSuggestionCoordinator.invalidate()
+            latestWatchModeSummary = "Watch paused · macOS Focus is active"
+            return false
+        }
+        guard thermalStateAdvisor.currentRecommendation != .suspendBackground,
+              thermalStateAdvisor.currentRecommendation != .dampenBackgroundLoops else {
+            screenSuggestionCoordinator.invalidate()
+            latestWatchModeSummary = "Watch paused · thermal pressure"
+            return false
+        }
+        guard let application = NSWorkspace.shared.frontmostApplication else {
+            screenSuggestionCoordinator.invalidate()
+            latestWatchModeSummary = "Watch paused · no foreground application"
+            return false
+        }
+        guard application.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
+            screenSuggestionCoordinator.invalidate()
+            latestWatchModeSummary = "Watch paused · Pace is in the foreground"
+            return false
+        }
+        guard !PaceScreenSuggestionPrivacy.isSensitiveApplication(application.bundleIdentifier) else {
+            screenSuggestionCoordinator.invalidate()
+            latestWatchModeSummary = "Watch paused · protected application"
             return false
         }
         return true
     }
 
     func screenSuggestionEvaluationAllowed(_ sceneIdentity: PaceScreenSceneIdentity) -> Bool {
-        guard screenSuggestionCaptureAllowed(), voiceState == .idle,
-              let application = NSWorkspace.shared.frontmostApplication,
+        guard screenSuggestionCaptureAllowed() else { return false }
+        guard voiceState == .idle else {
+            latestWatchModeSummary = "Watch paused · voice turn in progress"
+            return false
+        }
+        guard let application = NSWorkspace.shared.frontmostApplication,
               application.processIdentifier == sceneIdentity.applicationProcessIdentifier,
-              application.bundleIdentifier == sceneIdentity.applicationBundleIdentifier,
-              userInputActivityMonitor.lastUserInputAt.map({ Date().timeIntervalSince($0) >= 3 }) ?? true else { return false }
+              application.bundleIdentifier == sceneIdentity.applicationBundleIdentifier else {
+            latestWatchModeSummary = "Watch waiting · foreground application changed"
+            return false
+        }
+        guard userInputActivityMonitor.lastUserInputAt.map({ Date().timeIntervalSince($0) >= 3 }) ?? true else {
+            latestWatchModeSummary = "Watch waiting · pause typing or moving the pointer"
+            return false
+        }
         let cursorScreen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
         let displayIdentifier = cursorScreen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32
-        return displayIdentifier == sceneIdentity.displayIdentifier
-            && PaceRestraintGate.decide(screenSuggestionRestraintContext(sceneIdentity)) == .speak
+        guard displayIdentifier == sceneIdentity.displayIdentifier else {
+            latestWatchModeSummary = "Watch waiting · pointer display changed"
+            return false
+        }
+        switch PaceRestraintGate.decide(screenSuggestionRestraintContext(sceneIdentity)) {
+        case .speak:
+            return true
+        case .stayQuiet(let reason), .queueUntilIdle(let reason):
+            latestWatchModeSummary = "Watch waiting · \(reason)"
+            return false
+        }
     }
 
     func screenSuggestionRestraintContext(_ sceneIdentity: PaceScreenSceneIdentity) -> PaceRestraintContext {
@@ -118,6 +155,14 @@ extension CompanionManager {
               bridgeConfiguration == PaceCloudBridgeConsent.loadConfiguration() else { return .quiet }
         let decision = try PaceScreenSuggestionBoundary.parse(result.text, ocr: ocr,
             sceneIdentity: observation.sceneIdentity, observedAt: observation.observedAt)
+        let outcome: String
+        switch decision {
+        case .quiet: outcome = "quiet"
+        case .suggest: outcome = "suggest"
+        }
+        PaceAPIAuditLog.shared.record(subsystem: "screen", operation: "screen_suggestion_decision",
+            target: "screen_suggestion_boundary", durationMilliseconds: 0, outcome: outcome,
+            inputCharacterCount: ocr.count)
         screenSuggestionVisualGate.recordEvaluation(sceneIdentity: observation.sceneIdentity, fingerprint: fingerprint)
         return decision
     }

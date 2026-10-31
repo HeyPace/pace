@@ -470,7 +470,7 @@ private struct PaceMenuBarOverlayView: View {
             audioPowerLevel: companionManager.currentAudioPowerLevel,
             colorRoleOverride: companionManager.nativeEffectiveSignalColorRoleOverride,
             isCameraActive: companionControlCenter.activeSources.contains(.camera),
-            isScreenActive: companionControlCenter.activeSources.contains(.screen),
+            isScreenActive: companionManager.isWatchModeEnabled || companionControlCenter.activeSources.contains(.screen),
             persistentStatus: companionControlCenter.preferences.isCompanionModeEnabled
                 ? companionControlCenter.runtimeStatusText : nil,
             companionStatusColor: companionStatusColor,

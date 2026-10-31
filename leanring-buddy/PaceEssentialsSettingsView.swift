@@ -253,13 +253,16 @@ struct PaceEssentialsSettingsView: View {
     }
 
     private var watchModeSubtitle: String {
+        let plannerDisclosure = selectedPlannerUsesOffDeviceTier
+            ? "Sends redacted screen text to \(selectedPlannerTitle)."
+            : "Observations use your local planner."
+        if companionManager.isWatchModeEnabled, let summary = companionManager.latestWatchModeSummary {
+            return "\(summary)\nOff at launch and lock. \(plannerDisclosure)"
+        }
         guard companionManager.useLocalVLMForScreenContext else {
             return "Turn on Read my screen first. Off at launch and lock."
         }
-        if selectedPlannerUsesOffDeviceTier {
-            return "Off at launch and lock. Sends redacted screen text to \(selectedPlannerTitle)."
-        }
-        return "Off at launch and lock. Observations use your local planner."
+        return "Off at launch and lock. \(plannerDisclosure)"
     }
 
     private var pushToTalkKeyLabels: [String] {
