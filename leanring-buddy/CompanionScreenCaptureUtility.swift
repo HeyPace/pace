@@ -29,6 +29,8 @@ enum CompanionScreenCaptureUtility {
     /// whether the user's cursor is on that screen. This gives the AI
     /// full context across multiple monitors.
     static func captureAllScreensAsJPEG(watchOnly: Bool = false) async throws -> [CompanionScreenCapture] {
+        let readIdentifier = PaceScreenReadActivity.shared.beginReading()
+        defer { PaceScreenReadActivity.shared.endReading(readIdentifier) }
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
         guard !content.displays.isEmpty else {

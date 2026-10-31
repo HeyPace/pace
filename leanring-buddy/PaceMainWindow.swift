@@ -49,8 +49,8 @@ final class PaceCommandCenterRouter: ObservableObject {
 final class PaceMainWindowManager {
     static let shared = PaceMainWindowManager()
 
-    private let defaultContentSize = NSSize(width: 1040, height: 700)
-    private let minimumContentSize = NSSize(width: 820, height: 540)
+    private let defaultContentSize = NSSize(width: 900, height: 650)
+    private let minimumContentSize = NSSize(width: 680, height: 540)
     private var window: NSWindow?
     private var router: PaceCommandCenterRouter?
 
@@ -87,7 +87,7 @@ final class PaceMainWindowManager {
             backing: .buffered,
             defer: false
         )
-        newWindow.title = "Pace Command Center"
+        newWindow.title = "Pace Settings"
         newWindow.titlebarAppearsTransparent = false
         newWindow.isMovableByWindowBackground = true
         newWindow.contentMinSize = minimumContentSize

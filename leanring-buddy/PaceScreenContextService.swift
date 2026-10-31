@@ -156,6 +156,8 @@ final class PaceScreenContextService {
         let vlmClient = screenAnalysisClient
         let ocrClient = visionOCRClient
         let newTask = Task { [weak self] () -> PaceScreenContextPrewarmedSnapshot? in
+            let readIdentifier = PaceScreenReadActivity.shared.beginReading()
+            defer { PaceScreenReadActivity.shared.endReading(readIdentifier) }
             do {
                 let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
                 guard let cursorScreenCapture = screenCaptures.first(where: { $0.isCursorScreen })
@@ -379,6 +381,8 @@ final class PaceScreenContextService {
             print("⚠️ VLM skipped — no screen captures available")
             return transcript
         }
+        let readIdentifier = PaceScreenReadActivity.shared.beginReading()
+        defer { PaceScreenReadActivity.shared.endReading(readIdentifier) }
 
         // Synchronous fallback: pre-warm wasn't started or failed.
         // Cursor-screen-only by design — user is almost always asking

@@ -73,7 +73,20 @@ final class PaceVisionOCRClient {
     /// Recognise text in a screenshot. JPEG (or PNG) bytes go in,
     /// the list of detected text + bboxes comes out. Throws on hard
     /// decoder errors; an empty result on a blank screen is normal.
+    @MainActor
     func recognizeText(
+        in screenshotImageData: Data,
+        screenshotWidthInPixels: Int,
+        screenshotHeightInPixels: Int
+    ) async throws -> [RecognizedTextBox] {
+        try await PaceScreenReadActivity.shared.whileReading {
+            try await performTextRecognition(in: screenshotImageData,
+                screenshotWidthInPixels: screenshotWidthInPixels,
+                screenshotHeightInPixels: screenshotHeightInPixels)
+        }
+    }
+
+    private func performTextRecognition(
         in screenshotImageData: Data,
         screenshotWidthInPixels: Int,
         screenshotHeightInPixels: Int

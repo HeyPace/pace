@@ -13,6 +13,7 @@ import SwiftUI
 
 struct PaceProactiveSettingsTab: View {
     @ObservedObject var companionManager: CompanionManager
+    var showsWatchModeControl = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -60,15 +61,17 @@ struct PaceProactiveSettingsTab: View {
                     .font(DS.Typography.caption)
                     .foregroundStyle(DS.Colors.textTertiary)
 
-                paceSettingsToggleRow(
-                    title: "Watch mode",
-                    subtitle: companionManager.latestWatchModeSummary
-                        ?? "Offer useful explanations and help about the screen. Requires Read My Screen; off each launch.",
-                    isOn: Binding(
-                        get: { companionManager.isWatchModeEnabled },
-                        set: { companionManager.setWatchModeEnabled($0) }
+                if showsWatchModeControl {
+                    paceSettingsToggleRow(
+                        title: "Watch mode",
+                        subtitle: companionManager.latestWatchModeSummary
+                            ?? "Offer useful explanations and help about the screen. Requires Read My Screen; off each launch.",
+                        isOn: Binding(
+                            get: { companionManager.isWatchModeEnabled },
+                            set: { companionManager.setWatchModeEnabled($0) }
+                        )
                     )
-                )
+                }
                 paceSettingsToggleRow(
                     title: "Always listening",
                     subtitle: "Opt-in ambient command mode. Push-to-talk remains available.",

@@ -11,36 +11,40 @@ import SwiftUI
 
 struct PaceGeneralSettingsTab: View {
     @ObservedObject var companionManager: CompanionManager
+    var showsCoreBehavior = true
     @State private var showsAdvancedWorkflowSettings = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            generalSectionHeader("Core behavior")
+            if showsCoreBehavior {
+                generalSectionHeader("Core behavior")
 
-            paceSettingsToggleRow(
-                title: "Read my screen",
-                subtitle: "Use local screen context when a turn needs it.",
-                isOn: Binding(
-                    get: { companionManager.useLocalVLMForScreenContext },
-                    set: { companionManager.setUseLocalVLMForScreenContext($0) }
+                paceSettingsToggleRow(
+                    title: "Read my screen",
+                    subtitle: "Use local screen context when a turn needs it.",
+                    isOn: Binding(
+                        get: { companionManager.useLocalVLMForScreenContext },
+                        set: { companionManager.setUseLocalVLMForScreenContext($0) }
+                    )
                 )
-            )
-            paceSettingsToggleRow(
-                title: "Approve risky actions",
-                subtitle: "Ask before non-undoable local changes, message drafts, shortcuts, and connected-tool actions.",
-                isOn: Binding(
-                    get: { companionManager.requiresActionApproval },
-                    set: { companionManager.setRequiresActionApproval($0) }
+                paceSettingsToggleRow(
+                    title: "Approve risky actions",
+                    subtitle: "Ask before non-undoable local changes, message drafts, shortcuts, and connected-tool actions.",
+                    isOn: Binding(
+                        get: { companionManager.requiresActionApproval },
+                        set: { companionManager.setRequiresActionApproval($0) }
+                    )
                 )
-            )
-            paceSettingsToggleRow(
-                title: "Cursor annotations",
-                subtitle: "Show transcript, response, and pointer labels near the cursor.",
-                isOn: Binding(
-                    get: { companionManager.areCursorAnnotationsEnabled },
-                    set: { companionManager.setCursorAnnotationsEnabled($0) }
+                paceSettingsToggleRow(
+                    title: "Cursor annotations",
+                    subtitle: "Show transcript, response, and pointer labels near the cursor.",
+                    isOn: Binding(
+                        get: { companionManager.areCursorAnnotationsEnabled },
+                        set: { companionManager.setCursorAnnotationsEnabled($0) }
+                    )
                 )
-            )
+            }
+
             paceSettingsToggleRow(
                 title: "Tuition mode",
                 subtitle: "Pace teaches instead of acts: it draws shapes on screen and explains the step, rather than clicking through for you. Turn off when you want it to just do the thing.",
@@ -50,24 +54,29 @@ struct PaceGeneralSettingsTab: View {
                 )
             )
 
-            DisclosureGroup(isExpanded: $showsAdvancedWorkflowSettings) {
-                meetingNotesSubsection
-                    .padding(.top, 12)
+            if showsCoreBehavior {
+                DisclosureGroup(isExpanded: $showsAdvancedWorkflowSettings) {
+                    meetingNotesSubsection
+                        .padding(.top, 12)
 
-                automationSubsection
-                    .padding(.top, 18)
-            } label: {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Advanced workflow settings")
-                        .font(DS.Typography.captionStrong)
-                        .foregroundStyle(DS.Colors.textSecondary)
-                    Text("Meeting capture, note retention, schedules, and plugins.")
-                        .font(DS.Typography.caption)
-                        .foregroundStyle(DS.Colors.textTertiary)
+                    automationSubsection
+                        .padding(.top, 18)
+                } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Advanced workflow settings")
+                            .font(DS.Typography.captionStrong)
+                            .foregroundStyle(DS.Colors.textSecondary)
+                        Text("Meeting capture, note retention, schedules, and plugins.")
+                            .font(DS.Typography.caption)
+                            .foregroundStyle(DS.Colors.textTertiary)
+                    }
+                    .padding(.vertical, 10)
                 }
-                .padding(.vertical, 10)
+                .padding(.top, 18)
+            } else {
+                meetingNotesSubsection.padding(.top, 18)
+                automationSubsection.padding(.top, 18)
             }
-            .padding(.top, 18)
         }
     }
 

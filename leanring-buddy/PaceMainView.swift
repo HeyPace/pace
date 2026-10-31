@@ -1,210 +1,87 @@
-//
-//  PaceMainView.swift
-//  leanring-buddy
-//
-//  The grouped Command Center shared by Open Pace and Settings entry points.
-//
-
 import AppKit
+import Combine
+import Combine
 import SaaSMakerUI
 import SwiftUI
 
+@MainActor
 struct PaceMainView: View {
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject var router: PaceCommandCenterRouter
 
-    @State private var destinationSearchText = ""
-    @State private var showsAdvancedControls = false
-    @State private var showsDestinationHelp = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var detailDestination: PaceCommandCenterDestination?
+
+    init(companionManager: CompanionManager, router: PaceCommandCenterRouter) {
+        self.companionManager = companionManager
+        self.router = router
+        _detailDestination = State(initialValue: router.selectedDestination == .general ? nil : router.selectedDestination)
+    }
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 210, ideal: 232, max: 280)
-        } detail: {
-            detail
-                .id(router.selectedDestination)
-                .transition(.opacity)
-                .animation(
-                    reduceMotion ? nil : .easeOut(duration: DS.Motion.micro),
-                    value: router.selectedDestination
+        VStack(spacing: 0) {
+            if let detailDestination {
+                detailToolbar(for: detailDestination)
+                Divider().overlay(DS.Colors.borderSubtle)
+                detail(for: detailDestination)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                PaceEssentialsSettingsView(
+                    companionManager: companionManager,
+                    onSelectDestination: showDestination
                 )
+            }
         }
         .background(DS.Colors.surface)
-        .frame(minWidth: 820, minHeight: 540)
-        // Keep native settings controls compact beneath the package's 16pt default.
+        .frame(minWidth: 680, minHeight: 540)
         .font(DS.Typography.body)
         .smTheme(DS.palette)
         .preferredColorScheme(.dark)
-        .onChange(of: router.selectedDestination) { _, selectedDestination in
-            guard !normalizedSearchText.isEmpty,
-                  !searchResults.contains(selectedDestination) else { return }
-            destinationSearchText = ""
-        }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showsDestinationHelp.toggle()
-                } label: {
-                    Label("about this section", systemImage: "questionmark.circle")
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .help("Explain this section")
-                .popover(isPresented: $showsDestinationHelp, arrowEdge: .bottom) {
-                    destinationHelp
-                }
-            }
+        .onReceive(router.$selectedDestination.dropFirst()) { destination in
+            detailDestination = destination == .general ? nil : destination
         }
     }
 
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("pace")
-                    .font(DS.Typography.windowTitle)
-                    .foregroundStyle(DS.Colors.textPrimary)
-                Text("YOUR WORKSPACE")
-                    .font(DS.Typography.metadata)
-                    .tracking(1.5)
-                    .foregroundStyle(DS.Colors.textTertiary)
-            }
-            .padding(.horizontal, 22)
-            .padding(.top, 26)
-            .padding(.bottom, 22)
+    private func showDestination(_ destination: PaceCommandCenterDestination) {
+        detailDestination = destination
+        // General is the compatibility Settings entry. Its workflow detail is local navigation.
+        if destination != .general {
+            router.select(destination)
+        }
+    }
 
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11))
-                    .foregroundStyle(DS.Colors.textTertiary)
-                TextField("Find a setting", text: $destinationSearchText)
-                    .textFieldStyle(.plain)
-                    .font(DS.Typography.callout)
-                    .accessibilityLabel("Search Pace")
-            }
-            .padding(10)
-            .background(DS.Colors.surfaceRaised.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
-            .padding(.horizontal, 14)
-            .padding(.bottom, 12)
+    private func showEssentials() {
+        detailDestination = nil
+        router.select(.general)
+    }
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
-                    if normalizedSearchText.isEmpty {
-                        ForEach(PaceCommandCenterGroup.allCases) { group in
-                            let visibleDestinations = primaryDestinations(in: group)
-                            if !visibleDestinations.isEmpty {
-                                Text(group == .work ? "WORKSPACE" : group.rawValue.uppercased())
-                                    .font(DS.Typography.metadata)
-                                    .tracking(1.2)
-                                    .foregroundStyle(DS.Colors.textTertiary)
-                                    .padding(.horizontal, 12)
-                                    .padding(.top, 20)
-                                    .padding(.bottom, 6)
-                                ForEach(visibleDestinations) { destination in
-                                    destinationRow(destination)
-                                }
-                            }
-                        }
-                        DisclosureGroup(isExpanded: $showsAdvancedControls) {
-                            VStack(spacing: 3) {
-                                ForEach(advancedDestinations) { destination in destinationRow(destination) }
-                            }
-                            .padding(.top, 7)
-                        } label: {
-                            Text("Advanced controls")
-                                .font(DS.Typography.caption)
-                                .foregroundStyle(DS.Colors.textTertiary)
-                        }
-                        .padding(.horizontal, 9)
-                        .padding(.top, 22)
-                    } else if searchResults.isEmpty {
-                        Text("No setting matches “\(destinationSearchText)”.")
-                            .font(DS.Typography.callout)
-                            .foregroundStyle(DS.Colors.textSecondary)
-                            .padding(12)
-                    } else {
-                        ForEach(searchResults) { destination in destinationRow(destination) }
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 20)
-            }
-            .scrollIndicators(.hidden)
-
-            Button {
-                PaceOnboardingWindowManager.shared.show(companionManager: companionManager, isReplay: true)
-            } label: {
-                Label("Getting started", systemImage: "questionmark.circle")
-                    .font(DS.Typography.caption)
+    private func detailToolbar(for destination: PaceCommandCenterDestination) -> some View {
+        HStack(spacing: 16) {
+            Button(action: showEssentials) {
+                Label("Settings", systemImage: "chevron.left")
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(DS.Colors.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .paceControlHoverHighlight(cornerRadius: 8)
+            .paceControlHoverHighlight(cornerRadius: 6)
             .pointerCursor()
-            .padding(10)
+            .accessibilityLabel("Back to Settings")
+
+            Text(detailTitle(for: destination))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(DS.Colors.textPrimary)
+            Spacer()
         }
-        .background(DS.Colors.background.opacity(0.6))
-    }
-
-    private func destinationRow(_ destination: PaceCommandCenterDestination) -> some View {
-        let isSelected = router.selectedDestination == destination
-        return Button {
-            router.select(destination)
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: destination.symbolName)
-                    .font(.system(size: 12, weight: .regular))
-                    .frame(width: 18)
-                    .foregroundStyle(isSelected ? DS.Colors.textPrimary : DS.Colors.textTertiary)
-                Text(interfaceTitle(for: destination))
-                    .font(DS.Typography.callout)
-                    .foregroundStyle(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
-                Spacer(minLength: 0)
-                if isSelected {
-                    Circle().fill(DS.Colors.overlayCursorBlue).frame(width: 3, height: 3)
-                }
-            }
-            .padding(.horizontal, 11)
-            .frame(minHeight: 35)
-            .background(isSelected ? DS.Colors.surfaceRaised : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
-        .paceControlHoverHighlight(cornerRadius: 8)
-        .pointerCursor()
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityHint(destination.subtitle)
-    }
-
-    private var normalizedSearchText: String {
-        destinationSearchText
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-    }
-
-    private func primaryDestinations(
-        in group: PaceCommandCenterGroup
-    ) -> [PaceCommandCenterDestination] {
-        PaceCommandCenterDestination.primaryDestinations(in: group)
-    }
-
-    private var advancedDestinations: [PaceCommandCenterDestination] {
-        PaceCommandCenterDestination.advancedDestinations
-    }
-
-    private var searchResults: [PaceCommandCenterDestination] {
-        PaceCommandCenterDestination.allCases.filter { destination in
-            destination.title.lowercased().contains(normalizedSearchText)
-                || destination.subtitle.lowercased().contains(normalizedSearchText)
-                || destination.group.rawValue.lowercased().contains(normalizedSearchText)
-        }
+        .padding(.horizontal, 24)
+        .frame(minHeight: 46)
+        .background(DS.Colors.surface)
     }
 
     @ViewBuilder
-    private var detail: some View {
-        switch router.selectedDestination {
+    private func detail(for destination: PaceCommandCenterDestination) -> some View {
+        switch destination {
         case .conversations:
             PaceConversationsView(companionManager: companionManager)
         case .skills:
@@ -218,108 +95,71 @@ struct PaceMainView: View {
         case .about:
             PaceAboutView()
         case .general:
-            settingsDetail { PaceGeneralSettingsTab(companionManager: companionManager) }
+            settingsDetail(for: destination) {
+                PaceGeneralSettingsTab(companionManager: companionManager, showsCoreBehavior: false)
+            }
         case .planner:
-            settingsDetail { PacePlannerSettingsTab(companionManager: companionManager) }
+            settingsDetail(for: destination) { PacePlannerSettingsTab(companionManager: companionManager) }
         case .models:
-            settingsDetail { PaceBundledModelsSettingsTab(companionManager: companionManager) }
+            settingsDetail(for: destination) { PaceBundledModelsSettingsTab(companionManager: companionManager) }
         case .research:
-            settingsDetail { PaceResearchSettingsTab(companionManager: companionManager) }
+            settingsDetail(for: destination) { PaceResearchSettingsTab(companionManager: companionManager) }
         case .proactive:
-            settingsDetail { PaceProactiveSettingsTab(companionManager: companionManager) }
+            settingsDetail(for: destination) {
+                PaceProactiveSettingsTab(companionManager: companionManager, showsWatchModeControl: false)
+            }
         case .companion:
-            settingsDetail {
+            settingsDetail(for: destination) {
                 PaceCompanionSettingsTab(controlCenter: companionManager.companionControlCenter)
             }
         case .mcp:
-            settingsDetail { PaceMCPSettingsTab(companionManager: companionManager) }
+            settingsDetail(for: destination) { PaceMCPSettingsTab(companionManager: companionManager) }
         case .voice:
-            settingsDetail { PaceVoiceSettingsTab(companionManager: companionManager) }
+            settingsDetail(for: destination) { PaceVoiceSettingsTab(companionManager: companionManager) }
         case .cloudBridge:
-            settingsDetail { PaceCloudBridgeSettingsTab(companionManager: companionManager) }
+            settingsDetail(for: destination) { PaceCloudBridgeSettingsTab(companionManager: companionManager) }
         case .flows:
-            settingsDetail { PaceFlowsSettingsTab(companionManager: companionManager) }
+            settingsDetail(for: destination) { PaceFlowsSettingsTab(companionManager: companionManager) }
         case .tasks:
-            settingsDetail { PaceTasksSettingsTab(companionManager: companionManager) }
+            settingsDetail(for: destination) { PaceTasksSettingsTab(companionManager: companionManager) }
         case .memory:
-            settingsDetail { PaceMemorySettingsTab(companionManager: companionManager) }
+            settingsDetail(for: destination) { PaceMemorySettingsTab(companionManager: companionManager) }
         case .activity:
-            settingsDetail { PaceActivitySettingsTab(companionManager: companionManager) }
+            settingsDetail(for: destination) { PaceActivitySettingsTab(companionManager: companionManager) }
         case .debug:
-            settingsDetail { PaceDebugSettingsTab(companionManager: companionManager) }
+            settingsDetail(for: destination) { PaceDebugSettingsTab(companionManager: companionManager) }
         case .doctor:
-            settingsDetail { PaceDoctorSettingsTab(companionManager: companionManager) }
+            settingsDetail(for: destination) { PaceDoctorSettingsTab(companionManager: companionManager) }
         }
     }
 
     private func settingsDetail<Content: View>(
+        for destination: PaceCommandCenterDestination,
         @ViewBuilder content: () -> Content
     ) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                commandCenterHeader
+            VStack(alignment: .leading, spacing: 18) {
+                Text(destination.subtitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 content()
             }
-            .padding(36)
-            .frame(maxWidth: 860, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(30)
+            .frame(maxWidth: 804, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(DS.Colors.surface)
     }
 
-    private var commandCenterHeader: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(router.selectedDestination.group.rawValue.uppercased())
-                .font(DS.Typography.metadata)
-                .tracking(1.4)
-                .foregroundStyle(DS.Colors.textTertiary)
-            Text(interfaceTitle(for: router.selectedDestination))
-                .font(DS.Typography.windowTitle)
-                .foregroundStyle(DS.Colors.textPrimary)
-            Text(destinationSubtitle)
-                .font(DS.Typography.body)
-                .foregroundStyle(DS.Colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+    private func detailTitle(for destination: PaceCommandCenterDestination) -> String {
+        switch destination {
+        case .general: return "Workflow settings"
+        case .planner: return "Reasoner settings"
+        case .conversations: return "Conversation history"
+        case .cloudBridge: return "Off-device model settings"
+        default: return destination.title
         }
-    }
-
-    private var destinationSubtitle: String {
-        router.selectedDestination.subtitle
-    }
-
-    private func interfaceTitle(for destination: PaceCommandCenterDestination) -> String {
-        destination == .planner ? "how Pace thinks" : destination.title.lowercased()
-    }
-
-    private var destinationHelp: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(
-                interfaceTitle(for: router.selectedDestination),
-                systemImage: router.selectedDestination.symbolName
-            )
-            .font(DS.Typography.headline)
-            .foregroundStyle(DS.Colors.textPrimary)
-
-            Text(router.selectedDestination.subtitle)
-                .font(DS.Typography.body)
-                .foregroundStyle(DS.Colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if router.selectedDestination.isAdvanced {
-                Text("advanced control")
-                    .font(DS.Typography.captionStrong)
-                    .foregroundStyle(DS.Colors.textTertiary)
-                Text("Pace’s defaults are suitable for most people. Change this only when you know which runtime behavior you need.")
-                    .font(DS.Typography.callout)
-                    .foregroundStyle(DS.Colors.textSecondary)
-            } else {
-                Text("Changes stay on this Mac unless the control explicitly shows the amber off-device boundary.")
-                    .font(DS.Typography.callout)
-                    .foregroundStyle(DS.Colors.textSecondary)
-            }
-        }
-        .padding(18)
-        .frame(width: 310, alignment: .leading)
     }
 }
 

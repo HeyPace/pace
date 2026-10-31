@@ -125,6 +125,7 @@ struct PaceSeamNotchHeader: View {
     var companionStatusColor: Color? = nil
     var onBrandTap: (() -> Void)? = nil
     var onChatTap: (() -> Void)? = nil
+    @ObservedObject private var screenReadActivity = PaceScreenReadActivity.shared
     @State private var hoveredWingLabel: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -161,6 +162,29 @@ struct PaceSeamNotchHeader: View {
                             PaceBrandMark().frame(width: 20, height: 20)
                         }
                     }
+                    .overlay {
+                        if screenReadActivity.isReading {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.cyan.opacity(0.12))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .stroke(Color.cyan.opacity(0.65), lineWidth: 0.75)
+                                }
+                                .frame(width: 28, height: 28)
+                                .overlay(alignment: .bottomTrailing) {
+                                    Image(systemName: "eye.fill")
+                                        .font(.system(size: 8, weight: .semibold))
+                                        .foregroundStyle(Color.cyan)
+                                        .padding(2)
+                                        .background(Color.black, in: Capsule())
+                                        .offset(x: 4, y: 3)
+                                }
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                                .transition(.opacity)
+                        }
+                    }
+                    .animation(reduceMotion ? nil : .easeOut(duration: DS.Motion.micro), value: screenReadActivity.isReading)
                     .foregroundStyle(isOffDeviceTurn ? DS.Colors.offDeviceSignal : Color.white.opacity(0.94))
                     .fixedSize()
                     .frame(width: wingWidth, height: physicalHousingHeight)
@@ -210,7 +234,8 @@ struct PaceSeamNotchHeader: View {
                 }
                 .pointerCursor()
                 .accessibilityLabel(label)
-                .help(shortcutHint)
+                .accessibilityValue(screenReadActivity.isReading && label != "Open Pace" ? "Reading your screen" : "")
+                .help(screenReadActivity.isReading && label != "Open Pace" ? "Reading your screen · " + shortcutHint : shortcutHint)
         } else {
             cap
         }
