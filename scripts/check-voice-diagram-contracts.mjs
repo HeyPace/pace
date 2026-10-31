@@ -8,6 +8,8 @@ const result = spawnSync('bash', [runnerPath,
   'GlobalPushToTalkShortcutMonitorTests',
   'PaceNativeInterfaceModelTests',
   'PaceDiagramTests',
+  'PaceActionApprovalTests',
+  'CompanionSystemPromptPlanThenExecuteTests',
 ], { cwd: repositoryRoot, stdio: 'inherit', env: process.env });
 if (result.error) console.error(result.error.message);
 if (result.signal) console.error(`Native checks terminated by ${result.signal}`);
