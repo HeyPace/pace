@@ -48,6 +48,46 @@ struct PaceDiagramTests {
         }
     }
 
+    @Test @MainActor func bypassRatioResponsePresentsTheFanAndPreservesAllEngineParts() async throws {
+        let response = #"""
+        {"spokenText":"bypass ratio compares the air flowing around the engine’s core with the air flowing through it. the fan is highlighted first: it pushes air into both paths, and a higher bypass ratio means more air goes around the core.","intent":"action","payload":{"name":"show_diagram","args":{"title":"Jet engine bypass ratio","summary":"Rotate this conceptual cutaway turbofan and select the fan, core or bypass airflow. A bypass ratio of 10:1 means ten units of air travel around the core for every one passing through it. Air enters at the fan and travels toward the rear.","nodes":[{"id":"fan","label":"Fan","subtitle":"Moves air into both paths","detail":"The large front fan accelerates incoming air. Some enters the central core; the rest flows through the surrounding bypass duct. The fan is driven by a turbine inside the engine."},{"id":"core","label":"Core","subtitle":"Compresses, burns and extracts power","detail":"The narrow central assembly contains compressors, a combustor and turbines. Fuel burns in the core airflow, and the turbines extract power to drive the compressors and fan. The hot exhaust also produces thrust."},{"id":"bypass","label":"Bypass airflow","subtitle":"Flows around the core","detail":"The blue streams represent air pushed by the fan through the outer duct, around the core. Bypass ratio is bypass air mass flow divided by core air mass flow. For example, 10:1 means ten kilograms per second bypass the core for every one kilogram per second entering it. These streams illustrate the route, not a measured ratio."}],"connections":[],"figure":{"focusNodeID":"fan","parts":[{"id":"fan-hub","nodeID":"fan","geometry":"ellipsoid","position":[3.5,0,0],"size":[1.4,0.9,0.9],"finish":"metal"},{"id":"fan-blade-1","nodeID":"fan","geometry":"box","position":[3.2,0,0],"size":[0.18,4.4,0.27],"finish":"metal"},{"id":"fan-blade-2","nodeID":"fan","geometry":"box","position":[3.2,0,0],"size":[0.18,4.4,0.27],"rotation":[30,0,0],"finish":"metal"},{"id":"fan-blade-3","nodeID":"fan","geometry":"box","position":[3.2,0,0],"size":[0.18,4.4,0.27],"rotation":[60,0,0],"finish":"metal"},{"id":"fan-blade-4","nodeID":"fan","geometry":"box","position":[3.2,0,0],"size":[0.18,4.4,0.27],"rotation":[90,0,0],"finish":"metal"},{"id":"fan-blade-5","nodeID":"fan","geometry":"box","position":[3.2,0,0],"size":[0.18,4.4,0.27],"rotation":[120,0,0],"finish":"metal"},{"id":"fan-blade-6","nodeID":"fan","geometry":"box","position":[3.2,0,0],"size":[0.18,4.4,0.27],"rotation":[150,0,0],"finish":"metal"},{"id":"core-compressor","nodeID":"core","geometry":"cylinder","position":[1.4,0,0],"size":[1.5,2.5,1.5],"rotation":[0,0,90],"finish":"metal"},{"id":"core-combustor","nodeID":"core","geometry":"cylinder","position":[-0.5,0,0],"size":[1.65,1.2,1.65],"rotation":[0,0,90],"finish":"accent"},{"id":"core-turbine","nodeID":"core","geometry":"cylinder","position":[-1.8,0,0],"size":[1.35,1.3,1.35],"rotation":[0,0,90],"finish":"metal"},{"id":"core-exhaust","nodeID":"core","geometry":"cylinder","position":[-2.9,0,0],"size":[1.05,0.9,1.05],"rotation":[0,0,90],"finish":"dark"},{"id":"bypass-upper-stream","nodeID":"bypass","geometry":"cylinder","position":[0,1.65,0],"size":[0.18,5.5,0.18],"rotation":[0,0,90],"finish":"glass"},{"id":"bypass-lower-stream","nodeID":"bypass","geometry":"cylinder","position":[0,-1.65,0],"size":[0.18,5.5,0.18],"rotation":[0,0,90],"finish":"glass"},{"id":"bypass-near-stream","nodeID":"bypass","geometry":"cylinder","position":[0,0,1.65],"size":[0.18,5.5,0.18],"rotation":[0,0,90],"finish":"glass"},{"id":"bypass-far-stream","nodeID":"bypass","geometry":"cylinder","position":[0,0,-1.65],"size":[0.18,5.5,0.18],"rotation":[0,0,90],"finish":"glass"},{"id":"duct-bottom","nodeID":"bypass","geometry":"box","position":[0,-2.3,0],"size":[6.7,0.12,3.2],"finish":"shell"},{"id":"duct-far-wall","nodeID":"bypass","geometry":"box","position":[0,0,-2.3],"size":[6.7,3.2,0.12],"finish":"shell"}]}}}}
+        """#
+        let parsed = PaceActionTagParser.parseActions(from: response)
+        try #require(parsed.actions.count == 1)
+        try #require(parsed.executionPlan.flattenedActions.count == 1)
+        guard case .showDiagram(let document) = parsed.actions[0] else {
+            Issue.record("Expected an interactive engine diagram")
+            return
+        }
+        #expect(document.title == "Jet engine bypass ratio")
+        #expect(document.validationIssue == nil)
+        #expect(document.figure?.focusNodeID == "fan")
+        #expect(document.figure?.parts?.count == 17)
+        #expect(Set(document.nodes.map(\.id)) == Set(["fan", "core", "bypass"]))
+
+        let diagramOverlayController = PaceDiagramOverlayController(showsWindows: false)
+        let imageOverlayController = PaceImageOverlayController(showsWindows: false)
+        diagramOverlayController.onDidPresent = {
+            imageOverlayController.hideForDiagramReplacement()
+        }
+        var expectedDiagramDismissalGeneration = diagramOverlayController.dismissalGeneration
+        let drained = await PaceVisualActionDrainer.drain(
+            parseResult: parsed,
+            diagramOverlayController: diagramOverlayController,
+            imageOverlayController: imageOverlayController,
+            expectedDiagramDismissalGeneration: &expectedDiagramDismissalGeneration,
+            expectedImageDismissalGeneration: imageOverlayController.dismissalGeneration)
+
+        let presentedDocument = try #require(diagramOverlayController.document)
+        #expect(presentedDocument == document)
+        #expect(diagramOverlayController.selectedNodeID == "fan")
+        #expect(diagramOverlayController.selectedNode?.label == "Fan")
+        #expect(Set(presentedDocument.figure?.parts?.map(\.nodeID) ?? []) == Set(["fan", "core", "bypass"]))
+        #expect(drained.actions.isEmpty)
+        #expect(drained.executionPlan.flattenedActions.isEmpty)
+        #expect(drained.spokenText == parsed.spokenText)
+    }
+
     @Test func waterCycleFromToEndpointsDecodeWithoutChangingValidation() throws {
         let response = try Self.response(document: Self.document())
             .replacingOccurrences(of: "\"source\":", with: "\"from\":")
