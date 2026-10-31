@@ -1,3 +1,4 @@
+import SaaSMakerUI
 import SwiftUI
 
 struct PaceSeamNotchSurface: View {
@@ -64,6 +65,9 @@ struct PaceSeamNotchSurface: View {
             }
         }
         .frame(maxWidth: .infinity)
+        .environment(\.smPalette, DS.palette)
+        .tint(DS.palette.brand)
+        .preferredColorScheme(.dark)
         .background(displayMode == .active ? Color.black : Color.clear)
         .overlay {
             if displayMode == .active {
@@ -72,7 +76,7 @@ struct PaceSeamNotchSurface: View {
                     .allowsHitTesting(false)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: displayMode == .active ? 16 : 0, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private var header: some View {

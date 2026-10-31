@@ -73,7 +73,7 @@ private struct PaceConversationPanelSurface: View {
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
                 .background(Color.black)
-                .clipShape(PaceSeamNotchShape(topShoulderRadius: 10, bottomCornerRadius: 24))
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             case .anchored:
                 if usesChatPanelAsPrimarySurface {
                     PaceChatPanelView(companionManager: companionManager)

@@ -453,7 +453,6 @@ private struct PaceMenuBarOverlayView: View {
             onBrandTap: openConversation,
             onChatTap: openConversation
         )
-        .smTheme(DS.palette)
         .contentShape(Rectangle())
         .pointerCursor()
         .help(
