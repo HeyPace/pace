@@ -642,6 +642,7 @@ extension CompanionManager {
             // The stop button only makes sense while we're actually
             // recording — clear it as soon as the release fires.
             responseOverlayManager.setListeningForAudio(false)
+            responseOverlayManager.updateStreamingText("transcribing…")
             // Safety net: if no transcript materialises within 5s (silent
             // audio, WhisperKit hang, mic permission revoked), clean up so
             // the overlay doesn't sit on "listening…" indefinitely and the
