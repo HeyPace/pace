@@ -336,9 +336,14 @@ struct PaceScreenSuggestionBoundaryTests {
 
 @MainActor
 struct PaceScreenSuggestionIntegrationTests {
-    final class History: PaceChatHistorySource {
+    final class History: PaceChatHistorySource, PaceConversationEventPersisting {
         var turns: [PaceChatHistoryTurn] = []
         func loadPastTurnsOldestFirst() -> [PaceChatHistoryTurn] { turns }
+        func upsertConversationEvent(_ event: ConversationEvent) {
+            turns.removeAll { $0.id == event.eventID }
+            turns.append(PaceChatHistoryTurn(id: event.eventID, userText: "", paceText: "",
+                recordedAt: event.createdAt, conversationEvent: event))
+        }
     }
     final class Submitter: PaceChatTranscriptSubmitting {
         func submitChatTranscript(_ transcript: String, optimisticMessageIdentifier: String) {}
@@ -348,9 +353,12 @@ struct PaceScreenSuggestionIntegrationTests {
         let history = History()
         let session = PaceChatSession(historySource: history, transcriptSubmitter: Submitter())
         let offer = "Would an explanation of TCP congestion help?"
-        session.appendCompletedTurn(userTranscript: "", assistantResponse: offer)
+        let recorder = PaceConversationRecorder(persister: history, chatSession: session)
+        let event = ConversationEvent(eventID: "suggestion", role: .pace, origin: .proactive, text: offer)
+        recorder.record(event)
         #expect(session.userFacingMessages.map(\.body) == [offer])
-        history.turns = [.init(id: "suggestion", userText: "", paceText: offer, recordedAt: Date())]
+        session.loadHistory()
+        recorder.record(event)
         session.loadHistory()
         #expect(session.userFacingMessages.map(\.body) == [offer])
         #expect(session.userFacingMessages.first?.role == .pace)
