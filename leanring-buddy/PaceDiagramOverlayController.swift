@@ -92,6 +92,11 @@ final class PaceDiagramOverlayController: ObservableObject {
 
     func dismiss() {
         dismissalGeneration += 1
+        hideForImageReplacement()
+    }
+
+    // Replacing a visual within the same plan must not revoke later diagram actions.
+    func hideForImageReplacement() {
         lastUserInteractionAt = nil
         document = nil
         selectedNodeID = nil

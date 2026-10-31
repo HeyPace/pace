@@ -220,7 +220,7 @@ extension CompanionManager {
             return self.canGenerateImagesWithCodex
         }
         imageOverlayController.onWillGenerate = { [weak self] in
-            self?.diagramOverlayController.dismiss()
+            self?.diagramOverlayController.hideForImageReplacement()
             NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
         }
         imageOverlayController.onGenerationProgress = { [weak self] message in
