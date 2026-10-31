@@ -81,6 +81,7 @@ struct PaceUtteranceEndpointDetectorTests {
         #expect(CompanionManager.DictationTrigger.microphoneButton.captureMode == .handsFree)
         #expect(CompanionManager.DictationTrigger.avatar.captureMode == .handsFree)
         #expect(CompanionManager.DictationTrigger.wakeWord.captureMode == .handsFree)
+        #expect(CompanionManager.DictationTrigger.bargeIn.captureMode == .handsFree)
     }
 
     @Test func lateAudioFromAnOldCaptureCannotFinishTheNextSession() {

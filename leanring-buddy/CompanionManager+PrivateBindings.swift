@@ -117,6 +117,7 @@ extension CompanionManager {
         // rejection window and raised threshold take effect.
         bargeInVAD.setTTSPlaybackActive(true)
         bargeInAudioLevelCancellable = buddyDictationManager.audioLevelPublisher
+            .merge(with: wakeWordSpotter.audioLevelPublisher)
             .sink { [weak self] normalizedLevel in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
@@ -151,29 +152,22 @@ extension CompanionManager {
         handleBargeInDetected()
     }
 
-    /// Wave 1c barge-in callback chain. Called from
-    /// `observeBargeInAudioLevel` once the VAD confirms sustained user
-    /// speech during TTS playback. Drains the speech queue, opens a
-    /// fresh listening window so the user's interrupting words can
-    /// land as the next turn, and journals the interrupt to
-    /// paceHistory using the speakable prefix that was already on its
-    /// way out the speakers when the user cut in.
+    /// Cancels the interrupted reply and starts a bounded hands-free turn
+    /// through the same capture pipeline as wake-word input.
     func handleBargeInDetected() {
+        guard voiceState == .responding, isAlwaysListeningEnabled,
+              !buddyDictationManager.isDictationInProgress,
+              !globalPushToTalkShortcutMonitor.isShortcutCurrentlyPressed else { return }
         let lastSpokenPrefix = streamingSentenceTTSPipeline.inFlightStreamedText
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        // Drain + stop. The pipeline pre-stamps `.userBargeIn` on the
-        // TTS client so the next `lastStopReason` read is correct.
+        cancelActiveTurnTasks()
         streamingSentenceTTSPipeline.drainQueueAndStopForBargeIn()
-        // Belt-and-braces: call stop directly on the client too, since
-        // the pipeline already routed it but a second call is a no-op
-        // and guarantees state even if the pipeline shape changes.
-        ttsClient.stopPlayback()
-        // Open a listening window so the wake-word path (Wave 2) or
-        // an immediate PTT press resumes capture without re-arming.
         buddyDictationManager.openListeningWindow(
-            durationInSeconds: 6,
+            durationInSeconds: 45,
             trigger: .bargeIn
         )
+        currentDictationTrigger = .bargeIn
+        globalPushToTalkShortcutMonitor.simulateShortcutPressed()
         // Journal the interrupt locally. `paceHistory` is the existing
         // retrieval source; no new tracking, no new files.
         let prefixForJournalLine = lastSpokenPrefix.isEmpty
@@ -457,8 +451,12 @@ extension CompanionManager {
             }
 
             // Cancel any in-progress response and TTS from a previous utterance
-            cancelActiveTurnTasks()
-            ttsClient.stopPlayback()
+            // Barge-in already cancelled and drained the reply. A second stop
+            // would replace its userBargeIn reason with manualStop.
+            if currentDictationTrigger != .bargeIn {
+                cancelActiveTurnTasks()
+                ttsClient.stopPlayback()
+            }
             // Clear the streaming-TTS dispatch state so the new turn
             // starts fresh — without this, the diff tracker would think
             // half of the previous reply had already been queued.
@@ -534,7 +532,7 @@ extension CompanionManager {
             // this turn. Keyboard → next to the cursor (rides with the
             // Codex arrow); avatar tap → next to the walking character.
             switch currentDictationTrigger {
-            case .keyboard, .microphoneButton, .wakeWord:
+            case .keyboard, .microphoneButton, .wakeWord, .bargeIn:
                 responseOverlayManager.setAnchor(.belowRightOfCursor)
                 // The avatar is just visual noise during a keyboard-
                 // triggered turn. Hide it; it comes back when we return

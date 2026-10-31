@@ -530,13 +530,14 @@ extension CompanionManager {
     /// text-only planner so answers keep the configured local model's
     /// reliability while action/screen turns retain their richer prompt.
     func handleTextOnlyPlannerFastPath(transcript: String) {
+        let turnLease = turnLeaseRegistry.currentLease
         currentTurnHUDState = .understanding("answering without screen")
         responseOverlayManager.showOverlayAndBeginStreaming()
 
         // Capture self weakly so this matches the weak capture in the nested
         // eager-filler task below and never extends the manager's lifetime.
         currentResponseTask = Task { [weak self] in
-            guard let self else { return }
+            guard let self, self.isActiveTurn(turnLease) else { return }
             voiceState = .processing
             let usesOffDeviceTextPlanner = activePlannerTierIsOffDevice
             isOffDeviceTurnInFlight = usesOffDeviceTextPlanner
@@ -580,13 +581,18 @@ extension CompanionManager {
                     conversationHistory: historyForPlanner,
                     userPrompt: userPromptForPlanner,
                     onTextChunk: { [weak self] accumulatedPlannerText in
+                        guard let self, self.isActiveTurn(turnLease) else { return }
                         PaceLatencyBudget.shared.mark(.plannerFirstToken)
-                        self?.responseOverlayManager.updateStreamingText(
+                        self.responseOverlayManager.updateStreamingText(
                             Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText)
                                 ? "…" : accumulatedPlannerText
                         )
                         Task { @MainActor [weak self] in
-                            await self?.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedPlannerText)
+                            guard let self, self.isActiveTurn(turnLease) else { return }
+                            await self.streamingSentenceTTSPipeline.acceptStreamedText(
+                                accumulatedPlannerText,
+                                expectedTurnLease: turnLease,
+                                currentTurnLease: self.turnLeaseRegistry.currentLease)
                         }
                     }
                 )
@@ -654,12 +660,17 @@ extension CompanionManager {
                                 conversationHistory: historyForPlanner,
                                 userPrompt: userPromptForPlanner,
                                 onTextChunk: { [weak self] accumulatedText in
-                                    self?.responseOverlayManager.updateStreamingText(
+                                    guard let self, self.isActiveTurn(turnLease) else { return }
+                                    self.responseOverlayManager.updateStreamingText(
                                         Self.streamedPlannerTextIsStructuredEnvelope(accumulatedText)
                                             ? "…" : accumulatedText
                                     )
                                     Task { @MainActor [weak self] in
-                                        await self?.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedText)
+                                        guard let self, self.isActiveTurn(turnLease) else { return }
+                                        await self.streamingSentenceTTSPipeline.acceptStreamedText(
+                                            accumulatedText,
+                                            expectedTurnLease: turnLease,
+                                            currentTurnLease: self.turnLeaseRegistry.currentLease)
                                     }
                                 }
                             )
@@ -1950,7 +1961,8 @@ extension CompanionManager {
                             intent: intentPrediction.intent,
                             route: intentPrediction.route,
                             screenCaptures: screenCaptures,
-                            prewarmedContext: prewarmedContextForStep
+                            prewarmedContext: prewarmedContextForStep,
+                            turnLease: turnLease
                         )
                         guard !Task.isCancelled else { return }
                         if raceWiringResult.bothPlannersFailed {
@@ -2030,6 +2042,7 @@ extension CompanionManager {
                                 conversationHistory: historyForPlanner,
                                 userPrompt: userPromptForPlanner,
                                 onTextChunk: { [weak self] accumulatedPlannerText in
+                                    guard let self, self.isActiveTurn(turnLease) else { return }
                                     // Mark planner first-token on the first chunk.
                                     PaceLatencyBudget.shared.mark(.plannerFirstToken)
                                     // 1. Mirror raw text into the bubble so the user
@@ -2038,7 +2051,7 @@ extension CompanionManager {
                                     //    cleaned spoken text once parsing completes.
                                     //    EXCEPT a structured (v10 JSON) stream —
                                     //    show a thinking ellipsis, not raw JSON.
-                                    self?.responseOverlayManager.updateStreamingText(
+                                    self.responseOverlayManager.updateStreamingText(
                                         Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText)
                                             ? "…" : accumulatedPlannerText
                                     )
@@ -2047,7 +2060,7 @@ extension CompanionManager {
                                     //    the planner has finished generating the rest.
                                     //    This is the dominant perceived-latency win.
                                     Task { @MainActor [weak self] in
-                                        guard let self else { return }
+                                        guard let self, self.isActiveTurn(turnLease) else { return }
                                         let shouldSuppressStreamingNarration =
                                             Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText)
                                             || (self.actionExecutor.actionsAreEnabled
@@ -2056,7 +2069,9 @@ extension CompanionManager {
                                                 ))
                                         guard !shouldSuppressStreamingNarration else { return }
                                         await self.streamingSentenceTTSPipeline.acceptStreamedText(
-                                            accumulatedPlannerText)
+                                            accumulatedPlannerText,
+                                            expectedTurnLease: turnLease,
+                                            currentTurnLease: self.turnLeaseRegistry.currentLease)
                                     }
                                     if let streamingMailDraftSnapshot =
                                         streamingMailDraftDetector
@@ -2064,6 +2079,7 @@ extension CompanionManager {
                                     {
                                         Task { @MainActor [weak self] in
                                             guard let self,
+                                                self.isActiveTurn(turnLease),
                                                 self.actionExecutor.actionsAreEnabled,
                                                 !requiresObservationOnly,
                                                 !self.requiresActionApproval
@@ -2081,6 +2097,7 @@ extension CompanionManager {
                                     {
                                         Task { @MainActor [weak self] in
                                             guard let self,
+                                                self.isActiveTurn(turnLease),
                                                 self.actionExecutor.actionsAreEnabled,
                                                 !requiresObservationOnly,
                                                 !self.requiresActionApproval
@@ -2775,7 +2792,8 @@ extension CompanionManager {
         intent: PaceIntent,
         route: PaceIntentRoute,
         screenCaptures: [CompanionScreenCapture],
-        prewarmedContext: PaceScreenContextPrewarmedSnapshot?
+        prewarmedContext: PaceScreenContextPrewarmedSnapshot?,
+        turnLease: PaceTurnLease
     ) async -> PaceFirstStepRaceWiringResult {
         let fullClient = plannerClient
         let liteClient = textOnlyPlannerClient
@@ -2851,7 +2869,7 @@ extension CompanionManager {
                 self?.streamingSentenceTTSPipeline.firstSpokenWordCharacterCount ?? 0
             },
             onToken: { [weak self] accumulatedText, winner in
-                guard let self else { return }
+                guard let self, self.isActiveTurn(turnLease) else { return }
                 // The first full token while lite has been speaking is a
                 // supersede: reset the TTS pipeline so the full stream — a
                 // different string than lite — replays cleanly instead of
@@ -2876,12 +2894,15 @@ extension CompanionManager {
                         ))
                 guard !shouldSuppressStreamingNarration else { return }
                 Task { @MainActor [weak self] in
-                    guard let self else { return }
+                    guard let self, self.isActiveTurn(turnLease) else { return }
                     // A lite chunk's dispatch Task scheduled BEFORE a
                     // supersede must not re-speak lite over the freshly
                     // reset full stream — drop it if the winner has moved on.
                     guard winner == winnerBox.winner else { return }
-                    await self.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedText)
+                    await self.streamingSentenceTTSPipeline.acceptStreamedText(
+                        accumulatedText,
+                        expectedTurnLease: turnLease,
+                        currentTurnLease: self.turnLeaseRegistry.currentLease)
                 }
             },
             onCompletion: { _ in }

@@ -13,6 +13,20 @@ struct PaceTurnLeaseTests {
         #expect(registry.isCurrent(secondTurnLease))
     }
 
+    @Test("A stream snapshot retains its original turn after cancellation and replacement")
+    func currentLeaseSnapshotDoesNotFollowReplacementTurn() {
+        var registry = PaceTurnLeaseRegistry()
+        let originalTurnLease = registry.beginTurn()
+        let streamLease = registry.currentLease
+        #expect(streamLease == originalTurnLease)
+
+        registry.invalidateCurrentTurn()
+        let replacementTurnLease = registry.beginTurn()
+
+        #expect(!registry.isCurrent(streamLease))
+        #expect(registry.currentLease == replacementTurnLease)
+    }
+
     @Test("Cancellation invalidates the active lease")
     func cancellationInvalidatesActiveLease() {
         var registry = PaceTurnLeaseRegistry()
