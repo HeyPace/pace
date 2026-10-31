@@ -139,7 +139,7 @@ extension CompanionManager {
             guard let self else { return }
             voiceState = .responding
             await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
-            while ttsClient.isPlaying {
+            while ttsClient.isPlaying && !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
             guard !Task.isCancelled else { return }
@@ -188,7 +188,7 @@ extension CompanionManager {
         currentResponseTask = Task {
             voiceState = .responding
             await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: clarificationText)
-            while ttsClient.isPlaying {
+            while ttsClient.isPlaying && !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
             guard !Task.isCancelled else { return }
@@ -511,7 +511,7 @@ extension CompanionManager {
         currentResponseTask = Task {
             voiceState = .responding
             await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: unsupportedResponse.spokenText)
-            while ttsClient.isPlaying {
+            while ttsClient.isPlaying && !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
             guard !Task.isCancelled else { return }
@@ -744,7 +744,7 @@ extension CompanionManager {
                     voiceState = .responding
                 }
 
-                while ttsClient.isPlaying {
+                while ttsClient.isPlaying && !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 80_000_000)
                 }
                 guard !Task.isCancelled else { return }
@@ -990,7 +990,7 @@ extension CompanionManager {
                     userPrompt: transcript
                 ))
 
-            while ttsClient.isPlaying {
+            while ttsClient.isPlaying && !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
             guard !Task.isCancelled else { return }
@@ -1034,7 +1034,7 @@ extension CompanionManager {
         currentResponseTask = Task {
             voiceState = .responding
             await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
-            while ttsClient.isPlaying {
+            while ttsClient.isPlaying && !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
             guard !Task.isCancelled else { return }
@@ -2988,7 +2988,7 @@ extension CompanionManager {
         transientHideTask?.cancel()
         transientHideTask = Task {
             // Wait for TTS audio to finish playing
-            while ttsClient.isPlaying {
+            while ttsClient.isPlaying && !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 guard !Task.isCancelled else { return }
             }

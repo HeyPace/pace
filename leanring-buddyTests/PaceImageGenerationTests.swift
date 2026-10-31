@@ -656,7 +656,7 @@ struct PaceImageGenerationTests {
             ? [.generateImage(Self.request), .showDiagram(diagram)]
             : [.showDiagram(diagram), .generateImage(Self.request)]
         let parsed = PaceActionTagParseResult(
-            spokenText: "Here it is.", actions: actions, executionPlan: .serial(actions: actions),
+            spokenText: "Heat turns water into vapor.", actions: actions, executionPlan: .serial(actions: actions),
             firstClickVisualisationLocation: nil)
         var diagramDismissalGeneration = diagramOverlayController.dismissalGeneration
         let imageDismissalGeneration = imageOverlayController.dismissalGeneration
@@ -667,6 +667,7 @@ struct PaceImageGenerationTests {
             expectedImageDismissalGeneration: imageDismissalGeneration)
         #expect(drained.actions.isEmpty && drained.executionPlan.steps.isEmpty)
         #expect(drained.spokenText.contains("Your image is ready:"))
+        #expect(drained.spokenText.contains("Heat turns water into vapor."))
         #expect(diagramOverlayController.document?.title == (imageFirst ? "Water cycle" : nil))
         #expect(imageOverlayController.lastSuccessfulArtifact?.id == (imageFirst ? nil : artifact.id))
         #expect(imageOverlayController.state == (imageFirst ? .idle : .ready(artifact)))

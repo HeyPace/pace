@@ -237,10 +237,14 @@ enum PaceVisualActionDrainer {
             default: return true
             }
         }
+        let includesDiagram = parseResult.actions.contains {
+            if case .showDiagram = $0 { return true }
+            return false
+        }
         return .init(
             spokenText: imageMessages.isEmpty
                 ? spokenText
-                : ((remainingActions.isEmpty ? [] : [spokenText]) + imageMessages).joined(separator: " "),
+                : ((remainingActions.isEmpty && !includesDiagram ? [] : [spokenText]) + imageMessages).joined(separator: " "),
             actions: remainingActions,
             executionPlan: .init(steps: remainingSteps),
             firstClickVisualisationLocation: parseResult.firstClickVisualisationLocation)
