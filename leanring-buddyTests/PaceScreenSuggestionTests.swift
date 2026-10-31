@@ -15,6 +15,7 @@ struct PaceScreenSuggestionCoordinatorTests {
         var holdEvaluation = false
         var quiet = false
         var fail = false
+        var rejection: PaceScreenSuggestionBoundary.BoundaryError?
         var acceptDelivery = true
         var continuation: CheckedContinuation<PaceScreenSuggestionDecision, Error>?
         let scene = PaceScreenSceneIdentity(displayIdentifier: 1, applicationProcessIdentifier: 42,
@@ -25,6 +26,7 @@ struct PaceScreenSuggestionCoordinatorTests {
                 self.evaluations += 1
                 self.evaluationTexts.append(String(decoding: observation.capture.imageData, as: UTF8.self))
                 if self.fail { throw URLError(.cannotConnectToHost) }
+                if let rejection = self.rejection { throw rejection }
                 if self.holdEvaluation {
                     return try await withCheckedThrowingContinuation { self.continuation = $0 }
                 }
@@ -201,6 +203,17 @@ struct PaceScreenSuggestionCoordinatorTests {
         }
     }
 
+    @Test func subjectRejectionShowsGroundingFailureWithoutAnchoring() async {
+        let harness = Harness()
+        harness.rejection = .subjectNotVisible
+        harness.coordinator.setEnabled(true)
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        #expect(harness.statuses.last == "Screen suggestion rejected · its subject was not found on screen.")
+        #expect(harness.deliveries.isEmpty)
+        #expect(harness.coordinator.followUpContext(for: "yes") == nil)
+    }
+
     @Test func undeliveredCandidateNeverBecomesFollowUpAndAnchorExpiresOrStops() async {
         let harness = Harness()
         harness.acceptDelivery = false
@@ -261,6 +274,30 @@ struct PaceScreenSuggestionBoundaryTests {
         #expect(suggestion.untrustedFollowUpContext.contains("Untrusted quoted screen data"))
         guard case .quiet = try PaceScreenSuggestionBoundary.parse(#"{"decision":"quiet"}"#, ocr: "", sceneIdentity: scene, observedAt: Date()) else {
             Issue.record("Expected quiet"); return
+        }
+    }
+
+    @Test func capturedPlannerParaphraseHasSpecificGroundingRejection() {
+        let ocr = """
+        How does a turbofan engine work?
+        I am studying jet engines. I want to understand why modern passenger aircraft use high-bypass turbofans.
+        Bypass ratio and propulsive efficiency
+        Why can moving more air at a lower exhaust speed use less fuel for the same thrust?
+        """
+        let output = #"{"decision":"suggest","subject":"High-bypass turbofan efficiency","evidence":"Why can moving more air at a lower exhaust speed use less fuel for the same thrust?","offer":"Would you like an explanation of high-bypass turbofan efficiency using momentum and kinetic energy?"}"#
+        #expect(throws: PaceScreenSuggestionBoundary.BoundaryError.subjectNotVisible) {
+            try PaceScreenSuggestionBoundary.parse(output, ocr: ocr, sceneIdentity: scene, observedAt: Date())
+        }
+    }
+
+    @Test func malformedJSONHasTypedContentFreeRejection() {
+        #expect(throws: PaceScreenSuggestionBoundary.BoundaryError.invalidDecision) {
+            try PaceScreenSuggestionBoundary.parse("private response body", ocr: "", sceneIdentity: scene, observedAt: Date())
+        }
+        #expect(throws: PaceScreenSuggestionBoundary.BoundaryError.evidenceNotVisible) {
+            try PaceScreenSuggestionBoundary.parse(
+                #"{"decision":"suggest","subject":"TCP congestion","evidence":"Invented evidence that was never visible","offer":"Explain TCP congestion?"}"#,
+                ocr: "TCP congestion control", sceneIdentity: scene, observedAt: Date())
         }
     }
 

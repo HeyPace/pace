@@ -55,7 +55,10 @@ nonisolated enum PaceScreenSuggestionBoundary {
     Return ONLY one JSON object: {"decision":"quiet"} or
     {"decision":"suggest","subject":"short concrete visible subject","evidence":"verbatim excerpt from OCR",
     "offer":"one specific short helpful question naming the subject"}.
-    Prefer quiet when context is unclear, private, generic, repetitive or not useful. Maximum 38 words in offer.
+    Copy subject and evidence verbatim as contiguous excerpts from OCR. Do not combine or paraphrase phrases.
+    The offer must contain that exact subject text and end with a question mark.
+    Subject must be 3–120 characters. Evidence and offer must each be 12–240 characters. Maximum 38 words in offer.
+    Prefer quiet when context is unclear, private, generic, repetitive or not useful.
     Do not infer user facts. Do not include markup, tags, actions, tools, coordinates or additional keys.
     """
 
@@ -77,7 +80,7 @@ nonisolated enum PaceScreenSuggestionBoundary {
     static func parse(_ text: String, ocr: String, sceneIdentity: PaceScreenSceneIdentity, observedAt: Date) throws -> PaceScreenSuggestionDecision {
         guard text.utf8.count <= 2400,
               let data = text.data(using: .utf8),
-              let object = try JSONSerialization.jsonObject(with: data) as? [String: String] else {
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: String] else {
             throw BoundaryError.invalidDecision
         }
         if object == ["decision": "quiet"] { return .quiet }
@@ -86,25 +89,49 @@ nonisolated enum PaceScreenSuggestionBoundary {
               let subject = object["subject"], let evidence = object["evidence"], let offer = object["offer"],
               (3...120).contains(subject.count), (12...240).contains(evidence.count),
               (12...240).contains(offer.count), offer.split(whereSeparator: { $0.isWhitespace }).count <= 38,
-              ocr.localizedCaseInsensitiveContains(evidence),
-              ocr.localizedCaseInsensitiveContains(subject),
-              offer.localizedCaseInsensitiveContains(subject),
-              offer.contains("?"),
-              ![subject, evidence, offer].contains(where: { value in
+              offer.contains("?") else {
+            throw BoundaryError.invalidFields
+        }
+        guard ocr.localizedCaseInsensitiveContains(evidence) else { throw BoundaryError.evidenceNotVisible }
+        guard ocr.localizedCaseInsensitiveContains(subject) else { throw BoundaryError.subjectNotVisible }
+        guard offer.localizedCaseInsensitiveContains(subject) else { throw BoundaryError.offerSubjectMissing }
+        guard ![subject, evidence, offer].contains(where: { value in
                   value.contains("<") || value.contains(">") || value.contains("```")
                       || value.range(of: #"(?i)(tool_call|function_call|ignore previous|system prompt|execute command|run shell|\[action)"#, options: .regularExpression) != nil
               }),
               !["this screen", "screen change", "something", "content update", "an error"].contains(subject.lowercased()) else {
-            throw BoundaryError.invalidDecision
+            throw BoundaryError.unsafeContent
         }
         return .suggest(PaceScreenSuggestion(identifier: UUID(), subject: subject, evidence: evidence,
             offer: offer, sceneIdentity: sceneIdentity, observedAt: observedAt,
             expiresAt: observedAt.addingTimeInterval(45)))
     }
 
-    enum BoundaryError: LocalizedError {
+    enum BoundaryError: String, LocalizedError {
         case invalidDecision
-        var errorDescription: String? { "The planner returned an invalid screen suggestion." }
+        case invalidFields
+        case evidenceNotVisible
+        case subjectNotVisible
+        case offerSubjectMissing
+        case unsafeContent
+        case plannerUnavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidDecision, .invalidFields:
+                return "Screen suggestion rejected · the planner returned an invalid format."
+            case .evidenceNotVisible:
+                return "Screen suggestion rejected · its evidence was not found on screen."
+            case .subjectNotVisible:
+                return "Screen suggestion rejected · its subject was not found on screen."
+            case .offerSubjectMissing:
+                return "Screen suggestion rejected · the offer did not name its grounded subject."
+            case .unsafeContent:
+                return "Screen suggestion rejected · unsafe or generic content."
+            case .plannerUnavailable:
+                return "Screen suggestion check failed. Check the selected planner and consent in Settings."
+            }
+        }
     }
 }
 
@@ -223,9 +250,17 @@ final class PaceScreenSuggestionCoordinator {
                 }
             } catch {
                 guard !Task.isCancelled, self.isEnabled, self.generation == evaluationGeneration else { return }
-                // Provider errors can contain prompts or response bodies; keep status bounded and content-free.
-                self.updateStatus("Screen suggestion check failed. Check the selected planner and consent in Settings.")
-                print("👀 Watch decision: failed")
+                // Provider errors can contain prompts or response bodies; only typed boundary reasons are retained.
+                if let boundaryError = error as? PaceScreenSuggestionBoundary.BoundaryError {
+                    self.updateStatus(boundaryError.localizedDescription)
+                    PaceAPIAuditLog.shared.record(subsystem: "screen", operation: "screen_suggestion_validation",
+                        target: "screen_suggestion_boundary", durationMilliseconds: 0, outcome: "rejected",
+                        detail: boundaryError.rawValue)
+                    print("👀 Watch decision: rejected reason=\(boundaryError.rawValue)")
+                } else {
+                    self.updateStatus("Screen suggestion check failed. The selected planner could not complete the check.")
+                    print("👀 Watch decision: failed")
+                }
             }
         }
     }
