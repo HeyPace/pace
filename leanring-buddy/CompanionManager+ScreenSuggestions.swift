@@ -71,7 +71,7 @@ extension CompanionManager {
         }
         guard application.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
             screenSuggestionCoordinator.invalidate()
-            latestWatchModeSummary = "Watch paused · Pace is in the foreground"
+            latestWatchModeSummary = "Watch paused · switch from Pace to another app"
             return false
         }
         guard !PaceScreenSuggestionPrivacy.isSensitiveApplication(application.bundleIdentifier) else {
@@ -95,7 +95,7 @@ extension CompanionManager {
             return false
         }
         guard userInputActivityMonitor.lastUserInputAt.map({ Date().timeIntervalSince($0) >= 3 }) ?? true else {
-            latestWatchModeSummary = "Watch waiting · pause typing or moving the pointer"
+            latestWatchModeSummary = "Watch waiting · waiting for a brief pause"
             return false
         }
         let cursorScreen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
