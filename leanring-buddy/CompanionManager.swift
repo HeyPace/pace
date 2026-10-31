@@ -427,7 +427,18 @@ final class CompanionManager: ObservableObject {
     /// bbox overlap. Cheap (~50-200ms), no model load.
     let visionOCRClient = PaceVisionOCRClient()
     let permissionEventStore = EKEventStore()
-    var watchLifecycleObservers: [NSObjectProtocol] = []
+    let watchModeDefaults: UserDefaults
+    var watchWorkspaceLifecycleObservers: [NSObjectProtocol] = []
+    var watchDistributedLifecycleObservers: [NSObjectProtocol] = []
+    var isWatchRuntimeStarted = false
+    var watchRuntimeGeneration: UInt64 = 0
+    var watchPauseReasons: Set<PaceScreenWatchPauseReason> = []
+    var watchSessionSnapshotProvider: () -> PaceScreenWatchSessionSnapshot = { .current() }
+    var watchScreenPermissionProvider: () -> Bool = { CGPreflightScreenCaptureAccess() }
+    var watchPlannerConsentProvider: () -> Bool = { BuddyPlannerClientFactory.hasScreenSuggestionPlannerConsent() }
+    var watchSuggestionSpeechTask: Task<Void, Never>?
+    var watchSuggestionSpeechGeneration: UInt64 = 0
+    var isWatchSuggestionSpeaking = false
     var lastScreenSuggestionDeliveryAt: Date?
     var screenSuggestionVisualGate = PaceScreenSuggestionVisualGate()
     lazy var screenSuggestionCoordinator = makeScreenSuggestionCoordinator()
@@ -517,7 +528,7 @@ final class CompanionManager: ObservableObject {
         .boolWithInfoPlistSeed(.useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext")
     {
         didSet {
-            if oldValue && !useLocalVLMForScreenContext {
+            if !useLocalVLMForScreenContext {
                 setWatchModeEnabled(false)
                 diagramOverlayController.dismiss()
                 imageOverlayController.dismiss()
@@ -1245,6 +1256,13 @@ final class CompanionManager: ObservableObject {
         default: false
     )
     @Published var latestPostureStatus: String?
+
+    init(watchModeDefaults: UserDefaults = .standard) {
+        self.watchModeDefaults = watchModeDefaults
+        self.isWatchModeEnabled = PaceUserPreferencesStore.bool(
+            .isWatchModeEnabled, default: false, defaults: watchModeDefaults
+        )
+    }
 
 }
 

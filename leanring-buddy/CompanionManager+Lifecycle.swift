@@ -717,6 +717,7 @@ extension CompanionManager {
         // the pre-extraction startup order — input/call monitors
         // first, drain timer + orchestrator second.
         proactivityPipeline.start()
+        startWatchRuntime()
     }
 
     /// 5-minute idle sweep that drops thread-memory state when the
@@ -761,7 +762,7 @@ extension CompanionManager {
     }
 
     func stop() {
-        setWatchModeEnabled(false)
+        stopWatchRuntime()
         imageOverlayController.dismiss()
         diagramOverlayController.dismiss()
         PaceScreenRecordingController.shared.shutdown()
@@ -897,6 +898,7 @@ extension CompanionManager {
         if !previouslyHadAll && allPermissionsGranted {
             PaceAnalytics.trackAllPermissionsGranted()
         }
+        if isWatchRuntimeStarted { reconcileWatchRuntime() }
     }
 
     func requestSpeechRecognitionPermission() {

@@ -18,6 +18,7 @@ extension CompanionManager {
     /// active lease. Routing and response tasks are separate because routing
     /// can suspend before a response task exists.
     func cancelActiveTurnTasks(preservingConversationRequest: Bool = false) {
+        cancelWatchSuggestionSpeech()
         if !preservingConversationRequest { interruptConversationRequest() }
         turnLeaseRegistry.invalidateCurrentTurn()
         currentTurnDispatchTask?.cancel()

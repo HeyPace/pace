@@ -65,7 +65,7 @@ struct PaceProactiveSettingsTab: View {
                     paceSettingsToggleRow(
                         title: "Watch mode",
                         subtitle: companionManager.latestWatchModeSummary
-                            ?? "Offer useful explanations and help about the screen. Requires Read My Screen; off each launch.",
+                            ?? "Offer useful explanations and help about the screen. Requires Read My Screen. Remembers your choice and pauses while locked or asleep.",
                         isOn: Binding(
                             get: { companionManager.isWatchModeEnabled },
                             set: { companionManager.setWatchModeEnabled($0) }

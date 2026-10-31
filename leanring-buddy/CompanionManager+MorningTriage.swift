@@ -253,29 +253,16 @@ extension CompanionManager {
     }
 
     func setWatchModeEnabled(_ enabled: Bool) {
-        guard enabled != isWatchModeEnabled else { return }
         guard !enabled || useLocalVLMForScreenContext else {
             latestWatchModeSummary = "Turn on Read My Screen before enabling Watch mode."
             return
         }
-        isWatchModeEnabled = enabled
-        screenSuggestionVisualGate = PaceScreenSuggestionVisualGate()
-        screenSuggestionCoordinator.setEnabled(enabled)
-        if enabled {
-            latestWatchModeSummary = "Watching · suggestions use the selected planner"
-            installWatchLifecycleObservers()
-            screenWatchModeController.startWatching(
-                shouldCapture: { [weak self] in self?.screenSuggestionCaptureAllowed() ?? false },
-                onSample: { [weak self] capture, sceneIdentity, observedAt in
-                    self?.screenSuggestionCoordinator.observe(.init(capture: capture,
-                        sceneIdentity: sceneIdentity, observedAt: observedAt))
-                },
-                onMeaningfulChange: { [weak self] event in await self?.handleWatchModeEvent(event) }
-            )
-        } else {
-            screenWatchModeController.stopWatching()
-            removeWatchLifecycleObservers()
-            latestWatchModeSummary = nil
+        PaceUserPreferencesStore.setBool(enabled, for: .isWatchModeEnabled, defaults: watchModeDefaults)
+        if enabled != isWatchModeEnabled {
+            isWatchModeEnabled = enabled
+            screenSuggestionVisualGate = PaceScreenSuggestionVisualGate()
+            screenSuggestionCoordinator.setEnabled(enabled)
         }
+        reconcileWatchRuntime()
     }
 }

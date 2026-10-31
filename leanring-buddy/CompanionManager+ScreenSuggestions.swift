@@ -1,6 +1,42 @@
 import AppKit
 import Foundation
 
+nonisolated enum PaceScreenWatchPauseReason: Hashable {
+    case screenLocked
+    case systemSleeping
+    case userSessionInactive
+}
+
+nonisolated struct PaceScreenWatchSessionSnapshot {
+    let isScreenLocked: Bool?
+    let isOnConsole: Bool?
+
+    init(sessionDictionary: [String: Any]?, currentUserIdentifier: UInt32) {
+        guard let sessionDictionary,
+              let sessionUserIdentifier = sessionDictionary[kCGSessionUserIDKey as String] as? NSNumber,
+              sessionUserIdentifier.uint32Value == currentUserIdentifier else {
+            isScreenLocked = nil
+            isOnConsole = nil
+            return
+        }
+        isOnConsole = sessionDictionary[kCGSessionOnConsoleKey as String] as? Bool
+        // macOS omits the lock key for an unlocked session. Only a verified
+        // current-user console session can turn that absence into permission.
+        if let lockValue = sessionDictionary["CGSSessionScreenIsLocked"] {
+            isScreenLocked = lockValue as? Bool
+        } else {
+            isScreenLocked = false
+        }
+    }
+
+    var allowsScreenWatch: Bool { isScreenLocked == false && isOnConsole == true }
+
+    static func current() -> Self {
+        Self(sessionDictionary: CGSessionCopyCurrentDictionary() as? [String: Any],
+            currentUserIdentifier: getuid())
+    }
+}
+
 nonisolated enum PaceScreenSuggestionPrivacy {
     static func isSensitiveApplication(_ bundleIdentifier: String?) -> Bool {
         guard let identifier = bundleIdentifier?.lowercased(), !identifier.isEmpty else { return true }
@@ -35,17 +71,12 @@ extension CompanionManager {
     }
 
     func screenSuggestionCaptureAllowed() -> Bool {
-        guard isWatchModeEnabled, useLocalVLMForScreenContext, CGPreflightScreenCaptureAccess() else {
+        if let pauseSummary = screenWatchRuntimePauseSummary() {
             if isWatchModeEnabled {
-                latestWatchModeSummary = "Watch paused · Read My Screen and Screen Recording permission are required"
+                latestWatchModeSummary = pauseSummary
                 screenSuggestionCoordinator.invalidate(clearAnchor: true)
+                cancelWatchSuggestionSpeech()
             }
-            return false
-        }
-        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
-        let isLocked = session?["CGSSessionScreenIsLocked"] as? Bool ?? false
-        if isLocked {
-            setWatchModeEnabled(false)
             return false
         }
         guard !activeCallDetector.isOnActiveCall else {
@@ -195,38 +226,159 @@ extension CompanionManager {
         responseOverlayManager.updateStreamingText(suggestion.offer)
         responseOverlayManager.finishStreaming()
         if areWatchObservationNudgesEnabled {
-            currentResponseTask = Task { [weak self] in
-                guard let self else { return }
+            let speechGeneration = watchSuggestionSpeechGeneration
+            let speechTask = Task { [weak self] in
+                guard let self, !Task.isCancelled,
+                      watchSuggestionSpeechGeneration == speechGeneration,
+                      screenSuggestionEvaluationAllowed(suggestion.sceneIdentity) else { return }
+                isWatchSuggestionSpeaking = true
+                defer {
+                    if watchSuggestionSpeechGeneration == speechGeneration {
+                        watchSuggestionSpeechTask = nil
+                        isWatchSuggestionSpeaking = false
+                        if voiceState == .responding { voiceState = .idle }
+                    }
+                }
                 voiceState = .responding
                 await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: suggestion.offer)
                 while ttsClient.isPlaying && !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 80_000_000)
                 }
-                guard !Task.isCancelled else { return }
-                voiceState = .idle
             }
+            watchSuggestionSpeechTask = speechTask
+            currentResponseTask = speechTask
         }
         return true
     }
 
+    func cancelWatchSuggestionSpeech() {
+        watchSuggestionSpeechGeneration &+= 1
+        watchSuggestionSpeechTask?.cancel()
+        watchSuggestionSpeechTask = nil
+        if isWatchSuggestionSpeaking {
+            ttsClient.stopPlayback()
+            if voiceState == .responding { voiceState = .idle }
+        }
+        isWatchSuggestionSpeaking = false
+    }
+
+    func startWatchRuntime() {
+        guard !isWatchRuntimeStarted else {
+            reconcileWatchRuntime()
+            return
+        }
+        isWatchRuntimeStarted = true
+        watchRuntimeGeneration &+= 1
+        watchPauseReasons.removeAll()
+        let sessionSnapshot = watchSessionSnapshotProvider()
+        if sessionSnapshot.isScreenLocked == true { watchPauseReasons.insert(.screenLocked) }
+        if sessionSnapshot.isOnConsole == false { watchPauseReasons.insert(.userSessionInactive) }
+        installWatchLifecycleObservers()
+        screenSuggestionCoordinator.setEnabled(isWatchModeEnabled)
+        reconcileWatchRuntime()
+    }
+
+    func stopWatchRuntime() {
+        isWatchRuntimeStarted = false
+        watchRuntimeGeneration &+= 1
+        screenWatchModeController.stopWatching()
+        screenSuggestionCoordinator.setEnabled(false)
+        cancelWatchSuggestionSpeech()
+        removeWatchLifecycleObservers()
+        watchPauseReasons.removeAll()
+        latestWatchModeSummary = isWatchModeEnabled ? "Watch paused · Pace is stopped" : nil
+    }
+
+    func setWatchRuntimePaused(_ reason: PaceScreenWatchPauseReason, isPaused: Bool) {
+        guard isWatchRuntimeStarted else { return }
+        if isPaused {
+            watchPauseReasons.insert(reason)
+        } else {
+            watchPauseReasons.remove(reason)
+        }
+        reconcileWatchRuntime()
+    }
+
+    func screenWatchRuntimePauseSummary() -> String? {
+        guard isWatchModeEnabled else { return "Watch is off" }
+        guard isWatchRuntimeStarted else { return "Watch paused · Pace is stopped" }
+        guard useLocalVLMForScreenContext else { return "Watch paused · Read My Screen is required" }
+        if watchPauseReasons.contains(.systemSleeping) { return "Watch paused · Mac is sleeping" }
+        if watchPauseReasons.contains(.screenLocked) { return "Watch paused · screen is locked" }
+        if watchPauseReasons.contains(.userSessionInactive) { return "Watch paused · user session is inactive" }
+        let sessionSnapshot = watchSessionSnapshotProvider()
+        guard sessionSnapshot.allowsScreenWatch else {
+            return sessionSnapshot.isScreenLocked == true
+                ? "Watch paused · screen is locked" : "Watch paused · waiting for an active unlocked user session"
+        }
+        guard watchScreenPermissionProvider() else { return "Watch paused · Screen Recording permission is required" }
+        guard watchPlannerConsentProvider() else { return "Watch paused · selected planner consent is required" }
+        return nil
+    }
+
+    func reconcileWatchRuntime() {
+        if let pauseSummary = screenWatchRuntimePauseSummary() {
+            screenWatchModeController.stopWatching()
+            screenSuggestionCoordinator.invalidate(clearAnchor: true)
+            cancelWatchSuggestionSpeech()
+            latestWatchModeSummary = isWatchModeEnabled ? pauseSummary : nil
+            return
+        }
+        guard !screenWatchModeController.isWatching else { return }
+        latestWatchModeSummary = "Watching · suggestions use the selected planner"
+        screenWatchModeController.startWatching(
+            shouldCapture: { [weak self] in self?.screenSuggestionCaptureAllowed() ?? false },
+            onSample: { [weak self] capture, sceneIdentity, observedAt in
+                self?.screenSuggestionCoordinator.observe(.init(capture: capture,
+                    sceneIdentity: sceneIdentity, observedAt: observedAt))
+            },
+            onMeaningfulChange: { [weak self] event in await self?.handleWatchModeEvent(event) }
+        )
+    }
+
     func installWatchLifecycleObservers() {
         removeWatchLifecycleObservers()
-        let sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification,
-            object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.setWatchModeEnabled(false) }
+        let runtimeGeneration = watchRuntimeGeneration
+        let workspaceEvents: [(Notification.Name, PaceScreenWatchPauseReason, Bool)] = [
+            (NSWorkspace.willSleepNotification, .systemSleeping, true),
+            (NSWorkspace.didWakeNotification, .systemSleeping, false),
+            (NSWorkspace.sessionDidResignActiveNotification, .userSessionInactive, true),
+            (NSWorkspace.sessionDidBecomeActiveNotification, .userSessionInactive, false)
+        ]
+        let distributedEvents: [(Notification.Name, PaceScreenWatchPauseReason, Bool)] = [
+            (Notification.Name("com.apple.screenIsLocked"), .screenLocked, true),
+            (Notification.Name("com.apple.screenIsUnlocked"), .screenLocked, false)
+        ]
+        for (notificationName, pauseReason, isPaused) in workspaceEvents {
+            let observer = NSWorkspace.shared.notificationCenter.addObserver(forName: notificationName,
+                object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, isWatchRuntimeStarted, watchRuntimeGeneration == runtimeGeneration else { return }
+                    setWatchRuntimePaused(pauseReason, isPaused: isPaused)
+                }
             }
-        let lockObserver = DistributedNotificationCenter.default().addObserver(
-            forName: NSNotification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.setWatchModeEnabled(false) }
+            watchWorkspaceLifecycleObservers.append(observer)
+        }
+        for (notificationName, pauseReason, isPaused) in distributedEvents {
+            let observer = DistributedNotificationCenter.default().addObserver(forName: notificationName,
+                object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, isWatchRuntimeStarted, watchRuntimeGeneration == runtimeGeneration else { return }
+                    setWatchRuntimePaused(pauseReason, isPaused: isPaused)
+                }
             }
-        watchLifecycleObservers = [sleepObserver, lockObserver]
+            watchDistributedLifecycleObservers.append(observer)
+        }
     }
 
     func removeWatchLifecycleObservers() {
-        for observer in watchLifecycleObservers {
+        for observer in watchWorkspaceLifecycleObservers {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        for observer in watchDistributedLifecycleObservers {
             DistributedNotificationCenter.default().removeObserver(observer)
         }
-        watchLifecycleObservers.removeAll()
+        watchWorkspaceLifecycleObservers.removeAll()
+        watchDistributedLifecycleObservers.removeAll()
     }
 }

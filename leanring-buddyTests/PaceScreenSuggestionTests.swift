@@ -147,6 +147,33 @@ struct PaceScreenSuggestionCoordinatorTests {
         #expect(!harness.coordinator.isEvaluationInFlight)
     }
 
+    @Test func runtimePauseRejectsLateResultWithoutResettingEvaluationBudget() async {
+        let harness = Harness()
+        harness.holdEvaluation = true
+        harness.coordinator.setEnabled(true)
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        harness.eligible = false
+        harness.coordinator.invalidate(clearAnchor: true)
+        harness.eligible = true
+        harness.coordinator.observe(harness.observation())
+        #expect(harness.evaluations == 1)
+        harness.finish()
+        await settle()
+        #expect(harness.deliveries.isEmpty)
+        #expect(harness.coordinator.followUpContext(for: "yes") == nil)
+        harness.holdEvaluation = false
+        harness.now = harness.now.addingTimeInterval(59)
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        #expect(harness.evaluations == 1)
+        harness.now = harness.now.addingTimeInterval(1)
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        #expect(harness.evaluations == 2)
+        #expect(harness.deliveries.count == 1)
+    }
+
     @Test func sceneSwitchSuppressesLateResult() async {
         let harness = Harness()
         harness.holdEvaluation = true
@@ -364,14 +391,182 @@ struct PaceScreenSuggestionIntegrationTests {
         #expect(session.userFacingMessages.first?.role == .pace)
     }
 
-    @Test func sessionWatchAndSpeechDefaultOffAndReadScreenIsRequired() {
-        let manager = CompanionManager()
+    private func makeWatchDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "PaceScreenSuggestionIntegrationTests." + UUID().uuidString)!
+    }
+
+    private func activeSessionDictionary(isLocked: Bool? = nil) -> [String: Any] {
+        var dictionary: [String: Any] = [kCGSessionUserIDKey as String: 501,
+            kCGSessionOnConsoleKey as String: true]
+        if let isLocked { dictionary["CGSSessionScreenIsLocked"] = isLocked }
+        return dictionary
+    }
+
+    private func makeWatchManager(defaults: UserDefaults) -> CompanionManager {
+        let manager = CompanionManager(watchModeDefaults: defaults)
+        manager.useLocalVLMForScreenContext = true
+        let sessionDictionary = activeSessionDictionary()
+        manager.watchSessionSnapshotProvider = {
+            PaceScreenWatchSessionSnapshot(sessionDictionary: sessionDictionary, currentUserIdentifier: 501)
+        }
+        manager.watchScreenPermissionProvider = { true }
+        manager.watchPlannerConsentProvider = { true }
+        return manager
+    }
+
+    @Test func watchDefaultsOffAndReadScreenIsRequired() {
+        let defaults = makeWatchDefaults()
+        let manager = CompanionManager(watchModeDefaults: defaults)
         #expect(!manager.isWatchModeEnabled)
+        #expect(defaults.object(forKey: PaceUserPreferenceKey.isWatchModeEnabled.rawValue) == nil)
         #expect(!manager.areWatchObservationNudgesEnabled)
         manager.useLocalVLMForScreenContext = false
         manager.setWatchModeEnabled(true)
         #expect(!manager.isWatchModeEnabled)
         #expect(manager.latestWatchModeSummary?.contains("Read My Screen") == true)
+    }
+
+    @Test func explicitWatchChoicePersistsOnAndOffAcrossManagers() {
+        let defaults = makeWatchDefaults()
+        let firstManager = makeWatchManager(defaults: defaults)
+        firstManager.setWatchModeEnabled(true)
+        #expect(CompanionManager(watchModeDefaults: defaults).isWatchModeEnabled)
+        let relaunchedManager = makeWatchManager(defaults: defaults)
+        relaunchedManager.setWatchModeEnabled(false)
+        #expect(!CompanionManager(watchModeDefaults: defaults).isWatchModeEnabled)
+        relaunchedManager.setWatchModeEnabled(false)
+        #expect(defaults.object(forKey: PaceUserPreferenceKey.isWatchModeEnabled.rawValue) as? Bool == false)
+    }
+
+    @Test func readMyScreenOffPersistsWatchOffDuringRuntimePause() {
+        let defaults = makeWatchDefaults()
+        let manager = makeWatchManager(defaults: defaults)
+        manager.setWatchModeEnabled(true)
+        manager.startWatchRuntime()
+        manager.setWatchRuntimePaused(.screenLocked, isPaused: true)
+        manager.useLocalVLMForScreenContext = false
+        #expect(!manager.isWatchModeEnabled)
+        #expect(!CompanionManager(watchModeDefaults: defaults).isWatchModeEnabled)
+        manager.setWatchRuntimePaused(.screenLocked, isPaused: false)
+        #expect(!manager.screenWatchModeController.isWatching)
+        manager.stopWatchRuntime()
+    }
+
+    @Test func overlappingLockSleepAndUserSwitchPauseWithoutChangingChoice() {
+        let defaults = makeWatchDefaults()
+        let manager = makeWatchManager(defaults: defaults)
+        var sessionDictionary = activeSessionDictionary()
+        manager.watchSessionSnapshotProvider = {
+            PaceScreenWatchSessionSnapshot(sessionDictionary: sessionDictionary, currentUserIdentifier: 501)
+        }
+        manager.setWatchModeEnabled(true)
+        manager.startWatchRuntime()
+        #expect(manager.screenWatchModeController.isWatching)
+        sessionDictionary = activeSessionDictionary(isLocked: true)
+        manager.setWatchRuntimePaused(.screenLocked, isPaused: true)
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        #expect(manager.isWatchModeEnabled)
+        #expect(!manager.screenWatchModeController.isWatching)
+        #expect(manager.screenSuggestionCoordinator.isEnabled)
+        sessionDictionary = activeSessionDictionary()
+        manager.setWatchRuntimePaused(.screenLocked, isPaused: false)
+        #expect(!manager.screenWatchModeController.isWatching)
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+        #expect(manager.screenWatchModeController.isWatching)
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+        #expect(!manager.screenWatchModeController.isWatching)
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
+        #expect(manager.screenWatchModeController.isWatching)
+        manager.stopWatchRuntime()
+        #expect(CompanionManager(watchModeDefaults: defaults).isWatchModeEnabled)
+    }
+
+    @Test func currentSessionPermissionAndPlannerConsentGateEveryResume() {
+        let defaults = makeWatchDefaults()
+        let manager = makeWatchManager(defaults: defaults)
+        var sessionDictionary: [String: Any]?
+        var hasScreenPermission = true
+        var hasPlannerConsent = true
+        manager.watchSessionSnapshotProvider = {
+            PaceScreenWatchSessionSnapshot(sessionDictionary: sessionDictionary, currentUserIdentifier: 501)
+        }
+        manager.watchScreenPermissionProvider = { hasScreenPermission }
+        manager.watchPlannerConsentProvider = { hasPlannerConsent }
+        manager.setWatchModeEnabled(true)
+        manager.startWatchRuntime()
+        #expect(!manager.screenWatchModeController.isWatching)
+        #expect(!manager.screenSuggestionCaptureAllowed())
+        let deniedSessions: [[String: Any]] = [
+            [kCGSessionUserIDKey as String: 501],
+            [kCGSessionOnConsoleKey as String: true],
+            [kCGSessionUserIDKey as String: 502, kCGSessionOnConsoleKey as String: true],
+            [kCGSessionUserIDKey as String: 501, kCGSessionOnConsoleKey as String: false],
+            activeSessionDictionary(isLocked: true)
+        ]
+        for deniedSession in deniedSessions {
+            sessionDictionary = deniedSession
+            manager.reconcileWatchRuntime()
+            #expect(!manager.screenWatchModeController.isWatching)
+            #expect(!manager.screenSuggestionCaptureAllowed())
+        }
+        sessionDictionary = activeSessionDictionary()
+        hasScreenPermission = false
+        manager.reconcileWatchRuntime()
+        #expect(!manager.screenWatchModeController.isWatching)
+        hasScreenPermission = true
+        hasPlannerConsent = false
+        manager.reconcileWatchRuntime()
+        #expect(!manager.screenWatchModeController.isWatching)
+        hasPlannerConsent = true
+        manager.reconcileWatchRuntime()
+        #expect(manager.screenWatchModeController.isWatching)
+        sessionDictionary = activeSessionDictionary(isLocked: true)
+        #expect(!manager.screenSuggestionCaptureAllowed())
+        #expect(manager.isWatchModeEnabled)
+        manager.stopWatchRuntime()
+    }
+
+    @Test func runtimePauseCancelsWatchSpeechWithoutCancellingForegroundTask() {
+        let manager = makeWatchManager(defaults: makeWatchDefaults())
+        manager.setWatchModeEnabled(true)
+        manager.startWatchRuntime()
+        let watchSpeechTask = Task { }
+        let foregroundTask = Task { }
+        manager.watchSuggestionSpeechTask = watchSpeechTask
+        manager.currentResponseTask = foregroundTask
+        manager.setWatchRuntimePaused(.screenLocked, isPaused: true)
+        #expect(watchSpeechTask.isCancelled)
+        #expect(!foregroundTask.isCancelled)
+        foregroundTask.cancel()
+        manager.stopWatchRuntime()
+    }
+
+    @Test func runtimeStopPreservesChoiceAndRepeatedStartOwnsOneObserverSet() {
+        let defaults = makeWatchDefaults()
+        let manager = makeWatchManager(defaults: defaults)
+        manager.setWatchModeEnabled(true)
+        manager.startWatchRuntime()
+        manager.startWatchRuntime()
+        manager.setWatchModeEnabled(true)
+        #expect(manager.watchWorkspaceLifecycleObservers.count == 4)
+        #expect(manager.watchDistributedLifecycleObservers.count == 2)
+        #expect(manager.screenWatchModeController.isWatching)
+        manager.stopWatchRuntime()
+        #expect(manager.isWatchModeEnabled)
+        #expect(CompanionManager(watchModeDefaults: defaults).isWatchModeEnabled)
+        #expect(!manager.screenWatchModeController.isWatching)
+        #expect(manager.watchWorkspaceLifecycleObservers.isEmpty)
+        #expect(manager.watchDistributedLifecycleObservers.isEmpty)
+        manager.setWatchRuntimePaused(.screenLocked, isPaused: false)
+        manager.reconcileWatchRuntime()
+        #expect(!manager.screenWatchModeController.isWatching)
+        manager.startWatchRuntime()
+        #expect(manager.screenWatchModeController.isWatching)
+        manager.setWatchModeEnabled(false)
+        manager.setWatchRuntimePaused(.systemSleeping, isPaused: false)
+        #expect(!manager.screenWatchModeController.isWatching)
+        manager.stopWatchRuntime()
     }
 
     @Test func foregroundHostedHeadlessAndIdempotentLeasesKeepDisclosureUntilAllFinish() {

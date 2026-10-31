@@ -140,7 +140,7 @@ struct PaceEssentialsSettingsView: View {
             )
             toggleRow(
                 title: "Watch mode",
-                qualifier: "session only",
+                qualifier: "always on",
                 subtitle: watchModeSubtitle,
                 isOn: Binding(
                     get: { companionManager.isWatchModeEnabled },
@@ -257,12 +257,12 @@ struct PaceEssentialsSettingsView: View {
             ? "Sends redacted screen text to \(selectedPlannerTitle)."
             : "Observations use your local planner."
         if companionManager.isWatchModeEnabled, let summary = companionManager.latestWatchModeSummary {
-            return "\(summary)\nOff at launch and lock. \(plannerDisclosure)"
+            return "\(summary)\nRemembers your choice. Pauses while locked or asleep. \(plannerDisclosure)"
         }
         guard companionManager.useLocalVLMForScreenContext else {
-            return "Turn on Read my screen first. Off at launch and lock."
+            return "Turn on Read my screen first. Remembers your choice and pauses while locked or asleep."
         }
-        return "Off at launch and lock. \(plannerDisclosure)"
+        return "Remembers your choice. Pauses while locked or asleep. \(plannerDisclosure)"
     }
 
     private var pushToTalkKeyLabels: [String] {

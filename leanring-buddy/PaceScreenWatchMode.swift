@@ -120,6 +120,7 @@ final class PaceScreenWatchModeController {
     typealias EventHandler = @MainActor (PaceScreenWatchEvent) async -> Void
 
     private var watchTask: Task<Void, Never>?
+    var isWatching: Bool { watchTask != nil }
     private var watchGeneration: UInt64 = 0
     private var changeDetector: PaceScreenWatchChangeDetector
     private let configuration: PaceScreenWatchConfiguration

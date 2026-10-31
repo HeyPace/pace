@@ -240,20 +240,30 @@ enum BuddyPlannerClientFactory {
 
     /// Background observations must never silently substitute a different selected tier.
     @MainActor
+    static func hasScreenSuggestionPlannerConsent() -> Bool {
+        switch PacePlannerTierStore.loadConfiguration().tier {
+        case .cliDirect:
+            return PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent()
+                && PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+        case .cliBridge:
+            let bridge = PaceCloudBridgeConsent.loadConfiguration()
+            return bridge.hasUserAcceptedConsent && bridge.mode != .off
+        case .local, .appleFoundationModels, .directAPI:
+            return true
+        }
+    }
+
+    @MainActor
     static func makeScreenSuggestionClient() throws -> (client: any BuddyPlannerClient, isOffDevice: Bool) {
+        guard hasScreenSuggestionPlannerConsent() else {
+            throw PaceScreenSuggestionBoundary.BoundaryError.plannerUnavailable
+        }
         let configuration = PacePlannerTierStore.loadConfiguration()
         switch configuration.tier {
         case .cliDirect:
-            guard PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
-                  PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date()) else {
-                throw PaceScreenSuggestionBoundary.BoundaryError.plannerUnavailable
-            }
             return (makeCLIDirectPlannerOrLocalFallback(configuration: configuration), true)
         case .cliBridge:
             let bridge = PaceCloudBridgeConsent.loadConfiguration()
-            guard bridge.hasUserAcceptedConsent, bridge.mode != .off else {
-                throw PaceScreenSuggestionBoundary.BoundaryError.plannerUnavailable
-            }
             // Screen suggestions use the selected bridge directly, with no complexity
             // escalation or local fallback hidden inside a hybrid foreground session.
             return (CloudBridgePlannerClient(configuration: bridge), true)

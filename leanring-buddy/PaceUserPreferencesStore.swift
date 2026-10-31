@@ -21,6 +21,7 @@ import Foundation
 
 enum PaceUserPreferenceKey: String {
     case useLocalVLMForScreenContext
+    case isWatchModeEnabled
     case isWalkingAvatarEnabled
     case isPaceCursorEnabled
     case areCursorAnnotationsEnabled
@@ -149,8 +150,8 @@ enum PaceUserPreferenceKey: String {
 enum PaceUserPreferencesStore {
     /// Read a boolean preference. Returns `defaultValue` if the key has
     /// never been written.
-    static func bool(_ key: PaceUserPreferenceKey, default defaultValue: Bool) -> Bool {
-        guard let stored = UserDefaults.standard.object(forKey: key.rawValue) as? Bool else {
+    static func bool(_ key: PaceUserPreferenceKey, default defaultValue: Bool, defaults: UserDefaults = .standard) -> Bool {
+        guard let stored = defaults.object(forKey: key.rawValue) as? Bool else {
             return defaultValue
         }
         return stored
@@ -179,8 +180,8 @@ enum PaceUserPreferencesStore {
             || infoPlistRawValue == "yes"
     }
 
-    static func setBool(_ value: Bool, for key: PaceUserPreferenceKey) {
-        UserDefaults.standard.set(value, forKey: key.rawValue)
+    static func setBool(_ value: Bool, for key: PaceUserPreferenceKey, defaults: UserDefaults = .standard) {
+        defaults.set(value, forKey: key.rawValue)
     }
 
     /// Read an integer preference clamped to an inclusive range.
