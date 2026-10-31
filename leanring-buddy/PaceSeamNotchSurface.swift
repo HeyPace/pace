@@ -13,6 +13,7 @@ struct PaceSeamNotchSurface: View {
     var colorRoleOverride: PaceSignalColorRole? = nil
     var isCameraActive = false
     var isScreenActive = false
+    var hasUnreadScreenSuggestion = false
     var persistentStatus: String? = nil
     var companionStatusColor: Color? = nil
     var onBrandTap: (() -> Void)? = nil
@@ -89,6 +90,7 @@ struct PaceSeamNotchSurface: View {
             isOffDeviceTurn: isOffDeviceTurn,
             isCameraActive: isCameraActive,
             isScreenActive: isScreenActive,
+            hasUnreadScreenSuggestion: hasUnreadScreenSuggestion,
             persistentStatus: persistentStatus,
             companionStatusColor: companionStatusColor,
             onBrandTap: onBrandTap,
@@ -121,6 +123,7 @@ struct PaceSeamNotchHeader: View {
     var isExpanded = false
     var isCameraActive = false
     var isScreenActive = false
+    var hasUnreadScreenSuggestion = false
     var persistentStatus: String? = nil
     var companionStatusColor: Color? = nil
     var onBrandTap: (() -> Void)? = nil
@@ -198,9 +201,9 @@ struct PaceSeamNotchHeader: View {
                                 Circle().fill(.green).frame(width: 4, height: 4)
                                     .accessibilityLabel("Camera active")
                             }
-                            if isScreenActive {
-                                Circle().fill(.cyan).frame(width: 4, height: 4)
-                                    .accessibilityLabel("Screen active")
+                            if isScreenActive || hasUnreadScreenSuggestion {
+                                Circle().fill(hasUnreadScreenSuggestion ? .yellow : .cyan).frame(width: 4, height: 4)
+                                    .accessibilityLabel(hasUnreadScreenSuggestion ? "Unread screen suggestion" : "Screen active")
                             }
                         }
                         .fixedSize()
@@ -234,11 +237,19 @@ struct PaceSeamNotchHeader: View {
                 }
                 .pointerCursor()
                 .accessibilityLabel(label)
-                .accessibilityValue(screenReadActivity.isReading && label != "Open Pace" ? "Reading your screen" : "")
-                .help(screenReadActivity.isReading && label != "Open Pace" ? "Reading your screen · " + shortcutHint : shortcutHint)
+                .accessibilityValue(label != "Open Pace" ? conversationStatusDescription : "")
+                .help(label != "Open Pace" && !conversationStatusDescription.isEmpty
+                    ? conversationStatusDescription + " · " + shortcutHint : shortcutHint)
         } else {
             cap
         }
+    }
+
+    private var conversationStatusDescription: String {
+        var descriptions: [String] = []
+        if screenReadActivity.isReading { descriptions.append("Reading your screen") }
+        if hasUnreadScreenSuggestion { descriptions.append("Unread screen suggestion") }
+        return descriptions.joined(separator: ". ")
     }
 
 }

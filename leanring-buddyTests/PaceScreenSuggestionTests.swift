@@ -542,6 +542,37 @@ struct PaceScreenSuggestionIntegrationTests {
         manager.stopWatchRuntime()
     }
 
+    @Test func acceptedVoiceFollowUpAcknowledgesSavedOfferWithoutAcknowledgingUnrelatedVoice() async {
+        let preferences = makeWatchDefaults()
+        let manager = makeWatchManager(defaults: preferences)
+        let history = History()
+        let session = PaceChatSession(historySource: history, transcriptSubmitter: Submitter(), preferences: preferences)
+        manager.chatSession = session
+        manager.conversationRecorder = PaceConversationRecorder(persister: history, chatSession: session)
+        let observedAt = Date()
+        let scene = PaceScreenSceneIdentity(displayIdentifier: 1, applicationProcessIdentifier: 42,
+            applicationBundleIdentifier: "com.apple.Safari")
+        let suggestion = PaceScreenSuggestion(identifier: UUID(), subject: "climbing grades", evidence: "climbing grades and raw strength",
+            offer: "Want an explanation of climbing grades?", sceneIdentity: scene,
+            observedAt: observedAt, expiresAt: observedAt.addingTimeInterval(45))
+        session.upsertConversationEvent(ConversationEvent(eventID: "screen-suggestion-" + suggestion.identifier.uuidString,
+            role: .pace, origin: .proactive, text: suggestion.offer, createdAt: observedAt))
+        let coordinator = PaceScreenSuggestionCoordinator(isEligible: { _ in true },
+            evaluate: { _ in .suggest(suggestion) }, validate: { _, _ in true },
+            deliver: { _ in true }, updateStatus: { _ in })
+        manager.screenSuggestionCoordinator = coordinator
+        coordinator.setEnabled(true)
+        coordinator.observe(.init(capture: CompanionScreenCapture(imageData: Data(), label: "screen", isCursorScreen: true,
+            displayWidthInPoints: 100, displayHeightInPoints: 100, displayFrame: .zero,
+            screenshotWidthInPixels: 100, screenshotHeightInPixels: 100), sceneIdentity: scene, observedAt: observedAt))
+        for _ in 0..<100 { await Task.yield() }
+        #expect(coordinator.followUpContext(for: "yes") != nil)
+        manager.beginConversationRequest("what time is it")
+        #expect(session.hasUnreadScreenSuggestion)
+        manager.beginConversationRequest("yes")
+        #expect(!session.hasUnreadScreenSuggestion)
+    }
+
     @Test func runtimeStopPreservesChoiceAndRepeatedStartOwnsOneObserverSet() {
         let defaults = makeWatchDefaults()
         let manager = makeWatchManager(defaults: defaults)

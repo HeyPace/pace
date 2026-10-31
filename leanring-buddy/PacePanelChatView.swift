@@ -87,9 +87,17 @@ struct PacePanelChatView: View {
         .onAppear {
             chatSession.loadHistoryWithoutBlockingInterface()
             isInputFocused = composerFocusRequestID != nil
+            if composerFocusRequestID != nil {
+                showsHistory = false
+                selectedQuestionIdentifier = nil
+            }
         }
         .onChange(of: composerFocusRequestID) { _, composerFocusRequestID in
             isInputFocused = composerFocusRequestID != nil
+            if composerFocusRequestID != nil {
+                showsHistory = false
+                selectedQuestionIdentifier = nil
+            }
         }
         .onChange(of: companionManager.voiceState) { _, voiceState in
             if voiceState == .listening {
@@ -276,6 +284,10 @@ struct PacePanelChatView: View {
             }
             .onChange(of: chatSession.messages.count) {
                 scrollToBottom(scrollProxy)
+            }
+            .onChange(of: composerFocusRequestID) { _, composerFocusRequestID in
+                guard composerFocusRequestID != nil else { return }
+                scrollToBottom(scrollProxy, animated: false)
             }
             .onChange(of: inFlightStreamedText) {
                 scrollToBottom(scrollProxy)

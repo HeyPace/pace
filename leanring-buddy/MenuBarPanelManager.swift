@@ -39,6 +39,7 @@ private final class PaceConversationPanelSurfaceModel: ObservableObject {
 
 private struct PaceConversationPanelSurface: View {
     @ObservedObject var companionManager: CompanionManager
+    @ObservedObject var chatSession: PaceChatSession
     @ObservedObject var surfaceModel: PaceConversationPanelSurfaceModel
     @ObservedObject var companionControlCenter: PaceCompanionControlCenter
     let usesChatPanelAsPrimarySurface: Bool
@@ -56,6 +57,7 @@ private struct PaceConversationPanelSurface: View {
                         isExpanded: true,
                         isCameraActive: companionControlCenter.activeSources.contains(.camera),
                         isScreenActive: companionManager.isWatchModeEnabled || companionControlCenter.activeSources.contains(.screen),
+                        hasUnreadScreenSuggestion: chatSession.hasUnreadScreenSuggestion,
                         persistentStatus: companionControlCenter.runtimeStatusText,
                         companionStatusColor: companionStatusColor,
                         onBrandTap: {
@@ -113,6 +115,7 @@ private struct PaceConversationPanelSurface: View {
             descriptions.append("Companion mode \(companionControlCenter.runtimeStatusText)")
         }
         if companionManager.isOffDeviceTurnInFlight { descriptions.append("Off-device request active") }
+        if chatSession.hasUnreadScreenSuggestion { descriptions.append("Unread screen suggestion") }
         return descriptions.joined(separator: ". ")
     }
 }
@@ -285,6 +288,7 @@ final class MenuBarPanelManager: NSObject {
             panel.orderFrontRegardless()
         }
         updateNotchConversationVisibility()
+        if panel.isVisible { companionManager.chatSession.conversationPanelDidShow(intent) }
         panelShownAt = Date()
         installClickOutsideMonitor()
     }
@@ -325,6 +329,7 @@ final class MenuBarPanelManager: NSObject {
         let hostingView = NSHostingView(
             rootView: PaceConversationPanelSurface(
                 companionManager: companionManager,
+                chatSession: companionManager.chatSession,
                 surfaceModel: surfaceModel,
                 companionControlCenter: companionManager.companionControlCenter,
                 usesChatPanelAsPrimarySurface: usesChatPanelAsPrimarySurface))

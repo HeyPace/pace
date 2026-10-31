@@ -43,6 +43,9 @@ extension CompanionManager {
     func beginConversationRequest(_ transcript: String) {
         let typedEventIdentifier = pendingTypedConversationEventIdentifier
         pendingTypedConversationEventIdentifier = nil
+        if typedEventIdentifier == nil, screenSuggestionCoordinator.followUpContext(for: transcript) != nil {
+            chatSession.acknowledgeScreenSuggestions()
+        }
         activeConversationUserEvent = acceptConversationRequest(transcript,
             origin: typedEventIdentifier == nil ? .voice : .typed,
             eventIdentifier: typedEventIdentifier ?? UUID().uuidString)

@@ -718,6 +718,7 @@ extension CompanionManager {
         // first, drain timer + orchestrator second.
         proactivityPipeline.start()
         startWatchRuntime()
+        chatSession.loadHistoryWithoutBlockingInterface()
     }
 
     /// 5-minute idle sweep that drops thread-memory state when the

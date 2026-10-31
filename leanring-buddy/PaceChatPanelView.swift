@@ -206,6 +206,10 @@ struct PaceChatPanelView: View {
             .onChange(of: chatSession.messages.count) {
                 scrollTranscriptToBottom(scrollProxy)
             }
+            .onChange(of: composerFocusRequestID) { _, composerFocusRequestID in
+                guard composerFocusRequestID != nil else { return }
+                scrollTranscriptToBottom(scrollProxy, isAnimated: false)
+            }
             .onChange(of: streamingSentenceTTSPipeline.inFlightStreamedText) {
                 scrollTranscriptToBottom(scrollProxy)
             }

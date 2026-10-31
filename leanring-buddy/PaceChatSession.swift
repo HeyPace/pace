@@ -78,6 +78,9 @@ protocol PaceChatTranscriptSubmitting: AnyObject {
 final class PaceChatSession: ObservableObject {
     @Published private(set) var messages: [PaceChatMessage] = []
     @Published private(set) var hasLoadedHistory: Bool = false
+    @Published private(set) var latestScreenSuggestionEvent: ConversationEvent?
+    @Published private var lastAcknowledgedScreenSuggestionEventIdentifier: String
+    @Published private var screenSuggestionReadThroughDate: Date?
 
     /// Mute toggle for THIS session only. Reset to `false` on every app
     /// launch (a fresh `CompanionManager` builds a fresh session) so
@@ -93,6 +96,8 @@ final class PaceChatSession: ObservableObject {
     private var isHistoryLoadInFlight = false
 
     private let historySource: PaceChatHistorySource
+    private let preferences: UserDefaults?
+    private let now: () -> Date
     /// Strongly held. The adapter that conforms to this protocol in
     /// production code holds `CompanionManager` weakly, so a strong
     /// reference here cannot create a retain cycle. Tests can pass a
@@ -102,10 +107,20 @@ final class PaceChatSession: ObservableObject {
 
     init(
         historySource: PaceChatHistorySource,
-        transcriptSubmitter: any PaceChatTranscriptSubmitting
+        transcriptSubmitter: any PaceChatTranscriptSubmitting,
+        preferences: UserDefaults? = nil,
+        now: @escaping () -> Date = Date.init
     ) {
         self.historySource = historySource
         self.transcriptSubmitter = transcriptSubmitter
+        self.preferences = preferences
+        self.now = now
+        self.lastAcknowledgedScreenSuggestionEventIdentifier = preferences.map {
+            PaceUserPreferencesStore.string(.lastAcknowledgedScreenSuggestionEventIdentifier, default: "", defaults: $0)
+        } ?? ""
+        self.screenSuggestionReadThroughDate = preferences.flatMap {
+            PaceUserPreferencesStore.date(.screenSuggestionReadThroughDate, defaults: $0)
+        }
     }
 
     /// Pulls past `paceHistory` turns and seeds `messages` with them.
@@ -138,6 +153,7 @@ final class PaceChatSession: ObservableObject {
 
     func applyLoadedHistory(_ pastTurns: [PaceChatHistoryTurn]) {
         let currentMessages = messages
+        let currentScreenSuggestionEvent = latestScreenSuggestionEvent
         messages = []
         for pastTurn in pastTurns {
             if let event = pastTurn.conversationEvent {
@@ -156,6 +172,7 @@ final class PaceChatSession: ObservableObject {
         }
         // Main-actor events that arrived or changed while disk was being read win.
         for message in currentMessages { upsertMessage(message) }
+        if let currentScreenSuggestionEvent { upsertConversationEvent(currentScreenSuggestionEvent) }
         messages.sort { $0.createdAt < $1.createdAt }
         hasLoadedHistory = true
     }
@@ -163,6 +180,40 @@ final class PaceChatSession: ObservableObject {
     func upsertConversationEvent(_ event: ConversationEvent) {
         upsertMessage(PaceChatMessage(id: event.eventID, role: event.role,
             body: event.text, createdAt: event.createdAt))
+        if event.role == .pace, event.origin == .proactive, event.deliveryState == .completed,
+           event.eventID.hasPrefix("screen-suggestion-"),
+           !event.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           latestScreenSuggestionEvent.map({ event.createdAt >= $0.createdAt }) ?? true {
+            latestScreenSuggestionEvent = event
+        }
+    }
+
+    var hasUnreadScreenSuggestion: Bool {
+        guard let event = latestScreenSuggestionEvent,
+              event.eventID != lastAcknowledgedScreenSuggestionEventIdentifier else { return false }
+        guard let screenSuggestionReadThroughDate else { return true }
+        return event.createdAt >= screenSuggestionReadThroughDate
+    }
+
+    func conversationPanelDidShow(_ intent: PaceConversationPanelPresentationIntent) {
+        guard intent == .interactive else { return }
+        acknowledgeScreenSuggestions()
+    }
+
+    func acknowledgeScreenSuggestions() {
+        let acknowledgementDate = now()
+        if let screenSuggestionReadThroughDate, acknowledgementDate < screenSuggestionReadThroughDate { return }
+        screenSuggestionReadThroughDate = acknowledgementDate
+        if let preferences {
+            PaceUserPreferencesStore.setDate(acknowledgementDate, for: .screenSuggestionReadThroughDate, defaults: preferences)
+        }
+        if let event = latestScreenSuggestionEvent, event.createdAt <= acknowledgementDate {
+            lastAcknowledgedScreenSuggestionEventIdentifier = event.eventID
+            if let preferences {
+                PaceUserPreferencesStore.setString(event.eventID,
+                    for: .lastAcknowledgedScreenSuggestionEventIdentifier, defaults: preferences)
+            }
+        }
     }
 
     private func upsertMessage(_ message: PaceChatMessage) {
@@ -183,6 +234,7 @@ final class PaceChatSession: ObservableObject {
     func submitUserMessage(_ rawTranscript: String) {
         let trimmedTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTranscript.isEmpty else { return }
+        acknowledgeScreenSuggestions()
         let now = Date()
         let pendingMessageId =
             "chat-pending-" + UUID().uuidString

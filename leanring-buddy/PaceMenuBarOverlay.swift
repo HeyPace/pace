@@ -441,6 +441,7 @@ final class PaceMenuBarOverlayManager {
 
 private struct PaceMenuBarOverlayView: View {
     @ObservedObject var companionManager: CompanionManager
+    @ObservedObject private var chatSession: PaceChatSession
     @ObservedObject var surfaceModel: PaceLivingNotchSurfaceModel
     @ObservedObject private var companionControlCenter: PaceCompanionControlCenter
     @ObservedObject private var imageOverlayController: PaceImageOverlayController
@@ -451,6 +452,7 @@ private struct PaceMenuBarOverlayView: View {
         surfaceModel: PaceLivingNotchSurfaceModel
     ) {
         self.companionManager = companionManager
+        self._chatSession = ObservedObject(wrappedValue: companionManager.chatSession)
         self.surfaceModel = surfaceModel
         self._companionControlCenter = ObservedObject(
             wrappedValue: companionManager.companionControlCenter
@@ -471,6 +473,7 @@ private struct PaceMenuBarOverlayView: View {
             colorRoleOverride: companionManager.nativeEffectiveSignalColorRoleOverride,
             isCameraActive: companionControlCenter.activeSources.contains(.camera),
             isScreenActive: companionManager.isWatchModeEnabled || companionControlCenter.activeSources.contains(.screen),
+            hasUnreadScreenSuggestion: chatSession.hasUnreadScreenSuggestion,
             persistentStatus: companionControlCenter.preferences.isCompanionModeEnabled
                 ? companionControlCenter.runtimeStatusText : nil,
             companionStatusColor: companionStatusColor,
@@ -594,6 +597,9 @@ private struct PaceMenuBarOverlayView: View {
             )
         }
 
+        if chatSession.hasUnreadScreenSuggestion {
+            activeCaptureDescriptions.append("Unread screen suggestion")
+        }
         guard activeCaptureDescriptions.isEmpty == false else { return "" }
         return " \(activeCaptureDescriptions.joined(separator: ". "))."
     }

@@ -265,7 +265,8 @@ final class CompanionManager: ObservableObject {
     lazy var chatSession: PaceChatSession = {
         return PaceChatSession(
             historySource: PaceLocalChatHistoryReader(),
-            transcriptSubmitter: companionManagerChatSubmitterAdapter
+            transcriptSubmitter: companionManagerChatSubmitterAdapter,
+            preferences: watchModeDefaults
         )
     }()
 
