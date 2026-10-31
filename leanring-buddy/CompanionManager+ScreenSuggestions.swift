@@ -141,13 +141,9 @@ extension CompanionManager {
         let deliveredAt = Date()
         lastScreenSuggestionDeliveryAt = deliveredAt
         proactivityPipeline.recordExternalProactiveDelivery(at: deliveredAt)
-        let displaced = threadMemory.record(userTurn: "(system) screen suggestion. " + suggestion.untrustedFollowUpContext,
-            assistantTurn: suggestion.offer, turnId: "screen-suggestion-" + suggestion.identifier.uuidString, now: deliveredAt)
-        localRetriever.recordPaceHistory(userTranscript: "", assistantResponse: suggestion.offer)
-        chatSession.appendCompletedTurn(userTranscript: "", assistantResponse: suggestion.offer, recordedAt: deliveredAt)
-        refreshLocalRetrievalPublishedState()
-        persistThreadMemorySnapshot()
-        if let displaced { scheduleDetachedThreadSummarizationCall(displacedTurnPair: displaced, recordedAt: deliveredAt) }
+        recordAssistantNarration(suggestion.offer, origin: .proactive,
+            eventIdentifier: "screen-suggestion-" + suggestion.identifier.uuidString, recordedAt: deliveredAt,
+            plannerContext: "(system) screen suggestion. " + suggestion.untrustedFollowUpContext)
         // This existing nonactivating bubble makes a quiet offer discoverable without
         // opening chat or taking focus. Only accepted offers reach this path.
         responseOverlayManager.showOverlayAndBeginStreaming()

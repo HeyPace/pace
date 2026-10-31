@@ -358,7 +358,9 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// thinking blocks first (their `<think>...</think>` would otherwise
     /// look like a "sentence" to the boundary detector), then action
     /// tags + POINT, then sentence segmentation.
-    nonisolated private static func computeSpeakableSafePrefix(from rawAccumulatedText: String) -> String {
+    nonisolated static func computeSpeakableSafePrefix(
+        from rawAccumulatedText: String, requiresCompleteSentence: Bool = true
+    ) -> String {
         // Fast path: every strip stage below only removes `<think>`,
         // `<tool_calls>…</tool_calls>`, and `[…]` action/POINT tags, and the
         // structured-JSON suppression only triggers on a leading `{`. When
@@ -371,7 +373,7 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         if !rawAccumulatedText.contains("<")
             && !rawAccumulatedText.contains("[")
             && !rawAccumulatedText.contains("{") {
-            return computeLastSentenceBoundedPrefix(of: rawAccumulatedText)
+            return requiresCompleteSentence ? computeLastSentenceBoundedPrefix(of: rawAccumulatedText) : rawAccumulatedText
         }
 
         // 1. Thinking blocks — handles unterminated `<think>` mid-stream
@@ -426,7 +428,7 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         // 4. Bound to last complete sentence so we don't speak partial
         //    words. Sentence terminators: `.` `!` `?` `\n`. Require
         //    the terminator to be followed by whitespace OR end of text.
-        return computeLastSentenceBoundedPrefix(of: safeFromOpenBracket)
+        return requiresCompleteSentence ? computeLastSentenceBoundedPrefix(of: safeFromOpenBracket) : safeFromOpenBracket
     }
 
     nonisolated private static func looksLikeStructuredPlannerJSON(_ text: String) -> Bool {

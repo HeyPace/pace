@@ -74,6 +74,7 @@ nonisolated struct PaceRetrievalDocument: Codable, Equatable {
     let localURL: URL?
     let modifiedAt: Date?
     let permissionScope: String?
+    let conversationEvent: ConversationEvent?
 
     init(
         id: String,
@@ -82,7 +83,8 @@ nonisolated struct PaceRetrievalDocument: Codable, Equatable {
         text: String,
         localURL: URL? = nil,
         modifiedAt: Date? = nil,
-        permissionScope: String? = nil
+        permissionScope: String? = nil,
+        conversationEvent: ConversationEvent? = nil
     ) {
         self.id = id
         self.source = source
@@ -91,6 +93,7 @@ nonisolated struct PaceRetrievalDocument: Codable, Equatable {
         self.localURL = localURL
         self.modifiedAt = modifiedAt
         self.permissionScope = permissionScope
+        self.conversationEvent = conversationEvent
     }
 }
 
@@ -1104,7 +1107,7 @@ final class PaceLocalRetriever: PaceRetriever {
         guard !trimmedTranscript.isEmpty || !trimmedResponse.isEmpty else { return }
 
         let document = PaceRetrievalDocument(
-            id: "pace-history-\(Int(now.timeIntervalSince1970))-\(abs(trimmedTranscript.hashValue))",
+            id: "pace-history-" + UUID().uuidString,
             source: .paceHistory,
             title: "Recent Pace turn",
             text: "User: \(trimmedTranscript)\nPace: \(trimmedResponse)",
@@ -1569,5 +1572,17 @@ nonisolated enum PaceReadOnlyLocalContext {
             return message.isEmpty ? nil : "Reminder: \(message)"
         }
         return nil
+    }
+}
+
+@MainActor
+extension PaceLocalRetriever: PaceConversationEventPersisting {
+    func upsertConversationEvent(_ event: ConversationEvent) {
+        store.upsertDocuments([PaceRetrievalDocument(
+            id: event.eventID, source: .paceHistory, title: "Pace conversation",
+            text: event.role == .user ? "User: \(event.text)\nPace: " : "User: \nPace: \(event.text)",
+            modifiedAt: event.createdAt, permissionScope: "pace-history",
+            conversationEvent: event
+        )])
     }
 }

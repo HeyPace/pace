@@ -87,10 +87,12 @@ extension CompanionManager {
         _ transcript: String,
         optimisticMessageIdentifier: String?
     ) {
+        let acceptedEvent = acceptConversationRequest(transcript, origin: .typed,
+            eventIdentifier: optimisticMessageIdentifier ?? UUID().uuidString)
         let queuedTurn = PaceQueuedChatTurn(
             transcript: transcript,
             shouldMuteTTS: isChatModeMutedForCurrentTurn,
-            optimisticMessageIdentifier: optimisticMessageIdentifier
+            optimisticMessageIdentifier: acceptedEvent.eventID
         )
         isChatModeMutedForCurrentTurn = false
 
@@ -99,6 +101,9 @@ extension CompanionManager {
         if PaceMeetingModeController.shared.state == .starting,
             PaceMeetingModeCommandParser.parse(transcript) == .stop
         {
+            cancelActiveTurnTasks()
+            pendingTypedConversationEventIdentifier = acceptedEvent.eventID
+            beginConversationRequest(transcript)
             isChatModeMutedForCurrentTurn = queuedTurn.shouldMuteTTS
             handleMeetingModeCommand(.stop, transcript: transcript)
             return
@@ -165,6 +170,7 @@ extension CompanionManager {
         PaceLatencyBudget.shared.startTurn(trigger: .deeplink)
         PaceLatencyBudget.shared.mark(.sttComplete)
         voiceState = .processing
+        pendingTypedConversationEventIdentifier = queuedTurn.optimisticMessageIdentifier
         sendTranscriptToPlannerWithScreenshot(transcript: transcript)
     }
 
@@ -174,9 +180,9 @@ extension CompanionManager {
         )
         chatTurnQueue.removeAll()
         queuedChatTurnCount = 0
-        chatSession.removePendingUserMessages(
-            withIdentifiers: optimisticMessageIdentifiers
-        )
+        for eventIdentifier in optimisticMessageIdentifiers {
+            conversationRecorder.updateDeliveryState(.cancelled, eventIdentifier: eventIdentifier)
+        }
         print("🧾 Cleared queued typed turns")
     }
 
@@ -225,6 +231,7 @@ extension CompanionManager {
         }
         imageOverlayController.onGenerationProgress = { [weak self] message in
             self?.currentTurnHUDState = .acting(message)
+            self?.recordAssistantNarration(message, origin: .progress, turnIdentifier: self?.activeConversationUserEvent?.eventID)
             self?.responseOverlayManager.updateStreamingText(message)
         }
         diagramOverlayController.onAskAboutPart = { [weak self] transcript in
@@ -309,6 +316,7 @@ extension CompanionManager {
         // was quit speaks the moment we come back up.
         actionExecutor.setTimerOnFireSpeakCallback { [weak self] spokenReminderText in
             guard let self else { return }
+            self.recordAssistantNarration(spokenReminderText, origin: .reminder)
             Task { @MainActor in
                 try? await self.ttsClient.speakText(spokenReminderText)
             }
@@ -502,7 +510,7 @@ extension CompanionManager {
         PaceBackgroundAgentRunner.shared.speakResult = { [weak self] result in
             guard let self else { return }
             // Store completion in the conversation even when speech is unavailable.
-            self.recordConversationTurn(userTranscript: "Background task completed", assistantResponse: result)
+            self.recordAssistantNarration(result)
             if self.voiceState == .idle {
                 self.responseOverlayManager.showOverlayAndBeginStreaming()
                 self.responseOverlayManager.updateStreamingText(result)

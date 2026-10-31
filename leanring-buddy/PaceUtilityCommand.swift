@@ -44,6 +44,7 @@ extension CompanionManager {
         case .speak(let text, let useKokoro):
             responseOverlayManager.showOverlayAndBeginStreaming()
             responseOverlayManager.updateStreamingText(text)
+            recordConversationTurn(userTranscript: transcript, assistantResponse: text)
             do {
                 let client: any BuddyTTSClient
                 if useKokoro {
@@ -64,7 +65,7 @@ extension CompanionManager {
                 } else {
                     response = "Read aloud: " + text
                 }
-                recordConversationTurn(userTranscript: transcript, assistantResponse: response)
+                recordAssistantNarration(response)
                 responseOverlayManager.updateStreamingText(response)
                 currentTurnHUDState = .done(response)
             } catch {

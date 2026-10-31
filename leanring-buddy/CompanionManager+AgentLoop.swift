@@ -17,7 +17,8 @@ extension CompanionManager {
     /// Cancels both halves of the user-turn pipeline and invalidates the
     /// active lease. Routing and response tasks are separate because routing
     /// can suspend before a response task exists.
-    func cancelActiveTurnTasks() {
+    func cancelActiveTurnTasks(preservingConversationRequest: Bool = false) {
+        if !preservingConversationRequest { interruptConversationRequest() }
         turnLeaseRegistry.invalidateCurrentTurn()
         currentTurnDispatchTask?.cancel()
         currentTurnDispatchTask = nil
@@ -237,6 +238,7 @@ extension CompanionManager {
         clearLastSpokenReplyState()
         responseOverlayManager.finishStreaming()
         currentTurnHUDState = .understanding("using \(option.lowercased())")
+        pendingTypedConversationEventIdentifier = acceptConversationRequest(option, origin: .typed).eventID
         sendTranscriptToPlannerWithScreenshot(transcript: clarifiedTranscript)
     }
 
@@ -585,7 +587,7 @@ extension CompanionManager {
                     onTextChunk: { [weak self] accumulatedPlannerText in
                         guard let self, self.isActiveTurn(turnLease) else { return }
                         PaceLatencyBudget.shared.mark(.plannerFirstToken)
-                        self.responseOverlayManager.updateStreamingText(
+                        self.updateAssistantStreamingText(
                             Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText)
                                 ? "…" : accumulatedPlannerText
                         )
@@ -646,8 +648,10 @@ extension CompanionManager {
                         // Stop any TTS that already started from the
                         // streaming phase and reset the pipeline so the
                         // new response starts fresh.
+                        commitInterruptedAssistantPrefix()
                         ttsClient.stopPlayback()
                         streamingSentenceTTSPipeline.resetForNewTurn()
+                        recordAssistantNarration("let me try that with a bigger model…", origin: .progress, turnIdentifier: activeConversationUserEvent?.eventID)
                         responseOverlayManager.updateStreamingText("let me try that with a bigger model…")
                         currentTurnHUDState = .understanding("re-routing to \(preferredReRoutePlanner.displayName)")
 
@@ -663,7 +667,7 @@ extension CompanionManager {
                                 userPrompt: userPromptForPlanner,
                                 onTextChunk: { [weak self] accumulatedText in
                                     guard let self, self.isActiveTurn(turnLease) else { return }
-                                    self.responseOverlayManager.updateStreamingText(
+                                    self.updateAssistantStreamingText(
                                         Self.streamedPlannerTextIsStructuredEnvelope(accumulatedText)
                                             ? "…" : accumulatedText
                                     )
@@ -764,6 +768,7 @@ extension CompanionManager {
             } catch {
                 guard !Task.isCancelled else { return }
                 print("⚠️ Text-only planner fast path failed: \(error.localizedDescription)")
+                recordConversationTurn(userTranscript: transcript, assistantResponse: "Planner failed: \(error.localizedDescription)")
                 responseOverlayManager.updateStreamingText("Planner failed: \(error.localizedDescription)")
                 responseOverlayManager.finishStreaming()
                 voiceState = .idle
@@ -775,7 +780,7 @@ extension CompanionManager {
     /// Handle a subagent decomposition command. Spawns N parallel
     /// subagents via the coordinator, waits for results, and speaks
     /// the merged response.
-    func handleSubagentDecomposition(command: PaceSubagentCommand) {
+    func handleSubagentDecomposition(command: PaceSubagentCommand, transcript: String) {
         currentTurnHUDState = .understanding("spawning \(command.subtasks.count) parallel agents")
 
         let batchId = PaceSubagentCoordinator.shared.decomposeAndRun(
@@ -784,7 +789,7 @@ extension CompanionManager {
             mergeStrategy: command.mergeStrategy
         )
 
-        let parentPrompt = command.parentPrompt
+        let parentPrompt = transcript
         print("🤖 Subagent batch \(batchId): \(command.subtasks.count) subagents, merge: \(command.mergeStrategy)")
 
         // Spawn a task to wait for completion and speak the result.
@@ -811,6 +816,7 @@ extension CompanionManager {
                 // Timed out or produced nothing — tell the user instead
                 // of going silently idle, and close the latency budget
                 // so the stale turn can't pollute a later turn's stats.
+                self.recordConversationTurn(userTranscript: parentPrompt, assistantResponse: "the parallel agents didn't finish in time.")
                 self.responseOverlayManager.updateStreamingText("the parallel agents didn't finish in time.")
                 await self.streamingSentenceTTSPipeline.flushFinal(
                     finalSpokenText: "the parallel agents didn't finish in time."
@@ -823,7 +829,7 @@ extension CompanionManager {
 
             self.recordConversationTurn(
                 userTranscript: parentPrompt,
-                assistantResponse: String(result.prefix(500))
+                assistantResponse: result
             )
             self.responseOverlayManager.updateStreamingText(result)
 
@@ -879,6 +885,7 @@ extension CompanionManager {
         currentTurnHUDState = .acting(fastActionParseResult.executionPlan.approvalSummary)
         responseOverlayManager.showOverlayAndBeginStreaming()
         responseOverlayManager.updateStreamingText(spokenText)
+        recordAssistantNarration(spokenText, origin: .progress, turnIdentifier: activeConversationUserEvent?.eventID)
 
         currentResponseTask = Task {
             let turnStartedAt = Date()
@@ -1111,8 +1118,13 @@ extension CompanionManager {
     /// subsequent turns get a fixed "continue the task" prompt so the
     /// planner re-anchors on the conversation history rather than a
     /// repeated user statement.
-    func sendTranscriptToPlannerWithScreenshot(transcript: String) {
-        cancelActiveTurnTasks()
+    func sendTranscriptToPlannerWithScreenshot(transcript: String, continuingAcceptedRequest: Bool = false) {
+        cancelActiveTurnTasks(preservingConversationRequest: continuingAcceptedRequest)
+        if continuingAcceptedRequest {
+            activeConversationPlannerTranscript = transcript
+        } else {
+            beginConversationRequest(transcript)
+        }
         let turnLease = turnLeaseRegistry.beginTurn()
         currentTurnDispatchTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -1154,12 +1166,14 @@ extension CompanionManager {
         annotationOverlayController.clearOnNextUserTurn()
         if imageOverlayController.state != .idle, PaceImageGenerationRequest.requestsDismissal(transcript) {
             imageOverlayController.dismiss()
+            recordConversationTurn(userTranscript: transcript, assistantResponse: "Image closed.")
             currentTurnHUDState = .done("image closed")
             voiceState = .idle
             return
         }
         if diagramOverlayController.document != nil, PaceDiagramDocument.requestsDismissal(transcript) {
             diagramOverlayController.dismiss()
+            recordConversationTurn(userTranscript: transcript, assistantResponse: "Diagram closed.")
             currentTurnHUDState = .done("diagram closed")
             voiceState = .idle
             return
@@ -1216,6 +1230,7 @@ extension CompanionManager {
             // already wiped the layer; this second call is a safe
             // no-op and serves as the user-feedback log line.
             annotationOverlayController.clear(reason: "voice command")
+            recordConversationTurn(userTranscript: transcript, assistantResponse: "Annotations cleared.")
             voiceState = .idle
             return
         }
@@ -1227,9 +1242,10 @@ extension CompanionManager {
         // safe no-op — same shape as the clear-annotations fast path.
         if PaceResearchCancelCommandParser.parse(transcript) != nil {
             print("🛑 Research-cancel voice command")
-            cancelActiveTurnTasks()
+            cancelActiveTurnTasks(preservingConversationRequest: true)
             foregroundOffDeviceTurnInFlight = false
             voiceState = .idle
+            recordConversationTurn(userTranscript: transcript, assistantResponse: "Stopped.")
             currentTurnHUDState = .done("stopped researching")
             Task { [weak self] in
                 try? await self?.ttsClient.speakText("Stopped.")
@@ -1245,7 +1261,7 @@ extension CompanionManager {
 
         if let localMemoryCommand = PaceLocalMemoryCommandParser.parse(transcript) {
             print("🧠 Local memory command: \(localMemoryCommand)")
-            handleLocalMemoryCommand(localMemoryCommand)
+            handleLocalMemoryCommand(localMemoryCommand, transcript: transcript)
             return
         }
 
@@ -1541,6 +1557,7 @@ extension CompanionManager {
                     ? ""
                     : " \(trimmedResearchModel.lowercased())"
                 currentTurnHUDState = .understanding("researching with \(upstreamLabel)\(researchModelSuffix)…")
+                recordAssistantNarration("Researching that — give me a minute.", origin: .progress, turnIdentifier: activeConversationUserEvent?.eventID)
                 Task { [weak self] in
                     try? await self?.ttsClient.speakText(
                         "Researching that — give me a minute."
@@ -1566,6 +1583,7 @@ extension CompanionManager {
                     print(
                         "🔬 Routing research turn to Direct API (\(providerLabel)/\(loadedResearchConfiguration.directAPIModelIdentifier))"
                     )
+                    recordAssistantNarration("Researching that — give me a minute.", origin: .progress, turnIdentifier: activeConversationUserEvent?.eventID)
                     Task { [weak self] in
                         try? await self?.ttsClient.speakText(
                             "Researching that — give me a minute."
@@ -1631,6 +1649,7 @@ extension CompanionManager {
                 // forget so it doesn't block the bridge call) — it both sets the
                 // expectation that this turn goes off-device AND masks the
                 // bridge's spin-up latency, so the user isn't left in silence.
+                recordAssistantNarration("Let me phone a friend for this one — give me a sec.", origin: .progress, turnIdentifier: activeConversationUserEvent?.eventID)
                 Task { [weak self] in
                     try? await self?.ttsClient.speakText(
                         "Let me phone a friend for this one — give me a sec."
@@ -1715,7 +1734,7 @@ extension CompanionManager {
             let subagentCommand = PaceSubagentCommandParser.parse(transcript)
         {
             print("🎯 Intent: subagentDecomposition — \(subagentCommand.subtasks.count) parallel subagents")
-            handleSubagentDecomposition(command: subagentCommand)
+            handleSubagentDecomposition(command: subagentCommand, transcript: transcript)
             return
         }
         // Dictation fast path: "type ..." / "dictate ..." → STT cleanup
@@ -1732,7 +1751,7 @@ extension CompanionManager {
                 if let typedText = result {
                     self.recordConversationTurn(
                         userTranscript: transcript,
-                        assistantResponse: "[typed: \(typedText.prefix(100))]"
+                        assistantResponse: "[typed: \(typedText)]"
                     )
                 }
                 self.currentTurnHUDState = .idle
@@ -2054,7 +2073,7 @@ extension CompanionManager {
                                     //    cleaned spoken text once parsing completes.
                                     //    EXCEPT a structured (v10 JSON) stream —
                                     //    show a thinking ellipsis, not raw JSON.
-                                    self.responseOverlayManager.updateStreamingText(
+                                    self.updateAssistantStreamingText(
                                         Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText)
                                             ? "…" : accumulatedPlannerText
                                     )
@@ -2311,16 +2330,11 @@ extension CompanionManager {
                         print("🎯 Step \(stepIndex) pointing: \(parseResult.elementLabel ?? "no element")")
                     }
 
-                    // 8. Save this step to conversation history. First step
-                    //    gets the real transcript; later steps record the
-                    //    continuation placeholder so the planner sees its
-                    //    own previous narration via assistant turns.
-                    // Final answers belong in chat; the internal step marker
-                    // hides its paired assistant row as well as the user row.
+                    // Each visible narration is an assistant event in the same turn.
                     let recordedUserTranscript =
                         isFirstStep
                         ? transcript
-                        : (plannerProvidedFinalFeedback ? "" : "(agent step \(stepIndex))")
+                        : ""
                     recordConversationTurn(
                         userTranscript: recordedUserTranscript,
                         assistantResponse: spokenText
@@ -2681,6 +2695,7 @@ extension CompanionManager {
                     )
                     activeSkillRun = nil
                 }
+                recordAssistantNarration("error: \(error.localizedDescription)", origin: .failure, turnIdentifier: activeConversationUserEvent?.eventID)
                 responseOverlayManager.updateStreamingText("error: \(error.localizedDescription)")
                 responseOverlayManager.finishStreaming()
                 currentTurnHUDState = .failed(error.localizedDescription)
@@ -2901,10 +2916,11 @@ extension CompanionManager {
                 // different string than lite — replays cleanly instead of
                 // being diffed against the already-spoken lite prefix.
                 if winnerBox.winner == .lite, winner == .full {
+                    self.commitInterruptedAssistantPrefix()
                     self.streamingSentenceTTSPipeline.prepareForSupersedingStreamWithinTurn()
                 }
                 winnerBox.winner = winner
-                self.responseOverlayManager.updateStreamingText(
+                self.updateAssistantStreamingText(
                     Self.streamedPlannerTextIsStructuredEnvelope(accumulatedText)
                         ? "…" : accumulatedText
                 )
@@ -3158,6 +3174,11 @@ extension CompanionManager {
     }
 
     func handleMeetingModeCommand(_ command: PaceMeetingModeCommand, transcript: String) {
+        let conversationEventIdentifier = activeConversationUserEvent?.eventID
+        let publishMeetingFeedback: (String) async -> Void = { [weak self] spokenText in
+            await self?.publishCommandFeedback(transcript: transcript, spokenText: spokenText,
+                userEventIdentifier: conversationEventIdentifier)
+        }
         let controller = PaceMeetingModeController.shared
         // Inject the retriever + a privacy-pinned LOCAL planner. Meeting
         // transcripts never ride the active tier — a Direct API / CLI
@@ -3180,7 +3201,7 @@ extension CompanionManager {
                     } else {
                         failureMessage = "Meeting recording did not start."
                     }
-                    await publishCommandFeedback(transcript: transcript, spokenText: failureMessage)
+                    await publishMeetingFeedback(failureMessage)
                     voiceState = .idle
                     return
                 }
@@ -3188,15 +3209,10 @@ extension CompanionManager {
                 // explicit profile AFTER start.
                 if let namedProfile {
                     controller.selectedProfileSlug = namedProfile.slug
-                    await publishCommandFeedback(
-                        transcript: transcript,
-                        spokenText:
-                            "Recording your \(namedProfile.name) — I'll write \(namedProfile.name)-style notes when you stop."
-                    )
+                    await publishMeetingFeedback(
+                        "Recording your \(namedProfile.name) — I'll write \(namedProfile.name)-style notes when you stop.")
                 } else {
-                    await publishCommandFeedback(
-                        transcript: transcript,
-                        spokenText: "Meeting mode on. Recording — I'll generate notes when you stop.")
+                    await publishMeetingFeedback("Meeting mode on. Recording — I'll generate notes when you stop.")
                 }
                 voiceState = .idle
             }
@@ -3209,18 +3225,17 @@ extension CompanionManager {
                     let brief =
                         notes.synthesisFailed
                         ? "Meeting stopped. Notes synthesis failed, but the transcript is saved."
-                        : "Meeting stopped. \(notes.summary)"
-                    await publishCommandFeedback(transcript: transcript, spokenText: brief)
+                        : "Meeting stopped. Your notes are saved."
+                    await publishMeetingFeedback(brief)
                 } else {
-                    await publishCommandFeedback(
-                        transcript: transcript, spokenText: "Meeting stopped. No speech detected.")
+                    await publishMeetingFeedback("Meeting stopped. No speech detected.")
                 }
                 voiceState = .idle
             }
         case .status:
             let status = controller.state == .active ? "active" : "inactive"
             Task {
-                await publishCommandFeedback(transcript: transcript, spokenText: "Meeting mode is \(status).")
+                await publishMeetingFeedback("Meeting mode is \(status).")
                 voiceState = .idle
             }
         }
@@ -3288,7 +3303,7 @@ extension CompanionManager {
                     )
                     let prompt = PaceSkillLoader.toPlannerPrompt(skill)
                     // The planner owns the progress and final response for this run.
-                    sendTranscriptToPlannerWithScreenshot(transcript: prompt)
+                    sendTranscriptToPlannerWithScreenshot(transcript: prompt, continuingAcceptedRequest: true)
                 }
             } else {
                 Task {
@@ -3347,6 +3362,7 @@ extension CompanionManager {
         setupSpokenText: String
     ) {
         currentResponseTask = Task { @MainActor in
+            recordAssistantNarration(setupSpokenText, origin: .progress, turnIdentifier: activeConversationUserEvent?.eventID)
             try? await ttsClient.speakText(setupSpokenText)
 
             let authoringPlanner =
@@ -3375,7 +3391,7 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "I couldn't create that: \(error.localizedDescription)",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
                 return
             }
@@ -3404,21 +3420,21 @@ extension CompanionManager {
                         transcript: transcript,
                         spokenText:
                             "saved \(structuredDefinition.name) as a deterministic local automation. you can ask for it naturally now.",
-                        shouldRecordConversationTurn: false
+                        shouldRecordConversationTurn: true
                     )
                     return
                 } catch PaceUserAutomationStoreError.nameCollision(let name) {
                     handleImmediateLocalModeResponse(
                         transcript: transcript,
                         spokenText: "you already have an automation called \(name), so i didn't overwrite it.",
-                        shouldRecordConversationTurn: false
+                        shouldRecordConversationTurn: true
                     )
                     return
                 } catch PaceUserAutomationStoreError.identifierCollision(_) {
                     handleImmediateLocalModeResponse(
                         transcript: transcript,
                         spokenText: "that automation conflicts with an existing identifier, so i didn't overwrite it.",
-                        shouldRecordConversationTurn: false
+                        shouldRecordConversationTurn: true
                     )
                     return
                 } catch {
@@ -3443,7 +3459,7 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "I couldn't create that: \(error.localizedDescription)",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
                 return
             }
@@ -3472,21 +3488,21 @@ extension CompanionManager {
                         transcript: transcript,
                         spokenText:
                             "saved \(structuredProgram.name) as a deterministic Pace Program. it will run locally without a model.",
-                        shouldRecordConversationTurn: false
+                        shouldRecordConversationTurn: true
                     )
                     return
                 } catch PaceUserProgramStoreError.nameCollision(let name) {
                     handleImmediateLocalModeResponse(
                         transcript: transcript,
                         spokenText: "you already have an automation called \(name), so i didn't overwrite it.",
-                        shouldRecordConversationTurn: false
+                        shouldRecordConversationTurn: true
                     )
                     return
                 } catch PaceUserProgramStoreError.identifierCollision(_) {
                     handleImmediateLocalModeResponse(
                         transcript: transcript,
                         spokenText: "that program conflicts with an existing identifier, so i didn't overwrite it.",
-                        shouldRecordConversationTurn: false
+                        shouldRecordConversationTurn: true
                     )
                     return
                 } catch {
@@ -3512,7 +3528,7 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "I couldn't create that: \(error.localizedDescription)",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
                 return
             }
@@ -3528,7 +3544,7 @@ extension CompanionManager {
                     transcript: transcript,
                     spokenText:
                         "i couldn't represent that safely. describe the steps and any trigger phrase more explicitly.",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
                 return
             }
@@ -3544,7 +3560,7 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "you already have a skill called \(fallbackSkill.name), so i didn't overwrite it.",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
                 return
             }
@@ -3555,13 +3571,13 @@ extension CompanionManager {
                     transcript: transcript,
                     spokenText:
                         "saved \(fallbackSkill.name) as a flexible skill. it will use your selected planner when it runs.",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
             } catch {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "i structured that as a skill but couldn't save it.",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
             }
         }

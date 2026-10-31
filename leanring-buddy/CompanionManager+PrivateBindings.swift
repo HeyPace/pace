@@ -158,8 +158,6 @@ extension CompanionManager {
         guard voiceState == .responding, isAlwaysListeningEnabled,
               !buddyDictationManager.isDictationInProgress,
               !globalPushToTalkShortcutMonitor.isShortcutCurrentlyPressed else { return }
-        let lastSpokenPrefix = streamingSentenceTTSPipeline.inFlightStreamedText
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         cancelActiveTurnTasks()
         streamingSentenceTTSPipeline.drainQueueAndStopForBargeIn()
         buddyDictationManager.openListeningWindow(
@@ -168,16 +166,7 @@ extension CompanionManager {
         )
         currentDictationTrigger = .bargeIn
         globalPushToTalkShortcutMonitor.simulateShortcutPressed()
-        // Journal the interrupt locally. `paceHistory` is the existing
-        // retrieval source; no new tracking, no new files.
-        let prefixForJournalLine = lastSpokenPrefix.isEmpty
-            ? "(no prefix captured)"
-            : lastSpokenPrefix
-        localRetriever.recordPaceHistory(
-            userTranscript: "(system) barge-in interrupted assistant turn",
-            assistantResponse: "[interrupted-mid-speech] \(prefixForJournalLine)"
-        )
-        refreshLocalRetrievalPublishedState()
+
     }
 
     /// Wave 2b — wires the wake-word spotter lifecycle to the

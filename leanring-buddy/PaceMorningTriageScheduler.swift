@@ -296,13 +296,13 @@ final class PaceMorningTriageScheduler: ObservableObject {
 
     /// Writes the spoken brief into `paceHistory` so "what did you tell
     /// me this morning?" answers from local retrieval. The transcript
-    /// side is a small canned marker so the document is searchable.
+    /// side stays empty because a scheduled brief is assistant-initiated.
     private func recordPaceHistoryEntry(briefText: String, now: Date) {
         let trimmedBriefText = briefText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedBriefText.isEmpty else { return }
 
         if let paceHistoryRecorder {
-            paceHistoryRecorder("morning brief", trimmedBriefText, now)
+            paceHistoryRecorder("", trimmedBriefText, now)
             return
         }
 
@@ -310,11 +310,8 @@ final class PaceMorningTriageScheduler: ObservableObject {
         // existing recordPaceHistory method. Tests inject a recorder
         // closure so the live retriever is never touched.
         if let liveRetriever = retriever as? PaceLocalRetriever {
-            liveRetriever.recordPaceHistory(
-                userTranscript: "morning brief",
-                assistantResponse: trimmedBriefText,
-                now: now
-            )
+            liveRetriever.upsertConversationEvent(ConversationEvent(role: .pace,
+                origin: .proactive, text: trimmedBriefText, createdAt: now))
         }
     }
 }

@@ -46,6 +46,7 @@ extension CompanionManager {
             // Speak only when no turn is in flight — a posture nudge should
             // never talk over an answer the user asked for.
             guard voiceState == .idle else { return }
+            recordAssistantNarration(assessment.spokenNudge, origin: .proactive)
             Task {
                 await streamingSentenceTTSPipeline.flushFinal(
                     finalSpokenText: assessment.spokenNudge

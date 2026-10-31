@@ -198,13 +198,7 @@ extension CompanionManager {
             responseOverlayManager.finishStreaming()
             currentTurnHUDState = .failed(narration.spokenText)
         } else {
-            // Background failures remain internal breadcrumbs so they do not
-            // masquerade as something the user asked in conversation history.
-            localRetriever.recordPaceHistory(
-                userTranscript: "(system) failure event",
-                assistantResponse: "Pace surfaced a failure: \(narration.spokenText)"
-            )
-            refreshLocalRetrievalPublishedState()
+            recordAssistantNarration(narration.spokenText, origin: .failure)
         }
     }
 

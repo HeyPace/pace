@@ -68,7 +68,7 @@ extension CompanionManager {
         }
     }
 
-    func handleLocalMemoryCommand(_ command: PaceLocalMemoryCommand) {
+    func handleLocalMemoryCommand(_ command: PaceLocalMemoryCommand, transcript: String) {
         let spokenText: String
         switch command {
         case .set(let key, let value):
@@ -79,6 +79,7 @@ extension CompanionManager {
             spokenText = "forgot that preference."
         }
 
+        recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
         localMemorySummary = PaceLocalMemoryStore.summaryText
         localRetriever.refreshPreferenceDocuments()
         refreshLocalRetrievalPublishedState()
@@ -122,7 +123,7 @@ extension CompanionManager {
             handleImmediateLocalModeResponse(
                 transcript: transcript,
                 spokenText: automationCatalog.spokenListResponse(),
-                shouldRecordConversationTurn: false
+                shouldRecordConversationTurn: true
             )
 
         case .run(let requestedName):
@@ -131,7 +132,7 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "i don't see an automation called \(requestedName).",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
 
             case .collision(let matchingEntries):
@@ -142,7 +143,7 @@ extension CompanionManager {
                     transcript: transcript,
                     spokenText:
                         "\(requestedName) matches multiple entries from \(conflictingSources). say the source-specific command instead.",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
 
             case .unique(let matchingEntry):
@@ -203,7 +204,7 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "which automation did you mean: \(choices)?",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
                 return true
             }
@@ -291,7 +292,7 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "that automation is no longer available.",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
                 return
             }
@@ -302,7 +303,7 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "i need \(missingPreferenceKey) set first.",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
                 return
             }
@@ -321,7 +322,7 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "i couldn't validate that automation, so i didn't run it.",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
             }
 
@@ -335,7 +336,7 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "that programmed automation is no longer available.",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
                 return
             }
@@ -345,7 +346,7 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "i need \(missingPreferenceKey) set first.",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
                 return
             }
@@ -367,7 +368,7 @@ extension CompanionManager {
                     handleImmediateLocalModeResponse(
                         transcript: transcript,
                         spokenText: "\(program.name) didn't have any actions for the current conditions.",
-                        shouldRecordConversationTurn: false
+                        shouldRecordConversationTurn: true
                     )
                 }
             } catch {
@@ -375,7 +376,7 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "i couldn't validate that programmed automation, so i didn't run it.",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
             }
 
@@ -384,7 +385,7 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "that recorded flow is no longer available.",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
                 return
             }
@@ -392,7 +393,7 @@ extension CompanionManager {
             handleImmediateLocalModeResponse(
                 transcript: transcript,
                 spokenText: "replaying \(storedFlow.name) now.",
-                shouldRecordConversationTurn: false
+                shouldRecordConversationTurn: true
             )
             beginFlowReplay(storedFlow)
 
@@ -401,7 +402,7 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "that skill is no longer available.",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
                 return
             }
@@ -430,7 +431,7 @@ extension CompanionManager {
             handleImmediateLocalModeResponse(
                 transcript: transcript,
                 spokenText: "i couldn't read your Shortcuts library.",
-                shouldRecordConversationTurn: false
+                shouldRecordConversationTurn: true
             )
             return
         }
@@ -441,7 +442,7 @@ extension CompanionManager {
             handleImmediateLocalModeResponse(
                 transcript: transcript,
                 spokenText: spokenText,
-                shouldRecordConversationTurn: false
+                shouldRecordConversationTurn: true
             )
 
         case .run(let requestedShortcutName):
@@ -453,7 +454,7 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText: "i don't see a shortcut called \(requestedShortcutName).",
-                    shouldRecordConversationTurn: false
+                    shouldRecordConversationTurn: true
                 )
                 return
             }
@@ -490,8 +491,8 @@ extension CompanionManager {
         return "your shortcuts are \(spokenShortcutNames)."
     }
 
-    func publishCommandFeedback(transcript: String, spokenText: String) async {
-        recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
+    func publishCommandFeedback(transcript: String, spokenText: String, userEventIdentifier: String? = nil) async {
+        recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText, userEventIdentifier: userEventIdentifier)
         responseOverlayManager.showOverlayAndBeginStreaming()
         responseOverlayManager.updateStreamingText(spokenText)
         currentTurnHUDState = .done(spokenText)

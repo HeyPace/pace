@@ -253,6 +253,15 @@ final class CompanionManager: ObservableObject {
     /// window opens on demand, not at launch). Persistence runs
     /// through `paceHistory` retrieval — there is no parallel chat
     /// storage layer. See `PaceChatSession.swift`.
+    lazy var conversationRecorder = PaceConversationRecorder(persister: localRetriever, chatSession: chatSession)
+    var activeConversationUserEvent: ConversationEvent?
+    var activeConversationPlannerTranscript: String?
+    var pendingTypedConversationEventIdentifier: String?
+    var activeConversationVisibleAssistantText = ""
+    var activeConversationAssistantEventIdentifier: String?
+    var lastConversationAssistantEventIdentifier: String?
+    var extractedConversationUserEventIdentifiers: Set<String> = []
+
     lazy var chatSession: PaceChatSession = {
         return PaceChatSession(
             historySource: PaceLocalChatHistoryReader(),
@@ -1150,11 +1159,7 @@ final class CompanionManager: ObservableObject {
                 // earlier?" can recall the nudge later. Pre-existing
                 // journal-style surface, no new index.
                 guard let self else { return }
-                self.localRetriever.recordPaceHistory(
-                    userTranscript: "(system) proactive nudge",
-                    assistantResponse: utterance.spokenText
-                )
-                self.refreshLocalRetrievalPublishedState()
+                self.recordAssistantNarration(utterance.spokenText, origin: .proactive)
             },
             cachedScreenDescriptionProvider: { [weak self] screenLabel in
                 self?.screenContextService.cachedDescriptionIfFresh(screenLabel: screenLabel)
@@ -1218,7 +1223,10 @@ final class CompanionManager: ObservableObject {
                 }
                 return self.buildMorningTriageRestraintContext(forNow: context.now)
             },
-            defaults: .standard
+            defaults: .standard,
+            paceHistoryRecorder: { [weak self] _, assistantResponse, recordedAt in
+                self?.recordAssistantNarration(assistantResponse, origin: .proactive, recordedAt: recordedAt)
+            }
         )
         scheduler.setFireTime(
             hourOfDay: morningTriageHourOfDay,

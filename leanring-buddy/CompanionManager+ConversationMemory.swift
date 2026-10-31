@@ -34,11 +34,92 @@ extension CompanionManager {
         threadMemory.restore(from: persistedSnapshot)
         print("🧠 Thread memory restored: \(persistedSnapshot.verbatimWindow.count) verbatim turn(s), summary=\(persistedSnapshot.summary != nil)")
     }
+    @discardableResult
+    func acceptConversationRequest(_ transcript: String, origin: ConversationEvent.Origin,
+                                   eventIdentifier: String = UUID().uuidString) -> ConversationEvent {
+        conversationRecorder.acceptRequest(transcript, origin: origin, eventIdentifier: eventIdentifier)
+    }
+
+    func beginConversationRequest(_ transcript: String) {
+        let typedEventIdentifier = pendingTypedConversationEventIdentifier
+        pendingTypedConversationEventIdentifier = nil
+        activeConversationUserEvent = acceptConversationRequest(transcript,
+            origin: typedEventIdentifier == nil ? .voice : .typed,
+            eventIdentifier: typedEventIdentifier ?? UUID().uuidString)
+        activeConversationPlannerTranscript = transcript
+        activeConversationAssistantEventIdentifier = UUID().uuidString
+        activeConversationVisibleAssistantText = ""
+        lastConversationAssistantEventIdentifier = nil
+    }
+
+    func interruptConversationRequest() {
+        guard let userEvent = activeConversationUserEvent else { return }
+        commitInterruptedAssistantPrefix()
+        if conversationRecorder.event(withIdentifier: userEvent.eventID)?.deliveryState == .accepted {
+            conversationRecorder.updateDeliveryState(.cancelled, eventIdentifier: userEvent.eventID)
+        }
+        activeConversationVisibleAssistantText = ""
+        activeConversationUserEvent = nil
+        activeConversationPlannerTranscript = nil
+        activeConversationAssistantEventIdentifier = nil
+        lastConversationAssistantEventIdentifier = nil
+        liveSpeechDraft = ""
+    }
+
+    func commitInterruptedAssistantPrefix() {
+        guard let userEvent = activeConversationUserEvent else { return }
+        let visiblePrefix = (activeConversationVisibleAssistantText.isEmpty
+            ? streamingSentenceTTSPipeline.inFlightStreamedText : activeConversationVisibleAssistantText)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !visiblePrefix.isEmpty {
+            let eventIdentifier = activeConversationAssistantEventIdentifier ?? UUID().uuidString
+            conversationRecorder.record(ConversationEvent(eventID: eventIdentifier,
+                turnID: userEvent.turnID, role: .pace, origin: .assistant, text: visiblePrefix,
+                deliveryState: .interrupted))
+        } else if let lastConversationAssistantEventIdentifier,
+                  ttsClient.isPlaying || voiceState == .responding {
+            // The complete text remains visible even when playback stopped early.
+            conversationRecorder.updateDeliveryState(.interrupted,
+                eventIdentifier: lastConversationAssistantEventIdentifier)
+        }
+        activeConversationVisibleAssistantText = ""
+        activeConversationAssistantEventIdentifier = UUID().uuidString
+    }
+
+    func updateAssistantStreamingText(_ text: String) {
+        activeConversationVisibleAssistantText = text == "…" ? ""
+            : StreamingSentenceTTSPipeline.computeSpeakableSafePrefix(from: text, requiresCompleteSentence: false)
+        responseOverlayManager.updateStreamingText(text)
+    }
+
+    @discardableResult
+    func recordAssistantNarration(_ text: String, origin: ConversationEvent.Origin = .assistant,
+                                  eventIdentifier: String = UUID().uuidString,
+                                  turnIdentifier: String? = nil, recordedAt: Date = Date(),
+                                  plannerContext: String = "") -> String {
+        let event = ConversationEvent(eventID: eventIdentifier, turnID: turnIdentifier,
+            role: .pace, origin: origin, text: text, createdAt: recordedAt)
+        let isNewEvent = conversationRecorder.event(withIdentifier: eventIdentifier) == nil
+        conversationRecorder.record(event)
+        if isNewEvent && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let displacedTurnPair = threadMemory.record(userTurn: plannerContext, assistantTurn: text,
+                turnId: eventIdentifier, now: recordedAt)
+            persistThreadMemorySnapshot()
+            if let displacedTurnPair {
+                scheduleDetachedThreadSummarizationCall(displacedTurnPair: displacedTurnPair, recordedAt: recordedAt)
+            }
+        }
+        refreshLocalRetrievalPublishedState()
+        return eventIdentifier
+    }
+
     func recordConversationTurn(
         userTranscript: String,
-        assistantResponse: String
+        assistantResponse: String,
+        userEventIdentifier: String? = nil
     ) {
-        if let activePacePadTurnIdentifier {
+        let ownsActiveStream = userEventIdentifier == nil || userEventIdentifier == activeConversationUserEvent?.eventID
+        if ownsActiveStream, let activePacePadTurnIdentifier {
             _ = pacePadOutputDelegate?.deliverAssistantResponse(
                 turnIdentifier: activePacePadTurnIdentifier,
                 spokenText: assistantResponse,
@@ -47,46 +128,62 @@ extension CompanionManager {
             self.activePacePadTurnIdentifier = nil
             activePacePadTurnUsesOffDevicePlanner = false
         }
-        // The committed user message is about to land in the chat transcript,
-        // so retire the live in-progress speech bubble (no duplicate).
-        liveSpeechDraft = ""
-        // Same reasoning on the assistant side: the committed reply is about
-        // to land, so retire the live streamed-reply row or the panel shows
-        // the reply twice (streaming row + committed row). This LOCKS the row
-        // retired for the rest of the turn, so the final flushFinal dispatch
-        // and any late stream chunk can't re-populate it.
-        streamingSentenceTTSPipeline.finalizeInFlightStreamedTextForTurn()
+        if ownsActiveStream {
+            liveSpeechDraft = ""
+            streamingSentenceTTSPipeline.finalizeInFlightStreamedTextForTurn()
+            activeConversationVisibleAssistantText = ""
+        }
         let recordedAt = Date()
-        let stableTurnId = "turn-\(Int(recordedAt.timeIntervalSince1970))-\(abs(userTranscript.hashValue))"
+        let trimmedUserTranscript = userTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isGenuineUserTranscript = !trimmedUserTranscript.isEmpty
+            && !trimmedUserTranscript.hasPrefix("(system)")
+            && !trimmedUserTranscript.hasPrefix("(agent step ")
+        let userEvent: ConversationEvent?
+        if let userEventIdentifier,
+            let acceptedEvent = conversationRecorder.event(withIdentifier: userEventIdentifier) {
+            userEvent = acceptedEvent
+        } else if isGenuineUserTranscript {
+            if let activeConversationUserEvent,
+                activeConversationUserEvent.text == trimmedUserTranscript || activeConversationPlannerTranscript == userTranscript {
+                userEvent = activeConversationUserEvent
+            } else {
+                userEvent = acceptConversationRequest(userTranscript, origin: .voice)
+            }
+        } else {
+            userEvent = nil
+        }
+        let userTranscriptForMemory = userEvent?.text ?? userTranscript
+        let stableTurnId = userEvent?.eventID ?? activeConversationUserEvent?.eventID ?? UUID().uuidString
+        let shouldExtractUserFacts = userEvent.map {
+            extractedConversationUserEventIdentifiers.insert($0.eventID).inserted
+        } ?? false
+        if let userEvent {
+            conversationRecorder.updateDeliveryState(.completed, eventIdentifier: userEvent.eventID)
+        }
+        let assistantEventIdentifier = (ownsActiveStream ? activeConversationAssistantEventIdentifier : nil) ?? UUID().uuidString
+        conversationRecorder.record(ConversationEvent(eventID: assistantEventIdentifier,
+            turnID: stableTurnId, role: .pace, origin: .assistant, text: assistantResponse,
+            createdAt: recordedAt))
+        if ownsActiveStream {
+            lastConversationAssistantEventIdentifier = assistantEventIdentifier
+            activeConversationAssistantEventIdentifier = UUID().uuidString
+        }
 
-        // Push the turn into the verbatim window. If the window
-        // overflowed, the displaced pair is what feeds the next
-        // detached summarizer call.
         let displacedTurnPair = threadMemory.record(
-            userTurn: userTranscript,
-            assistantTurn: assistantResponse,
-            turnId: stableTurnId,
-            now: recordedAt
-        )
-
-        localRetriever.recordPaceHistory(
-            userTranscript: userTranscript,
-            assistantResponse: assistantResponse
-        )
-        // Mirror the same turn into the in-window chat surface so the
-        // Conversations tab stays aligned with the canonical
-        // `paceHistory` write — voice turns appear in chat history,
-        // and chat turns dedupe against the optimistic user row that
-        // PaceChatSession.submitUserMessage already inserted.
-        chatSession.appendCompletedTurn(
-            userTranscript: userTranscript,
-            assistantResponse: assistantResponse,
-            recordedAt: recordedAt
-        )
+            userTurn: shouldExtractUserFacts ? userTranscriptForMemory : "",
+            assistantTurn: assistantResponse, turnId: assistantEventIdentifier, now: recordedAt)
+        refreshLocalRetrievalPublishedState()
+        persistThreadMemorySnapshot()
+        guard shouldExtractUserFacts else {
+            if let displacedTurnPair {
+                scheduleDetachedThreadSummarizationCall(displacedTurnPair: displacedTurnPair, recordedAt: recordedAt)
+            }
+            return
+        }
         let frontmostAppName = NSWorkspace.shared.frontmostApplication?.localizedName
         // 1. Fast pattern extractor — inline, sub-millisecond.
         let patternExtractedFacts = episodicPatternExtractor.extractFacts(
-            from: userTranscript,
+            from: userTranscriptForMemory,
             assistantText: assistantResponse,
             frontmostApplicationName: frontmostAppName,
             sourceTurnId: stableTurnId
@@ -99,21 +196,16 @@ extension CompanionManager {
         //    delta. LM Studio fallback is loopback-only. Either
         //    failure is silent — episodic memory is best-effort.
         scheduleDetachedEpisodicLLMExtractionCall(
-            userTranscript: userTranscript,
+            userTranscript: userTranscriptForMemory,
             assistantSpokenText: assistantResponse,
             frontmostAppName: frontmostAppName,
             turnId: stableTurnId,
             intentRoute: lastIntentRouteForEpisodicExtraction
         )
 
-        // Persist the conversation after every turn so it survives
-        // quit/relaunch. Before the displaced-pair guard below, which
-        // returns early on turns that didn't overflow the window.
-        persistThreadMemorySnapshot()
-
         // Dual-write the turn into the unified memory index (ships dark).
         recordUnifiedMemoryTurn(
-            userTranscript: userTranscript,
+            userTranscript: userTranscriptForMemory,
             assistantResponse: assistantResponse,
             turnId: stableTurnId,
             recordedAt: recordedAt
