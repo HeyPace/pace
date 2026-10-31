@@ -166,10 +166,7 @@ final class MenuBarPanelManager: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let manager = self else { return }
-            Task { @MainActor in
-                manager.hidePanel()
-            }
+            MainActor.assumeIsolated { self?.hidePanel() }
         }
 
         showPanelObserver = NotificationCenter.default.addObserver(
@@ -297,6 +294,7 @@ final class MenuBarPanelManager: NSObject {
         surfaceModel.presentation = .hidden
         guard let panel, wasVisible else {
             removeClickOutsideMonitor()
+            updateNotchConversationVisibility()
             return
         }
         visibilityAnimationGeneration += 1

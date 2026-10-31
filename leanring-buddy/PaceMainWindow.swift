@@ -60,6 +60,7 @@ final class PaceMainWindowManager {
         companionManager: CompanionManager,
         destination: PaceCommandCenterDestination? = nil
     ) {
+        NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
         if let existingWindow = window {
             if let destination {
                 router?.select(destination)
