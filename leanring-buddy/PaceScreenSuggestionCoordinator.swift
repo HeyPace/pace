@@ -6,6 +6,23 @@ nonisolated struct PaceScreenSceneIdentity: Equatable, Sendable {
     let applicationBundleIdentifier: String
 }
 
+@MainActor
+struct PaceScreenSuggestionVisualGate {
+    private var evaluatedSceneIdentity: PaceScreenSceneIdentity?
+    private var evaluatedFingerprint: PaceScreenVisualFingerprint?
+
+    func needsEvaluation(sceneIdentity: PaceScreenSceneIdentity, fingerprint: PaceScreenVisualFingerprint) -> Bool {
+        guard sceneIdentity == evaluatedSceneIdentity, let evaluatedFingerprint,
+              let difference = PaceScreenImageDiffer.diff(from: evaluatedFingerprint, to: fingerprint) else { return true }
+        return difference.isMeaningful
+    }
+
+    mutating func recordEvaluation(sceneIdentity: PaceScreenSceneIdentity, fingerprint: PaceScreenVisualFingerprint) {
+        evaluatedSceneIdentity = sceneIdentity
+        evaluatedFingerprint = fingerprint
+    }
+}
+
 nonisolated struct PaceScreenSuggestion {
     let identifier: UUID
     let subject: String

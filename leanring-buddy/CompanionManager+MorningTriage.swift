@@ -259,6 +259,7 @@ extension CompanionManager {
             return
         }
         isWatchModeEnabled = enabled
+        screenSuggestionVisualGate = PaceScreenSuggestionVisualGate()
         screenSuggestionCoordinator.setEnabled(enabled)
         if enabled {
             latestWatchModeSummary = "Watching · suggestions use the selected planner"

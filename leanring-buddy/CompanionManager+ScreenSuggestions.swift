@@ -73,10 +73,23 @@ extension CompanionManager {
         let cursorScreen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
         let displayIdentifier = cursorScreen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32
         return displayIdentifier == sceneIdentity.displayIdentifier
+            && PaceRestraintGate.decide(screenSuggestionRestraintContext(sceneIdentity)) == .speak
+    }
+
+    func screenSuggestionRestraintContext(_ sceneIdentity: PaceScreenSceneIdentity) -> PaceRestraintContext {
+        PaceRestraintContext(now: Date(),
+            lastProactiveUtteranceAt: [lastScreenSuggestionDeliveryAt, proactivityPipeline.lastProactiveUtteranceAt].compactMap { $0 }.max(),
+            lastEpisodicRecallAt: nil, lastUserInputAt: userInputActivityMonitor.lastUserInputAt,
+            frontmostAppBundleIdentifier: sceneIdentity.applicationBundleIdentifier,
+            isOnActiveCall: activeCallDetector.isOnActiveCall, wakeWordConfidence: nil,
+            intent: .screenDescription, proactiveSource: .watchNudge, profile: proactivityProfile,
+            isInUserFocusMode: focusModeMonitor.isCurrentlyInUserFocus)
     }
 
     func evaluateScreenSuggestion(_ observation: PaceScreenSuggestionCoordinator.Observation) async throws -> PaceScreenSuggestionDecision {
         guard screenSuggestionEvaluationAllowed(observation.sceneIdentity) else { return .quiet }
+        guard let fingerprint = PaceScreenImageDiffer.fingerprint(for: observation.capture.imageData),
+              screenSuggestionVisualGate.needsEvaluation(sceneIdentity: observation.sceneIdentity, fingerprint: fingerprint) else { return .quiet }
         let configuration = PacePlannerTierStore.loadConfiguration()
         let bridgeConfiguration = PaceCloudBridgeConsent.loadConfiguration()
         let directConsent = PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent()
@@ -103,8 +116,10 @@ extension CompanionManager {
               configuration == PacePlannerTierStore.loadConfiguration(),
               directConsent == PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
               bridgeConfiguration == PaceCloudBridgeConsent.loadConfiguration() else { return .quiet }
-        return try PaceScreenSuggestionBoundary.parse(result.text, ocr: ocr,
+        let decision = try PaceScreenSuggestionBoundary.parse(result.text, ocr: ocr,
             sceneIdentity: observation.sceneIdentity, observedAt: observation.observedAt)
+        screenSuggestionVisualGate.recordEvaluation(sceneIdentity: observation.sceneIdentity, fingerprint: fingerprint)
+        return decision
     }
 
     func beginScreenSuggestionDisclosureLease(isOffDevice: Bool) -> UUID? {
@@ -123,14 +138,6 @@ extension CompanionManager {
 
     func deliverScreenSuggestion(_ suggestion: PaceScreenSuggestion) -> Bool {
         guard screenSuggestionEvaluationAllowed(suggestion.sceneIdentity) else { return false }
-        let context = PaceRestraintContext(now: Date(),
-            lastProactiveUtteranceAt: [lastScreenSuggestionDeliveryAt, proactivityPipeline.lastProactiveUtteranceAt].compactMap { $0 }.max(),
-            lastEpisodicRecallAt: nil, lastUserInputAt: userInputActivityMonitor.lastUserInputAt,
-            frontmostAppBundleIdentifier: suggestion.sceneIdentity.applicationBundleIdentifier,
-            isOnActiveCall: activeCallDetector.isOnActiveCall, wakeWordConfidence: nil,
-            intent: .screenDescription, proactiveSource: .watchNudge, profile: proactivityProfile,
-            isInUserFocusMode: focusModeMonitor.isCurrentlyInUserFocus)
-        guard PaceRestraintGate.decide(context) == .speak else { return false }
         let deliveredAt = Date()
         lastScreenSuggestionDeliveryAt = deliveredAt
         proactivityPipeline.recordExternalProactiveDelivery(at: deliveredAt)

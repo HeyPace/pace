@@ -420,6 +420,7 @@ final class CompanionManager: ObservableObject {
     let permissionEventStore = EKEventStore()
     var watchLifecycleObservers: [NSObjectProtocol] = []
     var lastScreenSuggestionDeliveryAt: Date?
+    var screenSuggestionVisualGate = PaceScreenSuggestionVisualGate()
     lazy var screenSuggestionCoordinator = makeScreenSuggestionCoordinator()
     lazy var screenWatchModeController: PaceScreenWatchModeController = {
         PaceScreenWatchModeController()

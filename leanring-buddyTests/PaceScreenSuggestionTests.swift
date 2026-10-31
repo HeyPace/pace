@@ -236,6 +236,23 @@ struct PaceScreenSuggestionCoordinatorTests {
 struct PaceScreenSuggestionBoundaryTests {
     let scene = PaceScreenSceneIdentity(displayIdentifier: 1, applicationProcessIdentifier: 42, applicationBundleIdentifier: "com.apple.Safari")
 
+    @Test func unchangedScreenAndMinorAnimationWaitForMeaningfulContent() {
+        var gate = PaceScreenSuggestionVisualGate()
+        let original = PaceScreenVisualFingerprint(width: 10, height: 10, grayscalePixels: Array(repeating: 100, count: 100))
+        #expect(gate.needsEvaluation(sceneIdentity: scene, fingerprint: original))
+        gate.recordEvaluation(sceneIdentity: scene, fingerprint: original)
+        #expect(!gate.needsEvaluation(sceneIdentity: scene, fingerprint: original))
+        var blinkPixels = original.grayscalePixels
+        blinkPixels[0] = 255
+        let minorAnimation = PaceScreenVisualFingerprint(width: 10, height: 10, grayscalePixels: blinkPixels)
+        #expect(!gate.needsEvaluation(sceneIdentity: scene, fingerprint: minorAnimation))
+        let differentContent = PaceScreenVisualFingerprint(width: 10, height: 10, grayscalePixels: Array(repeating: 200, count: 100))
+        #expect(gate.needsEvaluation(sceneIdentity: scene, fingerprint: differentContent))
+        let differentApplication = PaceScreenSceneIdentity(displayIdentifier: 1, applicationProcessIdentifier: 43,
+            applicationBundleIdentifier: "com.apple.TextEdit")
+        #expect(gate.needsEvaluation(sceneIdentity: differentApplication, fingerprint: original))
+    }
+
     @Test func acceptsSmallGroundedOfferAndQuiet() throws {
         let output = #"{"decision":"suggest","subject":"TCP congestion","evidence":"TCP congestion control","offer":"Would an explanation of TCP congestion help?"}"#
         let decision = try PaceScreenSuggestionBoundary.parse(output, ocr: "TCP congestion control", sceneIdentity: scene, observedAt: Date())
