@@ -2144,6 +2144,24 @@ extension CompanionManager {
                     if requiresObservationOnly,
                         !PaceActionApprovalPolicy.permitsObservationOnly(rawActionParseResult.executionPlan)
                     {
+                        recordToolCallDebug(
+                            PaceToolCallDebugRecord(
+                                transcript: isFirstStep ? transcript : "(agent step \(stepIndex))",
+                                lane: .planner,
+                                routingDetail:
+                                    "\(intentPrediction.intent.rawValue) · conf \(String(format: "%.2f", intentPrediction.confidence)) · \(intentPrediction.route.rawValue)",
+                                plannerPathDetail: "blocked observation-only plan",
+                                screenElementCount: lastPlannerElementLineCountForDebug,
+                                rawPlannerOutput: fullResponseText,
+                                spokenText: "",
+                                parsedActionsSummary: Self.toolCallDebugSummary(
+                                    for: rawActionParseResult.executionPlan),
+                                dispatchSummary: "blocked by observation-only policy — no actions executed",
+                                plannerLatencyMs: plannerSectionElapsedMs,
+                                totalTurnLatencyMs: Int(
+                                    Date().timeIntervalSince(turnStartedAt) * 1000),
+                                userPrompt: userPromptForPlannerForDebug
+                            ), systemPromptForExport: isResearchTurn ? nil : systemPromptForTurn)
                         throw NSError(
                             domain: "PaceActionScope", code: 1,
                             userInfo: [
