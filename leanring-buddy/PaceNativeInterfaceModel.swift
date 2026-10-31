@@ -64,7 +64,7 @@ nonisolated enum PaceConversationPanelPlacement: Equatable {
             let width = min(geometry.presentationFrame.width, geometry.physicalHousingFrame.width + 88)
             return CGRect(
                 x: geometry.physicalHousingFrame.midX - width / 2,
-                y: geometry.physicalHousingFrame.minY,
+                y: geometry.physicalHousingFrame.minY - geometry.physicalHousingFrame.height,
                 width: width,
                 height: geometry.physicalHousingFrame.height)
         case .anchored(let frame):
@@ -86,7 +86,7 @@ nonisolated enum PaceConversationPanelPlacement: Equatable {
                 PaceLivingNotchGeometry(
                     physicalHousingFrame: housing,
                     presentationFrame: CGRect(
-                        x: housing.midX - width / 2, y: housing.maxY - height, width: width, height: height)))
+                        x: housing.midX - width / 2, y: housing.minY - height, width: width, height: height)))
         }
         let minimumX = screenFrame.minX + 8
         let maximumX = max(minimumX, screenFrame.maxX - contentSize.width - 8)
@@ -220,7 +220,7 @@ nonisolated struct PaceLivingNotchGeometry: Equatable {
         )
         let presentationFrame = CGRect(
             x: presentationMinimumX,
-            y: screenFrame.maxY - presentationHeight,
+            y: physicalHousingMinimumY - presentationHeight,
             width: presentationWidth,
             height: presentationHeight
         )
