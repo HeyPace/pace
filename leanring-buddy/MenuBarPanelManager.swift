@@ -124,6 +124,7 @@ final class MenuBarPanelManager: NSObject {
     private var isPanelPresented: Bool { surfaceModel.presentation.isPresented }
     private var screenParametersObserver: NSObjectProtocol?
     private var workspaceWakeObserver: NSObjectProtocol?
+    private var menuBarOccupancyObserver: NSObjectProtocol?
     private var panelAnchorFrameOverride: NSRect?
     private var clickOutsideMonitor: Any?
     private var localClickOutsideMonitor: Any?
@@ -154,6 +155,11 @@ final class MenuBarPanelManager: NSObject {
             self.panelHeight = PaceQuickPanelMetrics.height
         }
         super.init()
+        menuBarOccupancyObserver = NotificationCenter.default.addObserver(
+            forName: .paceMenuBarOccupancyChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.repositionVisiblePanel() }
+        }
 
         dismissPanelObserver = NotificationCenter.default.addObserver(
             forName: .paceDismissPanel,
@@ -191,6 +197,7 @@ final class MenuBarPanelManager: NSObject {
     }
 
     deinit {
+        if let menuBarOccupancyObserver { NotificationCenter.default.removeObserver(menuBarOccupancyObserver) }
         if let screenParametersObserver { NotificationCenter.default.removeObserver(screenParametersObserver) }
         if let workspaceWakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(workspaceWakeObserver) }
         if let monitor = clickOutsideMonitor {
@@ -244,6 +251,8 @@ final class MenuBarPanelManager: NSObject {
     // MARK: - Panel Lifecycle
 
     private func showPanel(intent: PaceConversationPanelPresentationIntent = .interactive) {
+        PaceMenuBarOccupancyMonitor.shared.start()
+        PaceMenuBarOccupancyMonitor.shared.refresh()
         if panel == nil {
             createPanel()
         }
@@ -362,7 +371,15 @@ final class MenuBarPanelManager: NSObject {
                 NSScreen.screens.first { $0.frame.contains(notchGeometry.physicalHousingFrame) }?.frame
             } ?? anchorScreen.frame,
             contentSize: CGSize(width: panelWidth, height: panelHeight))
-        panel.level = notchGeometry == nil ? .floating : PaceWindowLayering.livingNotch
+        if let notchGeometry,
+            !PaceMenuBarOccupancyMonitor.shared.occupancy.overlaps(
+                surfaceModel.placement.frame, housingFrame: notchGeometry.physicalHousingFrame)
+        {
+            panel.level = PaceWindowLayering.livingNotch
+        } else {
+            // Preserve the camera anchor, but let native menus own their row when crowded.
+            panel.level = .floating
+        }
         panel.setFrame(surfaceModel.placement.frame, display: true)
     }
 

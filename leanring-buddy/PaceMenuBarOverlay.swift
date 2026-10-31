@@ -134,6 +134,7 @@ final class PaceMenuBarOverlayManager {
     private var companionManagerObservation: AnyCancellable?
     private var companionControlCenterObservation: AnyCancellable?
     private var notchConversationVisibilityObserver: NSObjectProtocol?
+    private var menuBarOccupancyObserver: NSObjectProtocol?
     private var isNotchConversationVisible = false
     private var isHovering = false
     private var hoverOpenTask: Task<Void, Never>?
@@ -150,6 +151,11 @@ final class PaceMenuBarOverlayManager {
     ) {
         self.companionManager = companionManager
         self.onTap = onTap
+        menuBarOccupancyObserver = NotificationCenter.default.addObserver(
+            forName: .paceMenuBarOccupancyChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshPresentation(animated: false) }
+        }
 
         notchConversationVisibilityObserver = NotificationCenter.default.addObserver(
             forName: .paceNotchConversationVisibilityChanged, object: nil, queue: .main
@@ -198,6 +204,9 @@ final class PaceMenuBarOverlayManager {
         if let notchConversationVisibilityObserver {
             NotificationCenter.default.removeObserver(notchConversationVisibilityObserver)
         }
+        if let menuBarOccupancyObserver {
+            NotificationCenter.default.removeObserver(menuBarOccupancyObserver)
+        }
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         if let fallbackMenuBarStatusItem {
@@ -208,8 +217,8 @@ final class PaceMenuBarOverlayManager {
 
     func show() {
         isVisible = true
+        PaceMenuBarOccupancyMonitor.shared.start()
         refreshPresentation(animated: false)
-        overlayPanel?.orderFrontRegardless()
     }
 
     func hide() {
@@ -285,6 +294,15 @@ final class PaceMenuBarOverlayManager {
         let ambientHomePresentation = PaceAmbientHomePresentation.resolve(
             hasReliablePhysicalNotchGeometry: geometry != nil
         )
+        if let geometry, PaceMenuBarOccupancyMonitor.shared.occupancy.overlaps(
+            geometry.presentationFrame, housingFrame: geometry.physicalHousingFrame)
+        {
+            hoverOpenTask?.cancel()
+            isHovering = false
+            overlayPanel?.orderOut(nil)
+            updateFallbackMenuBarStatusItem(for: .menuBarItem)
+            return
+        }
         updateFallbackMenuBarStatusItem(for: ambientHomePresentation)
 
         let presentationIsAlreadyApplied =
@@ -341,6 +359,11 @@ final class PaceMenuBarOverlayManager {
         case .menuBarItem:
             createFallbackMenuBarStatusItemIfNeeded()
         }
+        fallbackMenuBarStatusItem?.button?.contentTintColor =
+            companionManager?.isOffDeviceTurnInFlight == true ? .systemOrange : .labelColor
+        fallbackMenuBarStatusItem?.button?.toolTip =
+            companionManager?.isOffDeviceTurnInFlight == true
+            ? "Pace — off-device request in progress" : "Open Pace conversations"
     }
 
     private func createFallbackMenuBarStatusItemIfNeeded() {

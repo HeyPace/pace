@@ -9,6 +9,53 @@ import XCTest
 @testable import Pace
 
 final class PaceNativeInterfaceModelTests: XCTestCase {
+    func testCrowdedMenusYieldOnlyWhenTheirBoundsReachTheNotchControls() {
+        let housing = CGRect(x: 770, y: 1085, width: 185, height: 32)
+        let controls = CGRect(x: 726, y: 1085, width: 273, height: 32)
+        var occupancy = PaceMenuBarOccupancy(
+            itemFrames: [CGRect(x: 0, y: 1085, width: 700, height: 32),
+                         CGRect(x: 1020, y: 1085, width: 700, height: 32)],
+            isReliable: true)
+        XCTAssertFalse(occupancy.overlaps(controls, housingFrame: housing))
+        occupancy.itemFrames.append(CGRect(x: 710, y: 1085, width: 35, height: 32))
+        XCTAssertTrue(occupancy.overlaps(controls, housingFrame: housing))
+        occupancy.itemFrames.removeLast()
+        occupancy.itemFrames.append(CGRect(x: 990, y: 1085, width: 35, height: 32))
+        XCTAssertTrue(occupancy.overlaps(controls, housingFrame: housing))
+    }
+
+    func testCrowdingChecksExpandedChatWidthButIgnoresWindowsBelowMenuRow() {
+        let housing = CGRect(x: 770, y: 1085, width: 185, height: 32)
+        let controls = CGRect(x: 726, y: 1085, width: 273, height: 32)
+        let conversation = CGRect(x: 602.5, y: 705, width: 520, height: 412)
+        var occupancy = PaceMenuBarOccupancy(
+            itemFrames: [CGRect(x: 650, y: 1085, width: 45, height: 32)], isReliable: true)
+        XCTAssertFalse(occupancy.overlaps(controls, housingFrame: housing))
+        XCTAssertTrue(occupancy.overlaps(conversation, housingFrame: housing))
+        occupancy.itemFrames = [CGRect(x: 650, y: 800, width: 500, height: 100)]
+        XCTAssertFalse(occupancy.overlaps(conversation, housingFrame: housing))
+    }
+
+    func testUncertainMenuGeometryYieldsAndFreshClearGeometryRestoresControls() {
+        let housing = CGRect(x: -430, y: 1265, width: 185, height: 32)
+        let controls = CGRect(x: -474, y: 1265, width: 273, height: 32)
+        var occupancy = PaceMenuBarOccupancy()
+        XCTAssertTrue(occupancy.overlaps(controls, housingFrame: housing))
+        occupancy = PaceMenuBarOccupancy(itemFrames: [], isReliable: true)
+        XCTAssertFalse(occupancy.overlaps(controls, housingFrame: housing))
+        occupancy.itemFrames = [CGRect(x: -480, y: 1265, width: 30, height: 32)]
+        XCTAssertTrue(occupancy.overlaps(controls, housingFrame: housing))
+        occupancy.itemFrames = []
+        XCTAssertFalse(occupancy.overlaps(controls, housingFrame: housing))
+    }
+
+    func testMenuBoundsConversionUsesPrimaryDisplayOriginForSecondaryDisplays() {
+        XCTAssertEqual(
+            PaceMenuBarOccupancy.appKitFrame(
+                from: CGRect(x: -1200, y: -180, width: 400, height: 32), primaryScreenTop: 1117),
+            CGRect(x: -1200, y: 1265, width: 400, height: 32))
+    }
+
     func testHoverPreviewShowsPanelWithoutRequestingKeyboardOrComposerFocus() {
         let presentation = PaceConversationPanelPresentation.hidden.presenting(.preview)
 
