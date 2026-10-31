@@ -709,7 +709,7 @@ struct PaceImageGenerationTests {
         #expect(diagramDismissalGeneration == 1)
         #expect(diagramOverlayController.dismissalGeneration == 1)
         #expect(drained.actions.isEmpty)
-        #expect(drained.spokenText == "Your image is ready: Blue mug. Your image is ready: Red mug.")
+        #expect(drained.spokenText == "Updated. Your image is ready: Blue mug. Your image is ready: Red mug.")
     }
 
     @Test @MainActor func visualDrainRetainsUnrelatedActionValuesAndParallelStepGrouping() async throws {
