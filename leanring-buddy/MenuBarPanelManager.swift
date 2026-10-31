@@ -34,6 +34,7 @@ private class KeyablePanel: NSPanel {
 @MainActor
 private final class PaceConversationPanelSurfaceModel: ObservableObject {
     @Published var placement: PaceConversationPanelPlacement = .anchored(.zero)
+    @Published var presentation: PaceConversationPanelPresentation = .hidden
 }
 
 private struct PaceConversationPanelSurface: View {
@@ -47,28 +48,27 @@ private struct PaceConversationPanelSurface: View {
             switch surfaceModel.placement {
             case .physicalNotch(let notchGeometry):
                 VStack(spacing: 0) {
-                    Button {
-                        NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
-                    } label: {
-                        PaceSeamNotchHeader(
-                            physicalHousingWidth: notchGeometry.physicalHousingFrame.width,
-                            physicalHousingHeight: notchGeometry.physicalHousingFrame.height,
-                            signalState: companionManager.nativeEffectiveSignalState,
-                            isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
-                            isExpanded: true,
-                            isCameraActive: companionControlCenter.activeSources.contains(.camera),
-                            isScreenActive: companionControlCenter.activeSources.contains(.screen),
-                            persistentStatus: companionControlCenter.runtimeStatusText,
-                            companionStatusColor: companionStatusColor
-                        )
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .accessibilityLabel("Close conversation")
+                    PaceSeamNotchHeader(
+                        physicalHousingWidth: notchGeometry.physicalHousingFrame.width,
+                        physicalHousingHeight: notchGeometry.physicalHousingFrame.height,
+                        signalState: companionManager.nativeEffectiveSignalState,
+                        isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
+                        isExpanded: true,
+                        isCameraActive: companionControlCenter.activeSources.contains(.camera),
+                        isScreenActive: companionControlCenter.activeSources.contains(.screen),
+                        persistentStatus: companionControlCenter.runtimeStatusText,
+                        companionStatusColor: companionStatusColor,
+                        onBrandTap: {
+                            NotificationCenter.default.post(name: .paceShowPanel, object: nil)
+                        },
+                        onChatTap: {
+                            NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+                        }
+                    )
                     .accessibilityValue(headerAccessibilityValue)
-                    .keyboardShortcut(.escape, modifiers: [])
-                    PacePanelChatView(companionManager: companionManager, isEmbeddedInNotch: true)
+                    PacePanelChatView(
+                        companionManager: companionManager, isEmbeddedInNotch: true,
+                        composerFocusRequestID: surfaceModel.presentation.composerFocusRequestID)
                         .frame(width: PaceQuickPanelMetrics.width, height: PaceQuickPanelMetrics.seamlessContentHeight)
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
@@ -76,11 +76,18 @@ private struct PaceConversationPanelSurface: View {
                 .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 24, bottomTrailingRadius: 24, style: .continuous))
             case .anchored:
                 if usesChatPanelAsPrimarySurface {
-                    PaceChatPanelView(companionManager: companionManager)
+                    PaceChatPanelView(
+                        companionManager: companionManager,
+                        composerFocusRequestID: surfaceModel.presentation.composerFocusRequestID)
                 } else {
-                    PacePanelChatView(companionManager: companionManager)
+                    PacePanelChatView(
+                        companionManager: companionManager,
+                        composerFocusRequestID: surfaceModel.presentation.composerFocusRequestID)
                 }
             }
+        }
+        .onExitCommand {
+            NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
         }
     }
 
@@ -114,7 +121,7 @@ private struct PaceConversationPanelSurface: View {
 final class MenuBarPanelManager: NSObject {
     private var panel: NSPanel?
     private let surfaceModel = PaceConversationPanelSurfaceModel()
-    private var isPanelPresented = false
+    private var isPanelPresented: Bool { surfaceModel.presentation.isPresented }
     private var screenParametersObserver: NSObjectProtocol?
     private var workspaceWakeObserver: NSObjectProtocol?
     private var panelAnchorFrameOverride: NSRect?
@@ -163,10 +170,11 @@ final class MenuBarPanelManager: NSObject {
             forName: .paceShowPanel,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
             guard let manager = self else { return }
+            let presentationIntent = notification.object as? PaceConversationPanelPresentationIntent ?? .interactive
             Task { @MainActor in
-                manager.showPanel()
+                manager.showPanel(intent: presentationIntent)
             }
         }
         screenParametersObserver = NotificationCenter.default.addObserver(
@@ -200,7 +208,7 @@ final class MenuBarPanelManager: NSObject {
     }
 
     func togglePanel() {
-        if isPanelPresented {
+        if case .interactive = surfaceModel.presentation {
             hidePanel()
         } else {
             showPanel()
@@ -217,12 +225,7 @@ final class MenuBarPanelManager: NSObject {
     /// already-open panel mid-turn).
     func showPanel(anchoredTo anchorFrame: NSRect) {
         panelAnchorFrameOverride = anchorFrame
-
-        if !isPanelPresented {
-            showPanel()
-        } else {
-            repositionVisiblePanel()
-        }
+        showPanel()
     }
 
     func showPanelForSmokeTest() {
@@ -240,14 +243,14 @@ final class MenuBarPanelManager: NSObject {
 
     // MARK: - Panel Lifecycle
 
-    private func showPanel() {
+    private func showPanel(intent: PaceConversationPanelPresentationIntent = .interactive) {
         if panel == nil {
             createPanel()
         }
 
         guard let panel else { return }
         let wasVisible = isPanelPresented
-        isPanelPresented = true
+        surfaceModel.presentation = surfaceModel.presentation.presenting(intent)
         positionPanelBelowAnchor()
         let expandedPanelFrame = panel.frame
         visibilityAnimationGeneration += 1
@@ -258,7 +261,9 @@ final class MenuBarPanelManager: NSObject {
             let collapsedPanelFrame = surfaceModel.placement.collapsedFrame
             panel.alphaValue = 1
             panel.setFrame(collapsedPanelFrame, display: false)
-            panel.makeKeyAndOrderFront(nil)
+            if intent.requestsKeyboardFocus {
+                panel.makeKeyAndOrderFront(nil)
+            }
             panel.orderFrontRegardless()
 
             NSAnimationContext.runAnimationGroup { animationContext in
@@ -268,7 +273,9 @@ final class MenuBarPanelManager: NSObject {
             }
         } else {
             panel.alphaValue = 1
-            panel.makeKeyAndOrderFront(nil)
+            if intent.requestsKeyboardFocus {
+                panel.makeKeyAndOrderFront(nil)
+            }
             panel.orderFrontRegardless()
         }
         updateNotchConversationVisibility()
@@ -277,11 +284,12 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func hidePanel() {
-        guard let panel, isPanelPresented else {
+        let wasVisible = isPanelPresented
+        surfaceModel.presentation = .hidden
+        guard let panel, wasVisible else {
             removeClickOutsideMonitor()
             return
         }
-        isPanelPresented = false
         visibilityAnimationGeneration += 1
         let animationGeneration = visibilityAnimationGeneration
         removeClickOutsideMonitor()

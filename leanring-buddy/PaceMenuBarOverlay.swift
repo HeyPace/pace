@@ -402,7 +402,8 @@ final class PaceMenuBarOverlayManager {
                 self.overlayPanel?.frame.contains(NSEvent.mouseLocation) == true
             else { return }
             self.canOpenConversationOnHover = false
-            NotificationCenter.default.post(name: .paceShowPanel, object: nil)
+            NotificationCenter.default.post(
+                name: .paceShowPanel, object: PaceConversationPanelPresentationIntent.preview)
         }
     }
 

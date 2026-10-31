@@ -14,6 +14,39 @@ nonisolated enum PaceQuickPanelMetrics {
     static let seamlessContentHeight: CGFloat = 380
 }
 
+nonisolated enum PaceConversationPanelPresentationIntent: Equatable, Sendable {
+    case preview
+    case interactive
+
+    var requestsKeyboardFocus: Bool {
+        self == .interactive
+    }
+}
+
+nonisolated enum PaceConversationPanelPresentation: Equatable {
+    case hidden
+    case preview
+    case interactive(composerFocusRequestID: UUID)
+
+    var isPresented: Bool {
+        self != .hidden
+    }
+
+    var composerFocusRequestID: UUID? {
+        guard case .interactive(let composerFocusRequestID) = self else { return nil }
+        return composerFocusRequestID
+    }
+
+    func presenting(_ intent: PaceConversationPanelPresentationIntent) -> Self {
+        switch intent {
+        case .preview:
+            return isPresented ? self : .preview
+        case .interactive:
+            return .interactive(composerFocusRequestID: UUID())
+        }
+    }
+}
+
 nonisolated enum PaceConversationPanelPlacement: Equatable {
     case physicalNotch(PaceLivingNotchGeometry)
     case anchored(CGRect)

@@ -138,7 +138,7 @@ struct PaceSeamNotchHeader: View {
                         .frame(width: wingWidth, height: physicalHousingHeight)
                 }
                 Color.clear.frame(width: physicalHousingWidth)
-                wingButton(label: "Open conversation", action: onChatTap) {
+                wingButton(label: isExpanded ? "Close conversation" : "Open conversation", action: onChatTap) {
                     Group {
                         if isExpanded {
                             Image(systemName: "xmark")

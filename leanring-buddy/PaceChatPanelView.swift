@@ -43,8 +43,10 @@ struct PaceChatPanelView: View {
 
     private let panelWidth: CGFloat = 320
     private let panelHeight: CGFloat = 460
+    private let composerFocusRequestID: UUID?
 
-    init(companionManager: CompanionManager) {
+    init(companionManager: CompanionManager, composerFocusRequestID: UUID?) {
+        self.composerFocusRequestID = composerFocusRequestID
         _companionManager = ObservedObject(wrappedValue: companionManager)
         _chatSession = ObservedObject(wrappedValue: companionManager.chatSession)
         _streamingSentenceTTSPipeline = ObservedObject(
@@ -74,7 +76,10 @@ struct PaceChatPanelView: View {
             // transcript wholesale from the same `paceHistory` store
             // `recordConversationTurn` writes to.
             chatSession.loadHistory()
-            isChatInputFocused = true
+            isChatInputFocused = composerFocusRequestID != nil
+        }
+        .onChange(of: composerFocusRequestID) { _, composerFocusRequestID in
+            isChatInputFocused = composerFocusRequestID != nil
         }
     }
 
