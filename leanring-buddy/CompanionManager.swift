@@ -798,7 +798,7 @@ final class CompanionManager: ObservableObject {
     /// anchors it next to the walking character. Cleared back to
     /// `.keyboard` when the turn ends.
     enum DictationTrigger {
-        case keyboard, microphoneButton, avatar, wakeWord
+        case keyboard, microphoneButton, avatar, wakeWord, bargeIn
 
         var captureMode: PaceDictationCaptureMode {
             self == .keyboard ? .pushToTalk : .handsFree

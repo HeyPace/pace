@@ -10,7 +10,7 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `PaceDeepLinkParser.swift` | ~77 | Pure parser for the `pace://` URL scheme (listen, chat, watch, panel). Reject-on-ambiguity rules, percent-decoding via URLComponents, and a hard 500-char chat-text cap because deeplinks are an external input surface. |
 | `CompanionManager.swift` | ~1260 | Class declaration and stored properties only — the god-class shell after Phase A decomposition. |
 | `CompanionManager+AgentLoop.swift` | ~3500 | AI response pipeline (plan-act-observe loop, fast paths, clarification, planner dispatch), including shared completed-transcript routing, generation-leased routing cancellation, the fixed → program → skill selected-planner authoring ladder, and conservative natural catalog selection before generic planning. |
-| `PaceTurnLease.swift` | ~30 | Pure generation registry used to reject cancelled or superseded routing results before they can install response work or mutate the active turn. |
+| `PaceTurnLease.swift` | ~30 | Pure generation registry used to reject cancelled or superseded routing results and queued planner speech before they can mutate the active turn. |
 | `CompanionManager+PrivateBindings.swift` | ~680 | Permission polling, LM Studio reachability, barge-in VAD, wake-word, shortcut bindings. |
 | `CompanionManager+Lifecycle.swift` | ~1000 | `start()`/`stop()`, permission requests, avatar/deeplink/chat entry points, and FIFO typed-turn queue draining between complete voice-agent turns. |
 | `CompanionManager+LocalRetrieval.swift` | ~570 | Local retrieval context, connector refresh, source management. |
