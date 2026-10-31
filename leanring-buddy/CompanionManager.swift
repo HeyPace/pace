@@ -266,7 +266,10 @@ final class CompanionManager: ObservableObject {
         return PaceChatSession(
             historySource: PaceLocalChatHistoryReader(),
             transcriptSubmitter: companionManagerChatSubmitterAdapter,
-            preferences: watchModeDefaults
+            preferences: watchModeDefaults,
+            didAcknowledgeScreenSuggestion: { [weak self] eventIdentifier in
+                self?.screenSuggestionNotification.dismissAcknowledgedOffer(eventIdentifier: eventIdentifier)
+            }
         )
     }()
 
@@ -437,12 +440,20 @@ final class CompanionManager: ObservableObject {
     var watchSessionSnapshotProvider: () -> PaceScreenWatchSessionSnapshot = { .current() }
     var watchScreenPermissionProvider: () -> Bool = { CGPreflightScreenCaptureAccess() }
     var watchPlannerConsentProvider: () -> Bool = { BuddyPlannerClientFactory.hasScreenSuggestionPlannerConsent() }
+    var watchForegroundApplicationIdentifierProvider: () -> String? = {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+    }
     var watchSuggestionSpeechTask: Task<Void, Never>?
     var watchSuggestionSpeechGeneration: UInt64 = 0
     var isWatchSuggestionSpeaking = false
     var lastScreenSuggestionDeliveryAt: Date?
     var screenSuggestionVisualGate = PaceScreenSuggestionVisualGate()
     lazy var screenSuggestionCoordinator = makeScreenSuggestionCoordinator()
+    lazy var screenSuggestionNotification = PaceScreenSuggestionNotificationController(
+        presenter: PaceScreenSuggestionNotificationPanel(),
+        onAction: { [weak self] suggestion, action in
+            self?.handleScreenSuggestionNotificationAction(suggestion, action: action)
+        })
     lazy var screenWatchModeController: PaceScreenWatchModeController = {
         PaceScreenWatchModeController()
     }()

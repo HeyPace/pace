@@ -71,6 +71,7 @@ extension CompanionManager {
     }
 
     func screenSuggestionCaptureAllowed() -> Bool {
+        if !screenSuggestionNotificationPresentationAllowed() { screenSuggestionNotification.discard() }
         if let pauseSummary = screenWatchRuntimePauseSummary() {
             if isWatchModeEnabled {
                 latestWatchModeSummary = pauseSummary
@@ -213,18 +214,15 @@ extension CompanionManager {
     }
 
     func deliverScreenSuggestion(_ suggestion: PaceScreenSuggestion) -> Bool {
-        guard screenSuggestionEvaluationAllowed(suggestion.sceneIdentity) else { return false }
+        guard screenSuggestionEvaluationAllowed(suggestion.sceneIdentity),
+              !screenSuggestionNotification.hasPresented(suggestionIdentifier: suggestion.identifier) else { return false }
         let deliveredAt = Date()
         lastScreenSuggestionDeliveryAt = deliveredAt
         proactivityPipeline.recordExternalProactiveDelivery(at: deliveredAt)
         recordAssistantNarration(suggestion.offer, origin: .proactive,
-            eventIdentifier: "screen-suggestion-" + suggestion.identifier.uuidString, recordedAt: deliveredAt,
+            eventIdentifier: suggestion.conversationEventIdentifier, recordedAt: deliveredAt,
             plannerContext: "(system) screen suggestion. " + suggestion.untrustedFollowUpContext)
-        // This existing nonactivating bubble makes a quiet offer discoverable without
-        // opening chat or taking focus. Only accepted offers reach this path.
-        responseOverlayManager.showOverlayAndBeginStreaming()
-        responseOverlayManager.updateStreamingText(suggestion.offer)
-        responseOverlayManager.finishStreaming()
+        screenSuggestionNotification.present(suggestion)
         if areWatchObservationNudgesEnabled {
             let speechGeneration = watchSuggestionSpeechGeneration
             let speechTask = Task { [weak self] in
@@ -249,6 +247,30 @@ extension CompanionManager {
             currentResponseTask = speechTask
         }
         return true
+    }
+
+    func screenSuggestionNotificationPresentationAllowed() -> Bool {
+        screenWatchRuntimePauseSummary() == nil
+            && !activeCallDetector.isOnActiveCall
+            && !focusModeMonitor.isCurrentlyInUserFocus
+            && thermalStateAdvisor.currentRecommendation != .suspendBackground
+            && thermalStateAdvisor.currentRecommendation != .dampenBackgroundLoops
+            && !PaceScreenSuggestionPrivacy.isSensitiveApplication(watchForegroundApplicationIdentifierProvider())
+    }
+
+    func handleScreenSuggestionNotificationAction(_ suggestion: PaceScreenSuggestion,
+                                                 action: PaceScreenSuggestionNotificationAction) {
+        if action == .dismiss {
+            cancelWatchSuggestionSpeech()
+            chatSession.acknowledgeScreenSuggestion(eventIdentifier: suggestion.conversationEventIdentifier)
+            return
+        }
+        guard screenSuggestionNotificationPresentationAllowed(),
+              let request = action.request(for: suggestion) else { return }
+        chatSession.acknowledgeScreenSuggestion(eventIdentifier: suggestion.conversationEventIdentifier)
+        cancelWatchSuggestionSpeech()
+        NotificationCenter.default.post(name: .paceShowPanel, object: PaceConversationPanelPresentationIntent.interactive)
+        chatSession.submitUserMessage(request)
     }
 
     func cancelWatchSuggestionSpeech() {
@@ -284,6 +306,7 @@ extension CompanionManager {
         screenWatchModeController.stopWatching()
         screenSuggestionCoordinator.setEnabled(false)
         cancelWatchSuggestionSpeech()
+        screenSuggestionNotification.discard()
         removeWatchLifecycleObservers()
         watchPauseReasons.removeAll()
         latestWatchModeSummary = isWatchModeEnabled ? "Watch paused · Pace is stopped" : nil
@@ -317,6 +340,7 @@ extension CompanionManager {
     }
 
     func reconcileWatchRuntime() {
+        if !screenSuggestionNotificationPresentationAllowed() { screenSuggestionNotification.discard() }
         if let pauseSummary = screenWatchRuntimePauseSummary() {
             screenWatchModeController.stopWatching()
             screenSuggestionCoordinator.invalidate(clearAnchor: true)

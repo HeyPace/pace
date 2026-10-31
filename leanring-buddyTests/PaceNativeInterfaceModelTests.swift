@@ -399,6 +399,35 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testScreenSuggestionNativeRenderExamplesWhenRequested() throws {
+        guard ProcessInfo.processInfo.environment["PACE_RENDER_SEAM_PREVIEWS"] == "1" else {
+            throw XCTSkip("Native render export is an opt-in local visual check.")
+        }
+        let output = URL(fileURLWithPath: "/tmp/pace-suggestion-native-20261031", isDirectory: true)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let examples = [
+            ("compact", "Climbing grades & strength", "Want to understand why climbing grades in V5 vs V12 strength don’t map directly to raw strength?"),
+            ("long", "Why moving more air at a lower exhaust speed improves propulsive efficiency in high-bypass turbofans",
+             "Would you like a visual explanation of why moving more air at a lower exhaust speed improves propulsive efficiency in high-bypass turbofans, with the fan, core and bypass airflow labeled so you can explore each part?")
+        ]
+        for (name, subject, offer) in examples {
+            let suggestion = PaceScreenSuggestion(identifier: UUID(), subject: subject, evidence: subject,
+                offer: offer, sceneIdentity: .init(displayIdentifier: 1, applicationProcessIdentifier: 42,
+                    applicationBundleIdentifier: "com.apple.Safari"), observedAt: Date(), expiresAt: Date().addingTimeInterval(45))
+            let renderer = ImageRenderer(content: PaceScreenSuggestionNotificationView(suggestion: suggestion, onAction: { _ in }))
+            renderer.scale = 2
+            let image = try XCTUnwrap(renderer.cgImage)
+            XCTAssertEqual(image.width, 720)
+            XCTAssertGreaterThan(image.height, 300)
+            XCTAssertLessThan(image.height, 850)
+            let bitmap = NSBitmapImageRep(cgImage: image)
+            XCTAssertGreaterThan(bitmap.colorAt(x: image.width / 2, y: image.height / 2)?.alphaComponent ?? 0, 0.9)
+            let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            try data.write(to: output.appendingPathComponent("\(name).png"))
+        }
+    }
+
     func testLivingNotchGeometryRejectsDisplaysWithoutReliableHousingBounds() {
         let screenFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
         let leftArea = CGRect(x: 0, y: 876, width: 620, height: 24)

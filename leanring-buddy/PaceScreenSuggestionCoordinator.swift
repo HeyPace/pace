@@ -32,6 +32,8 @@ nonisolated struct PaceScreenSuggestion {
     let observedAt: Date
     let expiresAt: Date
 
+    var conversationEventIdentifier: String { "screen-suggestion-" + identifier.uuidString }
+
     var untrustedFollowUpContext: String {
         let quotedContext = ["subject": subject, "evidence": evidence, "offer": offer]
         let encodedContext = (try? JSONSerialization.data(withJSONObject: quotedContext, options: [.sortedKeys]))

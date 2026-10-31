@@ -98,6 +98,7 @@ final class PaceChatSession: ObservableObject {
     private let historySource: PaceChatHistorySource
     private let preferences: UserDefaults?
     private let now: () -> Date
+    private let didAcknowledgeScreenSuggestion: (String) -> Void
     /// Strongly held. The adapter that conforms to this protocol in
     /// production code holds `CompanionManager` weakly, so a strong
     /// reference here cannot create a retain cycle. Tests can pass a
@@ -109,12 +110,14 @@ final class PaceChatSession: ObservableObject {
         historySource: PaceChatHistorySource,
         transcriptSubmitter: any PaceChatTranscriptSubmitting,
         preferences: UserDefaults? = nil,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        didAcknowledgeScreenSuggestion: @escaping (String) -> Void = { _ in }
     ) {
         self.historySource = historySource
         self.transcriptSubmitter = transcriptSubmitter
         self.preferences = preferences
         self.now = now
+        self.didAcknowledgeScreenSuggestion = didAcknowledgeScreenSuggestion
         self.lastAcknowledgedScreenSuggestionEventIdentifier = preferences.map {
             PaceUserPreferencesStore.string(.lastAcknowledgedScreenSuggestionEventIdentifier, default: "", defaults: $0)
         } ?? ""
@@ -208,12 +211,18 @@ final class PaceChatSession: ObservableObject {
             PaceUserPreferencesStore.setDate(acknowledgementDate, for: .screenSuggestionReadThroughDate, defaults: preferences)
         }
         if let event = latestScreenSuggestionEvent, event.createdAt <= acknowledgementDate {
-            lastAcknowledgedScreenSuggestionEventIdentifier = event.eventID
-            if let preferences {
-                PaceUserPreferencesStore.setString(event.eventID,
-                    for: .lastAcknowledgedScreenSuggestionEventIdentifier, defaults: preferences)
-            }
+            acknowledgeScreenSuggestion(eventIdentifier: event.eventID)
         }
+    }
+
+    func acknowledgeScreenSuggestion(eventIdentifier: String) {
+        guard latestScreenSuggestionEvent?.eventID == eventIdentifier else { return }
+        lastAcknowledgedScreenSuggestionEventIdentifier = eventIdentifier
+        if let preferences {
+            PaceUserPreferencesStore.setString(eventIdentifier,
+                for: .lastAcknowledgedScreenSuggestionEventIdentifier, defaults: preferences)
+        }
+        didAcknowledgeScreenSuggestion(eventIdentifier)
     }
 
     private func upsertMessage(_ message: PaceChatMessage) {

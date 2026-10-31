@@ -373,7 +373,187 @@ struct PaceScreenSuggestionIntegrationTests {
         }
     }
     final class Submitter: PaceChatTranscriptSubmitting {
-        func submitChatTranscript(_ transcript: String, optimisticMessageIdentifier: String) {}
+        var transcripts: [String] = []
+        func submitChatTranscript(_ transcript: String, optimisticMessageIdentifier: String) {
+            transcripts.append(transcript)
+        }
+    }
+    final class NotificationPresenter: PaceScreenSuggestionNotificationPresenting {
+        var shownIdentifiers: [UUID] = []
+        var actions: [UUID: (PaceScreenSuggestionNotificationAction) -> Void] = [:]
+        var arrivalSounds = 0
+        var stoppedSounds = 0
+        var animatedHides: [Bool] = []
+        func show(_ suggestion: PaceScreenSuggestion, onAction: @escaping (PaceScreenSuggestionNotificationAction) -> Void) {
+            shownIdentifiers.append(suggestion.identifier)
+            actions[suggestion.identifier] = onAction
+        }
+        func hide(animated: Bool) { animatedHides.append(animated) }
+        func playArrivalSound() { arrivalSounds += 1 }
+        func stopArrivalSound() { stoppedSounds += 1 }
+    }
+
+    private func notificationSuggestion(identifier: UUID = UUID(), observedAt: Date = Date()) -> PaceScreenSuggestion {
+        PaceScreenSuggestion(identifier: identifier, subject: "TCP congestion", evidence: "TCP congestion control",
+            offer: "Would an explanation of TCP congestion help?",
+            sceneIdentity: .init(displayIdentifier: 1, applicationProcessIdentifier: 42,
+                applicationBundleIdentifier: "com.apple.Safari"),
+            observedAt: observedAt, expiresAt: observedAt.addingTimeInterval(45))
+    }
+
+    @Test func notificationChimesOnlyForNewLiveOffersAndRejectsStaleButtonCallbacks() {
+        let presenter = NotificationPresenter()
+        var acceptedActions: [PaceScreenSuggestionNotificationAction] = []
+        let notification = PaceScreenSuggestionNotificationController(presenter: presenter) { _, action in
+            acceptedActions.append(action)
+        }
+        let firstSuggestion = notificationSuggestion()
+        let secondSuggestion = notificationSuggestion()
+        #expect(notification.currentSuggestion == nil)
+        #expect(presenter.arrivalSounds == 0)
+        #expect(notification.present(firstSuggestion))
+        #expect(!notification.present(firstSuggestion))
+        #expect(notification.present(secondSuggestion))
+        #expect(!notification.present(firstSuggestion))
+        #expect(presenter.shownIdentifiers == [firstSuggestion.identifier, secondSuggestion.identifier])
+        #expect(presenter.arrivalSounds == 2)
+        presenter.actions[firstSuggestion.identifier]?(.explain)
+        #expect(acceptedActions.isEmpty)
+        #expect(notification.currentSuggestion?.identifier == secondSuggestion.identifier)
+        presenter.actions[secondSuggestion.identifier]?(.draw)
+        presenter.actions[secondSuggestion.identifier]?(.draw)
+        #expect(acceptedActions == [.draw])
+        #expect(notification.currentSuggestion == nil)
+        #expect(presenter.animatedHides == [true])
+    }
+
+    @Test func unsafeNotificationDiscardIsImmediateAndNeverAcknowledgesOrReplays() {
+        let presenter = NotificationPresenter()
+        var acceptedActions: [PaceScreenSuggestionNotificationAction] = []
+        let notification = PaceScreenSuggestionNotificationController(presenter: presenter) { _, action in
+            acceptedActions.append(action)
+        }
+        let suggestion = notificationSuggestion()
+        notification.present(suggestion)
+        notification.dismissAcknowledgedOffer(eventIdentifier: "a-different-offer")
+        #expect(notification.currentSuggestion != nil)
+        notification.discard()
+        notification.discard()
+        #expect(notification.currentSuggestion == nil)
+        #expect(presenter.animatedHides == [false])
+        #expect(presenter.stoppedSounds == 1)
+        #expect(acceptedActions.isEmpty)
+        #expect(!notification.present(suggestion))
+        #expect(presenter.arrivalSounds == 1)
+    }
+
+    @Test func conversationOpeningDismissesMatchingNotificationButHoverAndHistoryDoNotReplaySound() {
+        let history = History()
+        let presenter = NotificationPresenter()
+        let notification = PaceScreenSuggestionNotificationController(presenter: presenter) { _, _ in }
+        let session = PaceChatSession(historySource: history, transcriptSubmitter: Submitter(),
+            didAcknowledgeScreenSuggestion: { notification.dismissAcknowledgedOffer(eventIdentifier: $0) })
+        let suggestion = notificationSuggestion()
+        let event = ConversationEvent(eventID: suggestion.conversationEventIdentifier, role: .pace,
+            origin: .proactive, text: suggestion.offer, createdAt: suggestion.observedAt)
+        history.upsertConversationEvent(event)
+        session.loadHistory()
+        #expect(notification.currentSuggestion == nil)
+        #expect(presenter.arrivalSounds == 0)
+        notification.present(suggestion)
+        session.conversationPanelDidShow(.preview)
+        #expect(notification.currentSuggestion != nil)
+        #expect(session.hasUnreadScreenSuggestion)
+        session.conversationPanelDidShow(.interactive)
+        #expect(notification.currentSuggestion == nil)
+        #expect(!session.hasUnreadScreenSuggestion)
+        session.loadHistory()
+        #expect(presenter.arrivalSounds == 1)
+    }
+
+    @Test func notificationButtonsUseSharedTranscriptPreserveDraftAndCarryExpiredTopic() {
+        for action in [PaceScreenSuggestionNotificationAction.explain, .draw] {
+            let manager = makeWatchManager(defaults: makeWatchDefaults())
+            manager.isWatchModeEnabled = true
+            manager.isWatchRuntimeStarted = true
+            manager.watchForegroundApplicationIdentifierProvider = { "com.apple.Safari" }
+            let submitter = Submitter()
+            let session = PaceChatSession(historySource: History(), transcriptSubmitter: submitter)
+            manager.chatSession = session
+            session.draftMessageText = "Keep this unfinished question"
+            let suggestion = notificationSuggestion(observedAt: Date().addingTimeInterval(-600))
+            session.upsertConversationEvent(ConversationEvent(eventID: suggestion.conversationEventIdentifier,
+                role: .pace, origin: .proactive, text: suggestion.offer, createdAt: suggestion.observedAt))
+            manager.handleScreenSuggestionNotificationAction(suggestion, action: action)
+            #expect(submitter.transcripts.count == 1)
+            #expect(submitter.transcripts.first == action.request(for: suggestion))
+            #expect(submitter.transcripts.first?.contains(suggestion.subject) == true)
+            #expect(submitter.transcripts.first?.contains(suggestion.evidence) == true)
+            #expect(submitter.transcripts.first?.contains(suggestion.offer) == true)
+            #expect(submitter.transcripts.first?.hasPrefix("Please ") == true)
+            #expect(session.draftMessageText == "Keep this unfinished question")
+            #expect(session.userFacingMessages.filter { $0.role == .user }.count == 1)
+            #expect(!session.hasUnreadScreenSuggestion)
+            #expect(manager.isWatchModeEnabled)
+            if action == .draw { #expect(submitter.transcripts.first?.contains("labeled, interactive") == true) }
+            manager.stopWatchRuntime()
+        }
+    }
+
+    @Test func dismissalCannotAcknowledgeNewerOfferAndConsentLossBlocksFollowUp() {
+        let manager = makeWatchManager(defaults: makeWatchDefaults())
+        manager.isWatchModeEnabled = true
+        manager.isWatchRuntimeStarted = true
+        manager.watchForegroundApplicationIdentifierProvider = { "com.apple.Safari" }
+        let submitter = Submitter()
+        let session = PaceChatSession(historySource: History(), transcriptSubmitter: submitter)
+        manager.chatSession = session
+        let firstSuggestion = notificationSuggestion(observedAt: Date().addingTimeInterval(-20))
+        let latestSuggestion = notificationSuggestion()
+        for suggestion in [firstSuggestion, latestSuggestion] {
+            session.upsertConversationEvent(ConversationEvent(eventID: suggestion.conversationEventIdentifier,
+                role: .pace, origin: .proactive, text: suggestion.offer, createdAt: suggestion.observedAt))
+        }
+        manager.handleScreenSuggestionNotificationAction(firstSuggestion, action: .dismiss)
+        #expect(session.hasUnreadScreenSuggestion)
+        manager.watchPlannerConsentProvider = { false }
+        manager.handleScreenSuggestionNotificationAction(latestSuggestion, action: .explain)
+        #expect(submitter.transcripts.isEmpty)
+        #expect(session.hasUnreadScreenSuggestion)
+        manager.watchPlannerConsentProvider = { true }
+        manager.watchForegroundApplicationIdentifierProvider = { "com.1password.1password" }
+        manager.handleScreenSuggestionNotificationAction(latestSuggestion, action: .draw)
+        #expect(submitter.transcripts.isEmpty)
+        #expect(session.hasUnreadScreenSuggestion)
+        manager.handleScreenSuggestionNotificationAction(latestSuggestion, action: .dismiss)
+        #expect(!session.hasUnreadScreenSuggestion)
+        #expect(manager.isWatchModeEnabled)
+        manager.stopWatchRuntime()
+    }
+
+    @Test func watchLifecycleDiscardsPopupWithoutClearingUnreadOrReplayingOnResume() {
+        let manager = makeWatchManager(defaults: makeWatchDefaults())
+        manager.isWatchModeEnabled = true
+        manager.isWatchRuntimeStarted = true
+        manager.watchForegroundApplicationIdentifierProvider = { "com.apple.Safari" }
+        let presenter = NotificationPresenter()
+        let notification = PaceScreenSuggestionNotificationController(presenter: presenter) { _, _ in }
+        manager.screenSuggestionNotification = notification
+        let session = PaceChatSession(historySource: History(), transcriptSubmitter: Submitter())
+        manager.chatSession = session
+        let suggestion = notificationSuggestion()
+        session.upsertConversationEvent(ConversationEvent(eventID: suggestion.conversationEventIdentifier,
+            role: .pace, origin: .proactive, text: suggestion.offer, createdAt: suggestion.observedAt))
+        notification.present(suggestion)
+        manager.setWatchRuntimePaused(.screenLocked, isPaused: true)
+        #expect(notification.currentSuggestion == nil)
+        #expect(presenter.animatedHides == [false])
+        #expect(session.hasUnreadScreenSuggestion)
+        manager.setWatchRuntimePaused(.screenLocked, isPaused: false)
+        #expect(manager.isWatchModeEnabled)
+        #expect(notification.currentSuggestion == nil)
+        #expect(presenter.arrivalSounds == 1)
+        manager.stopWatchRuntime()
     }
 
     @Test func assistantOnlySuggestionRemainsVisibleAfterHistoryReload() {
