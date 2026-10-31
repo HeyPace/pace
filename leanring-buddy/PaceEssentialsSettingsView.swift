@@ -118,7 +118,7 @@ struct PaceEssentialsSettingsView: View {
         VStack(spacing: 0) {
             settingsRow(
                 title: "Voice",
-                subtitle: "\(companionManager.activeTTSVoiceSummary.voiceName) (\(companionManager.activeTTSVoiceSummary.qualityName)) · speech stays on this Mac."
+                subtitle: voiceSubtitle
             ) {
                 destinationLink("Change…", destination: .voice)
             }
@@ -225,6 +225,14 @@ struct PaceEssentialsSettingsView: View {
             .fixedSize()
             .pointerCursor()
         }
+    }
+
+    private var voiceSubtitle: String {
+        let voiceSummary = companionManager.activeTTSVoiceSummary
+        let qualitySuffix = "(\(voiceSummary.qualityName))"
+        let voiceLabel = voiceSummary.voiceName.localizedCaseInsensitiveContains(qualitySuffix)
+            ? voiceSummary.voiceName : "\(voiceSummary.voiceName) \(qualitySuffix)"
+        return "\(voiceLabel) · speech stays on this Mac."
     }
 
     private var selectedPlannerTitle: String {
