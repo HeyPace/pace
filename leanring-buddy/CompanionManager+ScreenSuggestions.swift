@@ -353,8 +353,8 @@ extension CompanionManager {
             let observer = NSWorkspace.shared.notificationCenter.addObserver(forName: notificationName,
                 object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, isWatchRuntimeStarted, watchRuntimeGeneration == runtimeGeneration else { return }
-                    setWatchRuntimePaused(pauseReason, isPaused: isPaused)
+                    guard let self, self.isWatchRuntimeStarted, self.watchRuntimeGeneration == runtimeGeneration else { return }
+                    self.setWatchRuntimePaused(pauseReason, isPaused: isPaused)
                 }
             }
             watchWorkspaceLifecycleObservers.append(observer)
@@ -363,8 +363,8 @@ extension CompanionManager {
             let observer = DistributedNotificationCenter.default().addObserver(forName: notificationName,
                 object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, isWatchRuntimeStarted, watchRuntimeGeneration == runtimeGeneration else { return }
-                    setWatchRuntimePaused(pauseReason, isPaused: isPaused)
+                    guard let self, self.isWatchRuntimeStarted, self.watchRuntimeGeneration == runtimeGeneration else { return }
+                    self.setWatchRuntimePaused(pauseReason, isPaused: isPaused)
                 }
             }
             watchDistributedLifecycleObservers.append(observer)
