@@ -14,6 +14,37 @@ import Foundation
 
 // MARK: - Parsed action types
 
+nonisolated struct PaceAgentInspectionHistory {
+    private var completedSteps: [String] = []
+    private var completedStepCount = 0
+    static let maximumCharacterCount = 12_000
+
+    mutating func append(plannerRequest: String, observations: [PaceActionExecutionObservation]) {
+        completedStepCount += 1
+        let stepText = """
+        Completed inspection step \(completedStepCount)
+        Request:
+        \(plannerRequest)
+        Result:
+        \(PaceActionExecutionObservation.formatForPlanner(observations))
+        """
+        let truncationMarker = "\n[inspection result truncated to fit the prompt budget]"
+        let maximumStepCharacterCount = (Self.maximumCharacterCount - 2) / 2
+        let boundedStepText = stepText.count > maximumStepCharacterCount
+            ? String(stepText.prefix(maximumStepCharacterCount - truncationMarker.count)) + truncationMarker
+            : stepText
+        completedSteps.append(boundedStepText)
+        // Two receipts distinguish the first inspection from its one allowed retry.
+        if completedSteps.count > 2 {
+            completedSteps.removeFirst()
+        }
+    }
+
+    var formattedForPlanner: String {
+        completedSteps.joined(separator: "\n\n")
+    }
+}
+
 /// Carried on an all-fail click observation so the agent loop can attempt
 /// Set-of-Mark recovery: render numbered marks on the screenshot and let the
 /// VLM visually re-pick the intended element. See PRD

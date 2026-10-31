@@ -1788,6 +1788,7 @@ extension CompanionManager {
                     + physicalSceneContext
             }
             var pendingPostActionFeedbackText: String?
+            var inspectionHistory = PaceAgentInspectionHistory()
             var plannerLoopFinished = false
             var turnFullResponseText: String = ""
             // The most recent step's cleaned spoken text. Research turns
@@ -2601,6 +2602,11 @@ extension CompanionManager {
                     // Intermediate inventories must not overwrite the final answer.
                     pendingPostActionFeedbackText = nil
                     let toolObservationPromptText = PaceActionExecutionObservation.formatForPlanner(toolObservations)
+                    if needsInspectionAnswer {
+                        inspectionHistory.append(plannerRequest: fullResponseText, observations: toolObservations)
+                    }
+                    let inspectionHistoryPromptText = needsInspectionAnswer
+                        ? inspectionHistory.formattedForPlanner : toolObservationPromptText
                     if toolObservationPromptText.isEmpty {
                         currentTurnUserPrompt =
                             """
@@ -2614,8 +2620,8 @@ extension CompanionManager {
                             original request:
                             \(transcript)
 
-                            tool results:
-                            \(toolObservationPromptText)
+                            completed tool requests and results (most recent inspection steps retained within the prompt budget):
+                            \(inspectionHistoryPromptText)
 
                             continue this request. use the tool results and current screen, then emit the next step's tool calls/action tags. a successful tool call alone does not complete the request. only emit [DONE] with a user-facing answer when the entire request is complete. if blocked, explain what remains unfinished.
                             """
