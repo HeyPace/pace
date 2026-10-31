@@ -68,7 +68,7 @@ struct PaceSeamNotchSurface: View {
         .environment(\.smPalette, DS.palette)
         .tint(DS.palette.brand)
         .preferredColorScheme(.dark)
-        .background(displayMode == .active ? Color.black : Color.clear)
+        .background(Color.black)
         .overlay {
             if displayMode == .active {
                 UnevenRoundedRectangle(bottomLeadingRadius: 16, bottomTrailingRadius: 16, style: .continuous)
@@ -183,15 +183,7 @@ struct PaceSeamNotchHeader: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         let cap = content()
-            .background {
-                UnevenRoundedRectangle(bottomLeadingRadius: 12, bottomTrailingRadius: 12, style: .continuous)
-                    .fill(Color(white: hoveredWingLabel == label ? 0.16 : 0.08))
-                    .overlay {
-                        UnevenRoundedRectangle(bottomLeadingRadius: 12, bottomTrailingRadius: 12, style: .continuous)
-                            .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
-                    }
-                    .frame(width: 32, height: physicalHousingHeight)
-            }
+            .background(hoveredWingLabel == label ? Color.white.opacity(0.08) : Color.clear)
         if let action {
             Button(action: action) { cap.contentShape(Rectangle()) }
                 .buttonStyle(.plain)
