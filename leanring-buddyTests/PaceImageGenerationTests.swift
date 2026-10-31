@@ -606,13 +606,229 @@ struct PaceImageGenerationTests {
         let parsed = PaceActionTagParseResult(
             spokenText: "Opening Music.", actions: actions, executionPlan: .serial(actions: actions),
             firstClickVisualisationLocation: nil)
-        let drained = await controller.drain(parseResult: parsed, expectedDismissalGeneration: 0)
+        var diagramDismissalGeneration = 0
+        let drained = await PaceVisualActionDrainer.drain(
+            parseResult: parsed, diagramOverlayController: PaceDiagramOverlayController(showsWindows: false),
+            imageOverlayController: controller, expectedDiagramDismissalGeneration: &diagramDismissalGeneration,
+            expectedImageDismissalGeneration: 0)
         #expect(drained.actions.count == 1 && drained.executionPlan.steps.count == 1)
         #expect(drained.spokenText.contains("Opening Music") && drained.spokenText.contains("image is ready"))
         guard case .openApplication("Music") = drained.actions[0] else {
             Issue.record("Lost conjoined action")
             return
         }
+    }
+
+    private static func diagram(_ title: String) -> PaceDiagramDocument {
+        .init(
+            title: title, summary: "Water changes state.",
+            nodes: [
+                .init(
+                    id: "water", label: "Water", detail: "Heat turns water into vapor.", x: 60, y: 220,
+                    width: 230, height: 140, shape: .rectangle, role: .process, subtitle: "Liquid becomes vapor")
+            ], connections: [])
+    }
+
+    @MainActor private static func wireVisualReplacement(
+        diagramOverlayController: PaceDiagramOverlayController,
+        imageOverlayController: PaceImageOverlayController
+    ) {
+        diagramOverlayController.onDidPresent = { [weak imageOverlayController] in
+            imageOverlayController?.hideForDiagramReplacement()
+        }
+        imageOverlayController.onWillGenerate = { [weak diagramOverlayController] in
+            diagramOverlayController?.hideForImageReplacement()
+        }
+        imageOverlayController.authorizationCheck = { true }
+    }
+
+    @Test(arguments: [true, false])
+    @MainActor func orderedVisualActionsFinishOnLastRequestedSurface(imageFirst: Bool) async {
+        let diagramOverlayController = PaceDiagramOverlayController(showsWindows: false)
+        let artifact = Self.artifact()
+        var discarded: [UUID] = []
+        let imageOverlayController = PaceImageOverlayController(
+            showsWindows: false, discardArtifact: { discarded.append($0.id) }, generateImage: { _, _ in artifact })
+        Self.wireVisualReplacement(
+            diagramOverlayController: diagramOverlayController, imageOverlayController: imageOverlayController)
+        let diagram = Self.diagram("Water cycle")
+        let actions: [PaceParsedAction] = imageFirst
+            ? [.generateImage(Self.request), .showDiagram(diagram)]
+            : [.showDiagram(diagram), .generateImage(Self.request)]
+        let parsed = PaceActionTagParseResult(
+            spokenText: "Here it is.", actions: actions, executionPlan: .serial(actions: actions),
+            firstClickVisualisationLocation: nil)
+        var diagramDismissalGeneration = diagramOverlayController.dismissalGeneration
+        let imageDismissalGeneration = imageOverlayController.dismissalGeneration
+        let drained = await PaceVisualActionDrainer.drain(
+            parseResult: parsed, diagramOverlayController: diagramOverlayController,
+            imageOverlayController: imageOverlayController,
+            expectedDiagramDismissalGeneration: &diagramDismissalGeneration,
+            expectedImageDismissalGeneration: imageDismissalGeneration)
+        #expect(drained.actions.isEmpty && drained.executionPlan.steps.isEmpty)
+        #expect(drained.spokenText.contains("Your image is ready:"))
+        #expect(diagramOverlayController.document?.title == (imageFirst ? "Water cycle" : nil))
+        #expect(imageOverlayController.lastSuccessfulArtifact?.id == (imageFirst ? nil : artifact.id))
+        #expect(imageOverlayController.state == (imageFirst ? .idle : .ready(artifact)))
+        #expect(discarded == (imageFirst ? [artifact.id] : []))
+        #expect(diagramOverlayController.dismissalGeneration == 0)
+        #expect(imageOverlayController.dismissalGeneration == imageDismissalGeneration)
+    }
+
+    @Test @MainActor func orderedVisualReplacementsAndOwnedDismissalsKeepLaterActionsAuthorized() async {
+        let diagramOverlayController = PaceDiagramOverlayController(showsWindows: false)
+        var generatedTitles: [String] = []
+        var discardedTitles: [String] = []
+        let imageOverlayController = PaceImageOverlayController(
+            showsWindows: false, discardArtifact: { discardedTitles.append($0.request.title) },
+            generateImage: { request, _ in
+                generatedTitles.append(request.title)
+                return Self.artifact(request.title)
+            })
+        Self.wireVisualReplacement(
+            diagramOverlayController: diagramOverlayController, imageOverlayController: imageOverlayController)
+        let actions: [PaceParsedAction] = [
+            .showDiagram(Self.diagram("First")), .generateImage(Self.request), .dismissDiagram,
+            .showDiagram(Self.diagram("Second")),
+            .generateImage(.init(prompt: "A red mug", title: "Red mug")),
+            .showDiagram(Self.diagram("Last")),
+        ]
+        let parsed = PaceActionTagParseResult(
+            spokenText: "Updated.", actions: actions, executionPlan: .serial(actions: actions),
+            firstClickVisualisationLocation: nil)
+        var diagramDismissalGeneration = 0
+        let drained = await PaceVisualActionDrainer.drain(
+            parseResult: parsed, diagramOverlayController: diagramOverlayController,
+            imageOverlayController: imageOverlayController,
+            expectedDiagramDismissalGeneration: &diagramDismissalGeneration, expectedImageDismissalGeneration: 0)
+        #expect(diagramOverlayController.document?.title == "Last")
+        #expect(imageOverlayController.state == .idle)
+        #expect(generatedTitles == ["Blue mug", "Red mug"])
+        #expect(discardedTitles == generatedTitles)
+        #expect(diagramDismissalGeneration == 1)
+        #expect(diagramOverlayController.dismissalGeneration == 1)
+        #expect(drained.actions.isEmpty)
+        #expect(drained.spokenText == "Your image is ready: Blue mug. Your image is ready: Red mug.")
+    }
+
+    @Test @MainActor func visualDrainRetainsUnrelatedActionValuesAndParallelStepGrouping() async throws {
+        let diagramOverlayController = PaceDiagramOverlayController(showsWindows: false)
+        let imageOverlayController = PaceImageOverlayController(
+            showsWindows: false, discardArtifact: { _ in }, generateImage: { _, _ in Self.artifact() })
+        Self.wireVisualReplacement(
+            diagramOverlayController: diagramOverlayController, imageOverlayController: imageOverlayController)
+        let steps: [PaceActionExecutionStep] = [
+            .init(actions: [.type("First input"), .generateImage(Self.request), .openApplication("Music")]),
+            .init(actions: [.showDiagram(Self.diagram("Water cycle"))]),
+            .init(actions: [.openApplication("Notes"), .type("Last input")]),
+        ]
+        let parsed = PaceActionTagParseResult(
+            spokenText: "Opening your apps.", actions: steps.flatMap(\.actions), executionPlan: .init(steps: steps),
+            firstClickVisualisationLocation: nil)
+        var diagramDismissalGeneration = 0
+        let drained = await PaceVisualActionDrainer.drain(
+            parseResult: parsed, diagramOverlayController: diagramOverlayController,
+            imageOverlayController: imageOverlayController,
+            expectedDiagramDismissalGeneration: &diagramDismissalGeneration, expectedImageDismissalGeneration: 0)
+        #expect(drained.spokenText == "Opening your apps. Your image is ready: Blue mug.")
+        #expect(drained.actions.map(\.auditOperationName) == ["type", "open_app", "open_app", "type"])
+        try #require(drained.executionPlan.steps.count == 2)
+        let firstStep = drained.executionPlan.steps[0].actions
+        let lastStep = drained.executionPlan.steps[1].actions
+        try #require(firstStep.count == 2 && lastStep.count == 2)
+        guard case .type("First input") = firstStep[0], case .openApplication("Music") = firstStep[1],
+            case .openApplication("Notes") = lastStep[0], case .type("Last input") = lastStep[1]
+        else {
+            Issue.record("Visual draining changed unrelated actions or their groups")
+            return
+        }
+        #expect(!PaceActionApprovalPolicy.permitsObservationOnly(drained.executionPlan))
+    }
+
+    @Test(arguments: [true, false])
+    @MainActor func userCancellationDuringImageGenerationCannotPresentLaterVisuals(dismissImage: Bool) async {
+        let diagramOverlayController = PaceDiagramOverlayController(showsWindows: false)
+        var continuation: CheckedContinuation<PaceGeneratedImageArtifact, Never>?
+        var generationCount = 0
+        var discarded: [UUID] = []
+        let artifact = Self.artifact()
+        let imageOverlayController = PaceImageOverlayController(
+            showsWindows: false, discardArtifact: { discarded.append($0.id) },
+            generateImage: { _, _ in
+                generationCount += 1
+                return await withCheckedContinuation { continuation = $0 }
+            })
+        Self.wireVisualReplacement(
+            diagramOverlayController: diagramOverlayController, imageOverlayController: imageOverlayController)
+        let actions: [PaceParsedAction] = [
+            .generateImage(Self.request), .showDiagram(Self.diagram("Stale diagram")), .dismissDiagram,
+            .generateImage(.init(prompt: "A red mug", title: "Stale image")),
+        ]
+        let parsed = PaceActionTagParseResult(
+            spokenText: "Here it is.", actions: actions, executionPlan: .serial(actions: actions),
+            firstClickVisualisationLocation: nil)
+        let task = Task {
+            var diagramDismissalGeneration = 0
+            return await PaceVisualActionDrainer.drain(
+                parseResult: parsed, diagramOverlayController: diagramOverlayController,
+                imageOverlayController: imageOverlayController,
+                expectedDiagramDismissalGeneration: &diagramDismissalGeneration, expectedImageDismissalGeneration: 0)
+        }
+        while continuation == nil { await Task.yield() }
+        if dismissImage {
+            imageOverlayController.dismiss()
+        } else {
+            task.cancel()
+        }
+        continuation?.resume(returning: artifact)
+        let drained = await task.value
+        #expect(generationCount == 1)
+        #expect(discarded == [artifact.id])
+        #expect(imageOverlayController.state == .idle)
+        #expect(imageOverlayController.lastSuccessfulArtifact == nil)
+        #expect(diagramOverlayController.document == nil)
+        #expect(diagramOverlayController.dismissalGeneration == 0)
+        #expect(drained.actions.isEmpty)
+        #expect(!drained.spokenText.contains("Your image is ready:"))
+    }
+
+    @Test @MainActor func externalDiagramDismissalDuringImageGenerationKeepsNewerDiagramUnchanged() async {
+        let diagramOverlayController = PaceDiagramOverlayController(showsWindows: false)
+        var continuation: CheckedContinuation<PaceGeneratedImageArtifact, Never>?
+        var generationCount = 0
+        let imageOverlayController = PaceImageOverlayController(
+            showsWindows: false, discardArtifact: { _ in },
+            generateImage: { _, _ in
+                generationCount += 1
+                return await withCheckedContinuation { continuation = $0 }
+            })
+        Self.wireVisualReplacement(
+            diagramOverlayController: diagramOverlayController, imageOverlayController: imageOverlayController)
+        let actions: [PaceParsedAction] = [
+            .generateImage(Self.request), .dismissDiagram, .showDiagram(Self.diagram("Stale")),
+            .generateImage(.init(prompt: "A red mug", title: "Stale image")),
+        ]
+        let parsed = PaceActionTagParseResult(
+            spokenText: "Here it is.", actions: actions, executionPlan: .serial(actions: actions),
+            firstClickVisualisationLocation: nil)
+        let task = Task {
+            var diagramDismissalGeneration = 0
+            let drained = await PaceVisualActionDrainer.drain(
+                parseResult: parsed, diagramOverlayController: diagramOverlayController,
+                imageOverlayController: imageOverlayController,
+                expectedDiagramDismissalGeneration: &diagramDismissalGeneration, expectedImageDismissalGeneration: 0)
+            return (drained, diagramDismissalGeneration)
+        }
+        while continuation == nil { await Task.yield() }
+        diagramOverlayController.dismiss()
+        diagramOverlayController.present(Self.diagram("Newer user request"))
+        continuation?.resume(returning: Self.artifact())
+        let (_, expectedDiagramDismissalGeneration) = await task.value
+        #expect(generationCount == 1)
+        #expect(expectedDiagramDismissalGeneration == 0)
+        #expect(diagramOverlayController.dismissalGeneration == 1)
+        #expect(diagramOverlayController.document?.title == "Newer user request")
+        #expect(imageOverlayController.state == .idle)
     }
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["PACE_RUN_CODEX_IMAGE_INTEGRATION"] == "1"))

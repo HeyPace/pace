@@ -34,20 +34,24 @@ extension CompanionManager {
             && PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
     }
 
-    private func drainGeneratedImages(parseResult: PaceActionTagParseResult, expectedDismissalGeneration: Int) async
-        -> PaceActionTagParseResult
-    {
-        guard
-            parseResult.actions.contains(where: {
-                if case .generateImage = $0 { return true }
-                return false
+    private func drainVisualActions(
+        parseResult: PaceActionTagParseResult,
+        expectedDiagramDismissalGeneration: inout Int,
+        expectedImageDismissalGeneration: Int
+    ) async -> PaceActionTagParseResult {
+        await PaceVisualActionDrainer.drain(
+            parseResult: parseResult,
+            diagramOverlayController: diagramOverlayController,
+            imageOverlayController: imageOverlayController,
+            expectedDiagramDismissalGeneration: &expectedDiagramDismissalGeneration,
+            expectedImageDismissalGeneration: expectedImageDismissalGeneration,
+            generateImage: { request, expectedDismissalGeneration in
+                let previousOffDeviceFlag = self.isOffDeviceTurnInFlight
+                self.isOffDeviceTurnInFlight = self.canGenerateImagesWithCodex
+                defer { self.isOffDeviceTurnInFlight = previousOffDeviceFlag }
+                return await self.imageOverlayController.generate(
+                    request, expectedDismissalGeneration: expectedDismissalGeneration)
             })
-        else { return parseResult }
-        let previousOffDeviceFlag = isOffDeviceTurnInFlight
-        isOffDeviceTurnInFlight = canGenerateImagesWithCodex
-        defer { isOffDeviceTurnInFlight = previousOffDeviceFlag }
-        return await imageOverlayController.drain(
-            parseResult: parseResult, expectedDismissalGeneration: expectedDismissalGeneration)
     }
 
     // MARK: - AI Response Pipeline (plan-act-observe loop)
@@ -680,12 +684,10 @@ extension CompanionManager {
                     }
                 }
 
-                let diagramParseResult = diagramOverlayController.drain(
+                let finalizedParseResult = await drainVisualActions(
                     parseResult: actionParseResult,
-                    expectedDismissalGeneration: &diagramDismissalGeneration
-                )
-                let finalizedParseResult = await drainGeneratedImages(
-                    parseResult: diagramParseResult, expectedDismissalGeneration: imageDismissalGeneration)
+                    expectedDiagramDismissalGeneration: &diagramDismissalGeneration,
+                    expectedImageDismissalGeneration: imageDismissalGeneration)
                 guard !Task.isCancelled else { return }
                 if finalizedParseResult.spokenText != actionParseResult.spokenText {
                     spokenText = finalizedParseResult.spokenText
@@ -2142,12 +2144,10 @@ extension CompanionManager {
                         into: annotationOverlayController,
                         screenCaptures: screenCaptures
                     )
-                    let diagramParseResult = diagramOverlayController.drain(
+                    let actionParseResult = await drainVisualActions(
                         parseResult: annotationDrainOutcome.drainedParseResult,
-                        expectedDismissalGeneration: &diagramDismissalGeneration
-                    )
-                    let actionParseResult = await drainGeneratedImages(
-                        parseResult: diagramParseResult, expectedDismissalGeneration: imageDismissalGeneration)
+                        expectedDiagramDismissalGeneration: &diagramDismissalGeneration,
+                        expectedImageDismissalGeneration: imageDismissalGeneration)
                     guard !Task.isCancelled else { return }
                     let streamedMailDraftForFinalization =
                         PaceStreamingMailDraftDetector
