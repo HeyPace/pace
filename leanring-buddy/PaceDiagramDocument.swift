@@ -176,7 +176,7 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
         if hasActiveDiagram && transcript == selectedPartQuestion { return true }
         let explicitLearningForms = [
             #"^(?:please\s+)?(?:explain|teach|help me understand)\s+.+\s+(?:with|using|as)\s+(?:an?\s+)?(?:interactive\s+)?(?:diagram|flowchart|concept map|mind map)[.!?]*$"#,
-            #"^(?:please\s+)?(?:draw|show|generate)\s+(?:me\s+)?(?:an?\s+)?(?:interactive\s+)?(?:diagram|flowchart|concept map|mind map)\s+(?:of|about|showing|explaining)\s+.+[.!?]*$"#,
+            #"^(?:please\s+)?(?:draw|show|generate|make|create)\s+(?:me\s+)?(?:an?\s+)?(?:(?:full|detailed|interactive)\s+){0,3}(?:diagram|flowchart|concept map|mind map)\s+(?:of|about|showing|explaining)\s+.+[.!?]*$"#,
             #"^(?:please\s+)?(?:explain|walk me through|draw|visualize|visualise)\s+(?:this|that)\s+(?:diagram|figure)[.!?]*$"#,
             #"^(?:please\s+)?(?:show|draw|create|generate|make|visualize|visualise)\s+(?:me\s+)?(?:an?\s+)?(?:detailed\s+)?(?:interactive|rotatable|3d|three-dimensional|cutaway)\s+.+[.!?]*$"#,
         ]

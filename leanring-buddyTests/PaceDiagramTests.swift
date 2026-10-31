@@ -220,6 +220,25 @@ struct PaceDiagramTests {
         #expect(!PaceDiagramDocument.requestsDismissal("Explain how to close the diagram"))
     }
 
+    @Test func explicitDiagramCreationSkipsUnrelatedContextPreparation() {
+        for transcript in [
+            "Make a full diagram of a pigeon. [ Silence ]", "make a diagram of a pigeon",
+            "draw a full diagram of a pigeon", "create a detailed diagram of a pigeon",
+        ] {
+            #expect(PaceDiagramDocument.requestsDiagram(transcript, hasActiveDiagram: false))
+            #expect(PaceDiagramDocument.canUseDiagramOnlyFastPath(transcript, hasActiveDiagram: false))
+            #expect(!PaceDiagramDocument.requiresScreenContext(transcript, hasActiveDiagram: false))
+        }
+        #expect(
+            PaceDiagramDocument.requiresScreenContext(
+                "make a full diagram of the pigeon on my screen", hasActiveDiagram: false))
+        #expect(
+            !PaceDiagramDocument.canUseDiagramOnlyFastPath(
+                "make a full diagram of a pigeon then email Sam", hasActiveDiagram: false))
+        #expect(!PaceDiagramDocument.requestsDiagram("create a flowchart in Figma", hasActiveDiagram: false))
+        #expect(!PaceDiagramDocument.canUseDiagramOnlyFastPath("create a flowchart in Figma", hasActiveDiagram: false))
+    }
+
     @Test func visualToolsAreAvailableWithoutActionsAndInScreenlessLearning() {
         #expect(
             CompanionSystemPrompt.build(includeAgentMode: false, includeInteractiveDiagrams: true).contains(

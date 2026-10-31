@@ -797,7 +797,13 @@ final class CompanionManager: ObservableObject {
     /// cursor (so it visually rides with the Codex arrow); `.avatar`
     /// anchors it next to the walking character. Cleared back to
     /// `.keyboard` when the turn ends.
-    enum DictationTrigger { case keyboard, avatar, wakeWord }
+    enum DictationTrigger {
+        case keyboard, microphoneButton, avatar, wakeWord
+
+        var captureMode: PaceDictationCaptureMode {
+            self == .keyboard ? .pushToTalk : .handsFree
+        }
+    }
     var currentDictationTrigger: DictationTrigger = .keyboard
 
     /// Auto-releases the synthetic PTT press created after a wake-word

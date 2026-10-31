@@ -19,8 +19,8 @@ final class CompanionResponseOverlayViewModel: ObservableObject {
     @Published var streamingResponseText: String = ""
     @Published var isShowingResponse: Bool = false
     /// True while the user is actively recording audio. Drives the
-    /// stop-button affordance in the bubble — manual escape hatch since
-    /// silence-based auto-end was yanked.
+    /// stop-button affordance while recording; hands-free sessions also
+    /// finish automatically after a speech pause.
     @Published var isListeningForAudio: Bool = false
     /// Invoked when the user taps the stop button in the bubble.
     /// CompanionManager hands the manager a closure that wires through
@@ -315,7 +315,7 @@ private struct CompanionResponseOverlayView: View {
                     .frame(maxWidth: 300, alignment: .leading)
 
                 // Stop button — only while actively recording audio.
-                // Manual escape since silence-based auto-end was yanked.
+                // The stop control also lets the user commit before the pause detector.
                 if viewModel.isListeningForAudio {
                     Button(action: { viewModel.onStopButtonTapped?() }) {
                         HStack(spacing: 6) {

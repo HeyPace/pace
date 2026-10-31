@@ -265,8 +265,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
     /// (wake word, barge-in, deeplink) so the manager can guarantee at-
     /// most-one window is active and prefer push-to-talk over everything
     /// else. The window doesn't actually start audio capture — that work
-    /// lives in `startPushToTalkFromKeyboardShortcut` / future wake-word
-    /// path. The window exists as a contract: while it's open, callers
+    /// lives in `startDictation`. The window exists as a contract: while it's open, callers
     /// know the manager is "expecting voice input" and will treat the
     /// next transcript as a turn.
     private var activeListeningWindowTrigger: PaceListeningTrigger?
@@ -281,6 +280,10 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
     private var sessionPeakAudioRMS: Float = 0
     private var sessionAudioStartedAt: Date?
     private var activeStartSource: BuddyDictationStartSource?
+    private var activeCaptureSessionIdentifier = UUID()
+    private var handsFreeCaptureEndpoint: PaceHandsFreeCaptureEndpoint?
+    private var handsFreeCaptureTimeoutTask: Task<Void, Never>?
+    private var hasReceivedFinalTranscript = false
     private var draftCallbacks: BuddyDictationDraftCallbacks?
     private var draftTextBeforeCurrentDictation = ""
     private var latestRecognizedText = ""
@@ -327,14 +330,17 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         super.init()
     }
 
-    func startPushToTalkFromKeyboardShortcut(
+    func startDictation(
+        captureMode: PaceDictationCaptureMode,
+        onEndOfUtterance: @escaping () -> Void,
         currentDraftText: String,
         updateDraftText: @escaping (String) -> Void,
         submitDraftText: @escaping (String) -> Void,
         speculativeFastAction: ((String) -> Void)? = nil
     ) async {
         await startPushToTalk(
-            startSource: .keyboardShortcut,
+            startSource: captureMode == .handsFree ? .microphoneButton : .keyboardShortcut,
+            onEndOfUtterance: onEndOfUtterance,
             currentDraftText: currentDraftText,
             updateDraftText: updateDraftText,
             submitDraftText: submitDraftText,
@@ -345,8 +351,9 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         )
     }
 
-    func stopPushToTalkFromKeyboardShortcut() {
-        stopPushToTalk(expectedStartSource: .keyboardShortcut)
+    func stopCurrentDictation() {
+        guard let activeStartSource else { return }
+        stopPushToTalk(expectedStartSource: activeStartSource)
     }
 
     /// Opens a listening window of the given duration on behalf of an
@@ -425,6 +432,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
 
     private func startPushToTalk(
         startSource: BuddyDictationStartSource,
+        onEndOfUtterance: @escaping () -> Void,
         currentDraftText: String,
         updateDraftText: @escaping (String) -> Void,
         submitDraftText: @escaping (String) -> Void,
@@ -480,6 +488,23 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
             speculativeFastAction: speculativeFastAction
         )
         activeStartSource = startSource
+        activeCaptureSessionIdentifier = UUID()
+        hasReceivedFinalTranscript = false
+        if startSource == .microphoneButton {
+            let captureSessionIdentifier = activeCaptureSessionIdentifier
+            handsFreeCaptureEndpoint = PaceHandsFreeCaptureEndpoint(
+                captureMode: .handsFree, captureSessionIdentifier: captureSessionIdentifier
+            ) { [weak self] reason in
+                guard let self, self.activeCaptureSessionIdentifier == captureSessionIdentifier,
+                    self.isRecordingFromMicrophoneButton, !self.isFinalizingTranscript
+                else { return }
+                self.handsFreeCaptureTimeoutTask?.cancel()
+                print("🎙️ Hands-free capture ended: \(reason)")
+                onEndOfUtterance()
+            }
+        } else {
+            handsFreeCaptureEndpoint = nil
+        }
         shouldAutomaticallySubmitFinalDraft = shouldAutomaticallySubmitFinalDraftOnStop
         hasFinishedCurrentDictationSession = false
         isFinalizingTranscript = false
@@ -500,8 +525,10 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
             return
         }
 
+        let captureSessionIdentifier = activeCaptureSessionIdentifier
         do {
             try await startRecognitionSession()
+            guard activeCaptureSessionIdentifier == captureSessionIdentifier else { return }
             guard !Task.isCancelled else {
                 print("🎙️ PacePushToTalkManager: start cancelled (shortcut released during session start)")
                 audioEngine.stop()
@@ -516,8 +543,10 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
                 microphoneButtonRecordingStartedAt = Date()
             }
             isPreparingToRecord = false
+            startHandsFreeCaptureTimeoutIfNeeded()
             print("🎙️ PacePushToTalkManager: recognition session started")
         } catch {
+            guard activeCaptureSessionIdentifier == captureSessionIdentifier else { return }
             isPreparingToRecord = false
             lastErrorMessage = userFacingErrorMessage(
                 from: error,
@@ -542,6 +571,9 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         isRecordingFromMicrophoneButton = false
         isRecordingFromKeyboardShortcut = false
         isFinalizingTranscript = true
+        handsFreeCaptureTimeoutTask?.cancel()
+        handsFreeCaptureEndpoint?.cancel()
+        handsFreeCaptureEndpoint = nil
 
         let finalTranscriptFallbackDelaySeconds = activeTranscriptionSession?.finalTranscriptFallbackDelaySeconds
             ?? Self.defaultFinalTranscriptFallbackDelaySeconds
@@ -553,6 +585,10 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         activeTranscriptionSession?.requestFinalTranscript()
         logSessionAudioDiagnostics(reason: "PTT-release")
         scheduleLazyEngineClose()
+        if hasReceivedFinalTranscript {
+            finishCurrentDictationSessionIfNeeded(shouldSubmitFinalDraft: shouldAutomaticallySubmitFinalDraft)
+            return
+        }
 
         finalizeFallbackWorkItem?.cancel()
         let shouldSubmitFinalDraftWhenFallbackTriggers = shouldAutomaticallySubmitFinalDraft
@@ -583,32 +619,44 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
             print("🎙️ PacePushToTalkManager: biasing transcription with \(contextualPhrases.count) local phrases")
         }
 
+        let captureSessionIdentifier = activeCaptureSessionIdentifier
         let activeTranscriptionSession = try await transcriptionProvider.startStreamingSession(
             contextualPhrases: contextualPhrases,
             onTranscriptUpdate: { [weak self] transcriptText in
                 Task { @MainActor in
-                    self?.handlePartialTranscriptUpdate(transcriptText)
+                    guard let self, self.activeCaptureSessionIdentifier == captureSessionIdentifier,
+                        !self.hasReceivedFinalTranscript
+                    else { return }
+                    self.handlePartialTranscriptUpdate(transcriptText)
                 }
             },
             onFinalTranscriptReady: { [weak self] transcriptText in
                 Task { @MainActor in
-                    guard let self else { return }
+                    guard let self, self.activeCaptureSessionIdentifier == captureSessionIdentifier else { return }
                     self.latestRecognizedText = transcriptText
+                    self.hasReceivedFinalTranscript = true
 
                     if self.isFinalizingTranscript {
                         self.finishCurrentDictationSessionIfNeeded(
                             shouldSubmitFinalDraft: self.shouldAutomaticallySubmitFinalDraft
                         )
+                    } else if self.isRecordingFromMicrophoneButton {
+                        self.requestAutomaticEndOfUtterance(reason: .speechPause)
                     }
                 }
             },
             onError: { [weak self] error in
                 Task { @MainActor in
-                    self?.handleRecognitionError(error)
+                    guard let self, self.activeCaptureSessionIdentifier == captureSessionIdentifier else { return }
+                    self.handleRecognitionError(error)
                 }
             }
         )
 
+        guard activeCaptureSessionIdentifier == captureSessionIdentifier, !Task.isCancelled else {
+            activeTranscriptionSession.cancel()
+            return
+        }
         self.activeTranscriptionSession = activeTranscriptionSession
         print("🎙️ PacePushToTalkManager: provider ready, starting audio engine")
 
@@ -623,8 +671,8 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
             guard let self else { return }
-            self.activeTranscriptionSession?.appendAudioBuffer(buffer)
-            self.updateAudioPowerLevel(from: buffer)
+            activeTranscriptionSession.appendAudioBuffer(buffer)
+            self.updateAudioPowerLevel(from: buffer, captureSessionIdentifier: captureSessionIdentifier)
             self.recordSessionAudioBufferDiagnostics(from: buffer)
         }
 
@@ -859,6 +907,12 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
 
     private func resetSessionState() {
         pendingStartRequestIdentifier = UUID()
+        activeCaptureSessionIdentifier = UUID()
+        handsFreeCaptureTimeoutTask?.cancel()
+        handsFreeCaptureTimeoutTask = nil
+        handsFreeCaptureEndpoint?.cancel()
+        handsFreeCaptureEndpoint = nil
+        hasReceivedFinalTranscript = false
         // A transcript finalize closes any open listening window per the
         // Wave 1c contract — "auto-closes after durationInSeconds OR when
         // transcript is finalized, whichever first."
@@ -889,7 +943,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         speculativeExecutedTranscript = nil
     }
 
-    private func updateAudioPowerLevel(from audioBuffer: AVAudioPCMBuffer) {
+    private func updateAudioPowerLevel(from audioBuffer: AVAudioPCMBuffer, captureSessionIdentifier: UUID) {
         guard let channelData = audioBuffer.floatChannelData else { return }
 
         let channelSamples = channelData[0]
@@ -904,6 +958,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
 
         let rootMeanSquare = sqrt(summedSquares / Float(frameCount))
         let boostedLevel = min(max(rootMeanSquare * 10.2, 0), 1)
+        let audioDuration = Double(frameCount) / audioBuffer.format.sampleRate
 
         // Wave 1c barge-in: emit the per-callback raw RMS so the
         // CompanionManager-owned VAD can decide on speech onset while
@@ -914,7 +969,11 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         audioLevelPublisher.send(rootMeanSquare)
 
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self, self.activeCaptureSessionIdentifier == captureSessionIdentifier else { return }
+            self.handsFreeCaptureEndpoint?.observe(
+                rootMeanSquare: rootMeanSquare, audioDuration: audioDuration,
+                captureSessionIdentifier: captureSessionIdentifier)
+            guard self.activeCaptureSessionIdentifier == captureSessionIdentifier else { return }
 
             let smoothedAudioPowerLevel = max(
                 CGFloat(boostedLevel),
@@ -929,6 +988,31 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
                 self.appendRecordedAudioPowerSample(
                     max(CGFloat(boostedLevel), Self.recordedAudioPowerHistoryBaselineLevel)
                 )
+            }
+        }
+    }
+
+    private func requestAutomaticEndOfUtterance(reason: PaceUtteranceEndpointReason) {
+        handsFreeCaptureEndpoint?.finish(reason: reason, captureSessionIdentifier: activeCaptureSessionIdentifier)
+    }
+
+    private func startHandsFreeCaptureTimeoutIfNeeded() {
+        guard isRecordingFromMicrophoneButton else { return }
+        let captureSessionIdentifier = activeCaptureSessionIdentifier
+        handsFreeCaptureTimeoutTask?.cancel()
+        handsFreeCaptureTimeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(8))
+                guard let self, self.activeCaptureSessionIdentifier == captureSessionIdentifier else { return }
+                if self.handsFreeCaptureEndpoint?.hasDetectedSpeech != true {
+                    self.requestAutomaticEndOfUtterance(reason: .noSpeech)
+                    return
+                }
+                try await Task.sleep(for: .seconds(37))
+                guard self.activeCaptureSessionIdentifier == captureSessionIdentifier else { return }
+                self.requestAutomaticEndOfUtterance(reason: .maximumDuration)
+            } catch {
+                return
             }
         }
     }

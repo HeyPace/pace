@@ -54,7 +54,7 @@ extension CompanionManager {
             print("🔗 Deeplink listen ignored — turn in flight (\(voiceState))")
             return
         }
-        currentDictationTrigger = .keyboard
+        currentDictationTrigger = .microphoneButton
         globalPushToTalkShortcutMonitor.simulateShortcutPressed()
     }
 

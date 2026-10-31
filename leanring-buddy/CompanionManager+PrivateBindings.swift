@@ -242,7 +242,7 @@ extension CompanionManager {
     /// Wake-word opens a bounded post-wake listening window; it does NOT
     /// route the matched phrase into the planner. A synthetic PTT press
     /// starts the normal pipeline (transcribe → intent → planner) for
-    /// whatever the user says next, then auto-releases after six seconds. We
+    /// whatever the user says next, then releases on a speech pause or at the maximum listening duration. We
     /// drop the detection when a turn is already in flight so the
     /// wake-word can't displace an active PTT session or interrupt
     /// the in-flight response (barge-in handles the responding case
@@ -258,7 +258,7 @@ extension CompanionManager {
             return false
         }
         print("🎙️ Wake-word detected: \(detection.phraseMatched) (confidence \(detection.confidence))")
-        let listeningWindowDurationSeconds = 6.0
+        let listeningWindowDurationSeconds = 45.0
         buddyDictationManager.openListeningWindow(
             durationInSeconds: listeningWindowDurationSeconds,
             trigger: .wakeWord
@@ -343,21 +343,35 @@ extension CompanionManager {
     }
 
     func bindVoiceStateObservation() {
+        var hasObservedDictationInProgress = false
         voiceStateCancellable = buddyDictationManager.$isRecordingFromKeyboardShortcut
             .combineLatest(
                 buddyDictationManager.$isFinalizingTranscript,
-                buddyDictationManager.$isPreparingToRecord
+                buddyDictationManager.$isPreparingToRecord,
+                buddyDictationManager.$isRecordingFromMicrophoneButton
             )
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] isRecording, isFinalizing, isPreparing in
+            .sink { [weak self] isRecordingFromShortcut, isFinalizing, isPreparing, isRecordingFromButton in
                 guard let self else { return }
+                let observedDictationInProgress =
+                    isRecordingFromShortcut || isRecordingFromButton || isFinalizing || isPreparing
+                if observedDictationInProgress {
+                    hasObservedDictationInProgress = true
+                } else if hasObservedDictationInProgress, !self.buddyDictationManager.isDictationInProgress {
+                    hasObservedDictationInProgress = false
+                    if self.globalPushToTalkShortcutMonitor.isSimulatedPressActive {
+                        self.globalPushToTalkShortcutMonitor.discardSimulatedPress()
+                        self.responseOverlayManager.setListeningForAudio(false)
+                        self.currentDictationTrigger = .keyboard
+                    }
+                }
                 // Don't override .responding — the AI response pipeline
                 // manages that state directly until streaming finishes.
                 guard self.voiceState != .responding else { return }
 
                 if isFinalizing {
                     self.voiceState = .processing
-                } else if isRecording {
+                } else if isRecordingFromShortcut || isRecordingFromButton {
                     self.voiceState = .listening
                 } else if isPreparing {
                     self.voiceState = .processing
@@ -506,6 +520,8 @@ extension CompanionManager {
                 responseOverlayManager.updateStreamingText("speech model still loading…")
                 responseOverlayManager.finishStreaming()
                 voiceState = .idle
+                globalPushToTalkShortcutMonitor.discardSimulatedPress()
+                currentDictationTrigger = .keyboard
                 return
             }
             // Surface the conversation at the mascot perch (top-right) the
@@ -518,7 +534,7 @@ extension CompanionManager {
             // this turn. Keyboard → next to the cursor (rides with the
             // Codex arrow); avatar tap → next to the walking character.
             switch currentDictationTrigger {
-            case .keyboard, .wakeWord:
+            case .keyboard, .microphoneButton, .wakeWord:
                 responseOverlayManager.setAnchor(.belowRightOfCursor)
                 // The avatar is just visual noise during a keyboard-
                 // triggered turn. Hide it; it comes back when we return
@@ -536,9 +552,14 @@ extension CompanionManager {
             // Capture self weakly in the outer task so it matches the weak
             // captures in the escaping draft/submit closures below — the task
             // must not extend this manager's lifetime past app teardown.
+            let captureMode = currentDictationTrigger.captureMode
             pendingKeyboardShortcutStartTask = Task { [weak self] in
                 guard let self else { return }
-                await self.buddyDictationManager.startPushToTalkFromKeyboardShortcut(
+                await self.buddyDictationManager.startDictation(
+                    captureMode: captureMode,
+                    onEndOfUtterance: { [weak self] in
+                        self?.globalPushToTalkShortcutMonitor.simulateShortcutReleased()
+                    },
                     currentDraftText: "",
                     updateDraftText: { [weak self] partialTranscript in
                         // The transcription provider may call us off-main;
@@ -616,7 +637,8 @@ extension CompanionManager {
             PaceAnalytics.trackPushToTalkReleased()
             pendingKeyboardShortcutStartTask?.cancel()
             pendingKeyboardShortcutStartTask = nil
-            buddyDictationManager.stopPushToTalkFromKeyboardShortcut()
+            buddyDictationManager.stopCurrentDictation()
+            currentDictationTrigger = .keyboard
             // The stop button only makes sense while we're actually
             // recording — clear it as soon as the release fires.
             responseOverlayManager.setListeningForAudio(false)
