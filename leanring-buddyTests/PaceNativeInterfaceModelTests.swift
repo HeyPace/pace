@@ -415,14 +415,17 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             let suggestion = PaceScreenSuggestion(identifier: UUID(), subject: subject, evidence: subject,
                 offer: offer, sceneIdentity: .init(displayIdentifier: 1, applicationProcessIdentifier: 42,
                     applicationBundleIdentifier: "com.apple.Safari"), observedAt: Date(), expiresAt: Date().addingTimeInterval(45))
-            let renderer = ImageRenderer(content: PaceScreenSuggestionNotificationView(suggestion: suggestion, onAction: { _ in }))
-            renderer.scale = 2
-            let image = try XCTUnwrap(renderer.cgImage)
-            XCTAssertEqual(image.width, 720)
-            XCTAssertGreaterThan(image.height, 300)
-            XCTAssertLessThan(image.height, 850)
-            let bitmap = NSBitmapImageRep(cgImage: image)
-            XCTAssertGreaterThan(bitmap.colorAt(x: image.width / 2, y: image.height / 2)?.alphaComponent ?? 0, 0.9)
+            // ImageRenderer substitutes placeholders for the AppKit cursor views.
+            // Cache the hosting view so the export uses the actual native hierarchy.
+            let hostingView = NSHostingView(rootView: PaceScreenSuggestionNotificationView(suggestion: suggestion, onAction: { _ in }))
+            hostingView.setFrameSize(hostingView.fittingSize)
+            hostingView.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+            hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+            XCTAssertEqual(hostingView.bounds.width, 360)
+            XCTAssertGreaterThan(hostingView.bounds.height, 150)
+            XCTAssertLessThan(hostingView.bounds.height, 425)
+            XCTAssertGreaterThan(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent ?? 0, 0.9)
             let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
             try data.write(to: output.appendingPathComponent("\(name).png"))
         }
