@@ -1231,6 +1231,8 @@ extension CompanionManager {
             // no-op and serves as the user-feedback log line.
             annotationOverlayController.clear(reason: "voice command")
             recordConversationTurn(userTranscript: transcript, assistantResponse: "Annotations cleared.")
+            responseOverlayManager.updateStreamingText("Annotations cleared.")
+            responseOverlayManager.finishStreaming()
             currentTurnHUDState = .done("annotations cleared")
             voiceState = .idle
             return

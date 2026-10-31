@@ -61,6 +61,7 @@ final class PaceMainWindowManager {
         destination: PaceCommandCenterDestination? = nil
     ) {
         NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+        companionManager.responseOverlayManager.hideOverlay()
         if let existingWindow = window {
             if let destination {
                 router?.select(destination)
