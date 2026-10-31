@@ -349,6 +349,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let examples: [(String, PaceLivingNotchDisplayMode, PaceSignalState, String, Bool, CGFloat)] = [
             ("idle", .resting, .ready, "Ready", false, 185),
+            ("screen-reading", .resting, .ready, "Ready", false, 185),
             ("completed-rest", .resting, .completed, "Done", false, 185),
             ("hover", .hover, .ready, "Ready", false, 185),
             ("listening", .active, .listening, "Listening…", false, 185),
@@ -361,6 +362,11 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             ("wide-housing-hover", .hover, .ready, "Ready", false, 300),
         ]
         for (name, mode, signalState, label, isOffDeviceTurn, housingWidth) in examples {
+            let screenReadIdentifier = name == "screen-reading"
+                ? PaceScreenReadActivity.shared.beginReading() : nil
+            defer {
+                if let screenReadIdentifier { PaceScreenReadActivity.shared.endReading(screenReadIdentifier) }
+            }
             let width = max(
                 mode.preferredWidth ?? housingWidth, housingWidth + 88)
             let height = 32 + mode.additionalHeight
