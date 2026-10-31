@@ -570,18 +570,36 @@ struct PaceImageGenerationTests {
 
     @Test @MainActor func closeCancelsProcessWorkAndLateResultCannotReopen() async throws {
         var continuation: CheckedContinuation<PaceGeneratedImageArtifact, Never>?
+        var userDismissals = 0
         let controller = PaceImageOverlayController(showsWindows: false) { _, _ in
             await withCheckedContinuation { continuation = $0 }
         }
+        controller.onUserDismissed = { userDismissals += 1 }
         controller.authorizationCheck = { true }
         let task = Task { await controller.generate(Self.request, expectedDismissalGeneration: 0) }
         while continuation == nil { await Task.yield() }
-        controller.dismiss()
+        controller.dismiss(intent: .userInitiated)
         continuation?.resume(returning: Self.artifact())
         let message = await task.value
         #expect(message.contains("cancelled"))
         #expect(controller.state == .idle)
         #expect(controller.lastSuccessfulArtifact == nil)
+        #expect(userDismissals == 1)
+    }
+
+    @Test @MainActor func visualReplacementDoesNotInvokeTheUserDismissalCallback() async {
+        var userDismissals = 0
+        let controller = PaceImageOverlayController(showsWindows: false, discardArtifact: { _ in }) { _, _ in Self.artifact() }
+        controller.authorizationCheck = { true }
+        controller.onUserDismissed = { userDismissals += 1 }
+        _ = await controller.generate(Self.request, expectedDismissalGeneration: 0)
+        controller.hideForDiagramReplacement()
+        controller.dismiss()
+        #expect(userDismissals == 0)
+        _ = await controller.generate(Self.request, expectedDismissalGeneration: controller.dismissalGeneration)
+        controller.dismiss(intent: .userInitiated)
+        #expect(userDismissals == 1)
+        #expect(controller.state == .idle)
     }
 
     @Test @MainActor func deniedConsentAndMissingEditReferenceNeverLaunchGenerator() async {

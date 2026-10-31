@@ -64,7 +64,7 @@ private struct PaceConversationPanelSurface: View {
                             NotificationCenter.default.post(name: .paceShowPanel, object: nil)
                         },
                         onChatTap: {
-                            NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+                            NotificationCenter.default.post(name: .paceDismissPanel, object: PaceExplanationDismissalIntent.userInitiated)
                         }
                     )
                     .accessibilityValue(headerAccessibilityValue)
@@ -89,7 +89,7 @@ private struct PaceConversationPanelSurface: View {
             }
         }
         .onExitCommand {
-            NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+            NotificationCenter.default.post(name: .paceDismissPanel, object: PaceExplanationDismissalIntent.userInitiated)
         }
     }
 
@@ -168,8 +168,9 @@ final class MenuBarPanelManager: NSObject {
             forName: .paceDismissPanel,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.hidePanel() }
+        ) { [weak self] notification in
+            let intent = notification.object as? PaceExplanationDismissalIntent ?? .automatic
+            MainActor.assumeIsolated { self?.hidePanel(intent: intent) }
         }
 
         showPanelObserver = NotificationCenter.default.addObserver(
@@ -216,7 +217,7 @@ final class MenuBarPanelManager: NSObject {
 
     func togglePanel() {
         if case .interactive = surfaceModel.presentation {
-            hidePanel()
+            hidePanel(intent: .userInitiated)
         } else {
             showPanel()
         }
@@ -293,7 +294,8 @@ final class MenuBarPanelManager: NSObject {
         installClickOutsideMonitor()
     }
 
-    private func hidePanel() {
+    private func hidePanel(intent: PaceExplanationDismissalIntent = .automatic) {
+        companionManager.handleExplanationDismissal(intent)
         let wasVisible = isPanelPresented
         surfaceModel.presentation = .hidden
         guard let panel, wasVisible else {

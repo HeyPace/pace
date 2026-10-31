@@ -151,7 +151,7 @@ struct PacePanelChatView: View {
             .keyboardShortcut(",", modifiers: [.command])
             if !isEmbeddedInNotch {
                 iconButton(systemName: "xmark", help: "Close conversation") {
-                    NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+                    NotificationCenter.default.post(name: .paceDismissPanel, object: PaceExplanationDismissalIntent.userInitiated)
                 }
                 .keyboardShortcut(.escape, modifiers: [])
             }

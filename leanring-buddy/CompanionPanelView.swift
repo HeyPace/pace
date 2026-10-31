@@ -187,7 +187,7 @@ struct CompanionPanelView: View {
             .pointerCursor()
 
             Button(action: {
-                NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+                NotificationCenter.default.post(name: .paceDismissPanel, object: PaceExplanationDismissalIntent.userInitiated)
             }) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))

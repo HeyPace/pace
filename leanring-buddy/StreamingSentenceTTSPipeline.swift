@@ -93,13 +93,14 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// voice turn.
     private var isMutedForCurrentTurn: Bool = false
 
-    /// True once `drainQueueAndStopForBargeIn()` has been called for the
-    /// current turn. Locks out any further `dispatchDeltaIfReady` work
+    /// True once the user interrupts or closes the current turn.
+    /// Locks out any further `dispatchDeltaIfReady` work
     /// for THIS turn so speculative sentences arriving after the user
     /// interrupted (e.g. a planner chunk still in flight, or a Wave 4
     /// speculative prefetch result) cannot leak audio. Cleared on the
     /// next `markIntentCommitted()` so the next turn starts clean.
-    private var hasBeenDrainedForBargeInThisTurn: Bool = false
+    private var hasStoppedSpeechForCurrentTurn: Bool = false
+    private var dispatchGeneration: UInt64 = 0
 
     /// Public read of whether the LAST completed turn was interrupted
     /// by a barge-in. Tests assert on this; the CompanionManager uses
@@ -116,12 +117,13 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// Called when a new voice turn begins. Clears the dispatch
     /// history so the next chunk starts a fresh queue.
     func resetForNewTurn() {
+        dispatchGeneration &+= 1
         alreadyDispatchedSafeText = ""
         intentCommittedAt = nil
         hasLoggedTimeToFirstSpokenWord = false
         isMutedForCurrentTurn = false
         inFlightStreamedText = ""
-        hasBeenDrainedForBargeInThisTurn = false
+        hasStoppedSpeechForCurrentTurn = false
         hasDispatchedFirstSentenceOfTurn = false
         firstSpokenWordCharacterCount = 0
         hasFinalizedStreamedTextForTurn = false
@@ -159,7 +161,7 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         intentCommittedAt = Date()
         hasLoggedTimeToFirstSpokenWord = false
         lastTurnWasInterrupted = false
-        hasBeenDrainedForBargeInThisTurn = false
+        hasStoppedSpeechForCurrentTurn = false
         // Wave 4: every per-turn flag controlling the speed levers
         // resets here. The new turn earns its lowered first-sentence
         // threshold regardless of how the previous turn ended.
@@ -179,7 +181,7 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     ///    from the lite text — replays cleanly as fresh sentences instead
     ///    of being diffed against the lite prefix (which would dispatch
     ///    garbage or nothing).
-    /// 3. Does NOT set `hasBeenDrainedForBargeInThisTurn`, so the full
+    /// 3. Does NOT set `hasStoppedSpeechForCurrentTurn`, so the full
     ///    stream's subsequent `acceptStreamedText` calls are accepted —
     ///    unlike the barge-in lock, which permanently silences the turn.
     /// 4. PRESERVES `intentCommittedAt` and `hasLoggedTimeToFirstSpokenWord`
@@ -208,19 +210,19 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// can include the flag in the paceHistory interrupt log line. Resets
     /// on `markIntentCommitted()` for the next turn.
     func drainQueueAndStopForBargeIn() {
-        // Pre-stamp the stop reason BEFORE stopping. The client's
-        // stopPlayback() reads the pending reason and propagates it
-        // to `lastStopReason` — so a CompanionManager post-stop read
-        // sees `.userBargeIn` instead of `.manualStop`.
-        ttsClient.recordExpectedStopReason(.userBargeIn)
-        // Stop in-flight playback first so the user hears silence
-        // immediately, then mark the lock so subsequent
-        // `dispatchDeltaIfReady` calls skip without speaking. Order
-        // matters: a chunk landing between these two lines should be
-        // dropped, which the flag below ensures.
-        ttsClient.stopPlayback()
-        hasBeenDrainedForBargeInThisTurn = true
+        stopCurrentTurn(reason: .userBargeIn)
+    }
+
+    func stopForUserDismissal() {
+        stopCurrentTurn(reason: .manualStop)
+    }
+
+    private func stopCurrentTurn(reason: PaceTTSStopReason) {
+        hasStoppedSpeechForCurrentTurn = true
+        dispatchGeneration &+= 1
         lastTurnWasInterrupted = true
+        ttsClient.recordExpectedStopReason(reason)
+        ttsClient.stopPlayback()
     }
 
     /// Call on every planner-stream chunk. Computes the new
@@ -272,7 +274,7 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         // so the text UI sees the rest of the planner output, but the
         // TTS path is silenced — matches the user's expressed intent
         // to stop hearing the response.
-        guard !hasBeenDrainedForBargeInThisTurn else { return }
+        guard !hasStoppedSpeechForCurrentTurn else { return }
 
         guard speakableSafePrefix.count > alreadyDispatchedSafeText.count else { return }
 
@@ -311,7 +313,9 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         }
 
         do {
+            let expectedDispatchGeneration = dispatchGeneration
             try await ttsClient.speakText(trimmedNewPortion)
+            guard expectedDispatchGeneration == dispatchGeneration, !hasStoppedSpeechForCurrentTurn else { return }
             alreadyDispatchedSafeText = speakableSafePrefix
             // Wave 4: the FIRST successful dispatch flips the threshold
             // gate so subsequent dispatches use the higher 8-char floor.

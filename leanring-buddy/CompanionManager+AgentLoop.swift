@@ -570,6 +570,7 @@ extension CompanionManager {
                     query: transcript,
                     route: .answerDirectly
                 )
+                guard self.isActiveTurn(turnLease) else { return }
 
                 let threadSummaryInjectionForTurn = threadMemory.injectionPrefix()
 
@@ -747,8 +748,7 @@ extension CompanionManager {
 
                 responseOverlayManager.updateStreamingText(spokenText)
                 if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
-                    voiceState = .responding
+                    guard await beginFinalSpeechIfCurrentTurn(spokenText: spokenText, turnLease: turnLease) else { return }
                 }
 
                 while ttsClient.isPlaying && !Task.isCancelled {
@@ -902,6 +902,7 @@ extension CompanionManager {
             {
                 await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
             }
+            guard !Task.isCancelled else { return }
 
             let preflightIssues = PaceToolPreflight.evaluate(
                 actionExecutionPlan: fastActionParseResult.executionPlan,
@@ -1147,6 +1148,32 @@ extension CompanionManager {
         responseOverlayManager.finishStreaming()
         voiceState = .idle
         currentTurnHUDState = .idle
+    }
+
+    func handleExplanationDismissal(_ intent: PaceExplanationDismissalIntent) {
+        guard intent == .userInitiated else { return }
+        streamingSentenceTTSPipeline.stopForUserDismissal()
+        ossCommandSpeechClient?.stopPlayback()
+        queuedChatTurnDrainTask?.cancel()
+        queuedChatTurnDrainTask = nil
+        clearQueuedChatTurns()
+        // Preserve the visible prefix in history before retiring its live mirror.
+        cancelActiveTurnTasks()
+        streamingSentenceTTSPipeline.finalizeInFlightStreamedTextForTurn()
+        imageOverlayController.dismiss()
+        diagramOverlayController.dismiss()
+        responseOverlayManager.hideOverlay()
+        clearLastSpokenReplyState()
+        voiceState = .idle
+        currentTurnHUDState = .idle
+    }
+
+    func beginFinalSpeechIfCurrentTurn(spokenText: String, turnLease: PaceTurnLease) async -> Bool {
+        guard isActiveTurn(turnLease) else { return false }
+        await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
+        guard isActiveTurn(turnLease) else { return false }
+        voiceState = .responding
+        return true
     }
 
     func sendTranscriptToPlannerWithScreenshotAsync(
@@ -2368,8 +2395,7 @@ extension CompanionManager {
                     if shouldSpeakInitialPlannerText,
                         !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     {
-                        await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
-                        voiceState = .responding
+                        guard await beginFinalSpeechIfCurrentTurn(spokenText: spokenText, turnLease: turnLease) else { return }
                     }
 
                     // 10. Execute tool calls/action tags if any.
@@ -2663,8 +2689,7 @@ extension CompanionManager {
                     recordConversationTurn(userTranscript: "", assistantResponse: pendingPostActionFeedbackText)
                     noteLastSpokenReply(pendingPostActionFeedbackText)
                     responseOverlayManager.updateStreamingText(pendingPostActionFeedbackText)
-                    await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: pendingPostActionFeedbackText)
-                    voiceState = .responding
+                    guard await beginFinalSpeechIfCurrentTurn(spokenText: pendingPostActionFeedbackText, turnLease: turnLease) else { return }
                 }
                 if currentTurnHUDState.status == .understanding
                     || currentTurnHUDState.status == .acting
@@ -3368,6 +3393,7 @@ extension CompanionManager {
         currentResponseTask = Task { @MainActor in
             recordAssistantNarration(setupSpokenText, origin: .progress, turnIdentifier: activeConversationUserEvent?.eventID)
             try? await ttsClient.speakText(setupSpokenText)
+            guard !Task.isCancelled else { return }
 
             let authoringPlanner =
                 activePlannerTierIsOffDevice

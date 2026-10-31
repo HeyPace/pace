@@ -10,6 +10,7 @@ final class PaceImageOverlayController: ObservableObject {
     var authorizationCheck: () -> Bool = { false }
     var onWillGenerate: (() -> Void)?
     var onGenerationProgress: ((String) -> Void)?
+    var onUserDismissed: (() -> Void)?
     private let discardArtifact: (PaceGeneratedImageArtifact) -> Void
     private let showsWindows: Bool
     private let generateImage:
@@ -45,9 +46,10 @@ final class PaceImageOverlayController: ObservableObject {
         }
     }
 
-    func dismiss() {
+    func dismiss(intent: PaceExplanationDismissalIntent = .automatic) {
         dismissalGeneration += 1
         hideForDiagramReplacement()
+        if intent == .userInitiated { onUserDismissed?() }
     }
 
     // Ordered visual replacement does not revoke later image actions in the

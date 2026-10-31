@@ -23,6 +23,11 @@ nonisolated enum PaceConversationPanelPresentationIntent: Equatable, Sendable {
     }
 }
 
+nonisolated enum PaceExplanationDismissalIntent: Equatable, Sendable {
+    case automatic
+    case userInitiated
+}
+
 nonisolated enum PaceConversationPanelPresentation: Equatable {
     case hidden
     case preview

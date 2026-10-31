@@ -225,6 +225,40 @@ struct PaceDiagramTests {
         #expect(!controller.askAboutSelectedNode())
     }
 
+    @Test @MainActor func onlyUserDismissalInvokesTheExplanationStopCallback() {
+        let controller = PaceDiagramOverlayController(showsWindows: false)
+        var userDismissals = 0
+        controller.onUserDismissed = { userDismissals += 1 }
+        controller.present(Self.document())
+        controller.hideForImageReplacement()
+        controller.present(Self.document())
+        controller.dismiss()
+        #expect(userDismissals == 0)
+        controller.present(Self.document())
+        let generation = controller.dismissalGeneration
+        controller.dismiss(intent: .userInitiated)
+        #expect(userDismissals == 1)
+        #expect(controller.document == nil)
+        #expect(!controller.present(Self.document(), expectedDismissalGeneration: generation))
+    }
+
+    @Test @MainActor func conceptualExplanationsKeepVisualToolsOnTheKnowledgeFastPath() {
+        let prediction = PaceIntentClassifier().classify("Explain how a turbofan engine works")
+        #expect(prediction.route == .answerDirectly)
+        let prompts = [
+            CompanionSystemPrompt.buildTextOnly(includeInteractiveDiagrams: true),
+            CompanionSystemPrompt.build(includeAgentMode: false, includeInteractiveDiagrams: true),
+            CompanionSystemPrompt.buildForResearchTurn(includeInteractiveDiagrams: true)
+        ]
+        for prompt in prompts {
+            #expect(prompt.contains("Teach visually by default"))
+            #expect(prompt.contains("explain how a turbofan engine works"))
+            #expect(prompt.contains("explicit text-only/one-sentence request"))
+            #expect(prompt.contains("Reuse an appropriate active figure"))
+            #expect(prompt.contains("show_diagram"))
+        }
+    }
+
     @Test @MainActor func drainingVisualToolsPreservesOtherActionsAndTheirApprovalPolicy() {
         let controller = PaceDiagramOverlayController(showsWindows: false)
         let actions: [PaceParsedAction] = [.showDiagram(Self.document()), .type("User-requested input")]

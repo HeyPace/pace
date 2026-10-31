@@ -66,7 +66,7 @@ private struct PaceImageOverlayView: View {
                     controller.lastSuccessfulArtifact == nil)
                 button("Save image", symbol: "square.and.arrow.down") { save() }.disabled(
                     controller.lastSuccessfulArtifact == nil)
-                button("Close image", symbol: "xmark") { controller.dismiss() }.keyboardShortcut(.cancelAction)
+                button("Close image", symbol: "xmark") { controller.dismiss(intent: .userInitiated) }.keyboardShortcut(.cancelAction)
             }
             .padding(.horizontal, 18).padding(.vertical, 14)
             .background(chrome, in: UnevenRoundedRectangle(topLeadingRadius: 14, topTrailingRadius: 14))

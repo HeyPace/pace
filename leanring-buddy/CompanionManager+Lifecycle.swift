@@ -216,7 +216,13 @@ extension CompanionManager {
         startQueuedChatTurn(nextQueuedTurn)
     }
 
-    func start() {
+    func bindVisualExplanationCallbacks() {
+        diagramOverlayController.onUserDismissed = { [weak self] in
+            self?.handleExplanationDismissal(.userInitiated)
+        }
+        imageOverlayController.onUserDismissed = { [weak self] in
+            self?.handleExplanationDismissal(.userInitiated)
+        }
         diagramOverlayController.onDidPresent = { [weak self] in
             self?.imageOverlayController.hideForDiagramReplacement()
             NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
@@ -237,6 +243,10 @@ extension CompanionManager {
         diagramOverlayController.onAskAboutPart = { [weak self] transcript in
             self?.submitChatTranscriptFromDeepLink(transcript)
         }
+    }
+
+    func start() {
+        bindVisualExplanationCallbacks()
         refreshAllPermissions()
         loadPersistedToolCallDebugRecords()
         // Warm the local Shortcuts names asynchronously. Natural transcript

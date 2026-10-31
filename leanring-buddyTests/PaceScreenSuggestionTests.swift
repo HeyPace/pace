@@ -496,6 +496,11 @@ struct PaceScreenSuggestionIntegrationTests {
             #expect(!session.hasUnreadScreenSuggestion)
             #expect(manager.isWatchModeEnabled)
             if action == .draw { #expect(submitter.transcripts.first?.contains("labeled, interactive") == true) }
+            if action == .explain {
+                #expect(submitter.transcripts.first?.contains("labeled, interactive visual") == true)
+                #expect(submitter.transcripts.first?.contains("Show the visual early") == true)
+                #expect(submitter.transcripts.first?.contains("highlight the part") == true)
+            }
             manager.stopWatchRuntime()
         }
     }

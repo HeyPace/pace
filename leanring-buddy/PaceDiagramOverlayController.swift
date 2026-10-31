@@ -12,6 +12,7 @@ final class PaceDiagramOverlayController: ObservableObject {
     private(set) var lastUserInteractionAt: Date?
     var onAskAboutPart: ((String) -> Void)?
     var onDidPresent: (() -> Void)?
+    var onUserDismissed: (() -> Void)?
 
     private let showsWindows: Bool
     private var overlayManager: PaceDiagramOverlayManager?
@@ -90,9 +91,10 @@ final class PaceDiagramOverlayController: ObservableObject {
         return true
     }
 
-    func dismiss() {
+    func dismiss(intent: PaceExplanationDismissalIntent = .automatic) {
         dismissalGeneration += 1
         hideForImageReplacement()
+        if intent == .userInitiated { onUserDismissed?() }
     }
 
     // Replacing a visual within the same plan must not revoke later diagram actions.

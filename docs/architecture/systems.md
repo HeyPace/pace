@@ -120,7 +120,14 @@ flight dynamics.
 The
 `show_diagram` and `dismiss_diagram` read-only tools are available independently
 of `EnableActions`. Both the text-only and full planner paths drain these tools
-before the action executor. `PaceDiagramOverlayController` owns the persistent
+before the action executor. Conceptual explanations request an early labeled
+native figure with brief narration tied to its highlighted part, reusing an
+appropriate active figure. Short facts and explicit text-only requests remain
+text and speech. An explicit conversation, diagram or image Close stops speech,
+locks out late TTS submissions, cancels remaining work and pending queued turns,
+and retains the interrupted conversation prefix. Typed dismissal intent keeps
+automatic panel collapse and visual replacement from cancelling narration.
+`PaceDiagramOverlayController` owns the persistent
 figure and selection; a complete replacement keeps surviving part selection unless
 the planner explicitly changes the figure's requested focus. Its bounded document and selected part are included in later
 planner context because spoken conversation history does not retain tool payloads.

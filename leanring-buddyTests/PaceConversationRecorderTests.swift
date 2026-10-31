@@ -29,6 +29,24 @@ struct PaceConversationRecorderTests {
         }
     }
 
+    final class DismissalTTSClient: BuddyTTSClient {
+        var submission: CheckedContinuation<Void, Never>?
+        var suspendsSubmissions = false
+        private(set) var spokenTexts: [String] = []
+        private(set) var stopCount = 0
+        private(set) var lastStopReason: PaceTTSStopReason = .naturalCompletion
+        var isPlaying: Bool { false }
+
+        func speakText(_ text: String) async throws {
+            spokenTexts.append(text)
+            try Task.checkCancellation()
+            if suspendsSubmissions { await withCheckedContinuation { submission = $0 } }
+        }
+
+        func stopPlayback() { stopCount += 1 }
+        func recordExpectedStopReason(_ reason: PaceTTSStopReason) { lastStopReason = reason }
+    }
+
     func makeFixture() -> (FixturePersister, PaceChatSession, PaceConversationRecorder) {
         let persister = FixturePersister()
         let submitter = FixtureSubmitter()
@@ -36,6 +54,102 @@ struct PaceConversationRecorderTests {
         let recorder = PaceConversationRecorder(persister: persister, chatSession: session)
         submitter.recorder = recorder
         return (persister, session, recorder)
+    }
+
+    func makeDismissalFixture() -> (CompanionManager, FixturePersister, DismissalTTSClient) {
+        let (persister, session, recorder) = makeFixture()
+        let preferences = UserDefaults(suiteName: "PaceExplanationDismissalTests." + UUID().uuidString)!
+        let manager = CompanionManager(watchModeDefaults: preferences)
+        let client = DismissalTTSClient()
+        manager.ttsClient = client
+        manager.chatSession = session
+        manager.conversationRecorder = recorder
+        manager.bindVisualExplanationCallbacks()
+        return (manager, persister, client)
+    }
+
+    @Test func explicitPanelCloseCancelsSpeechQueuedTurnsAndPreservesInterruptedHistory() async {
+        let (manager, persister, client) = makeDismissalFixture()
+        let lease = manager.turnLeaseRegistry.beginTurn()
+        manager.activeConversationUserEvent = manager.acceptConversationRequest("Explain rainbows", origin: .typed)
+        manager.activeConversationAssistantEventIdentifier = "rainbow-response"
+        manager.voiceState = .responding
+        await manager.streamingSentenceTTSPipeline.acceptStreamedText("Light separates into colors.")
+        let queuedEvent = manager.acceptConversationRequest("Explain the next part", origin: .typed)
+        manager.chatTurnQueue.enqueue(.init(transcript: queuedEvent.text, shouldMuteTTS: false,
+            optimisticMessageIdentifier: queuedEvent.eventID))
+        manager.queuedChatTurnCount = 1
+        let routingTask = Task<Void, Never> {}
+        let responseTask = Task<Void, Never> {}
+        manager.currentTurnDispatchTask = routingTask
+        manager.currentResponseTask = responseTask
+        let panelManager = MenuBarPanelManager(companionManager: manager)
+
+        withExtendedLifetime(panelManager) {
+            NotificationCenter.default.post(name: .paceDismissPanel, object: PaceExplanationDismissalIntent.automatic)
+            #expect(!routingTask.isCancelled)
+            #expect(client.stopCount == 0)
+            NotificationCenter.default.post(name: .paceDismissPanel, object: PaceExplanationDismissalIntent.userInitiated)
+        }
+
+        #expect(routingTask.isCancelled && responseTask.isCancelled)
+        #expect(!manager.turnLeaseRegistry.isCurrent(lease))
+        #expect(manager.currentTurnDispatchTask == nil && manager.currentResponseTask == nil)
+        #expect(manager.voiceState == .idle)
+        #expect(manager.chatTurnQueue.isEmpty && manager.queuedChatTurnCount == 0)
+        #expect(persister.events[queuedEvent.eventID]?.deliveryState == .cancelled)
+        #expect(persister.events["rainbow-response"]?.deliveryState == .interrupted)
+        #expect(persister.events["rainbow-response"]?.text == "Light separates into colors.")
+        #expect(client.stopCount == 1 && client.lastStopReason == .manualStop)
+        await manager.streamingSentenceTTSPipeline.flushFinal(finalSpokenText: "Late speech must stay silent.")
+        #expect(client.spokenTexts == ["Light separates into colors."])
+        #expect(manager.streamingSentenceTTSPipeline.inFlightStreamedText.isEmpty)
+    }
+
+    @Test func visualHandoffsKeepTheTurnButBothUserCloseCallbacksStopIt() {
+        let (manager, _, client) = makeDismissalFixture()
+        let lease = manager.turnLeaseRegistry.beginTurn()
+        let responseTask = Task<Void, Never> {}
+        manager.currentResponseTask = responseTask
+        manager.voiceState = .responding
+        manager.diagramOverlayController.onDidPresent?()
+        manager.imageOverlayController.onWillGenerate?()
+        manager.diagramOverlayController.dismiss()
+        manager.imageOverlayController.dismiss()
+        #expect(manager.turnLeaseRegistry.isCurrent(lease))
+        #expect(!responseTask.isCancelled && client.stopCount == 0)
+
+        manager.diagramOverlayController.dismiss(intent: .userInitiated)
+        #expect(responseTask.isCancelled)
+        #expect(manager.voiceState == .idle && client.stopCount == 1)
+        manager.imageOverlayController.dismiss(intent: .userInitiated)
+        #expect(client.stopCount == 2)
+    }
+
+    @Test func closingDuringFinalSynthesisCannotRestoreRespondingState() async throws {
+        let (manager, _, client) = makeDismissalFixture()
+        client.suspendsSubmissions = true
+        let lease = manager.turnLeaseRegistry.beginTurn()
+        manager.voiceState = .processing
+        let finalSpeech = Task { await manager.beginFinalSpeechIfCurrentTurn(spokenText: "The explanation is ready.", turnLease: lease) }
+        defer {
+            finalSpeech.cancel()
+            client.submission?.resume()
+            client.submission = nil
+        }
+        for _ in 0..<1_000 {
+            if client.submission != nil { break }
+            await Task.yield()
+        }
+        let submission = try #require(client.submission)
+
+        manager.handleExplanationDismissal(.userInitiated)
+        client.submission = nil
+        submission.resume()
+        #expect(await finalSpeech.value == false)
+        #expect(manager.voiceState == .idle)
+        #expect(manager.streamingSentenceTTSPipeline.inFlightStreamedText.isEmpty)
+        #expect(manager.streamingSentenceTTSPipeline.firstSpokenWordCharacterCount == 0)
     }
 
     @Test func sameSecondIdenticalRequestsAndAssistantNarrationsHaveDistinctIdentities() {

@@ -150,7 +150,7 @@ final class PaceDiagramOverlayManager {
         guard localKeyMonitor == nil else { return }
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.keyCode == 53, event.window is PaceDiagramIslandPanel else { return event }
-            Task { @MainActor in self?.controller?.dismiss() }
+            Task { @MainActor in self?.controller?.dismiss(intent: .userInitiated) }
             return event
         }
         globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -164,7 +164,7 @@ final class PaceDiagramOverlayManager {
             nodePanels.values.filter(\.isVisible).map(\.frame)
             + [headerPanel?.frame, detailPanel?.frame, figurePanel?.frame].compactMap { $0 }
         guard Self.shouldDismissForEscape(pointerLocation: NSEvent.mouseLocation, diagramFrames: frames) else { return }
-        controller?.dismiss()
+        controller?.dismiss(intent: .userInitiated)
     }
 
     static func shouldDismissForEscape(pointerLocation: CGPoint, diagramFrames: [CGRect]) -> Bool {
@@ -359,7 +359,7 @@ private struct PaceDiagramHeaderView: View {
                 Button("Next part", systemImage: "arrow.right") { controller.selectNextNode() }
                     .labelStyle(.iconOnly)
                     .help("Select the next diagram part")
-                Button("Close diagram", systemImage: "xmark") { controller.dismiss() }
+                Button("Close diagram", systemImage: "xmark") { controller.dismiss(intent: .userInitiated) }
                     .labelStyle(.iconOnly)
                     .help("Close diagram · Escape while hovering the diagram")
                     .accessibilityIdentifier("pace.diagram.close")

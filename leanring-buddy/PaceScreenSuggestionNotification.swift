@@ -11,7 +11,7 @@ nonisolated enum PaceScreenSuggestionNotificationAction: Equatable {
         let context = "Your offer was “\(suggestion.offer)”. The page said “\(suggestion.evidence)”."
         switch self {
         case .explain:
-            return "Please explain “\(suggestion.subject)” clearly, step by step. \(context)"
+            return "Please explain “\(suggestion.subject)” with a detailed, labeled, interactive visual and brief step-by-step narration. Show the visual early, highlight the part you are explaining, and reuse it as the explanation progresses. \(context)"
         case .draw:
             return "Please draw a detailed, labeled, interactive diagram explaining “\(suggestion.subject)”. Use an illustrative figure suited to the topic, with selectable parts; use a rotatable 3D model for a physical object when useful. \(context)"
         case .dismiss:
