@@ -429,6 +429,7 @@ extension CompanionManager {
     func handleShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
         switch transition {
         case .pressed:
+            screenSuggestionCoordinator.invalidate()
             guard !buddyDictationManager.isDictationInProgress else { return }
 
             // Cancel any pending transient hide so the overlay stays visible

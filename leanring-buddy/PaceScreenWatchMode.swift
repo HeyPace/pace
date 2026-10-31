@@ -7,6 +7,7 @@
 //  and emit only meaningful visual changes.
 //
 
+import AppKit
 import Combine
 import Foundation
 
@@ -15,7 +16,7 @@ nonisolated struct PaceScreenWatchConfiguration {
     let minimumSecondsBetweenEvents: TimeInterval
 
     static let `default` = PaceScreenWatchConfiguration(
-        sampleIntervalInSeconds: 1.0,
+        sampleIntervalInSeconds: 3.0,
         minimumSecondsBetweenEvents: 2.5
     )
 }
@@ -119,6 +120,7 @@ final class PaceScreenWatchModeController {
     typealias EventHandler = @MainActor (PaceScreenWatchEvent) async -> Void
 
     private var watchTask: Task<Void, Never>?
+    private var watchGeneration: UInt64 = 0
     private var changeDetector: PaceScreenWatchChangeDetector
     private let configuration: PaceScreenWatchConfiguration
 
@@ -136,12 +138,15 @@ final class PaceScreenWatchModeController {
 
     func startWatching(
         for durationInSeconds: TimeInterval? = nil,
+        shouldCapture: @escaping @MainActor () -> Bool = { true },
+        onSample: (@MainActor (CompanionScreenCapture, PaceScreenSceneIdentity, Date) -> Void)? = nil,
         onMeaningfulChange: @escaping EventHandler
     ) {
         stopWatching()
         changeDetector.reset()
 
         let watchStartDate = Date()
+        let generationForWatch = watchGeneration
         watchTask = Task { [weak self] in
             guard let self else { return }
 
@@ -152,7 +157,21 @@ final class PaceScreenWatchModeController {
                 }
 
                 do {
-                    let captures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                    guard shouldCapture() else {
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                        continue
+                    }
+                    let applicationBeforeCapture = NSWorkspace.shared.frontmostApplication
+                    let captures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG(watchOnly: onSample != nil)
+                    guard !Task.isCancelled, shouldCapture(),
+                          applicationBeforeCapture?.processIdentifier == NSWorkspace.shared.frontmostApplication?.processIdentifier else { continue }
+                    if let applicationBeforeCapture, let bundleIdentifier = applicationBeforeCapture.bundleIdentifier {
+                        for capture in captures {
+                            onSample?(capture, PaceScreenSceneIdentity(displayIdentifier: capture.displayIdentifier,
+                                applicationProcessIdentifier: applicationBeforeCapture.processIdentifier,
+                                applicationBundleIdentifier: bundleIdentifier), Date())
+                        }
+                    }
                     let events = self.changeDetector.meaningfulChanges(in: captures)
                     for event in events {
                         self.eventPublisher.send(event)
@@ -166,11 +185,12 @@ final class PaceScreenWatchModeController {
                 try? await Task.sleep(nanoseconds: sleepNanoseconds)
             }
 
-            self.watchTask = nil
+            if self.watchGeneration == generationForWatch { self.watchTask = nil }
         }
     }
 
     func stopWatching() {
+        watchGeneration &+= 1
         watchTask?.cancel()
         watchTask = nil
         changeDetector.reset()

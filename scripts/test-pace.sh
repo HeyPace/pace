@@ -119,6 +119,7 @@ fi
 
 set +e
 xcodebuild test \
+    -jobs 2 \
     -project "$PROJECT_PATH" \
     -scheme "$SCHEME" \
     -destination "$DESTINATION" \

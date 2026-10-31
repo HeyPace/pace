@@ -81,6 +81,18 @@ final class PaceMLXPlannerClient: BuddyPlannerClient {
         self.displayName = "MLX in-process (\(Self.shortenedModelLabel(forIdentifier: modelIdentifier)))"
     }
 
+    /// Background screen checks may reuse a resident model, but must never
+    /// initiate a model download or cold load on the user's behalf.
+    static var hasResidentModelContainer: Bool {
+        #if canImport(MLXLLM)
+            modelLoadLock.lock()
+            defer { modelLoadLock.unlock() }
+            return cachedModelContainer != nil
+        #else
+            return false
+        #endif
+    }
+
     /// Pre-fetch the configured model container — surfaces progress
     /// via the Hub package's NSProgress so callers can render a
     /// real percentage instead of an indeterminate spinner. Safe to

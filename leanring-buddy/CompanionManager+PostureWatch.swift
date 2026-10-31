@@ -55,30 +55,7 @@ extension CompanionManager {
     }
 
     func handleWatchModeEvent(_ event: PaceScreenWatchEvent) async {
-        let summary = "\(event.category.displayName): \(event.screenLabel)"
-        latestWatchModeSummary = summary
-        print("👀 Watch mode: \(summary) meanDelta=\(String(format: "%.2f", event.diff.meanPixelDelta)) changedRatio=\(String(format: "%.3f", event.diff.changedPixelRatio))")
-
-        // Journal before the idle guard — that guard only exists to avoid
-        // speaking over an in-flight turn, but history should be captured
-        // regardless of what the voice pipeline is doing.
         recordWatchModeEventInJournal(event)
-
-        guard voiceState == .idle else { return }
-
-        responseOverlayManager.showOverlayAndBeginStreaming()
-        let spokenWatchModeSummary = "i noticed a \(event.category.displayName)."
-        responseOverlayManager.updateStreamingText(spokenWatchModeSummary)
-        currentResponseTask = Task {
-            voiceState = .responding
-            await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenWatchModeSummary)
-            while ttsClient.isPlaying {
-                try? await Task.sleep(nanoseconds: 80_000_000)
-            }
-            guard !Task.isCancelled else { return }
-            responseOverlayManager.finishStreaming()
-            voiceState = .idle
-        }
     }
 
     func recordWatchModeEventInJournal(_ event: PaceScreenWatchEvent) {

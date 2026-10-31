@@ -94,6 +94,10 @@ final class PaceProactivityPipeline {
     /// profile (talkative / balanced / reserved).
     private(set) var lastProactiveUtteranceAt: Date?
 
+    func recordExternalProactiveDelivery(at deliveredAt: Date) {
+        lastProactiveUtteranceAt = deliveredAt
+    }
+
     // MARK: - Per-generator preference snapshots
 
     /// Mirrors CompanionManager's `areFocusFatigueNudgesEnabled` etc.
@@ -148,7 +152,6 @@ final class PaceProactivityPipeline {
             generators: [
                 focusFatigueNudgeGenerator,
                 calendarPreMeetingNudgeGenerator,
-                watchModeObservationNudgeGenerator,
             ]
         )
     }()

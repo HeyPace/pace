@@ -22,6 +22,7 @@ extension CompanionManager {
         PacePlannerTierStore.saveTier(newTier)
         // Rebuild planner so the next turn uses the freshly-picked tier
         // without requiring an app restart.
+        screenSuggestionCoordinator.invalidate(clearAnchor: true)
         plannerClient = BuddyPlannerClientFactory.makeDefault()
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
@@ -86,6 +87,7 @@ extension CompanionManager {
         }
         activePlannerTierCLIDirectUpstream = newUpstream
         PacePlannerTierStore.saveCLIDirectUpstream(newUpstream)
+        screenSuggestionCoordinator.invalidate(clearAnchor: true)
         plannerClient = BuddyPlannerClientFactory.makeDefault()
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
@@ -108,6 +110,7 @@ extension CompanionManager {
         if modelIdentifierLooksEmptyOrStale {
             setDirectAPIModelIdentifier(newProvider.defaultModelIdentifier)
         }
+        screenSuggestionCoordinator.invalidate(clearAnchor: true)
         plannerClient = BuddyPlannerClientFactory.makeDefault()
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
@@ -115,6 +118,7 @@ extension CompanionManager {
     func setDirectAPIModelIdentifier(_ newModelIdentifier: String) {
         directAPIModelIdentifier = newModelIdentifier
         PacePlannerTierStore.saveDirectAPIModelIdentifier(newModelIdentifier)
+        screenSuggestionCoordinator.invalidate(clearAnchor: true)
         plannerClient = BuddyPlannerClientFactory.makeDefault()
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
@@ -122,6 +126,7 @@ extension CompanionManager {
     func setDirectAPICustomEndpointURLString(_ newCustomEndpointURLString: String) {
         directAPICustomEndpointURLString = newCustomEndpointURLString
         PacePlannerTierStore.saveDirectAPICustomEndpointURL(newCustomEndpointURLString)
+        screenSuggestionCoordinator.invalidate(clearAnchor: true)
         plannerClient = BuddyPlannerClientFactory.makeDefault()
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
@@ -204,6 +209,7 @@ extension CompanionManager {
     func saveDirectAPIKey(_ apiKey: String, for provider: PaceDirectAPIProvider) -> Bool {
         let didStore = PaceKeychainStore.storeAPIKey(apiKey, for: provider)
         if didStore {
+            screenSuggestionCoordinator.invalidate(clearAnchor: true)
             plannerClient = BuddyPlannerClientFactory.makeDefault()
             PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
         }
@@ -217,6 +223,7 @@ extension CompanionManager {
     func deleteDirectAPIKey(for provider: PaceDirectAPIProvider) -> Bool {
         let didDelete = PaceKeychainStore.deleteAPIKey(for: provider)
         if didDelete {
+            screenSuggestionCoordinator.invalidate(clearAnchor: true)
             plannerClient = BuddyPlannerClientFactory.makeDefault()
             PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
         }

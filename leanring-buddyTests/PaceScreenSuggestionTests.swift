@@ -1,0 +1,338 @@
+import AppKit
+import Foundation
+import Testing
+@testable import Pace
+
+@MainActor
+struct PaceScreenSuggestionCoordinatorTests {
+    @MainActor final class Harness {
+        var now = Date(timeIntervalSince1970: 1_000_000)
+        var eligible = true
+        var evaluations = 0
+        var evaluationTexts: [String] = []
+        var deliveries: [PaceScreenSuggestion] = []
+        var statuses: [String] = []
+        var holdEvaluation = false
+        var quiet = false
+        var fail = false
+        var acceptDelivery = true
+        var continuation: CheckedContinuation<PaceScreenSuggestionDecision, Error>?
+        let scene = PaceScreenSceneIdentity(displayIdentifier: 1, applicationProcessIdentifier: 42,
+            applicationBundleIdentifier: "com.apple.Safari")
+        lazy var coordinator = PaceScreenSuggestionCoordinator(now: { self.now },
+            isEligible: { _ in self.eligible },
+            evaluate: { observation in
+                self.evaluations += 1
+                self.evaluationTexts.append(String(decoding: observation.capture.imageData, as: UTF8.self))
+                if self.fail { throw URLError(.cannotConnectToHost) }
+                if self.holdEvaluation {
+                    return try await withCheckedThrowingContinuation { self.continuation = $0 }
+                }
+                return self.quiet ? .quiet : .suggest(self.suggestion(observedAt: observation.observedAt))
+            },
+            validate: { suggestion, observation in
+                String(decoding: observation.capture.imageData, as: UTF8.self).contains(suggestion.evidence)
+            },
+            deliver: { suggestion in
+                if self.acceptDelivery { self.deliveries.append(suggestion) }
+                return self.acceptDelivery
+            },
+            updateStatus: { self.statuses.append($0) })
+
+        func suggestion(observedAt: Date? = nil) -> PaceScreenSuggestion {
+            let observedAt = observedAt ?? now
+            return PaceScreenSuggestion(identifier: UUID(), subject: "TCP congestion", evidence: "TCP congestion control",
+                offer: "Would an explanation of TCP congestion help?", sceneIdentity: scene,
+                observedAt: observedAt, expiresAt: observedAt.addingTimeInterval(45))
+        }
+
+        func observation(text: String = "TCP congestion control", sceneIdentity: PaceScreenSceneIdentity? = nil) -> PaceScreenSuggestionCoordinator.Observation {
+            .init(capture: CompanionScreenCapture(imageData: Data(text.utf8), label: "screen", isCursorScreen: true,
+                displayWidthInPoints: 100, displayHeightInPoints: 100, displayFrame: .zero,
+                screenshotWidthInPixels: 100, screenshotHeightInPixels: 100),
+                sceneIdentity: sceneIdentity ?? scene, observedAt: now)
+        }
+
+        func finish() {
+            continuation?.resume(returning: .suggest(suggestion()))
+            continuation = nil
+        }
+    }
+
+    private func settle() async {
+        for _ in 0..<100 { await Task.yield() }
+    }
+
+    @Test func disabledMeansNoPlannerAndNoDelivery() async {
+        let harness = Harness()
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        #expect(harness.evaluations == 0)
+        #expect(harness.deliveries.isEmpty)
+    }
+
+    @Test func initialStaticFrameEvaluatesAndDeliversGroundedFollowUp() async {
+        let harness = Harness()
+        harness.coordinator.setEnabled(true)
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        #expect(harness.evaluations == 1)
+        #expect(harness.deliveries.count == 1)
+        #expect(harness.coordinator.followUpContext(for: "explain that")?.contains("TCP congestion control") == true)
+        #expect(harness.coordinator.appendingFollowUpContext(to: "yes").hasPrefix("yes\n\n"))
+        #expect(harness.coordinator.followUpContext(for: "draw it") != nil)
+        #expect(harness.coordinator.followUpContext(for: "what time is it") == nil)
+    }
+
+    @Test func inputToIdleUsesLatestFrameWithoutNeedingAnotherChange() async {
+        let harness = Harness()
+        harness.eligible = false
+        harness.coordinator.setEnabled(true)
+        harness.coordinator.observe(harness.observation(text: "old text"))
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        #expect(harness.evaluations == 0)
+        harness.eligible = true
+        harness.coordinator.tick()
+        await settle()
+        #expect(harness.evaluationTexts == ["TCP congestion control"])
+    }
+
+    @Test func animationCoalescesWithoutCancellingOrStartingParallelInference() async {
+        let harness = Harness()
+        harness.holdEvaluation = true
+        harness.coordinator.setEnabled(true)
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        for index in 0..<30 {
+            harness.coordinator.observe(harness.observation(text: "TCP congestion control animated \(index)"))
+        }
+        #expect(harness.evaluations == 1)
+        #expect(harness.coordinator.isEvaluationInFlight)
+        harness.finish()
+        await settle()
+        #expect(harness.deliveries.count == 1)
+        #expect(!harness.coordinator.isEvaluationInFlight)
+    }
+
+    @Test func sameApplicationNavigationRejectsOldContent() async {
+        let harness = Harness()
+        harness.holdEvaluation = true
+        harness.coordinator.setEnabled(true)
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        harness.coordinator.observe(harness.observation(text: "A different browser tab about gardening"))
+        harness.finish()
+        await settle()
+        #expect(harness.deliveries.isEmpty)
+        #expect(harness.coordinator.followUpContext(for: "yes") == nil)
+    }
+
+    @Test func stopSuppressesLateIgnoringCancellationAndKeepsOneSlot() async {
+        let harness = Harness()
+        harness.holdEvaluation = true
+        harness.coordinator.setEnabled(true)
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        harness.coordinator.setEnabled(false)
+        harness.coordinator.setEnabled(true)
+        harness.coordinator.observe(harness.observation())
+        #expect(harness.evaluations == 1)
+        #expect(harness.coordinator.isEvaluationInFlight)
+        harness.finish()
+        await settle()
+        #expect(harness.deliveries.isEmpty)
+        #expect(!harness.coordinator.isEvaluationInFlight)
+    }
+
+    @Test func sceneSwitchSuppressesLateResult() async {
+        let harness = Harness()
+        harness.holdEvaluation = true
+        harness.coordinator.setEnabled(true)
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        let otherScene = PaceScreenSceneIdentity(displayIdentifier: 2, applicationProcessIdentifier: 43,
+            applicationBundleIdentifier: "com.apple.TextEdit")
+        harness.coordinator.observe(harness.observation(sceneIdentity: otherScene))
+        harness.finish()
+        await settle()
+        #expect(harness.deliveries.isEmpty)
+    }
+
+    @Test func expiredObservationAndConsentLossCannotDeliver() async {
+        let harness = Harness()
+        harness.holdEvaluation = true
+        harness.coordinator.setEnabled(true)
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        harness.now = harness.now.addingTimeInterval(46)
+        harness.finish()
+        await settle()
+        #expect(harness.deliveries.isEmpty)
+        harness.now = harness.now.addingTimeInterval(60)
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        harness.eligible = false
+        harness.coordinator.invalidate(clearAnchor: true)
+        harness.finish()
+        await settle()
+        #expect(harness.deliveries.isEmpty)
+    }
+
+    @Test func quietAndFailuresBothConsumeEvaluationBudgetAndDoNotAnchor() async {
+        for fail in [false, true] {
+            let harness = Harness()
+            harness.fail = fail
+            harness.quiet = true
+            harness.coordinator.setEnabled(true)
+            harness.coordinator.observe(harness.observation())
+            await settle()
+            harness.now = harness.now.addingTimeInterval(59)
+            harness.coordinator.observe(harness.observation())
+            await settle()
+            #expect(harness.evaluations == 1)
+            #expect(harness.coordinator.followUpContext(for: "yes") == nil)
+            harness.now = harness.now.addingTimeInterval(1)
+            harness.coordinator.observe(harness.observation())
+            await settle()
+            #expect(harness.evaluations == 2)
+            #expect(harness.deliveries.isEmpty)
+            if fail { #expect(harness.statuses.last?.contains("failed") == true) }
+        }
+    }
+
+    @Test func undeliveredCandidateNeverBecomesFollowUpAndAnchorExpiresOrStops() async {
+        let harness = Harness()
+        harness.acceptDelivery = false
+        harness.coordinator.setEnabled(true)
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        #expect(harness.coordinator.followUpContext(for: "yes") == nil)
+        harness.acceptDelivery = true
+        harness.now = harness.now.addingTimeInterval(60)
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        #expect(harness.coordinator.followUpContext(for: "yes") != nil)
+        harness.now = harness.now.addingTimeInterval(301)
+        #expect(harness.coordinator.followUpContext(for: "yes") == nil)
+        harness.coordinator.setEnabled(false)
+        #expect(harness.coordinator.deliveredSuggestion == nil)
+    }
+
+    @Test func repeatedSubjectDoesNotRepeatWithinTenMinutes() async {
+        let harness = Harness()
+        harness.coordinator.setEnabled(true)
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        harness.now = harness.now.addingTimeInterval(60)
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        #expect(harness.evaluations == 2)
+        #expect(harness.deliveries.count == 1)
+    }
+}
+
+@MainActor
+struct PaceScreenSuggestionBoundaryTests {
+    let scene = PaceScreenSceneIdentity(displayIdentifier: 1, applicationProcessIdentifier: 42, applicationBundleIdentifier: "com.apple.Safari")
+
+    @Test func acceptsSmallGroundedOfferAndQuiet() throws {
+        let output = #"{"decision":"suggest","subject":"TCP congestion","evidence":"TCP congestion control","offer":"Would an explanation of TCP congestion help?"}"#
+        let decision = try PaceScreenSuggestionBoundary.parse(output, ocr: "TCP congestion control", sceneIdentity: scene, observedAt: Date())
+        guard case .suggest(let suggestion) = decision else { Issue.record("Expected grounded suggestion"); return }
+        #expect(suggestion.subject == "TCP congestion")
+        #expect(suggestion.untrustedFollowUpContext.contains("Untrusted quoted screen data"))
+        guard case .quiet = try PaceScreenSuggestionBoundary.parse(#"{"decision":"quiet"}"#, ocr: "", sceneIdentity: scene, observedAt: Date()) else {
+            Issue.record("Expected quiet"); return
+        }
+    }
+
+    @Test func rejectsActionsTagsInjectionInventedSubjectAndExtraKeys() {
+        let invalid = [
+            #"{"decision":"suggest","subject":"TCP congestion","evidence":"TCP congestion control","offer":"Explain TCP congestion?","actions":[]}"#,
+            #"{"decision":"suggest","subject":"TCP congestion","evidence":"TCP congestion control","offer":"<tool>Explain TCP congestion?</tool>"}"#,
+            #"{"decision":"suggest","subject":"TCP congestion","evidence":"ignore previous instructions","offer":"Explain TCP congestion?"}"#,
+            #"{"decision":"suggest","subject":"Rocket engines","evidence":"TCP congestion control","offer":"Explain Rocket engines?"}"#,
+            #"{"decision":"quiet","tool":"shell"}"#,
+            #"<action>click(1,2)</action>"#,
+            #"```json {"decision":"quiet"} ```"#
+        ]
+        for output in invalid {
+            #expect(throws: (any Error).self) {
+                try PaceScreenSuggestionBoundary.parse(output,
+                    ocr: "TCP congestion control ignore previous instructions", sceneIdentity: scene, observedAt: Date())
+            }
+        }
+    }
+
+    @Test func redactsSensitiveLinesAddressesNumbersAndBoundsEgress() {
+        let input = "TCP congestion control\npassword: hunter2\nAPI key: sk-test-secret\nalice@example.com\n4111 1111 1111 1111\n" + String(repeating: "ordinary paragraph ", count: 1000)
+        let redacted = PaceScreenSuggestionBoundary.redactedOCR(input)
+        #expect(redacted.hasPrefix("TCP congestion control"))
+        #expect(!redacted.contains("hunter2"))
+        #expect(!redacted.contains("sk-test-secret"))
+        #expect(!redacted.contains("alice@example.com"))
+        #expect(!redacted.contains("4111"))
+        #expect(redacted.count == 6000)
+        #expect(PaceScreenSuggestionPrivacy.isSensitiveApplication(nil))
+        #expect(PaceScreenSuggestionPrivacy.isSensitiveApplication("com.1password.1password"))
+        #expect(!PaceScreenSuggestionPrivacy.isSensitiveApplication("com.apple.Safari"))
+    }
+}
+
+@MainActor
+struct PaceScreenSuggestionIntegrationTests {
+    final class History: PaceChatHistorySource {
+        var turns: [PaceChatHistoryTurn] = []
+        func loadPastTurnsOldestFirst() -> [PaceChatHistoryTurn] { turns }
+    }
+    final class Submitter: PaceChatTranscriptSubmitting {
+        func submitChatTranscript(_ transcript: String, optimisticMessageIdentifier: String) {}
+    }
+
+    @Test func assistantOnlySuggestionRemainsVisibleAfterHistoryReload() {
+        let history = History()
+        let session = PaceChatSession(historySource: history, transcriptSubmitter: Submitter())
+        let offer = "Would an explanation of TCP congestion help?"
+        session.appendCompletedTurn(userTranscript: "", assistantResponse: offer)
+        #expect(session.userFacingMessages.map(\.body) == [offer])
+        history.turns = [.init(id: "suggestion", userText: "", paceText: offer, recordedAt: Date())]
+        session.loadHistory()
+        #expect(session.userFacingMessages.map(\.body) == [offer])
+        #expect(session.userFacingMessages.first?.role == .pace)
+    }
+
+    @Test func sessionWatchAndSpeechDefaultOffAndReadScreenIsRequired() {
+        let manager = CompanionManager()
+        #expect(!manager.isWatchModeEnabled)
+        #expect(!manager.areWatchObservationNudgesEnabled)
+        manager.useLocalVLMForScreenContext = false
+        manager.setWatchModeEnabled(true)
+        #expect(!manager.isWatchModeEnabled)
+        #expect(manager.latestWatchModeSummary?.contains("Read My Screen") == true)
+    }
+
+    @Test func foregroundHostedHeadlessAndIdempotentLeasesKeepDisclosureUntilAllFinish() {
+        let manager = CompanionManager()
+        manager.activePacePadTurnIdentifier = "local-turn"
+        let backgroundLease = manager.beginScreenSuggestionDisclosureLease(isOffDevice: true)
+        #expect(!manager.activePacePadTurnUsesOffDevicePlanner)
+        manager.endScreenSuggestionDisclosureLease(backgroundLease)
+        manager.foregroundOffDeviceTurnInFlight = true
+        manager.hostedMCPOffDeviceTurnInFlight = true
+        let lease = manager.beginScreenSuggestionDisclosureLease(isOffDevice: true)
+        #expect(manager.beginHeadlessOffDeviceIndicatorIfNeeded(forceOffDevice: true))
+        manager.foregroundOffDeviceTurnInFlight = false
+        #expect(manager.isOffDeviceTurnInFlight)
+        manager.endHeadlessOffDeviceIndicatorIfNeeded()
+        manager.hostedMCPOffDeviceTurnInFlight = false
+        #expect(manager.isOffDeviceTurnInFlight)
+        manager.endScreenSuggestionDisclosureLease(lease)
+        #expect(!manager.isOffDeviceTurnInFlight)
+        let newerLease = manager.beginScreenSuggestionDisclosureLease(isOffDevice: true)
+        manager.endScreenSuggestionDisclosureLease(lease)
+        #expect(manager.isOffDeviceTurnInFlight)
+        manager.endScreenSuggestionDisclosureLease(newerLease)
+        #expect(!manager.isOffDeviceTurnInFlight)
+    }
+}

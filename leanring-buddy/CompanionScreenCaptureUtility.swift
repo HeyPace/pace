@@ -11,6 +11,7 @@ import AppKit
 import ScreenCaptureKit
 
 struct CompanionScreenCapture {
+    var displayIdentifier: UInt32 = 0
     let imageData: Data
     let label: String
     let isCursorScreen: Bool
@@ -27,7 +28,7 @@ enum CompanionScreenCaptureUtility {
     /// Captures all connected displays as JPEG data, labeling each with
     /// whether the user's cursor is on that screen. This gives the AI
     /// full context across multiple monitors.
-    static func captureAllScreensAsJPEG() async throws -> [CompanionScreenCapture] {
+    static func captureAllScreensAsJPEG(watchOnly: Bool = false) async throws -> [CompanionScreenCapture] {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
         guard !content.displays.isEmpty else {
@@ -42,6 +43,7 @@ enum CompanionScreenCaptureUtility {
         let ownBundleIdentifier = Bundle.main.bundleIdentifier
         let ownAppWindows = content.windows.filter { window in
             window.owningApplication?.bundleIdentifier == ownBundleIdentifier
+                || (watchOnly && PaceScreenSuggestionPrivacy.isSensitiveApplication(window.owningApplication?.bundleIdentifier))
         }
 
         // Build a lookup from display ID to NSScreen so we can use AppKit-coordinate
@@ -70,6 +72,7 @@ enum CompanionScreenCaptureUtility {
         var capturedScreens: [CompanionScreenCapture] = []
 
         for (displayIndex, display) in sortedDisplays.enumerated() {
+            if watchOnly && displayIndex > 0 { break }
             // Use NSScreen.frame (AppKit coordinates, bottom-left origin) so
             // displayFrame is in the same coordinate system as NSEvent.mouseLocation
             // and the overlay window's screenFrame in BlueCursorView.
@@ -121,6 +124,7 @@ enum CompanionScreenCaptureUtility {
             }
 
             capturedScreens.append(CompanionScreenCapture(
+                displayIdentifier: display.displayID,
                 imageData: jpegData,
                 label: screenLabel,
                 isCursorScreen: isCursorScreen,

@@ -46,9 +46,11 @@ extension CompanionManager {
             expectedDiagramDismissalGeneration: &expectedDiagramDismissalGeneration,
             expectedImageDismissalGeneration: expectedImageDismissalGeneration,
             generateImage: { request, expectedDismissalGeneration in
-                let previousOffDeviceFlag = self.isOffDeviceTurnInFlight
-                self.isOffDeviceTurnInFlight = self.canGenerateImagesWithCodex
-                defer { self.isOffDeviceTurnInFlight = previousOffDeviceFlag }
+                if self.canGenerateImagesWithCodex, self.activePacePadTurnIdentifier != nil {
+                    self.activePacePadTurnUsesOffDevicePlanner = true
+                }
+                let disclosureLease = self.beginScreenSuggestionDisclosureLease(isOffDevice: self.canGenerateImagesWithCodex)
+                defer { self.endScreenSuggestionDisclosureLease(disclosureLease) }
                 return await self.imageOverlayController.generate(
                     request, expectedDismissalGeneration: expectedDismissalGeneration)
             })
@@ -540,8 +542,8 @@ extension CompanionManager {
             guard let self, self.isActiveTurn(turnLease) else { return }
             voiceState = .processing
             let usesOffDeviceTextPlanner = activePlannerTierIsOffDevice
-            isOffDeviceTurnInFlight = usesOffDeviceTextPlanner
-            defer { isOffDeviceTurnInFlight = false }
+            foregroundOffDeviceTurnInFlight = usesOffDeviceTextPlanner
+            defer { foregroundOffDeviceTurnInFlight = false }
 
             do {
                 if !usesOffDeviceTextPlanner, let textOnlyPlannerWarmupTask {
@@ -561,7 +563,7 @@ extension CompanionManager {
                 let imageDismissalGeneration = imageOverlayController.dismissalGeneration
                 let userPromptForPlanner = await appendLocalRetrievalContext(
                     to: imageOverlayController.appendingPlannerContext(
-                        to: diagramOverlayController.appendingPlannerContext(to: transcript)),
+                        to: diagramOverlayController.appendingPlannerContext(to: screenSuggestionCoordinator.appendingFollowUpContext(to: transcript))),
                     query: transcript,
                     route: .answerDirectly
                 )
@@ -1226,7 +1228,7 @@ extension CompanionManager {
         if PaceResearchCancelCommandParser.parse(transcript) != nil {
             print("🛑 Research-cancel voice command")
             cancelActiveTurnTasks()
-            isOffDeviceTurnInFlight = false
+            foregroundOffDeviceTurnInFlight = false
             voiceState = .idle
             currentTurnHUDState = .done("stopped researching")
             Task { [weak self] in
@@ -1444,7 +1446,7 @@ extension CompanionManager {
         // enough to return .chitchat (not .unknown). Anything ambiguous
         // falls through to the full pipeline.
         let intentPrediction: PaceIntentPrediction
-        if diagramNeedsScreenContext {
+        if diagramNeedsScreenContext || screenSuggestionCoordinator.followUpContext(for: transcript) != nil {
             intentPrediction = PaceIntentPrediction(intent: .screenDescription, confidence: 1)
         } else {
             intentPrediction = await intentClassifier.classify(
@@ -1527,7 +1529,7 @@ extension CompanionManager {
                     print("🔬 Routing research turn to legacy Node bridge (gemini fallback)")
                 }
                 researchTurnMaxAgentSteps = loadedResearchConfiguration.maximumAgentSteps
-                isOffDeviceTurnInFlight = true
+                foregroundOffDeviceTurnInFlight = true
                 let upstreamLabel = loadedResearchConfiguration.cliBridgeUpstream.displayLabel.lowercased()
                 // The model is often empty now (Codex's default lets the
                 // CLI pick its own authenticated model), so only append a
@@ -1557,7 +1559,7 @@ extension CompanionManager {
                         modelIdentifier: loadedResearchConfiguration.directAPIModelIdentifier
                     )
                     researchTurnMaxAgentSteps = loadedResearchConfiguration.maximumAgentSteps
-                    isOffDeviceTurnInFlight = true
+                    foregroundOffDeviceTurnInFlight = true
                     let providerLabel = loadedResearchConfiguration.directAPIProvider.displayLabel.lowercased()
                     currentTurnHUDState = .understanding(
                         "researching with \(providerLabel) \(loadedResearchConfiguration.directAPIModelIdentifier)…")
@@ -1607,7 +1609,7 @@ extension CompanionManager {
                 // Record first-use so the 24-hour soak timer starts ticking.
                 PaceCloudBridgeConsent.markFirstUsedIfUnset(now: Date())
                 isCloudBridgeCallActive = true
-                isOffDeviceTurnInFlight = true
+                foregroundOffDeviceTurnInFlight = true
 
                 let upstreamDisplayName = currentBridgeConfiguration.upstream.displayLabel
                 let bridgeRoutingHUDDetail = "thinking with \(upstreamDisplayName.lowercased())…"
@@ -1781,7 +1783,7 @@ extension CompanionManager {
             var diagramDismissalGeneration = diagramOverlayController.dismissalGeneration
             let imageDismissalGeneration = imageOverlayController.dismissalGeneration
             var currentTurnUserPrompt = imageOverlayController.appendingPlannerContext(
-                to: diagramOverlayController.appendingPlannerContext(to: transcript))
+                to: diagramOverlayController.appendingPlannerContext(to: screenSuggestionCoordinator.appendingFollowUpContext(to: transcript)))
             if let physicalSceneContext = consumePacePadPhysicalSceneContext() {
                 currentTurnUserPrompt +=
                     "\n\nPhysical scene observed locally from the paired iPad for this turn only:\n"
@@ -1906,7 +1908,7 @@ extension CompanionManager {
                         || plannerClientForThisTurn is CloudBridgePlannerClient
                         || plannerClientForThisTurn is PaceLocalCLIPlannerClient
                     {
-                        isOffDeviceTurnInFlight = true
+                        foregroundOffDeviceTurnInFlight = true
                     }
 
                     // Wave 4 speculative race (FIRST STEP ONLY): when the
@@ -1968,7 +1970,7 @@ extension CompanionManager {
                         guard !Task.isCancelled else { return }
                         if raceWiringResult.bothPlannersFailed {
                             isCloudBridgeCallActive = false
-                            isOffDeviceTurnInFlight = false
+                            foregroundOffDeviceTurnInFlight = false
                             currentTurnHUDState = .failed("planner offline")
                             speakPlainLanguageFailure(.plannerOffline, context: "speculative-race")
                             break agentStepLoop
@@ -2136,7 +2138,7 @@ extension CompanionManager {
                     // unified off-device flag follows the same lifecycle
                     // so Direct-API turns un-tint the capsule too.
                     isCloudBridgeCallActive = false
-                    isOffDeviceTurnInFlight = false
+                    foregroundOffDeviceTurnInFlight = false
 
                     // 6. Parse: action tags → [DONE] flag → pointing tag.
                     //    Each pass strips its own tag class so the final
@@ -2656,7 +2658,7 @@ extension CompanionManager {
                 // overlay immediately so it doesn't linger over the next
                 // turn's "listening…" state.
                 isCloudBridgeCallActive = false
-                isOffDeviceTurnInFlight = false
+                foregroundOffDeviceTurnInFlight = false
                 responseOverlayManager.hideOverlay()
                 PaceLatencyBudget.shared.cancelTurn()
                 // A cancelled skill run was interrupted, not failed — clear
@@ -2667,7 +2669,7 @@ extension CompanionManager {
                 PaceAnalytics.trackResponseError(error: error.localizedDescription)
                 print("⚠️ Companion response error: \(error)")
                 isCloudBridgeCallActive = false
-                isOffDeviceTurnInFlight = false
+                foregroundOffDeviceTurnInFlight = false
                 // Skill-run failure telemetry: pair a "failed" line with the
                 // "started" line for a skill turn that errored out.
                 if let failedSkillRun = activeSkillRun {
@@ -3351,9 +3353,9 @@ extension CompanionManager {
                 activePlannerTierIsOffDevice
                 ? plannerClient
                 : BuddyPlannerClientFactory.makeLocalOnlyTextPlannerForPrivacyPinnedFeatures()
-            isOffDeviceTurnInFlight = activePlannerTierIsOffDevice
+            foregroundOffDeviceTurnInFlight = activePlannerTierIsOffDevice
             currentTurnHUDState = .understanding("creating reusable work")
-            defer { isOffDeviceTurnInFlight = false }
+            defer { foregroundOffDeviceTurnInFlight = false }
             authoringPlanner.resetForNewTurn()
 
             var structuredDefinition: PaceAutomationDefinition?

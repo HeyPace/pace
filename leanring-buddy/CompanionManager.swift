@@ -34,7 +34,11 @@ enum CompanionVoiceState {
 
 @MainActor
 final class CompanionManager: ObservableObject {
-    @Published var voiceState: CompanionVoiceState = .idle
+    @Published var voiceState: CompanionVoiceState = .idle {
+        didSet {
+            if voiceState != .idle, isWatchModeEnabled { screenSuggestionCoordinator.invalidate() }
+        }
+    }
     weak var pacePadOutputDelegate: PacePadOutputDelegate?
     var activePacePadTurnIdentifier: String?
     var activePacePadTurnUsesOffDevicePlanner = false
@@ -414,6 +418,9 @@ final class CompanionManager: ObservableObject {
     /// bbox overlap. Cheap (~50-200ms), no model load.
     let visionOCRClient = PaceVisionOCRClient()
     let permissionEventStore = EKEventStore()
+    var watchLifecycleObservers: [NSObjectProtocol] = []
+    var lastScreenSuggestionDeliveryAt: Date?
+    lazy var screenSuggestionCoordinator = makeScreenSuggestionCoordinator()
     lazy var screenWatchModeController: PaceScreenWatchModeController = {
         PaceScreenWatchModeController()
     }()
@@ -501,6 +508,7 @@ final class CompanionManager: ObservableObject {
     {
         didSet {
             if oldValue && !useLocalVLMForScreenContext {
+                setWatchModeEnabled(false)
                 diagramOverlayController.dismiss()
                 imageOverlayController.dismiss()
             }
@@ -1033,12 +1041,17 @@ final class CompanionManager: ObservableObject {
     /// so EVERY off-device turn is visible, not just bridge calls.
     /// `isCloudBridgeCallActive` remains as a subset for backward compat
     /// during the v1 cycle and continues to set/reset alongside this flag.
-    @Published var isOffDeviceTurnInFlight: Bool = false {
-        didSet {
-            if isOffDeviceTurnInFlight, activePacePadTurnIdentifier != nil {
-                activePacePadTurnUsesOffDevicePlanner = true
-            }
+    var foregroundOffDeviceTurnInFlight = false { didSet { refreshOffDeviceIndicator() } }
+    var hostedMCPOffDeviceTurnInFlight = false { didSet { refreshOffDeviceIndicator() } }
+    var screenSuggestionDisclosureLeases: Set<UUID> = []
+    @Published private(set) var isOffDeviceTurnInFlight: Bool = false
+
+    func refreshOffDeviceIndicator() {
+        if (foregroundOffDeviceTurnInFlight || hostedMCPOffDeviceTurnInFlight), activePacePadTurnIdentifier != nil {
+            activePacePadTurnUsesOffDevicePlanner = true
         }
+        isOffDeviceTurnInFlight = foregroundOffDeviceTurnInFlight || hostedMCPOffDeviceTurnInFlight
+            || headlessOffDevicePlannerCallCount > 0 || !screenSuggestionDisclosureLeases.isEmpty
     }
 
     /// Count of HEADLESS planner calls (background agents, subagents,
@@ -1048,7 +1061,7 @@ final class CompanionManager: ObservableObject {
     /// planner traffic the user didn't just speak — counter-based
     /// because up to 4 subagents run concurrently and the tint must
     /// hold until the LAST one finishes.
-    var headlessOffDevicePlannerCallCount: Int = 0
+    var headlessOffDevicePlannerCallCount: Int = 0 { didSet { refreshOffDeviceIndicator() } }
 
 
 
@@ -1064,8 +1077,7 @@ final class CompanionManager: ObservableObject {
         .bool(.areCalendarNudgesEnabled, default: false)
 
 
-    @Published var areWatchObservationNudgesEnabled: Bool = PaceUserPreferencesStore
-        .bool(.areWatchObservationNudgesEnabled, default: false)
+    @Published var areWatchObservationNudgesEnabled: Bool = false
 
 
     // MARK: - Proactivity profile — stored state; setters in CompanionManager+ProactivitySettings.swift
@@ -1104,9 +1116,6 @@ final class CompanionManager: ObservableObject {
             }
             if areCalendarNudgesEnabled {
                 enabledGeneratorIdentifiers.insert("calendar-pre-meeting")
-            }
-            if areWatchObservationNudgesEnabled {
-                enabledGeneratorIdentifiers.insert("watch-mode-observation")
             }
             return enabledGeneratorIdentifiers
         }()

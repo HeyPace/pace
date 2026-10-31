@@ -336,7 +336,7 @@ extension CompanionManager {
         // Direct API and Cloud Bridge planner turns.
         actionExecutor.setOffDeviceTurnInFlightCallback = { [weak self] isOffDeviceCallInFlight in
             Task { @MainActor [weak self] in
-                self?.isOffDeviceTurnInFlight = isOffDeviceCallInFlight
+                self?.hostedMCPOffDeviceTurnInFlight = isOffDeviceCallInFlight
             }
         }
         startPermissionPolling()
@@ -753,6 +753,7 @@ extension CompanionManager {
     }
 
     func stop() {
+        setWatchModeEnabled(false)
         imageOverlayController.dismiss()
         diagramOverlayController.dismiss()
         PaceScreenRecordingController.shared.shutdown()
@@ -1001,22 +1002,17 @@ extension CompanionManager {
     /// Tint the capsule amber while a HEADLESS planner call (background
     /// agent, subagent, cron, plugin auto-repair) runs on an off-device
     /// tier. Counter-based: up to 4 subagents run concurrently and the
-    /// tint must hold until the LAST one finishes. Known limitation: a
-    /// user-spoken off-device turn ending mid-headless-call clears the
-    /// flag from its own path; the tint returns on the next begin call.
+    /// tint must hold until the LAST one finishes. Foreground, hosted MCP
+    /// and suggestion activity are aggregated independently.
     @discardableResult
     func beginHeadlessOffDeviceIndicatorIfNeeded(forceOffDevice: Bool = false) -> Bool {
         guard forceOffDevice || activePlannerTierIsOffDevice else { return false }
         headlessOffDevicePlannerCallCount += 1
-        isOffDeviceTurnInFlight = true
         return true
     }
 
     func endHeadlessOffDeviceIndicatorIfNeeded() {
         guard headlessOffDevicePlannerCallCount > 0 else { return }
         headlessOffDevicePlannerCallCount -= 1
-        if headlessOffDevicePlannerCallCount == 0 {
-            isOffDeviceTurnInFlight = false
-        }
     }
 }

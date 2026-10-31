@@ -35,11 +35,6 @@ extension CompanionManager {
     }
     func setWatchObservationNudgesEnabled(_ enabled: Bool) {
         areWatchObservationNudgesEnabled = enabled
-        PaceUserPreferencesStore.setBool(enabled, for: .areWatchObservationNudgesEnabled)
-        proactivityPipeline.setGeneratorEnabled(
-            identifier: proactivityPipeline.watchModeObservationNudgeGeneratorIdentifier,
-            enabled: enabled
-        )
     }
     func setProactivityProfile(_ profile: PaceProactivityProfile) {
         proactivityProfile = profile

@@ -238,6 +238,47 @@ enum BuddyPlannerClientFactory {
         }
     }
 
+    /// Background observations must never silently substitute a different selected tier.
+    @MainActor
+    static func makeScreenSuggestionClient() throws -> (client: any BuddyPlannerClient, isOffDevice: Bool) {
+        let configuration = PacePlannerTierStore.loadConfiguration()
+        switch configuration.tier {
+        case .cliDirect:
+            guard PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
+                  PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date()) else {
+                throw PaceScreenSuggestionBoundary.BoundaryError.invalidDecision
+            }
+            return (makeCLIDirectPlannerOrLocalFallback(configuration: configuration), true)
+        case .cliBridge:
+            let bridge = PaceCloudBridgeConsent.loadConfiguration()
+            guard bridge.hasUserAcceptedConsent, bridge.mode != .off else {
+                throw PaceScreenSuggestionBoundary.BoundaryError.invalidDecision
+            }
+            // Screen suggestions use the selected bridge directly, with no complexity
+            // escalation or local fallback hidden inside a hybrid foreground session.
+            return (CloudBridgePlannerClient(configuration: bridge), true)
+        case .directAPI:
+            guard let client = makeDirectAPIPlannerOrNil(configuration: configuration) else {
+                throw PaceScreenSuggestionBoundary.BoundaryError.invalidDecision
+            }
+            return (client, true)
+        case .appleFoundationModels:
+            guard PacePlannerTierStore.isAppleIntelligenceAvailableOnThisDevice() else {
+                throw PaceScreenSuggestionBoundary.BoundaryError.invalidDecision
+            }
+            return (AppleFoundationModelsPlannerClient(), false)
+        case .local:
+            let bridge = PaceCloudBridgeConsent.loadConfiguration()
+            if bridge.hasUserAcceptedConsent, bridge.mode != .off {
+                return (CloudBridgePlannerClient(configuration: bridge), true)
+            }
+            guard !PaceBundledModelsSettings.isUsingMLXInProcessPlanner() || PaceMLXPlannerClient.hasResidentModelContainer else {
+                throw PaceScreenSuggestionBoundary.BoundaryError.invalidDecision
+            }
+            return (makeLocalOrFoundationModelsPlanner(requestsStructuredActionOutput: false), false)
+        }
+    }
+
     /// Builds the Direct-API client when the user has a stored key + a
     /// valid endpoint URL. Returns nil in either of two cases:
     ///   - No key in Keychain for the configured provider.
