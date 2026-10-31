@@ -254,10 +254,10 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             XCTAssertEqual(image.width, Int(width * 2))
             XCTAssertEqual(image.height, Int(height * 2))
             let bitmap = NSBitmapImageRep(cgImage: image)
-            if mode == .resting {
-                XCTAssertEqual(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent, 0)
-                XCTAssertGreaterThan(bitmap.colorAt(x: 44, y: 32)?.alphaComponent ?? 0, 0.9)
-                XCTAssertGreaterThan(bitmap.colorAt(x: bitmap.pixelsWide - 44, y: 32)?.alphaComponent ?? 0, 0.9)
+            for pixelX in stride(from: 24, through: bitmap.pixelsWide - 24, by: 8) {
+                XCTAssertGreaterThan(
+                    bitmap.colorAt(x: pixelX, y: 32)?.alphaComponent ?? 0, 0.9,
+                    "The icon wings must remain connected to the camera housing in \(name).")
             }
             let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
             try data.write(to: output.appendingPathComponent("\(name).png"))
