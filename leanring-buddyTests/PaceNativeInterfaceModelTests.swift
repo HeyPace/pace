@@ -9,6 +9,57 @@ import XCTest
 @testable import Pace
 
 final class PaceNativeInterfaceModelTests: XCTestCase {
+    func testHoverPreviewShowsPanelWithoutRequestingKeyboardOrComposerFocus() {
+        let presentation = PaceConversationPanelPresentation.hidden.presenting(.preview)
+
+        XCTAssertEqual(presentation, .preview)
+        XCTAssertTrue(presentation.isPresented)
+        XCTAssertFalse(PaceConversationPanelPresentationIntent.preview.requestsKeyboardFocus)
+        XCTAssertNil(presentation.composerFocusRequestID)
+    }
+
+    func testExplicitPresentationUpgradesVisiblePreviewAndRequestsComposerFocus() {
+        let preview = PaceConversationPanelPresentation.hidden.presenting(.preview)
+        let presentation = preview.presenting(.interactive)
+
+        XCTAssertTrue(presentation.isPresented)
+        XCTAssertTrue(PaceConversationPanelPresentationIntent.interactive.requestsKeyboardFocus)
+        XCTAssertNotNil(presentation.composerFocusRequestID)
+    }
+
+    func testHoverCannotDowngradeInteractivePresentationOrRequestFocusAgain() {
+        let interactivePresentation = PaceConversationPanelPresentation.hidden.presenting(.interactive)
+        let presentationAfterHover = interactivePresentation.presenting(.preview)
+
+        XCTAssertEqual(presentationAfterHover, interactivePresentation)
+        XCTAssertEqual(
+            presentationAfterHover.composerFocusRequestID,
+            interactivePresentation.composerFocusRequestID)
+        XCTAssertFalse(PaceConversationPanelPresentationIntent.preview.requestsKeyboardFocus)
+    }
+
+    func testExplicitPresentationRequestsComposerFocusAgainWhenAlreadyVisible() {
+        let firstPresentation = PaceConversationPanelPresentation.hidden.presenting(.interactive)
+        let secondPresentation = firstPresentation.presenting(.interactive)
+
+        XCTAssertTrue(secondPresentation.isPresented)
+        XCTAssertNotNil(secondPresentation.composerFocusRequestID)
+        XCTAssertNotEqual(secondPresentation.composerFocusRequestID, firstPresentation.composerFocusRequestID)
+    }
+
+    func testHidingClearsComposerFocusBeforeNextHoverPreview() {
+        var presentation = PaceConversationPanelPresentation.hidden.presenting(.interactive)
+        XCTAssertNotNil(presentation.composerFocusRequestID)
+
+        presentation = .hidden
+        XCTAssertFalse(presentation.isPresented)
+        XCTAssertNil(presentation.composerFocusRequestID)
+
+        presentation = presentation.presenting(.preview)
+        XCTAssertEqual(presentation, .preview)
+        XCTAssertNil(presentation.composerFocusRequestID)
+    }
+
     func testLivingNotchDisplayModeUsesIdleHoverAndActivePriority() {
         XCTAssertEqual(
             PaceLivingNotchDisplayMode.resolve(

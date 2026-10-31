@@ -34,13 +34,16 @@ struct PacePanelChatView: View {
     @FocusState private var isInputFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let isEmbeddedInNotch: Bool
+    private let composerFocusRequestID: UUID?
 
     init(
         companionManager: CompanionManager,
-        isEmbeddedInNotch: Bool = false
+        isEmbeddedInNotch: Bool = false,
+        composerFocusRequestID: UUID?
     ) {
         self.companionManager = companionManager
         self.isEmbeddedInNotch = isEmbeddedInNotch
+        self.composerFocusRequestID = composerFocusRequestID
         self._chatSession = ObservedObject(wrappedValue: companionManager.chatSession)
         self._imageOverlayController = ObservedObject(wrappedValue: companionManager.imageOverlayController)
         self._diagramOverlayController = ObservedObject(wrappedValue: companionManager.diagramOverlayController)
@@ -83,7 +86,10 @@ struct PacePanelChatView: View {
         )
         .onAppear {
             chatSession.loadHistoryWithoutBlockingInterface()
-            isInputFocused = true
+            isInputFocused = composerFocusRequestID != nil
+        }
+        .onChange(of: composerFocusRequestID) { _, composerFocusRequestID in
+            isInputFocused = composerFocusRequestID != nil
         }
         .onChange(of: companionManager.voiceState) { _, voiceState in
             if voiceState == .listening {
