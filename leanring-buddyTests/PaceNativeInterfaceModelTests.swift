@@ -1,12 +1,112 @@
+import AppKit
 //
 //  PaceNativeInterfaceModelTests.swift
 //  leanring-buddyTests
 //
 
+import SwiftUI
 import XCTest
 @testable import Pace
 
 final class PaceNativeInterfaceModelTests: XCTestCase {
+    func testCrowdedMenusYieldOnlyWhenTheirBoundsReachTheNotchControls() {
+        let housing = CGRect(x: 770, y: 1085, width: 185, height: 32)
+        let controls = CGRect(x: 726, y: 1085, width: 273, height: 32)
+        var occupancy = PaceMenuBarOccupancy(
+            itemFrames: [CGRect(x: 0, y: 1085, width: 700, height: 32),
+                         CGRect(x: 1020, y: 1085, width: 700, height: 32)],
+            isReliable: true)
+        XCTAssertFalse(occupancy.overlaps(controls, housingFrame: housing))
+        occupancy.itemFrames.append(CGRect(x: 710, y: 1085, width: 35, height: 32))
+        XCTAssertTrue(occupancy.overlaps(controls, housingFrame: housing))
+        occupancy.itemFrames.removeLast()
+        occupancy.itemFrames.append(CGRect(x: 990, y: 1085, width: 35, height: 32))
+        XCTAssertTrue(occupancy.overlaps(controls, housingFrame: housing))
+    }
+
+    func testCrowdingChecksExpandedChatWidthButIgnoresWindowsBelowMenuRow() {
+        let housing = CGRect(x: 770, y: 1085, width: 185, height: 32)
+        let controls = CGRect(x: 726, y: 1085, width: 273, height: 32)
+        let conversation = CGRect(x: 602.5, y: 705, width: 520, height: 412)
+        var occupancy = PaceMenuBarOccupancy(
+            itemFrames: [CGRect(x: 650, y: 1085, width: 45, height: 32)], isReliable: true)
+        XCTAssertFalse(occupancy.overlaps(controls, housingFrame: housing))
+        XCTAssertTrue(occupancy.overlaps(conversation, housingFrame: housing))
+        occupancy.itemFrames = [CGRect(x: 650, y: 800, width: 500, height: 100)]
+        XCTAssertFalse(occupancy.overlaps(conversation, housingFrame: housing))
+    }
+
+    func testUncertainMenuGeometryYieldsAndFreshClearGeometryRestoresControls() {
+        let housing = CGRect(x: -430, y: 1265, width: 185, height: 32)
+        let controls = CGRect(x: -474, y: 1265, width: 273, height: 32)
+        var occupancy = PaceMenuBarOccupancy()
+        XCTAssertTrue(occupancy.overlaps(controls, housingFrame: housing))
+        occupancy = PaceMenuBarOccupancy(itemFrames: [], isReliable: true)
+        XCTAssertFalse(occupancy.overlaps(controls, housingFrame: housing))
+        occupancy.itemFrames = [CGRect(x: -480, y: 1265, width: 30, height: 32)]
+        XCTAssertTrue(occupancy.overlaps(controls, housingFrame: housing))
+        occupancy.itemFrames = []
+        XCTAssertFalse(occupancy.overlaps(controls, housingFrame: housing))
+    }
+
+    func testMenuBoundsConversionUsesPrimaryDisplayOriginForSecondaryDisplays() {
+        XCTAssertEqual(
+            PaceMenuBarOccupancy.appKitFrame(
+                from: CGRect(x: -1200, y: -180, width: 400, height: 32), primaryScreenTop: 1117),
+            CGRect(x: -1200, y: 1265, width: 400, height: 32))
+    }
+
+    func testHoverPreviewShowsPanelWithoutRequestingKeyboardOrComposerFocus() {
+        let presentation = PaceConversationPanelPresentation.hidden.presenting(.preview)
+
+        XCTAssertEqual(presentation, .preview)
+        XCTAssertTrue(presentation.isPresented)
+        XCTAssertFalse(PaceConversationPanelPresentationIntent.preview.requestsKeyboardFocus)
+        XCTAssertNil(presentation.composerFocusRequestID)
+    }
+
+    func testExplicitPresentationUpgradesVisiblePreviewAndRequestsComposerFocus() {
+        let preview = PaceConversationPanelPresentation.hidden.presenting(.preview)
+        let presentation = preview.presenting(.interactive)
+
+        XCTAssertTrue(presentation.isPresented)
+        XCTAssertTrue(PaceConversationPanelPresentationIntent.interactive.requestsKeyboardFocus)
+        XCTAssertNotNil(presentation.composerFocusRequestID)
+    }
+
+    func testHoverCannotDowngradeInteractivePresentationOrRequestFocusAgain() {
+        let interactivePresentation = PaceConversationPanelPresentation.hidden.presenting(.interactive)
+        let presentationAfterHover = interactivePresentation.presenting(.preview)
+
+        XCTAssertEqual(presentationAfterHover, interactivePresentation)
+        XCTAssertEqual(
+            presentationAfterHover.composerFocusRequestID,
+            interactivePresentation.composerFocusRequestID)
+        XCTAssertFalse(PaceConversationPanelPresentationIntent.preview.requestsKeyboardFocus)
+    }
+
+    func testExplicitPresentationRequestsComposerFocusAgainWhenAlreadyVisible() {
+        let firstPresentation = PaceConversationPanelPresentation.hidden.presenting(.interactive)
+        let secondPresentation = firstPresentation.presenting(.interactive)
+
+        XCTAssertTrue(secondPresentation.isPresented)
+        XCTAssertNotNil(secondPresentation.composerFocusRequestID)
+        XCTAssertNotEqual(secondPresentation.composerFocusRequestID, firstPresentation.composerFocusRequestID)
+    }
+
+    func testHidingClearsComposerFocusBeforeNextHoverPreview() {
+        var presentation = PaceConversationPanelPresentation.hidden.presenting(.interactive)
+        XCTAssertNotNil(presentation.composerFocusRequestID)
+
+        presentation = .hidden
+        XCTAssertFalse(presentation.isPresented)
+        XCTAssertNil(presentation.composerFocusRequestID)
+
+        presentation = presentation.presenting(.preview)
+        XCTAssertEqual(presentation, .preview)
+        XCTAssertNil(presentation.composerFocusRequestID)
+    }
+
     func testLivingNotchDisplayModeUsesIdleHoverAndActivePriority() {
         XCTAssertEqual(
             PaceLivingNotchDisplayMode.resolve(
@@ -14,7 +114,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
                 isHovering: false,
                 showsPersistentRuntimeIndicator: false
             ),
-            .hardwareIdle
+            .resting
         )
         XCTAssertEqual(
             PaceLivingNotchDisplayMode.resolve(
@@ -25,7 +125,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             .hover
         )
 
-        for signalState in PaceSignalState.allCases where signalState != .ready {
+        for signalState in PaceSignalState.allCases where signalState != .ready && signalState != .completed {
             XCTAssertEqual(
                 PaceLivingNotchDisplayMode.resolve(
                     signalState: signalState,
@@ -44,16 +144,36 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             ),
             .active
         )
+    }
 
+    func testCompletedNotchReturnsToRestUnlessCaptureOrOffDeviceWorkIsActive() {
         XCTAssertEqual(
             PaceLivingNotchDisplayMode.resolve(
-                signalState: .blocked,
-                isHovering: false,
-                showsPersistentRuntimeIndicator: true,
-                isPanelOpen: true
-            ),
-            .panelOpen
-        )
+                signalState: .completed, isHovering: false, showsPersistentRuntimeIndicator: false), .resting)
+        XCTAssertEqual(
+            PaceLivingNotchDisplayMode.resolve(
+                signalState: .completed, isHovering: true, showsPersistentRuntimeIndicator: false), .hover)
+        XCTAssertEqual(
+            PaceLivingNotchDisplayMode.resolve(
+                signalState: .completed, isHovering: false, showsPersistentRuntimeIndicator: true), .active)
+    }
+
+    func testCompletedPanelKeepsActualVoiceActivityVisibleInAmbientNotch() {
+        let examples: [(PaceRuntimeVoicePhase, PaceSignalState, PaceLivingNotchDisplayMode)] = [
+            (.idle, .completed, .resting), (.listening, .listening, .active),
+            (.processing, .understanding, .active), (.responding, .speaking, .active),
+        ]
+        for (voicePhase, expectedSignal, expectedMode) in examples {
+            let signal = PaceLivingNotchDisplayMode.ambientSignalState(
+                panelSignalState: .completed, voicePhase: voicePhase)
+            XCTAssertEqual(signal, expectedSignal)
+            XCTAssertEqual(
+                PaceLivingNotchDisplayMode.resolve(
+                    signalState: signal, isHovering: false, showsPersistentRuntimeIndicator: false), expectedMode)
+        }
+        XCTAssertEqual(
+            PaceLivingNotchDisplayMode.ambientSignalState(
+                panelSignalState: .failed, voicePhase: .responding), .failed)
     }
 
     func testLivingNotchGeometryMatchesReportedMacBookHousing() {
@@ -66,7 +186,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             safeAreaTopInset: 32,
             auxiliaryTopLeftArea: auxiliaryTopLeftArea,
             auxiliaryTopRightArea: auxiliaryTopRightArea,
-            displayMode: .hardwareIdle
+            displayMode: .resting
         )
         let hoverGeometry = PaceLivingNotchGeometry.resolve(
             screenFrame: screenFrame,
@@ -82,14 +202,6 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             auxiliaryTopRightArea: auxiliaryTopRightArea,
             displayMode: .active
         )
-        let panelOpenGeometry = PaceLivingNotchGeometry.resolve(
-            screenFrame: screenFrame,
-            safeAreaTopInset: 32,
-            auxiliaryTopLeftArea: auxiliaryTopLeftArea,
-            auxiliaryTopRightArea: auxiliaryTopRightArea,
-            displayMode: .panelOpen
-        )
-
         let expectedPhysicalHousingFrame = CGRect(
             x: 771.5,
             y: 1_085,
@@ -97,19 +209,17 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             height: 32
         )
         XCTAssertEqual(idleGeometry?.physicalHousingFrame, expectedPhysicalHousingFrame)
-        XCTAssertEqual(idleGeometry?.presentationFrame, expectedPhysicalHousingFrame)
+        XCTAssertEqual(idleGeometry?.presentationFrame, hoverGeometry?.presentationFrame)
+        XCTAssertEqual(idleGeometry?.presentationFrame.height, expectedPhysicalHousingFrame.height)
         XCTAssertEqual(
             hoverGeometry?.presentationFrame,
-            CGRect(x: 714, y: 1_085, width: 300, height: 32)
+            CGRect(x: 727.5, y: 1_085, width: 273, height: 32)
         )
         XCTAssertEqual(
             activeGeometry?.presentationFrame,
-            CGRect(x: 694, y: 1_085, width: 340, height: 32)
+            CGRect(x: 727.5, y: 1_053, width: 273, height: 64)
         )
-        XCTAssertEqual(
-            panelOpenGeometry?.presentationFrame,
-            CGRect(x: 604, y: 765, width: 520, height: 352)
-        )
+
     }
 
     func testLivingNotchExpansionKeepsTheHardwareHousingCenteredAndTopAligned() throws {
@@ -117,53 +227,170 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         let auxiliaryTopLeftArea = CGRect(x: -1_200, y: 1_265, width: 771.5, height: 32)
         let auxiliaryTopRightArea = CGRect(x: -243.5, y: 1_265, width: 771.5, height: 32)
 
-        let idleGeometry = try XCTUnwrap(PaceLivingNotchGeometry.resolve(
-            screenFrame: screenFrame,
-            safeAreaTopInset: 32,
-            auxiliaryTopLeftArea: auxiliaryTopLeftArea,
-            auxiliaryTopRightArea: auxiliaryTopRightArea,
-            displayMode: .hardwareIdle
-        ))
-        let activeGeometry = try XCTUnwrap(PaceLivingNotchGeometry.resolve(
-            screenFrame: screenFrame,
-            safeAreaTopInset: 32,
-            auxiliaryTopLeftArea: auxiliaryTopLeftArea,
-            auxiliaryTopRightArea: auxiliaryTopRightArea,
+        let idleGeometry = try XCTUnwrap(
+            PaceLivingNotchGeometry.resolve(
+                screenFrame: screenFrame,
+                safeAreaTopInset: 32,
+                auxiliaryTopLeftArea: auxiliaryTopLeftArea,
+                auxiliaryTopRightArea: auxiliaryTopRightArea,
+                displayMode: .resting
+            ))
+        let activeGeometry = try XCTUnwrap(
+            PaceLivingNotchGeometry.resolve(
+                screenFrame: screenFrame,
+                safeAreaTopInset: 32,
+                auxiliaryTopLeftArea: auxiliaryTopLeftArea,
+                auxiliaryTopRightArea: auxiliaryTopRightArea,
             displayMode: .active
         ))
 
         XCTAssertEqual(activeGeometry.physicalHousingFrame, idleGeometry.physicalHousingFrame)
         XCTAssertEqual(activeGeometry.presentationFrame.midX, idleGeometry.presentationFrame.midX)
-        XCTAssertGreaterThan(activeGeometry.presentationFrame.width, idleGeometry.presentationFrame.width)
+        XCTAssertEqual(activeGeometry.presentationFrame.width, idleGeometry.presentationFrame.width)
         XCTAssertEqual(activeGeometry.presentationFrame.maxY, idleGeometry.presentationFrame.maxY)
-        XCTAssertEqual(activeGeometry.presentationFrame.minY, idleGeometry.presentationFrame.minY)
+        XCTAssertLessThan(activeGeometry.presentationFrame.minY, idleGeometry.presentationFrame.minY)
+        XCTAssertEqual(activeGeometry.presentationFrame.maxY, activeGeometry.physicalHousingFrame.maxY)
+        XCTAssertTrue(activeGeometry.presentationFrame.contains(activeGeometry.physicalHousingFrame))
     }
 
-    func testOpenPanelExpandsEquallyFromTheHousingCenterAndStaysOnScreen() throws {
+    func testSeamKeepsReadableWingsBesideWiderHardwareHousing() throws {
+        let geometry = try XCTUnwrap(
+            PaceLivingNotchGeometry.resolve(
+                screenFrame: CGRect(x: 0, y: 0, width: 1_728, height: 1_117),
+                safeAreaTopInset: 32,
+                auxiliaryTopLeftArea: CGRect(x: 0, y: 1_085, width: 751.5, height: 32),
+                auxiliaryTopRightArea: CGRect(x: 976.5, y: 1_085, width: 751.5, height: 32),
+                displayMode: .active))
+        XCTAssertEqual(geometry.physicalHousingFrame.width, 225)
+        XCTAssertEqual(geometry.presentationFrame.width, 313)
+        XCTAssertEqual(geometry.presentationFrame.midX, geometry.physicalHousingFrame.midX)
+        XCTAssertGreaterThanOrEqual((geometry.presentationFrame.width - geometry.physicalHousingFrame.width) / 2, 44)
+    }
+
+    func testSeamlessConversationStaysConnectedToPhysicalHousing() throws {
         let screenFrame = CGRect(x: -1_200, y: 180, width: 1_728, height: 1_117)
-        let auxiliaryTopLeftArea = CGRect(x: -1_200, y: 1_265, width: 771.5, height: 32)
-        let auxiliaryTopRightArea = CGRect(x: -243.5, y: 1_265, width: 771.5, height: 32)
-
-        let openGeometry = try XCTUnwrap(PaceLivingNotchGeometry.resolve(
+        let housing = CGRect(x: -428.5, y: 1_265, width: 185, height: 32)
+        let placement = PaceConversationPanelPlacement.resolve(
+            notchGeometry: PaceLivingNotchGeometry(physicalHousingFrame: housing, presentationFrame: housing),
+            anchorFrame: housing,
             screenFrame: screenFrame,
-            safeAreaTopInset: 32,
-            auxiliaryTopLeftArea: auxiliaryTopLeftArea,
-            auxiliaryTopRightArea: auxiliaryTopRightArea,
-            displayMode: .panelOpen
-        ))
+            contentSize: CGSize(width: 520, height: 540))
+        guard case .physicalNotch = placement else { return XCTFail("Expected physical notch placement") }
+        XCTAssertEqual(placement.frame.width, 520)
+        XCTAssertEqual(placement.frame.height, 412)
+        XCTAssertEqual(placement.frame.midX, housing.midX)
+        XCTAssertEqual(placement.frame.maxY, housing.maxY)
+        XCTAssertTrue(placement.frame.contains(housing))
+        XCTAssertEqual(placement.collapsedFrame.midX, housing.midX)
+        XCTAssertEqual(placement.collapsedFrame.maxY, housing.maxY)
+        XCTAssertEqual(placement.collapsedFrame.height, housing.height)
+        XCTAssertEqual(placement.collapsedFrame.width, 273)
+    }
 
-        XCTAssertEqual(openGeometry.presentationFrame.width, PaceQuickPanelMetrics.width)
-        XCTAssertEqual(
-            openGeometry.presentationFrame.height,
-            openGeometry.physicalHousingFrame.height + PaceQuickPanelMetrics.height
-        )
-        XCTAssertEqual(
-            openGeometry.presentationFrame.midX,
-            openGeometry.physicalHousingFrame.midX
-        )
-        XCTAssertEqual(openGeometry.presentationFrame.maxY, screenFrame.maxY)
-        XCTAssertGreaterThanOrEqual(openGeometry.presentationFrame.minX, screenFrame.minX + 8)
-        XCTAssertLessThanOrEqual(openGeometry.presentationFrame.maxX, screenFrame.maxX - 8)
+    func testSeamlessConversationKeepsWideCameraReservationReadable() {
+        let housing = CGRect(x: 714, y: 1_085, width: 300, height: 32)
+        let placement = PaceConversationPanelPlacement.resolve(
+            notchGeometry: PaceLivingNotchGeometry(physicalHousingFrame: housing, presentationFrame: housing),
+            anchorFrame: housing,
+            screenFrame: CGRect(x: 0, y: 0, width: 1_728, height: 1_117),
+            contentSize: CGSize(width: 520, height: 540))
+        XCTAssertEqual(placement.collapsedFrame.width, 388)
+        XCTAssertEqual((placement.collapsedFrame.width - housing.width) / 2, 44)
+        XCTAssertEqual(placement.frame.maxY, housing.maxY)
+    }
+
+    func testConversationWithoutPhysicalHousingUsesClampedAnchorAndGap() {
+        let placement = PaceConversationPanelPlacement.resolve(
+            notchGeometry: nil,
+            anchorFrame: CGRect(x: 1_400, y: 876, width: 24, height: 24),
+            screenFrame: CGRect(x: 0, y: 0, width: 1_440, height: 900),
+            contentSize: CGSize(width: 520, height: 540))
+        XCTAssertEqual(placement, .anchored(CGRect(x: 912, y: 326, width: 520, height: 540)))
+        XCTAssertEqual(placement.collapsedFrame.maxY, placement.frame.maxY)
+        XCTAssertEqual(placement.collapsedFrame.height, 24)
+    }
+
+    func testNotchAndConversationStayAttachedToHardwareAcrossDisplayOrigins() throws {
+        let menuHeights: [CGFloat] = [24, 32, 38]
+        for screenOrigin in [CGPoint.zero, CGPoint(x: -1_728, y: 180), CGPoint(x: 240, y: -1_117)] {
+            for menuHeight in menuHeights {
+                let screenFrame = CGRect(origin: screenOrigin, size: CGSize(width: 1_728, height: 1_117))
+                let menuRow = CGRect(
+                    x: screenFrame.minX, y: screenFrame.maxY - menuHeight,
+                    width: screenFrame.width, height: menuHeight)
+                let leftArea = CGRect(x: menuRow.minX, y: menuRow.minY, width: 751.5, height: menuHeight)
+                let rightArea = CGRect(x: menuRow.minX + 976.5, y: menuRow.minY, width: 751.5, height: menuHeight)
+                for displayMode in [PaceLivingNotchDisplayMode.resting, .hover, .active] {
+                    let geometry = try XCTUnwrap(PaceLivingNotchGeometry.resolve(
+                        screenFrame: screenFrame, safeAreaTopInset: menuHeight,
+                        auxiliaryTopLeftArea: leftArea, auxiliaryTopRightArea: rightArea,
+                        displayMode: displayMode))
+                    XCTAssertEqual(geometry.presentationFrame.maxY, screenFrame.maxY)
+                    XCTAssertTrue(geometry.presentationFrame.contains(geometry.physicalHousingFrame))
+
+                    let placement = PaceConversationPanelPlacement.resolve(
+                        notchGeometry: geometry, anchorFrame: geometry.presentationFrame,
+                        screenFrame: screenFrame, contentSize: CGSize(width: 520, height: 540))
+                    XCTAssertEqual(placement.frame.maxY, screenFrame.maxY)
+                    XCTAssertEqual(placement.collapsedFrame.maxY, screenFrame.maxY)
+                    XCTAssertTrue(placement.frame.contains(geometry.physicalHousingFrame))
+                    XCTAssertTrue(placement.collapsedFrame.contains(geometry.physicalHousingFrame))
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testSeamNativeRenderExamplesWhenRequested() throws {
+        guard ProcessInfo.processInfo.environment["PACE_RENDER_SEAM_PREVIEWS"] == "1" else {
+            throw XCTSkip("Native render export is an opt-in local visual check.")
+        }
+        let output = URL(fileURLWithPath: "/tmp/pace-seam-native-20261030", isDirectory: true)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let examples: [(String, PaceLivingNotchDisplayMode, PaceSignalState, String, Bool, CGFloat)] = [
+            ("idle", .resting, .ready, "Ready", false, 185),
+            ("completed-rest", .resting, .completed, "Done", false, 185),
+            ("hover", .hover, .ready, "Ready", false, 185),
+            ("listening", .active, .listening, "Listening…", false, 185),
+            ("codex-image", .active, .acting, "Drawing a turbofan…", true, 185),
+            ("wide-housing-privacy", .active, .understanding, "Thinking…", true, 225),
+            ("claude-capture-privacy", .active, .acting, "Working…", true, 185),
+            ("companion-paused", .active, .listening, "Listening…", false, 185),
+            ("companion-paused-hover", .hover, .ready, "Ready", false, 185),
+            ("companion-finishing", .active, .completed, "Finishing…", true, 185),
+            ("wide-housing-hover", .hover, .ready, "Ready", false, 300),
+        ]
+        for (name, mode, signalState, label, isOffDeviceTurn, housingWidth) in examples {
+            let width = max(
+                mode.preferredWidth ?? housingWidth, housingWidth + 88)
+            let height = 32 + mode.additionalHeight
+            let surface = PaceSeamNotchSurface(
+                displayMode: mode, physicalHousingWidth: housingWidth, physicalHousingHeight: 32,
+                signalState: signalState, activityLabel: label, isOffDeviceTurn: isOffDeviceTurn,
+                plannerLabel: name == "claude-capture-privacy" ? "Claude Code" : "Codex",
+                isCameraActive: name.contains("privacy"), isScreenActive: name.contains("privacy"),
+                persistentStatus: name == "companion-finishing"
+                    ? "Observing"
+                    : name.hasPrefix("companion-paused") ? "Paused" : nil,
+                companionStatusColor: name.hasPrefix("companion-paused") ? Color.yellow : nil
+            )
+            if name == "companion-finishing" {
+                XCTAssertEqual(surface.displayedActivityLabel, "Finishing…")
+            }
+            let renderer = ImageRenderer(content: surface.frame(width: width, height: height))
+            renderer.scale = 2
+            let image = try XCTUnwrap(renderer.cgImage)
+            XCTAssertEqual(image.width, Int(width * 2))
+            XCTAssertEqual(image.height, Int(height * 2))
+            let bitmap = NSBitmapImageRep(cgImage: image)
+            for pixelX in stride(from: 24, through: bitmap.pixelsWide - 24, by: 8) {
+                XCTAssertGreaterThan(
+                    bitmap.colorAt(x: pixelX, y: 32)?.alphaComponent ?? 0, 0.9,
+                    "The icon wings must remain connected to the camera housing in \(name).")
+            }
+            let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            try data.write(to: output.appendingPathComponent("\(name).png"))
+        }
     }
 
     func testLivingNotchGeometryRejectsDisplaysWithoutReliableHousingBounds() {
@@ -171,22 +398,25 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         let leftArea = CGRect(x: 0, y: 876, width: 620, height: 24)
         let rightArea = CGRect(x: 820, y: 876, width: 620, height: 24)
 
-        XCTAssertNil(PaceLivingNotchGeometry.resolve(
-            screenFrame: screenFrame,
-            safeAreaTopInset: 0,
-            auxiliaryTopLeftArea: leftArea,
-            auxiliaryTopRightArea: rightArea,
-            displayMode: .hardwareIdle
-        ))
-        XCTAssertNil(PaceLivingNotchGeometry.resolve(
-            screenFrame: screenFrame,
-            safeAreaTopInset: 24,
-            auxiliaryTopLeftArea: nil,
-            auxiliaryTopRightArea: nil,
-            displayMode: .hardwareIdle
-        ))
-        XCTAssertNil(PaceLivingNotchGeometry.resolve(
-            screenFrame: screenFrame,
+        XCTAssertNil(
+            PaceLivingNotchGeometry.resolve(
+                screenFrame: screenFrame,
+                safeAreaTopInset: 0,
+                auxiliaryTopLeftArea: leftArea,
+                auxiliaryTopRightArea: rightArea,
+                displayMode: .resting
+            ))
+        XCTAssertNil(
+            PaceLivingNotchGeometry.resolve(
+                screenFrame: screenFrame,
+                safeAreaTopInset: 24,
+                auxiliaryTopLeftArea: nil,
+                auxiliaryTopRightArea: nil,
+                displayMode: .resting
+            ))
+        XCTAssertNil(
+            PaceLivingNotchGeometry.resolve(
+                screenFrame: screenFrame,
             safeAreaTopInset: 24,
             auxiliaryTopLeftArea: rightArea,
             auxiliaryTopRightArea: leftArea,

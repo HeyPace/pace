@@ -18,6 +18,7 @@
 //  boundaries that don't lend themselves to deterministic XCTest.
 //
 
+import AVFoundation
 import Combine
 import Foundation
 import Testing
@@ -187,6 +188,88 @@ struct PaceBargeInVADIntegrationTests {
         #expect(pipeline.lastTurnWasInterrupted == false)
     }
 
+    @Test
+    func startingNextCaptureDoesNotStopBargeInPlaybackTwice() {
+        let recordingClient = BargeInTestRecordingTTSClient()
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: recordingClient)
+
+        pipeline.drainQueueAndStopForBargeIn()
+        pipeline.resetForNewTurn()
+
+        #expect(recordingClient.stopPlaybackCallCount == 1)
+        #expect(recordingClient.lastStopReason == .userBargeIn)
+    }
+
+    @Test
+    func queuedOldReplyCannotResumeAfterNextCaptureButCurrentReplyStillSpeaks() async {
+        let recordingClient = BargeInTestRecordingTTSClient()
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: recordingClient)
+        let leaseOwner = BargeInTestTurnLeaseOwner()
+        let interruptedStreamLease = leaseOwner.registry.beginTurn()
+        await pipeline.acceptStreamedText("This sentence belongs to the old reply. ")
+        let queuedOldChunk = Task { @MainActor in
+            await pipeline.acceptStreamedText(
+                "The old reply must never resume after interruption. ",
+                expectedTurnLease: interruptedStreamLease,
+                currentTurnLease: leaseOwner.registry.currentLease)
+        }
+
+        leaseOwner.registry.invalidateCurrentTurn()
+        pipeline.drainQueueAndStopForBargeIn()
+        pipeline.resetForNewTurn()
+        let replacementStreamLease = leaseOwner.registry.beginTurn()
+        await queuedOldChunk.value
+
+        #expect(recordingClient.spokenTexts == ["This sentence belongs to the old reply."])
+        #expect(recordingClient.lastStopReason == .userBargeIn)
+        #expect(recordingClient.stopPlaybackCallCount == 1)
+        #expect(pipeline.inFlightStreamedText.isEmpty)
+
+        let currentChunk = Task { @MainActor in
+            await pipeline.acceptStreamedText(
+                "This is the user's new reply. ",
+                expectedTurnLease: replacementStreamLease,
+                currentTurnLease: leaseOwner.registry.currentLease)
+        }
+        await currentChunk.value
+
+        #expect(recordingClient.spokenTexts == [
+            "This sentence belongs to the old reply.", "This is the user's new reply."
+        ])
+    }
+
+    @Test
+    func wakeSamplesReachBargeInVADWhenPushToTalkHasNoLiveTap() throws {
+        let pushToTalkLevels = PassthroughSubject<Float, Never>()
+        let wakeSpotter = PaceAppleSpeechWakeWordSpotter(speechRecognizer: nil)
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4))
+        buffer.frameLength = 4
+        let samples = try #require(buffer.floatChannelData)[0]
+        for sampleIndex in 0..<4 { samples[sampleIndex] = 0.3 }
+        var detector = PaceBargeInVAD()
+        let playbackStartedAt = Date()
+        detector.setTTSPlaybackActive(true, at: playbackStartedAt)
+        var nextSampleDate = playbackStartedAt.addingTimeInterval(0.4)
+        var didDetectInterruption = false
+        let subscription = pushToTalkLevels
+            .merge(with: wakeSpotter.audioLevelPublisher)
+            .sink { level in
+                didDetectInterruption = detector.observe(normalizedLevel: level, at: nextSampleDate)
+                    || didDetectInterruption
+                nextSampleDate = nextSampleDate.addingTimeInterval(0.2)
+            }
+        defer { subscription.cancel() }
+
+        #expect(!didDetectInterruption)
+        for _ in 0..<7 {
+            PaceAppleSpeechWakeWordSpotter.publishAudioLevel(from: buffer, to: wakeSpotter.audioLevelPublisher)
+        }
+
+        #expect(didDetectInterruption)
+        #expect(!wakeSpotter.isRunning)
+    }
+
     // MARK: - PacePushToTalkManager listening-window contract
 
     /// PTT takes priority — if a window is already open under
@@ -248,4 +331,9 @@ struct PaceBargeInVADIntegrationTests {
         #expect(receivedLevelsCount == 0)
         subscription.cancel()
     }
+}
+
+@MainActor
+private final class BargeInTestTurnLeaseOwner {
+    var registry = PaceTurnLeaseRegistry()
 }

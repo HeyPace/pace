@@ -145,6 +145,10 @@ final class PaceAnnotationOverlayController: ObservableObject {
 /// display's frame.
 nonisolated enum PaceAnnotationCoordinateMapper {
 
+    static func convertAppKitGlobalToOverlayLocal(_ point: CGPoint, screenFrame: CGRect) -> CGPoint {
+        CGPoint(x: point.x - screenFrame.minX, y: screenFrame.maxY - point.y)
+    }
+
     /// Convert a screenshot-pixel point on the given capture into the
     /// AppKit-global coordinate (bottom-left origin) used by overlay
     /// rendering and `NSEvent.mouseLocation`.

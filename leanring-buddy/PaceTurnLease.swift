@@ -17,6 +17,10 @@ struct PaceTurnLease: Equatable, Sendable {
 struct PaceTurnLeaseRegistry {
     private var currentGeneration: UInt64 = 0
 
+    var currentLease: PaceTurnLease {
+        PaceTurnLease(generation: currentGeneration)
+    }
+
     mutating func beginTurn() -> PaceTurnLease {
         currentGeneration &+= 1
         return PaceTurnLease(generation: currentGeneration)

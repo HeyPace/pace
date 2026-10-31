@@ -39,6 +39,11 @@ enum PaceLMStudioModelLoader {
     /// shutdown unload completes). One task drives pings for every
     /// configured model.
     private static var keepaliveTask: Task<Void, Never>?
+    private static var warmupTask: Task<Void, Never>?
+    private static var warmupGeneration = 0
+
+    private static var effectivePlannerUsesLMStudio = false
+    private static var effectivePlannerAllowsLocalVLM = false
 
     // MARK: - Launch: load + warm models
 
@@ -48,41 +53,75 @@ enum PaceLMStudioModelLoader {
     /// LM Studio embedding model because that can evict the conversational
     /// model on single-model runtimes.
     /// After warmup finishes, starts the periodic keepalive heartbeat.
-    static func warmUpConfiguredModelsAsync() {
-        guard !PaceBundledModelsSettings.isUsingMLXInProcessPlanner() else {
-            print(
-                "🔥 LM Studio warmup: skipped — in-process MLX owns the planner; optional screen analysis loads on demand"
-            )
-            return
-        }
-        Task.detached(priority: .userInitiated) {
-            await warmUpConfiguredModels()
-            await startKeepaliveLoopIfNotRunning()
-        }
+    static func warmUpConfiguredModelsAsync(plannerClient: any BuddyPlannerClient) {
+        stopKeepaliveLoop()
+        effectivePlannerUsesLMStudio = BuddyPlannerClientFactory.requiresLMStudioPlannerWarmup(for: plannerClient)
+        effectivePlannerAllowsLocalVLM = !(plannerClient is PaceLocalCLIPlannerClient)
+        let needsPlanner = effectivePlannerUsesLMStudio
+        let needsVLM = shouldKeepVLMWarm(
+            effectivePlannerAllowsLocalVLM: effectivePlannerAllowsLocalVLM,
+            screenContextEnabled: PaceUserPreferencesStore.boolWithInfoPlistSeed(
+                .useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext"),
+            usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessVLM())
+        guard needsPlanner || needsVLM else { return }
+        startOwnedWarmup(
+            operation: { generation in await warmUpConfiguredModels(expectedGeneration: generation) },
+            completion: { startKeepaliveLoopIfNotRunning() })
     }
 
-    /// Awaitable version for tests / one-shot scripts.
-    static func warmUpConfiguredModels() async {
-        guard !PaceBundledModelsSettings.isUsingMLXInProcessPlanner() else {
-            return
+    @discardableResult
+    static func startOwnedWarmup(
+        operation: @escaping @MainActor (Int) async -> Void,
+        completion: @escaping @MainActor () -> Void
+    ) -> Task<Void, Never> {
+        cancelOwnedWarmup()
+        let generation = warmupGeneration
+        let task = Task(priority: .userInitiated) {
+            await operation(generation)
+            guard warmupIsCurrent(generation) else { return }
+            warmupTask = nil
+            completion()
         }
+        warmupTask = task
+        return task
+    }
+
+    static func warmupIsCurrent(_ generation: Int) -> Bool {
+        generation == warmupGeneration && !Task.isCancelled
+    }
+
+    private static func cancelOwnedWarmup() {
+        // Cancellation can be ignored by a late transport callback; the
+        // generation also prevents it from loading or restarting keepalive.
+        warmupGeneration += 1
+        warmupTask?.cancel()
+        warmupTask = nil
+    }
+
+    private static func warmUpConfiguredModels(expectedGeneration: Int) async {
+        guard warmupIsCurrent(expectedGeneration) else { return }
+        let shouldWarmPlanner = effectivePlannerUsesLMStudio
         let configuredPlannerIdentifier =
             AppBundleConfiguration
             .stringValue(forKey: "LocalPlannerModelIdentifier")
             ?? "qwen3-4b-instruct"
-        let useLocalVLM =
-            AppBundleConfiguration
-            .stringValue(forKey: "UseLocalVLMForScreenContext")?
-            .lowercased() == "true"
+        let useLocalVLM = shouldKeepVLMWarm(
+            effectivePlannerAllowsLocalVLM: effectivePlannerAllowsLocalVLM,
+            screenContextEnabled: PaceUserPreferencesStore.boolWithInfoPlistSeed(
+                .useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext"),
+            usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessVLM())
         let vlmModelIdentifier =
             AppBundleConfiguration
             .stringValue(forKey: "LocalVLMModelIdentifier")
             ?? "ui-venus-1.5-2b"
+        guard shouldWarmPlanner || useLocalVLM else { return }
         print(
             "🔥 LM Studio warmup: starting (planner=\(configuredPlannerIdentifier), vlm=\(useLocalVLM ? vlmModelIdentifier : "off"))"
         )
 
-        guard await isLMStudioReachable() else {
+        let isReachable = await isLMStudioReachable()
+        guard warmupIsCurrent(expectedGeneration) else { return }
+        guard isReachable else {
             print(
                 "⚠️  LM Studio warmup: server unreachable at 127.0.0.1:1234. Start LM Studio and ensure JIT loading is on."
             )
@@ -95,26 +134,42 @@ enum PaceLMStudioModelLoader {
         // caches that for the rest of the session — every subsequent
         // LocalPlannerClient picks it up via PacePlannerModelResolver
         // .resolvedIdentifier instead of 404ing.
-        let plannerModelIdentifier = await PacePlannerModelResolver.resolveAndCache(
-            configuredIdentifier: configuredPlannerIdentifier,
-            plannerBaseURL: lmStudioBaseURL.appendingPathComponent("v1")
-        )
+        let plannerModelIdentifier: String?
+        if shouldWarmPlanner {
+            plannerModelIdentifier = await PacePlannerModelResolver.resolveAndCache(
+                configuredIdentifier: configuredPlannerIdentifier,
+                plannerBaseURL: lmStudioBaseURL.appendingPathComponent("v1"))
+            guard warmupIsCurrent(expectedGeneration) else { return }
+        } else {
+            plannerModelIdentifier = nil
+        }
 
         // Run independent model warmups concurrently. When one multimodal
         // model serves both roles, warm it only once; duplicate concurrent
         // requests make LM Studio create a wasteful `:2` instance.
-        async let plannerWarmup: Void = sendChatCompletionWarmup(
-            modelIdentifier: plannerModelIdentifier,
-            role: "planner"
-        )
+        async let plannerWarmup: Void = {
+            guard let plannerModelIdentifier, effectivePlannerUsesLMStudio,
+                warmupIsCurrent(expectedGeneration)
+            else { return }
+            await sendChatCompletionWarmup(
+                modelIdentifier: plannerModelIdentifier, role: "planner", expectedGeneration: expectedGeneration)
+        }()
         async let vlmWarmup: Void = {
-            guard useLocalVLM, vlmModelIdentifier != plannerModelIdentifier else { return }
+            guard useLocalVLM, vlmModelIdentifier != plannerModelIdentifier,
+                shouldKeepVLMWarm(
+                    effectivePlannerAllowsLocalVLM: effectivePlannerAllowsLocalVLM,
+                    screenContextEnabled: PaceUserPreferencesStore.boolWithInfoPlistSeed(
+                        .useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext"),
+                    usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessVLM()),
+                warmupIsCurrent(expectedGeneration)
+            else { return }
             await sendChatCompletionWarmup(
                 modelIdentifier: vlmModelIdentifier,
-                role: "VLM"
+                role: "VLM", expectedGeneration: expectedGeneration
             )
         }()
         _ = await (plannerWarmup, vlmWarmup)
+        guard warmupIsCurrent(expectedGeneration) else { return }
         print("🔥 LM Studio warmup: complete")
     }
 
@@ -130,6 +185,7 @@ enum PaceLMStudioModelLoader {
         defer { probeSession.invalidateAndCancel() }
 
         do {
+            try Task.checkCancellation()
             let (_, response) = try await probeSession.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else { return false }
             return (200...299).contains(httpResponse.statusCode)
@@ -144,7 +200,10 @@ enum PaceLMStudioModelLoader {
     /// The native endpoint's explicit `reasoning: off` contract matters:
     /// the OpenAI-compatible endpoint ignored equivalent template arguments
     /// for Qwen and made this one-token probe take more than ten seconds.
-    private static func sendChatCompletionWarmup(modelIdentifier: String, role: String) async {
+    private static func sendChatCompletionWarmup(
+        modelIdentifier: String, role: String, expectedGeneration: Int
+    ) async {
+        guard warmupIsCurrent(expectedGeneration) else { return }
         let startedAt = Date()
         let warmupURL = nativeChatURL()
         var request = URLRequest(url: warmupURL)
@@ -171,7 +230,11 @@ enum PaceLMStudioModelLoader {
         defer { warmupSession.invalidateAndCancel() }
 
         do {
+            // This await inherits the owned task's cancellation, including
+            // structured planner/VLM children, so a tier switch cancels HTTP.
+            try Task.checkCancellation()
             let (responseData, urlResponse) = try await warmupSession.data(for: request)
+            guard warmupIsCurrent(expectedGeneration) else { return }
             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
             guard let httpResponse = urlResponse as? HTTPURLResponse else {
                 print("⚠️  LM Studio warmup (\(role)/\(modelIdentifier)): non-HTTP response after \(elapsedMs)ms")
@@ -193,6 +256,7 @@ enum PaceLMStudioModelLoader {
                 }
             }
         } catch {
+            guard warmupIsCurrent(expectedGeneration) else { return }
             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
             print(
                 "⚠️  LM Studio warmup (\(role)/\(modelIdentifier)) failed after \(elapsedMs)ms: \(error.localizedDescription)"
@@ -209,8 +273,13 @@ enum PaceLMStudioModelLoader {
     /// this, eval runs showed the model state degrading turn-over-turn
     /// because LM Studio was partial-unloading between calls.
     @MainActor
-    static func startKeepaliveLoopIfNotRunning() {
-        guard keepaliveTask == nil else { return }
+    private static func startKeepaliveLoopIfNotRunning() {
+        let needsVLM = shouldKeepVLMWarm(
+            effectivePlannerAllowsLocalVLM: effectivePlannerAllowsLocalVLM,
+            screenContextEnabled: PaceUserPreferencesStore.boolWithInfoPlistSeed(
+                .useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext"),
+            usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessVLM())
+        guard keepaliveTask == nil, effectivePlannerUsesLMStudio || needsVLM else { return }
         keepaliveTask = Task.detached(priority: .background) {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(keepaliveIntervalSeconds * 1_000_000_000))
@@ -223,6 +292,7 @@ enum PaceLMStudioModelLoader {
 
     @MainActor
     static func stopKeepaliveLoop() {
+        cancelOwnedWarmup()
         keepaliveTask?.cancel()
         keepaliveTask = nil
     }
@@ -236,21 +306,33 @@ enum PaceLMStudioModelLoader {
             PacePlannerModelResolver.resolvedIdentifier
             ?? AppBundleConfiguration.stringValue(forKey: "LocalPlannerModelIdentifier")
             ?? "qwen3-4b-instruct"
-        let useLocalVLM =
-            AppBundleConfiguration
-            .stringValue(forKey: "UseLocalVLMForScreenContext")?
-            .lowercased() == "true"
+        let useLocalVLM = shouldKeepVLMWarm(
+            effectivePlannerAllowsLocalVLM: effectivePlannerAllowsLocalVLM,
+            screenContextEnabled: PaceUserPreferencesStore.boolWithInfoPlistSeed(
+                .useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext"),
+            usesMLX: PaceBundledModelsSettings.isUsingMLXInProcessVLM())
         let vlmIdentifier =
             AppBundleConfiguration
             .stringValue(forKey: "LocalVLMModelIdentifier")
             ?? "ui-venus-1.5-2b"
 
-        async let plannerPing: Void = sendSingleKeepalivePing(modelIdentifier: plannerIdentifier)
+        let shouldPingPlanner = effectivePlannerUsesLMStudio
+        async let plannerPing: Void = {
+            guard shouldPingPlanner else { return }
+            await sendSingleKeepalivePing(modelIdentifier: plannerIdentifier)
+        }()
         async let vlmPing: Void = {
-            guard useLocalVLM, vlmIdentifier != plannerIdentifier else { return }
+            guard useLocalVLM, !shouldPingPlanner || vlmIdentifier != plannerIdentifier else { return }
             await sendSingleKeepalivePing(modelIdentifier: vlmIdentifier)
         }()
         _ = await (plannerPing, vlmPing)
+    }
+
+    nonisolated static func shouldKeepVLMWarm(
+        effectivePlannerAllowsLocalVLM: Bool, screenContextEnabled: Bool, usesMLX: Bool
+    ) -> Bool {
+        // Direct CLI screen turns explicitly bypass local VLM enrichment.
+        effectivePlannerAllowsLocalVLM && screenContextEnabled && !usesMLX
     }
 
     private static func sendSingleKeepalivePing(modelIdentifier: String) async {

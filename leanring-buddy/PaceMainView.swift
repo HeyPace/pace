@@ -49,6 +49,8 @@ struct PaceMainView: View {
                 } label: {
                     Label("about this section", systemImage: "questionmark.circle")
                 }
+                .buttonStyle(.plain)
+                .pointerCursor()
                 .help("Explain this section")
                 .popover(isPresented: $showsDestinationHelp, arrowEdge: .bottom) {
                     destinationHelp
@@ -58,114 +60,121 @@ struct PaceMainView: View {
     }
 
     private var sidebar: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(DS.Colors.localSignal)
-                        .frame(width: 7, height: 7)
-                        .shadow(color: DS.Colors.localSignal.opacity(0.45), radius: 5, x: 0, y: 2)
-                    Text("Pace")
-                        .font(DS.Typography.sectionTitle)
-                        .foregroundStyle(DS.Colors.textPrimary)
-                }
-                Text("command center")
-                    .font(DS.Typography.caption)
+                Text("pace")
+                    .font(DS.Typography.windowTitle)
+                    .foregroundStyle(DS.Colors.textPrimary)
+                Text("YOUR WORKSPACE")
+                    .font(DS.Typography.metadata)
+                    .tracking(1.5)
                     .foregroundStyle(DS.Colors.textTertiary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 17)
-            .padding(.top, 18)
-            .padding(.bottom, 14)
+            .padding(.horizontal, 22)
+            .padding(.top, 26)
+            .padding(.bottom, 22)
 
-            List(selection: selectedDestinationBinding) {
-                if normalizedSearchText.isEmpty {
-                    ForEach(PaceCommandCenterGroup.allCases) { group in
-                        let visibleDestinations = primaryDestinations(in: group)
-                        if !visibleDestinations.isEmpty {
-                            Section(group == .work ? "use Pace" : group.rawValue.lowercased()) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(DS.Colors.textTertiary)
+                TextField("Find a setting", text: $destinationSearchText)
+                    .textFieldStyle(.plain)
+                    .font(DS.Typography.callout)
+                    .accessibilityLabel("Search Pace")
+            }
+            .padding(10)
+            .background(DS.Colors.surfaceRaised.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, 14)
+            .padding(.bottom, 12)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    if normalizedSearchText.isEmpty {
+                        ForEach(PaceCommandCenterGroup.allCases) { group in
+                            let visibleDestinations = primaryDestinations(in: group)
+                            if !visibleDestinations.isEmpty {
+                                Text(group == .work ? "WORKSPACE" : group.rawValue.uppercased())
+                                    .font(DS.Typography.metadata)
+                                    .tracking(1.2)
+                                    .foregroundStyle(DS.Colors.textTertiary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.top, 20)
+                                    .padding(.bottom, 6)
                                 ForEach(visibleDestinations) { destination in
                                     destinationRow(destination)
                                 }
                             }
                         }
-                    }
-
-                    Section {
                         DisclosureGroup(isExpanded: $showsAdvancedControls) {
-                            ForEach(advancedDestinations) { destination in
-                                destinationRow(destination)
+                            VStack(spacing: 3) {
+                                ForEach(advancedDestinations) { destination in destinationRow(destination) }
                             }
+                            .padding(.top, 7)
                         } label: {
-                            Label("advanced controls", systemImage: "slider.horizontal.3")
-                                .font(DS.Typography.captionStrong)
+                            Text("Advanced controls")
+                                .font(DS.Typography.caption)
+                                .foregroundStyle(DS.Colors.textTertiary)
                         }
-                    } footer: {
-                        Text("Extra integrations and troubleshooting controls.")
-                    }
-                } else if searchResults.isEmpty {
-                    Text("No Pace setting matches “\(destinationSearchText)”.")
-                        .font(DS.Typography.callout)
-                        .foregroundStyle(DS.Colors.textSecondary)
-                } else {
-                    Section("search results") {
-                        ForEach(searchResults) { destination in
-                            destinationRow(destination)
-                        }
+                        .padding(.horizontal, 9)
+                        .padding(.top, 22)
+                    } else if searchResults.isEmpty {
+                        Text("No setting matches “\(destinationSearchText)”.")
+                            .font(DS.Typography.callout)
+                            .foregroundStyle(DS.Colors.textSecondary)
+                            .padding(12)
+                    } else {
+                        ForEach(searchResults) { destination in destinationRow(destination) }
                     }
                 }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 20)
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-            .searchable(
-                text: $destinationSearchText,
-                placement: .sidebar,
-                prompt: "Search Pace"
-            )
+            .scrollIndicators(.hidden)
 
             Button {
-                PaceOnboardingWindowManager.shared.show(
-                    companionManager: companionManager,
-                    isReplay: true
-                )
+                PaceOnboardingWindowManager.shared.show(companionManager: companionManager, isReplay: true)
             } label: {
-                Label("getting started", systemImage: "questionmark.circle")
-                    .font(DS.Typography.captionStrong)
+                Label("Getting started", systemImage: "questionmark.circle")
+                    .font(DS.Typography.caption)
+                    .foregroundStyle(DS.Colors.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .frame(height: 34)
-                    .background(DS.Colors.surfaceRaised)
-                    .clipShape(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+                    .padding(12)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(DS.Colors.textSecondary)
+            .paceControlHoverHighlight(cornerRadius: 8)
             .pointerCursor()
-            .padding(12)
+            .padding(10)
         }
-        .background(DS.Colors.surfaceInset.opacity(0.62))
+        .background(DS.Colors.background.opacity(0.6))
     }
 
-    private var selectedDestinationBinding: Binding<PaceCommandCenterDestination?> {
-        Binding(
-            get: { router.selectedDestination },
-            set: { destination in
-                if let destination {
-                    router.select(destination)
+    private func destinationRow(_ destination: PaceCommandCenterDestination) -> some View {
+        let isSelected = router.selectedDestination == destination
+        return Button {
+            router.select(destination)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: destination.symbolName)
+                    .font(.system(size: 12, weight: .regular))
+                    .frame(width: 18)
+                    .foregroundStyle(isSelected ? DS.Colors.textPrimary : DS.Colors.textTertiary)
+                Text(interfaceTitle(for: destination))
+                    .font(DS.Typography.callout)
+                    .foregroundStyle(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+                Spacer(minLength: 0)
+                if isSelected {
+                    Circle().fill(DS.Colors.overlayCursorBlue).frame(width: 3, height: 3)
                 }
             }
-        )
-    }
-
-    @ViewBuilder
-    private func destinationRow(
-        _ destination: PaceCommandCenterDestination
-    ) -> some View {
-        NavigationLink(value: destination) {
-            Label(interfaceTitle(for: destination), systemImage: destination.symbolName)
-                .font(DS.Typography.calloutStrong)
-                .pointerCursor()
+            .padding(.horizontal, 11)
+            .frame(minHeight: 35)
+            .background(isSelected ? DS.Colors.surfaceRaised : Color.clear, in: RoundedRectangle(cornerRadius: 8))
         }
-        .tag(destination)
+        .buttonStyle(.plain)
+        .paceControlHoverHighlight(cornerRadius: 8)
+        .pointerCursor()
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityHint(destination.subtitle)
     }
 
@@ -251,7 +260,8 @@ struct PaceMainView: View {
                 commandCenterHeader
                 content()
             }
-            .padding(28)
+            .padding(36)
+            .frame(maxWidth: 860, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(DS.Colors.surface)
@@ -259,7 +269,13 @@ struct PaceMainView: View {
 
     private var commandCenterHeader: some View {
         VStack(alignment: .leading, spacing: 7) {
-            SMSectionHeader("", accent: interfaceTitle(for: router.selectedDestination), size: 28)
+            Text(router.selectedDestination.group.rawValue.uppercased())
+                .font(DS.Typography.metadata)
+                .tracking(1.4)
+                .foregroundStyle(DS.Colors.textTertiary)
+            Text(interfaceTitle(for: router.selectedDestination))
+                .font(DS.Typography.windowTitle)
+                .foregroundStyle(DS.Colors.textPrimary)
             Text(destinationSubtitle)
                 .font(DS.Typography.body)
                 .foregroundStyle(DS.Colors.textSecondary)

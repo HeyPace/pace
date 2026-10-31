@@ -312,6 +312,8 @@ enum PaceSmokeTestStateStore {
     // MARK: Key strings (must match scripts/smoke-runtime-hooks.sh)
 
     private enum SmokeKey: String {
+        case diagramNodeCount = "PaceSmoke.diagramNodeCount"
+        case diagramSelectedPart = "PaceSmoke.diagramSelectedPart"
         case ready = "PaceSmoke.ready"
         case lastPanelCommand = "PaceSmoke.lastPanelCommand"
         case lastSettingsCommand = "PaceSmoke.lastSettingsCommand"
@@ -325,6 +327,11 @@ enum PaceSmokeTestStateStore {
     }
 
     // MARK: Writers (the smoke hook installer calls these)
+
+    static func recordDiagramState(_ nodeCount: Int, selectedPart: String?) {
+        UserDefaults.standard.set(nodeCount, forKey: SmokeKey.diagramNodeCount.rawValue)
+        UserDefaults.standard.set(selectedPart ?? "", forKey: SmokeKey.diagramSelectedPart.rawValue)
+    }
 
     static func markSmokeHooksReady() {
         UserDefaults.standard.set(true, forKey: SmokeKey.ready.rawValue)

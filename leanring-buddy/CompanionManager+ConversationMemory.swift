@@ -281,10 +281,16 @@ extension CompanionManager {
     /// text itself is NEVER journaled — only the session id and the
     /// lifecycle cause.
     func evaluateThreadIdleAndResetIfNeeded(now: Date) {
-        guard let sessionEndCause = threadMemory.sessionDidIdle(now: now) else {
+        guard
+            let sessionEndCause = threadMemory.sessionDidIdle(
+                now: now, lastUserInteractionAt: diagramOverlayController.lastUserInteractionAt
+            )
+        else {
             return
         }
         let endingSessionId = threadMemory.currentSessionId
+        diagramOverlayController.dismiss()
+        imageOverlayController.dismiss()
         threadMemory.resetSession(cause: sessionEndCause, now: now)
         // Mirror the now-empty live state to disk so a relaunch after an
         // idle-while-running reset starts fresh rather than resurrecting
@@ -309,9 +315,11 @@ extension CompanionManager {
     func resetThreadMemoryNow() {
         let now = Date()
         let endingSessionId = threadMemory.currentSessionId
+        diagramOverlayController.dismiss()
+        imageOverlayController.dismiss()
         threadMemory.resetSession(cause: .userReset, now: now)
-        // "Until I reset" — an explicit reset wipes the on-disk copy too,
-        // so the conversation does not come back on the next launch.
+        // Reset only the persisted thread snapshot. Conversation history, saved
+        // images and Codex-managed artifacts have separate retention boundaries.
         threadMemoryStore.clear()
         localRetriever.recordPaceHistory(
             userTranscript: "session ended (cause: userReset)",

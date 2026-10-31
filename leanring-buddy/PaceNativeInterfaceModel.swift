@@ -10,7 +10,93 @@ import Foundation
 
 nonisolated enum PaceQuickPanelMetrics {
     static let width: CGFloat = 520
-    static let height: CGFloat = 320
+    static let height: CGFloat = 540
+    static let seamlessContentHeight: CGFloat = 380
+}
+
+nonisolated enum PaceConversationPanelPresentationIntent: Equatable, Sendable {
+    case preview
+    case interactive
+
+    var requestsKeyboardFocus: Bool {
+        self == .interactive
+    }
+}
+
+nonisolated enum PaceConversationPanelPresentation: Equatable {
+    case hidden
+    case preview
+    case interactive(composerFocusRequestID: UUID)
+
+    var isPresented: Bool {
+        self != .hidden
+    }
+
+    var composerFocusRequestID: UUID? {
+        guard case .interactive(let composerFocusRequestID) = self else { return nil }
+        return composerFocusRequestID
+    }
+
+    func presenting(_ intent: PaceConversationPanelPresentationIntent) -> Self {
+        switch intent {
+        case .preview:
+            return isPresented ? self : .preview
+        case .interactive:
+            return .interactive(composerFocusRequestID: UUID())
+        }
+    }
+}
+
+nonisolated enum PaceConversationPanelPlacement: Equatable {
+    case physicalNotch(PaceLivingNotchGeometry)
+    case anchored(CGRect)
+
+    var frame: CGRect {
+        switch self {
+        case .physicalNotch(let geometry): return geometry.presentationFrame
+        case .anchored(let frame): return frame
+        }
+    }
+
+    var collapsedFrame: CGRect {
+        switch self {
+        case .physicalNotch(let geometry):
+            let width = min(geometry.presentationFrame.width, geometry.physicalHousingFrame.width + 88)
+            return CGRect(
+                x: geometry.physicalHousingFrame.midX - width / 2,
+                y: geometry.physicalHousingFrame.minY,
+                width: width,
+                height: geometry.physicalHousingFrame.height)
+        case .anchored(let frame):
+            return CGRect(x: frame.minX, y: frame.maxY - 24, width: frame.width, height: 24)
+        }
+    }
+
+    static func resolve(
+        notchGeometry: PaceLivingNotchGeometry?,
+        anchorFrame: CGRect,
+        screenFrame: CGRect,
+        contentSize: CGSize
+    ) -> PaceConversationPanelPlacement {
+        if let notchGeometry {
+            let housing = notchGeometry.physicalHousingFrame
+            let width = min(max(PaceQuickPanelMetrics.width, housing.width + 180), screenFrame.width - 16)
+            let height = min(housing.height + PaceQuickPanelMetrics.seamlessContentHeight, screenFrame.height - 16)
+            return .physicalNotch(
+                PaceLivingNotchGeometry(
+                    physicalHousingFrame: housing,
+                    presentationFrame: CGRect(
+                        x: housing.midX - width / 2, y: housing.maxY - height, width: width, height: height)))
+        }
+        let minimumX = screenFrame.minX + 8
+        let maximumX = max(minimumX, screenFrame.maxX - contentSize.width - 8)
+        return .anchored(
+            CGRect(
+                x: min(max(anchorFrame.midX - contentSize.width / 2, minimumX), maximumX),
+                y: anchorFrame.minY - contentSize.height - 10,
+                width: contentSize.width,
+                height: contentSize.height))
+    }
 }
 
 nonisolated enum PaceAmbientHomePresentation: Equatable {
@@ -35,47 +121,51 @@ nonisolated enum PaceSignalState: String, CaseIterable, Equatable {
 }
 
 nonisolated enum PaceLivingNotchDisplayMode: Equatable {
-    case hardwareIdle
+    case resting
     case hover
     case active
-    case panelOpen
 
     static func resolve(
         signalState: PaceSignalState,
         isHovering: Bool,
-        showsPersistentRuntimeIndicator: Bool,
-        isPanelOpen: Bool = false
+        showsPersistentRuntimeIndicator: Bool
     ) -> PaceLivingNotchDisplayMode {
-        if isPanelOpen {
-            return .panelOpen
-        }
-
-        if signalState != .ready || showsPersistentRuntimeIndicator {
+        if (signalState != .ready && signalState != .completed) || showsPersistentRuntimeIndicator {
             return .active
         }
 
-        return isHovering ? .hover : .hardwareIdle
+        return isHovering ? .hover : .resting
+    }
+
+    static func ambientSignalState(
+        panelSignalState: PaceSignalState,
+        voicePhase: PaceRuntimeVoicePhase
+    ) -> PaceSignalState {
+        guard panelSignalState == .completed else { return panelSignalState }
+        switch voicePhase {
+        case .idle: return .completed
+        case .listening: return .listening
+        case .processing: return .understanding
+        case .responding: return .speaking
+        }
     }
 
     var additionalHeight: CGFloat {
         switch self {
-        case .hardwareIdle, .hover, .active:
-            return 0
-        case .panelOpen:
-            return PaceQuickPanelMetrics.height
+        case .resting: return 0
+        case .hover: return 0
+        case .active: return 32
         }
     }
 
     var preferredWidth: CGFloat? {
         switch self {
-        case .hardwareIdle:
+        case .resting:
             return nil
         case .hover:
-            return 300
+            return nil
         case .active:
-            return 340
-        case .panelOpen:
-            return PaceQuickPanelMetrics.width
+            return nil
         }
     }
 }
@@ -118,7 +208,9 @@ nonisolated struct PaceLivingNotchGeometry: Equatable {
         let presentationHeight = safeAreaTopInset + displayMode.additionalHeight
         let maximumPresentationWidth = max(physicalHousingWidth, screenFrame.width - 16)
         let presentationWidth = min(
-            max(physicalHousingWidth, displayMode.preferredWidth ?? physicalHousingWidth),
+            max(
+                physicalHousingWidth + 88,
+                displayMode.preferredWidth ?? physicalHousingWidth),
             maximumPresentationWidth
         )
         let centeredPresentationMinimumX = physicalHousingFrame.midX - (presentationWidth / 2)

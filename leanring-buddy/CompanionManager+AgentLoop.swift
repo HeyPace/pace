@@ -29,6 +29,31 @@ extension CompanionManager {
         !Task.isCancelled && turnLeaseRegistry.isCurrent(turnLease)
     }
 
+    var canGenerateImagesWithCodex: Bool {
+        activePlannerTier == .cliDirect && activePlannerTierCLIDirectUpstream == .codex
+            && PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+    }
+
+    private func drainVisualActions(
+        parseResult: PaceActionTagParseResult,
+        expectedDiagramDismissalGeneration: inout Int,
+        expectedImageDismissalGeneration: Int
+    ) async -> PaceActionTagParseResult {
+        await PaceVisualActionDrainer.drain(
+            parseResult: parseResult,
+            diagramOverlayController: diagramOverlayController,
+            imageOverlayController: imageOverlayController,
+            expectedDiagramDismissalGeneration: &expectedDiagramDismissalGeneration,
+            expectedImageDismissalGeneration: expectedImageDismissalGeneration,
+            generateImage: { request, expectedDismissalGeneration in
+                let previousOffDeviceFlag = self.isOffDeviceTurnInFlight
+                self.isOffDeviceTurnInFlight = self.canGenerateImagesWithCodex
+                defer { self.isOffDeviceTurnInFlight = previousOffDeviceFlag }
+                return await self.imageOverlayController.generate(
+                    request, expectedDismissalGeneration: expectedDismissalGeneration)
+            })
+    }
+
     // MARK: - AI Response Pipeline (plan-act-observe loop)
 
     func routeHUDDetail(for intentPrediction: PaceIntentPrediction) -> String {
@@ -114,7 +139,7 @@ extension CompanionManager {
             guard let self else { return }
             voiceState = .responding
             await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
-            while ttsClient.isPlaying {
+            while ttsClient.isPlaying && !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
             guard !Task.isCancelled else { return }
@@ -163,7 +188,7 @@ extension CompanionManager {
         currentResponseTask = Task {
             voiceState = .responding
             await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: clarificationText)
-            while ttsClient.isPlaying {
+            while ttsClient.isPlaying && !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
             guard !Task.isCancelled else { return }
@@ -486,7 +511,7 @@ extension CompanionManager {
         currentResponseTask = Task {
             voiceState = .responding
             await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: unsupportedResponse.spokenText)
-            while ttsClient.isPlaying {
+            while ttsClient.isPlaying && !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
             guard !Task.isCancelled else { return }
@@ -505,13 +530,14 @@ extension CompanionManager {
     /// text-only planner so answers keep the configured local model's
     /// reliability while action/screen turns retain their richer prompt.
     func handleTextOnlyPlannerFastPath(transcript: String) {
+        let turnLease = turnLeaseRegistry.currentLease
         currentTurnHUDState = .understanding("answering without screen")
         responseOverlayManager.showOverlayAndBeginStreaming()
 
         // Capture self weakly so this matches the weak capture in the nested
         // eager-filler task below and never extends the manager's lifetime.
         currentResponseTask = Task { [weak self] in
-            guard let self else { return }
+            guard let self, self.isActiveTurn(turnLease) else { return }
             voiceState = .processing
             let usesOffDeviceTextPlanner = activePlannerTierIsOffDevice
             isOffDeviceTurnInFlight = usesOffDeviceTextPlanner
@@ -531,8 +557,11 @@ extension CompanionManager {
                     (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
                 }
 
+                var diagramDismissalGeneration = diagramOverlayController.dismissalGeneration
+                let imageDismissalGeneration = imageOverlayController.dismissalGeneration
                 let userPromptForPlanner = await appendLocalRetrievalContext(
-                    to: transcript,
+                    to: imageOverlayController.appendingPlannerContext(
+                        to: diagramOverlayController.appendingPlannerContext(to: transcript)),
                     query: transcript,
                     route: .answerDirectly
                 )
@@ -546,22 +575,31 @@ extension CompanionManager {
                     images: [],
                     systemPrompt: CompanionSystemPrompt.buildTextOnly(
                         threadSummaryInjection: threadSummaryInjectionForTurn,
-                        ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment
+                        ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment,
+                        includeInteractiveDiagrams: true
                     ),
                     conversationHistory: historyForPlanner,
                     userPrompt: userPromptForPlanner,
                     onTextChunk: { [weak self] accumulatedPlannerText in
+                        guard let self, self.isActiveTurn(turnLease) else { return }
                         PaceLatencyBudget.shared.mark(.plannerFirstToken)
-                        self?.responseOverlayManager.updateStreamingText(accumulatedPlannerText)
+                        self.responseOverlayManager.updateStreamingText(
+                            Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText)
+                                ? "…" : accumulatedPlannerText
+                        )
                         Task { @MainActor [weak self] in
-                            await self?.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedPlannerText)
+                            guard let self, self.isActiveTurn(turnLease) else { return }
+                            await self.streamingSentenceTTSPipeline.acceptStreamedText(
+                                accumulatedPlannerText,
+                                expectedTurnLease: turnLease,
+                                currentTurnLease: self.turnLeaseRegistry.currentLease)
                         }
                     }
                 )
                 guard !Task.isCancelled else { return }
                 PaceLatencyBudget.shared.mark(.plannerComplete)
 
-                let actionParseResult = PaceActionTagParser.parseActions(from: fullResponseText)
+                var actionParseResult = PaceActionTagParser.parseActions(from: fullResponseText)
                 let (_, textAfterDoneStrip) = PaceTagParsers.parseAndStripDoneSignal(from: actionParseResult.spokenText)
                 let pointingParseResult = PaceTagParsers.parsePointingCoordinates(from: textAfterDoneStrip)
                 var spokenText = pointingParseResult.spokenText
@@ -572,8 +610,13 @@ extension CompanionManager {
                 // CLI or a larger LM Studio model) before speaking.
                 // This catches cases where complexity estimation missed
                 // a query that the local model can't handle well.
+                let includesValidatedDiagram = actionParseResult.actions.contains { action in
+                    if case .showDiagram = action { return true }
+                    if case .generateImage = action { return true }
+                    return false
+                }
                 let qualityVerdict: PaceResponseQualityVerdict =
-                    usesOffDeviceTextPlanner
+                    usesOffDeviceTextPlanner || includesValidatedDiagram
                     ? .adequate
                     : await responseQualityChecker.check(query: transcript, response: spokenText)
                 var qualityReRouted = false
@@ -611,19 +654,29 @@ extension CompanionManager {
                                 images: [],
                                 systemPrompt: CompanionSystemPrompt.buildTextOnly(
                                     threadSummaryInjection: threadSummaryInjectionForTurn,
-                                    ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment
+                                    ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment,
+                                    includeInteractiveDiagrams: true
                                 ),
                                 conversationHistory: historyForPlanner,
                                 userPrompt: userPromptForPlanner,
                                 onTextChunk: { [weak self] accumulatedText in
-                                    self?.responseOverlayManager.updateStreamingText(accumulatedText)
+                                    guard let self, self.isActiveTurn(turnLease) else { return }
+                                    self.responseOverlayManager.updateStreamingText(
+                                        Self.streamedPlannerTextIsStructuredEnvelope(accumulatedText)
+                                            ? "…" : accumulatedText
+                                    )
                                     Task { @MainActor [weak self] in
-                                        await self?.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedText)
+                                        guard let self, self.isActiveTurn(turnLease) else { return }
+                                        await self.streamingSentenceTTSPipeline.acceptStreamedText(
+                                            accumulatedText,
+                                            expectedTurnLease: turnLease,
+                                            currentTurnLease: self.turnLeaseRegistry.currentLease)
                                     }
                                 }
                             )
                             guard !Task.isCancelled else { return }
                             let reRoutedActions = PaceActionTagParser.parseActions(from: reRoutedResponseText)
+                            actionParseResult = reRoutedActions
                             let (_, reRoutedAfterDone) = PaceTagParsers.parseAndStripDoneSignal(
                                 from: reRoutedActions.spokenText)
                             let reRoutedPointing = PaceTagParsers.parsePointingCoordinates(from: reRoutedAfterDone)
@@ -641,6 +694,16 @@ extension CompanionManager {
                         )
                     }
                 }
+
+                let finalizedParseResult = await drainVisualActions(
+                    parseResult: actionParseResult,
+                    expectedDiagramDismissalGeneration: &diagramDismissalGeneration,
+                    expectedImageDismissalGeneration: imageDismissalGeneration)
+                guard !Task.isCancelled else { return }
+                if finalizedParseResult.spokenText != actionParseResult.spokenText {
+                    spokenText = finalizedParseResult.spokenText
+                }
+                actionParseResult = finalizedParseResult
 
                 // Settings → Debug capture: pure-knowledge turns never run a
                 // screenshot/VLM and never execute actions here — surfaced so
@@ -669,7 +732,8 @@ extension CompanionManager {
                         userPrompt: userPromptForPlanner
                     ),
                     systemPromptForExport: CompanionSystemPrompt.buildTextOnly(
-                        threadSummaryInjection: threadSummaryInjectionForTurn
+                        threadSummaryInjection: threadSummaryInjectionForTurn,
+                        includeInteractiveDiagrams: true
                     ))
 
                 recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
@@ -680,7 +744,7 @@ extension CompanionManager {
                     voiceState = .responding
                 }
 
-                while ttsClient.isPlaying {
+                while ttsClient.isPlaying && !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 80_000_000)
                 }
                 guard !Task.isCancelled else { return }
@@ -926,7 +990,7 @@ extension CompanionManager {
                     userPrompt: transcript
                 ))
 
-            while ttsClient.isPlaying {
+            while ttsClient.isPlaying && !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
             guard !Task.isCancelled else { return }
@@ -970,7 +1034,7 @@ extension CompanionManager {
         currentResponseTask = Task {
             voiceState = .responding
             await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
-            while ttsClient.isPlaying {
+            while ttsClient.isPlaying && !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
             guard !Task.isCancelled else { return }
@@ -1086,6 +1150,18 @@ extension CompanionManager {
         // them here BEFORE any routing branch — every fast path
         // (watch-mode, automation, memory, fast-action) clears them too.
         annotationOverlayController.clearOnNextUserTurn()
+        if imageOverlayController.state != .idle, PaceImageGenerationRequest.requestsDismissal(transcript) {
+            imageOverlayController.dismiss()
+            currentTurnHUDState = .done("image closed")
+            voiceState = .idle
+            return
+        }
+        if diagramOverlayController.document != nil, PaceDiagramDocument.requestsDismissal(transcript) {
+            diagramOverlayController.dismiss()
+            currentTurnHUDState = .done("diagram closed")
+            voiceState = .idle
+            return
+        }
 
         // Idle gate: if the thread sat quiet past the configured
         // threshold, drop the verbatim window + summary and journal
@@ -1094,6 +1170,13 @@ extension CompanionManager {
         // sweep timer so the menu-bar surface drops "session live"
         // indicators without needing a new turn.
         evaluateThreadIdleAndResetIfNeeded(now: Date())
+        if transcript == PaceDiagramDocument.selectedPartQuestion, diagramOverlayController.document == nil {
+            handleImmediateLocalModeResponse(
+                transcript: transcript,
+                spokenText: "That diagram is closed. Ask me to draw another to keep exploring."
+            )
+            return
+        }
 
         // Tell the planner this is a fresh user turn. Stateful conformers
         // (Apple Foundation Models) wipe their cross-call session state
@@ -1308,17 +1391,69 @@ extension CompanionManager {
             return
         }
 
+        let hasActiveImage = imageOverlayController.lastSuccessfulArtifact != nil
+        let requestsGeneratedImage = PaceImageGenerationRequest.requestsImage(
+            transcript, hasActiveImage: hasActiveImage)
+        let imageNeedsScreenContext =
+            requestsGeneratedImage
+            && PaceImageGenerationRequest.requiresScreenContext(transcript, hasActiveImage: hasActiveImage)
+        if requestsGeneratedImage && !canGenerateImagesWithCodex {
+            handleImmediateLocalModeResponse(
+                transcript: transcript, spokenText: PaceImageGenerationError.unavailable.localizedDescription)
+            return
+        }
+        if imageNeedsScreenContext && !useLocalVLMForScreenContext {
+            handleImmediateLocalModeResponse(
+                transcript: transcript,
+                spokenText: "Turn on Read My Screen or describe the image you'd like me to create.")
+            return
+        }
+        if !imageNeedsScreenContext
+            && PaceImageGenerationRequest.canUseImageOnlyFastPath(transcript, hasActiveImage: hasActiveImage)
+        {
+            handleTextOnlyPlannerFastPath(transcript: transcript)
+            return
+        }
+        let hasActiveDiagram = diagramOverlayController.document != nil
+        let requestsInteractiveDiagram = PaceDiagramDocument.requestsDiagram(
+            transcript, hasActiveDiagram: hasActiveDiagram)
+        let diagramNeedsScreenContext =
+            requestsInteractiveDiagram
+            && PaceDiagramDocument.requiresScreenContext(transcript, hasActiveDiagram: hasActiveDiagram)
+        if diagramNeedsScreenContext && !useLocalVLMForScreenContext {
+            handleUnsupportedTurn(
+                transcript: transcript,
+                unsupportedResponse: .init(
+                    spokenText:
+                        "Turn on Read My Screen so I can use what you're looking at, or describe the subject you'd like me to draw.",
+                    reason: "This visual explanation needs screen context, and Read My Screen is off."
+                )
+            )
+            return
+        }
+        if !diagramNeedsScreenContext
+            && PaceDiagramDocument.canUseDiagramOnlyFastPath(transcript, hasActiveDiagram: hasActiveDiagram)
+        {
+            handleTextOnlyPlannerFastPath(transcript: transcript)
+            return
+        }
+
         // Fast-path chitchat ("hi pace", "thanks") with a canned response
         // — skips VLM + planner + agent loop entirely. ~2200ms → ~50ms.
         // Conservative: only fires when the classifier is confident
         // enough to return .chitchat (not .unknown). Anything ambiguous
         // falls through to the full pipeline.
-        let intentPrediction = await intentClassifier.classify(
-            transcript,
-            conversationHistory: conversationHistory.map { entry in
-                (userTranscript: entry.userTranscript, assistantResponse: entry.assistantResponse)
-            }
-        )
+        let intentPrediction: PaceIntentPrediction
+        if diagramNeedsScreenContext {
+            intentPrediction = PaceIntentPrediction(intent: .screenDescription, confidence: 1)
+        } else {
+            intentPrediction = await intentClassifier.classify(
+                transcript,
+                conversationHistory: conversationHistory.map { entry in
+                    (userTranscript: entry.userTranscript, assistantResponse: entry.assistantResponse)
+                }
+            )
+        }
         guard isActiveTurn(turnLease) else { return }
         PaceLatencyBudget.shared.mark(.intentClassified)
         lastIntentRouteForEpisodicExtraction = intentPrediction.intent
@@ -1527,7 +1662,8 @@ extension CompanionManager {
         // model, but an unavailable bridge must never turn it into a screen
         // request. The local text-only planner is a lower-quality answerer,
         // not a reason to capture the user's display or require permission.
-        if mutableIntentPrediction.route == .escalateToLargeModel,
+        if !requestsInteractiveDiagram && !requestsGeneratedImage,
+            mutableIntentPrediction.route == .escalateToLargeModel,
             !escalationUsesLargeModelForThisTurn,
             mutableIntentPrediction.intent == .pureKnowledge
                 || mutableIntentPrediction.intent == .chitchat
@@ -1541,14 +1677,15 @@ extension CompanionManager {
         // Fast paths use .route (not .intent) so a low-confidence
         // prediction whose intent happens to be .chitchat but whose
         // route is .escalateToLargeModel does NOT bypass escalation.
-        if mutableIntentPrediction.route == .chitchatFastPath {
+        if !requestsInteractiveDiagram && !requestsGeneratedImage && mutableIntentPrediction.route == .chitchatFastPath
+        {
             print(
                 "🎯 Intent: chitchat (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — fast-path"
             )
             handleChitchatFastPath(transcript: transcript)
             return
         }
-        if mutableIntentPrediction.route == .answerDirectly {
+        if !requestsInteractiveDiagram && !requestsGeneratedImage && mutableIntentPrediction.route == .answerDirectly {
             print(
                 "🎯 Intent: pureKnowledge (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — text-only planner"
             )
@@ -1558,7 +1695,8 @@ extension CompanionManager {
         // Fast local-action path is skipped for research turns —
         // research wants the heavyweight planner, not a deterministic
         // "open Music" shortcut.
-        if researchTurnPlannerOverride == nil,
+        if !requestsInteractiveDiagram && !requestsGeneratedImage,
+            researchTurnPlannerOverride == nil,
             let fastActionParseResult = PaceFastActionCommandParser.parse(transcript: transcript)
         {
             print("🎯 Intent: fastLocalAction — skipping screenshot, VLM, and planner")
@@ -1640,13 +1778,17 @@ extension CompanionManager {
             // loop can't blow the user's bill.
             var cumulativeOutputTokenEstimate = 0
             var stepIndex = 0
-            var currentTurnUserPrompt = transcript
+            var diagramDismissalGeneration = diagramOverlayController.dismissalGeneration
+            let imageDismissalGeneration = imageOverlayController.dismissalGeneration
+            var currentTurnUserPrompt = imageOverlayController.appendingPlannerContext(
+                to: diagramOverlayController.appendingPlannerContext(to: transcript))
             if let physicalSceneContext = consumePacePadPhysicalSceneContext() {
                 currentTurnUserPrompt +=
                     "\n\nPhysical scene observed locally from the paired iPad for this turn only:\n"
                     + physicalSceneContext
             }
             var pendingPostActionFeedbackText: String?
+            var inspectionHistory = PaceAgentInspectionHistory()
             var plannerLoopFinished = false
             var turnFullResponseText: String = ""
             // The most recent step's cleaned spoken text. Research turns
@@ -1672,7 +1814,9 @@ extension CompanionManager {
                     let screenCaptureStartedAt = Date()
                     var prewarmedContextForStep: PaceScreenContextPrewarmedSnapshot?
                     let screenCaptures: [CompanionScreenCapture]
-                    if isResearchTurn || !useLocalVLMForScreenContext {
+                    if isResearchTurn || !useLocalVLMForScreenContext
+                        || (requestsGeneratedImage && !imageNeedsScreenContext)
+                    {
                         screenCaptures = []
                     } else if isFirstStep,
                         !(plannerClientForThisTurn is PaceLocalCLIPlannerClient),
@@ -1733,7 +1877,8 @@ extension CompanionManager {
                     let systemPromptForTurn: String
                     if isResearchTurn {
                         systemPromptForTurn = CompanionSystemPrompt.buildForResearchTurn(
-                            threadSummaryInjection: threadSummaryInjectionForTurn
+                            threadSummaryInjection: threadSummaryInjectionForTurn,
+                            includeInteractiveDiagrams: true
                         )
                     } else {
                         systemPromptForTurn = CompanionSystemPrompt.build(
@@ -1741,7 +1886,8 @@ extension CompanionManager {
                             isTuitionModeEnabled: isTuitionModeEnabled,
                             threadSummaryInjection: threadSummaryInjectionForTurn,
                             ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment,
-                            usesIterativeComputerUse: plannerClientForThisTurn is PaceLocalCLIPlannerClient
+                            usesIterativeComputerUse: plannerClientForThisTurn is PaceLocalCLIPlannerClient,
+                            includeInteractiveDiagrams: true
                         )
                     }
                     // Mark this turn as off-device for the amber-tint
@@ -1788,6 +1934,8 @@ extension CompanionManager {
                         isFirstStep
                         && !isResearchTurn
                         && !activePlannerTierIsOffDevice
+                        && diagramOverlayController.document == nil
+                        && !requestsInteractiveDiagram
                         && thermalAllowsSpeculativeRace
                         && speculativeRaceShouldFire(
                             intent: intentPrediction.intent,
@@ -1814,7 +1962,8 @@ extension CompanionManager {
                             intent: intentPrediction.intent,
                             route: intentPrediction.route,
                             screenCaptures: screenCaptures,
-                            prewarmedContext: prewarmedContextForStep
+                            prewarmedContext: prewarmedContextForStep,
+                            turnLease: turnLease
                         )
                         guard !Task.isCancelled else { return }
                         if raceWiringResult.bothPlannersFailed {
@@ -1848,7 +1997,9 @@ extension CompanionManager {
                                 transcript: currentTurnUserPrompt,
                                 screenCaptures: screenCaptures,
                                 prewarmedContext: prewarmedContextForStep,
-                                allowsLocalVLM: !(plannerClientForThisTurn is PaceLocalCLIPlannerClient)
+                                allowsLocalVLM: !(plannerClientForThisTurn is PaceLocalCLIPlannerClient),
+                                allowsNativeOCR: !(plannerClientForThisTurn is PaceLocalCLIPlannerClient)
+                                    || !plannerClientForThisTurn.supportsImageInput
                             )
                         PaceLatencyBudget.shared.mark(.vlmComplete)
                         let userPromptForPlanner = await appendLocalRetrievalContext(
@@ -1892,6 +2043,7 @@ extension CompanionManager {
                                 conversationHistory: historyForPlanner,
                                 userPrompt: userPromptForPlanner,
                                 onTextChunk: { [weak self] accumulatedPlannerText in
+                                    guard let self, self.isActiveTurn(turnLease) else { return }
                                     // Mark planner first-token on the first chunk.
                                     PaceLatencyBudget.shared.mark(.plannerFirstToken)
                                     // 1. Mirror raw text into the bubble so the user
@@ -1900,7 +2052,7 @@ extension CompanionManager {
                                     //    cleaned spoken text once parsing completes.
                                     //    EXCEPT a structured (v10 JSON) stream —
                                     //    show a thinking ellipsis, not raw JSON.
-                                    self?.responseOverlayManager.updateStreamingText(
+                                    self.responseOverlayManager.updateStreamingText(
                                         Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText)
                                             ? "…" : accumulatedPlannerText
                                     )
@@ -1909,7 +2061,7 @@ extension CompanionManager {
                                     //    the planner has finished generating the rest.
                                     //    This is the dominant perceived-latency win.
                                     Task { @MainActor [weak self] in
-                                        guard let self else { return }
+                                        guard let self, self.isActiveTurn(turnLease) else { return }
                                         let shouldSuppressStreamingNarration =
                                             Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText)
                                             || (self.actionExecutor.actionsAreEnabled
@@ -1918,7 +2070,9 @@ extension CompanionManager {
                                                 ))
                                         guard !shouldSuppressStreamingNarration else { return }
                                         await self.streamingSentenceTTSPipeline.acceptStreamedText(
-                                            accumulatedPlannerText)
+                                            accumulatedPlannerText,
+                                            expectedTurnLease: turnLease,
+                                            currentTurnLease: self.turnLeaseRegistry.currentLease)
                                     }
                                     if let streamingMailDraftSnapshot =
                                         streamingMailDraftDetector
@@ -1926,6 +2080,7 @@ extension CompanionManager {
                                     {
                                         Task { @MainActor [weak self] in
                                             guard let self,
+                                                self.isActiveTurn(turnLease),
                                                 self.actionExecutor.actionsAreEnabled,
                                                 !requiresObservationOnly,
                                                 !self.requiresActionApproval
@@ -1943,6 +2098,7 @@ extension CompanionManager {
                                     {
                                         Task { @MainActor [weak self] in
                                             guard let self,
+                                                self.isActiveTurn(turnLease),
                                                 self.actionExecutor.actionsAreEnabled,
                                                 !requiresObservationOnly,
                                                 !self.requiresActionApproval
@@ -1989,6 +2145,24 @@ extension CompanionManager {
                     if requiresObservationOnly,
                         !PaceActionApprovalPolicy.permitsObservationOnly(rawActionParseResult.executionPlan)
                     {
+                        recordToolCallDebug(
+                            PaceToolCallDebugRecord(
+                                transcript: isFirstStep ? transcript : "(agent step \(stepIndex))",
+                                lane: .planner,
+                                routingDetail:
+                                    "\(intentPrediction.intent.rawValue) · conf \(String(format: "%.2f", intentPrediction.confidence)) · \(intentPrediction.route.rawValue)",
+                                plannerPathDetail: "blocked observation-only plan",
+                                screenElementCount: lastPlannerElementLineCountForDebug,
+                                rawPlannerOutput: fullResponseText,
+                                spokenText: "",
+                                parsedActionsSummary: Self.toolCallDebugSummary(
+                                    for: rawActionParseResult.executionPlan),
+                                dispatchSummary: "blocked by observation-only policy — no actions executed",
+                                plannerLatencyMs: plannerSectionElapsedMs,
+                                totalTurnLatencyMs: Int(
+                                    Date().timeIntervalSince(turnStartedAt) * 1000),
+                                userPrompt: userPromptForPlannerForDebug
+                            ), systemPromptForExport: isResearchTurn ? nil : systemPromptForTurn)
                         throw NSError(
                             domain: "PaceActionScope", code: 1,
                             userInfo: [
@@ -2006,7 +2180,11 @@ extension CompanionManager {
                         into: annotationOverlayController,
                         screenCaptures: screenCaptures
                     )
-                    let actionParseResult = annotationDrainOutcome.drainedParseResult
+                    let actionParseResult = await drainVisualActions(
+                        parseResult: annotationDrainOutcome.drainedParseResult,
+                        expectedDiagramDismissalGeneration: &diagramDismissalGeneration,
+                        expectedImageDismissalGeneration: imageDismissalGeneration)
+                    guard !Task.isCancelled else { return }
                     let streamedMailDraftForFinalization =
                         PaceStreamingMailDraftDetector
                         .firstMailDraft(in: actionParseResult.executionPlan)
@@ -2424,6 +2602,11 @@ extension CompanionManager {
                     // Intermediate inventories must not overwrite the final answer.
                     pendingPostActionFeedbackText = nil
                     let toolObservationPromptText = PaceActionExecutionObservation.formatForPlanner(toolObservations)
+                    if needsInspectionAnswer {
+                        inspectionHistory.append(plannerRequest: fullResponseText, observations: toolObservations)
+                    }
+                    let inspectionHistoryPromptText = needsInspectionAnswer
+                        ? inspectionHistory.formattedForPlanner : toolObservationPromptText
                     if toolObservationPromptText.isEmpty {
                         currentTurnUserPrompt =
                             """
@@ -2437,8 +2620,8 @@ extension CompanionManager {
                             original request:
                             \(transcript)
 
-                            tool results:
-                            \(toolObservationPromptText)
+                            completed tool requests and results (most recent inspection steps retained within the prompt budget):
+                            \(inspectionHistoryPromptText)
 
                             continue this request. use the tool results and current screen, then emit the next step's tool calls/action tags. a successful tool call alone does not complete the request. only emit [DONE] with a user-facing answer when the entire request is complete. if blocked, explain what remains unfinished.
                             """
@@ -2633,7 +2816,8 @@ extension CompanionManager {
         intent: PaceIntent,
         route: PaceIntentRoute,
         screenCaptures: [CompanionScreenCapture],
-        prewarmedContext: PaceScreenContextPrewarmedSnapshot?
+        prewarmedContext: PaceScreenContextPrewarmedSnapshot?,
+        turnLease: PaceTurnLease
     ) async -> PaceFirstStepRaceWiringResult {
         let fullClient = plannerClient
         let liteClient = textOnlyPlannerClient
@@ -2709,7 +2893,7 @@ extension CompanionManager {
                 self?.streamingSentenceTTSPipeline.firstSpokenWordCharacterCount ?? 0
             },
             onToken: { [weak self] accumulatedText, winner in
-                guard let self else { return }
+                guard let self, self.isActiveTurn(turnLease) else { return }
                 // The first full token while lite has been speaking is a
                 // supersede: reset the TTS pipeline so the full stream — a
                 // different string than lite — replays cleanly instead of
@@ -2734,12 +2918,15 @@ extension CompanionManager {
                         ))
                 guard !shouldSuppressStreamingNarration else { return }
                 Task { @MainActor [weak self] in
-                    guard let self else { return }
+                    guard let self, self.isActiveTurn(turnLease) else { return }
                     // A lite chunk's dispatch Task scheduled BEFORE a
                     // supersede must not re-speak lite over the freshly
                     // reset full stream — drop it if the winner has moved on.
                     guard winner == winnerBox.winner else { return }
-                    await self.streamingSentenceTTSPipeline.acceptStreamedText(accumulatedText)
+                    await self.streamingSentenceTTSPipeline.acceptStreamedText(
+                        accumulatedText,
+                        expectedTurnLease: turnLease,
+                        currentTurnLease: self.turnLeaseRegistry.currentLease)
                 }
             },
             onCompletion: { _ in }
@@ -2825,7 +3012,7 @@ extension CompanionManager {
         transientHideTask?.cancel()
         transientHideTask = Task {
             // Wait for TTS audio to finish playing
-            while ttsClient.isPlaying {
+            while ttsClient.isPlaying && !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 guard !Task.isCancelled else { return }
             }

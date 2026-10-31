@@ -14,6 +14,37 @@ import Foundation
 
 // MARK: - Parsed action types
 
+nonisolated struct PaceAgentInspectionHistory {
+    private var completedSteps: [String] = []
+    private var completedStepCount = 0
+    static let maximumCharacterCount = 12_000
+
+    mutating func append(plannerRequest: String, observations: [PaceActionExecutionObservation]) {
+        completedStepCount += 1
+        let stepText = """
+        Completed inspection step \(completedStepCount)
+        Request:
+        \(plannerRequest)
+        Result:
+        \(PaceActionExecutionObservation.formatForPlanner(observations))
+        """
+        let truncationMarker = "\n[inspection result truncated to fit the prompt budget]"
+        let maximumStepCharacterCount = (Self.maximumCharacterCount - 2) / 2
+        let boundedStepText = stepText.count > maximumStepCharacterCount
+            ? String(stepText.prefix(maximumStepCharacterCount - truncationMarker.count)) + truncationMarker
+            : stepText
+        completedSteps.append(boundedStepText)
+        // Two receipts distinguish the first inspection from its one allowed retry.
+        if completedSteps.count > 2 {
+            completedSteps.removeFirst()
+        }
+    }
+
+    var formattedForPlanner: String {
+        completedSteps.joined(separator: "\n\n")
+    }
+}
+
 /// Carried on an all-fail click observation so the agent loop can attempt
 /// Set-of-Mark recovery: render numbered marks on the screenshot and let the
 /// VLM visually re-pick the intended element. See PRD
@@ -166,6 +197,9 @@ nonisolated enum PaceParsedAction {
     /// polygon) on the overlay. Drained out of the plan by
     /// `PaceAnnotationActionDrainer` before the executor runs, so it never
     /// reaches the action dispatch switch in `PaceActionExecutor`.
+    case generateImage(PaceImageGenerationRequest)
+    case showDiagram(PaceDiagramDocument)
+    case dismissDiagram
     case drawAnnotation(PaceAnnotationRequest)
     /// Tuition-mode: wipe all currently visible annotations. Same drain
     /// path as `drawAnnotation`.
@@ -210,6 +244,9 @@ nonisolated enum PaceParsedAction {
         case .recordFlow: return "record_flow"
         case .runFlow: return "run_flow"
         case .mcp: return "mcp_call"
+        case .generateImage: return "generate_image"
+        case .showDiagram: return "show_diagram"
+        case .dismissDiagram: return "dismiss_diagram"
         case .drawAnnotation: return "draw_annotation"
         case .clearAnnotations: return "clear_annotations"
         }
@@ -376,6 +413,12 @@ nonisolated enum PaceParsedAction {
             return "Run recorded flow: \(flowRequest.name)"
         case .mcp(let mcpToolCall):
             return "Call MCP tool: \(mcpToolCall.approvalDescription)"
+        case .generateImage(let request):
+            return "Generate image with Codex: \(request.title)"
+        case .showDiagram(let document):
+            return "Show interactive diagram: \(document.title)"
+        case .dismissDiagram:
+            return "Close diagram"
         case .drawAnnotation(let annotationRequest):
             let shapeCount = annotationRequest.shapes.count
             let shapeNoun = shapeCount == 1 ? "shape" : "shapes"

@@ -117,6 +117,7 @@ extension CompanionManager {
         // rejection window and raised threshold take effect.
         bargeInVAD.setTTSPlaybackActive(true)
         bargeInAudioLevelCancellable = buddyDictationManager.audioLevelPublisher
+            .merge(with: wakeWordSpotter.audioLevelPublisher)
             .sink { [weak self] normalizedLevel in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
@@ -151,29 +152,22 @@ extension CompanionManager {
         handleBargeInDetected()
     }
 
-    /// Wave 1c barge-in callback chain. Called from
-    /// `observeBargeInAudioLevel` once the VAD confirms sustained user
-    /// speech during TTS playback. Drains the speech queue, opens a
-    /// fresh listening window so the user's interrupting words can
-    /// land as the next turn, and journals the interrupt to
-    /// paceHistory using the speakable prefix that was already on its
-    /// way out the speakers when the user cut in.
+    /// Cancels the interrupted reply and starts a bounded hands-free turn
+    /// through the same capture pipeline as wake-word input.
     func handleBargeInDetected() {
+        guard voiceState == .responding, isAlwaysListeningEnabled,
+              !buddyDictationManager.isDictationInProgress,
+              !globalPushToTalkShortcutMonitor.isShortcutCurrentlyPressed else { return }
         let lastSpokenPrefix = streamingSentenceTTSPipeline.inFlightStreamedText
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        // Drain + stop. The pipeline pre-stamps `.userBargeIn` on the
-        // TTS client so the next `lastStopReason` read is correct.
+        cancelActiveTurnTasks()
         streamingSentenceTTSPipeline.drainQueueAndStopForBargeIn()
-        // Belt-and-braces: call stop directly on the client too, since
-        // the pipeline already routed it but a second call is a no-op
-        // and guarantees state even if the pipeline shape changes.
-        ttsClient.stopPlayback()
-        // Open a listening window so the wake-word path (Wave 2) or
-        // an immediate PTT press resumes capture without re-arming.
         buddyDictationManager.openListeningWindow(
-            durationInSeconds: 6,
+            durationInSeconds: 45,
             trigger: .bargeIn
         )
+        currentDictationTrigger = .bargeIn
+        globalPushToTalkShortcutMonitor.simulateShortcutPressed()
         // Journal the interrupt locally. `paceHistory` is the existing
         // retrieval source; no new tracking, no new files.
         let prefixForJournalLine = lastSpokenPrefix.isEmpty
@@ -242,7 +236,7 @@ extension CompanionManager {
     /// Wake-word opens a bounded post-wake listening window; it does NOT
     /// route the matched phrase into the planner. A synthetic PTT press
     /// starts the normal pipeline (transcribe → intent → planner) for
-    /// whatever the user says next, then auto-releases after six seconds. We
+    /// whatever the user says next, then releases on a speech pause or at the maximum listening duration. We
     /// drop the detection when a turn is already in flight so the
     /// wake-word can't displace an active PTT session or interrupt
     /// the in-flight response (barge-in handles the responding case
@@ -258,7 +252,7 @@ extension CompanionManager {
             return false
         }
         print("🎙️ Wake-word detected: \(detection.phraseMatched) (confidence \(detection.confidence))")
-        let listeningWindowDurationSeconds = 6.0
+        let listeningWindowDurationSeconds = 45.0
         buddyDictationManager.openListeningWindow(
             durationInSeconds: listeningWindowDurationSeconds,
             trigger: .wakeWord
@@ -343,21 +337,35 @@ extension CompanionManager {
     }
 
     func bindVoiceStateObservation() {
+        var hasObservedDictationInProgress = false
         voiceStateCancellable = buddyDictationManager.$isRecordingFromKeyboardShortcut
             .combineLatest(
                 buddyDictationManager.$isFinalizingTranscript,
-                buddyDictationManager.$isPreparingToRecord
+                buddyDictationManager.$isPreparingToRecord,
+                buddyDictationManager.$isRecordingFromMicrophoneButton
             )
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] isRecording, isFinalizing, isPreparing in
+            .sink { [weak self] isRecordingFromShortcut, isFinalizing, isPreparing, isRecordingFromButton in
                 guard let self else { return }
+                let observedDictationInProgress =
+                    isRecordingFromShortcut || isRecordingFromButton || isFinalizing || isPreparing
+                if observedDictationInProgress {
+                    hasObservedDictationInProgress = true
+                } else if hasObservedDictationInProgress, !self.buddyDictationManager.isDictationInProgress {
+                    hasObservedDictationInProgress = false
+                    if self.globalPushToTalkShortcutMonitor.isSimulatedPressActive {
+                        self.globalPushToTalkShortcutMonitor.discardSimulatedPress()
+                        self.responseOverlayManager.setListeningForAudio(false)
+                        self.currentDictationTrigger = .keyboard
+                    }
+                }
                 // Don't override .responding — the AI response pipeline
                 // manages that state directly until streaming finishes.
                 guard self.voiceState != .responding else { return }
 
                 if isFinalizing {
                     self.voiceState = .processing
-                } else if isRecording {
+                } else if isRecordingFromShortcut || isRecordingFromButton {
                     self.voiceState = .listening
                 } else if isPreparing {
                     self.voiceState = .processing
@@ -443,8 +451,12 @@ extension CompanionManager {
             }
 
             // Cancel any in-progress response and TTS from a previous utterance
-            cancelActiveTurnTasks()
-            ttsClient.stopPlayback()
+            // Barge-in already cancelled and drained the reply. A second stop
+            // would replace its userBargeIn reason with manualStop.
+            if currentDictationTrigger != .bargeIn {
+                cancelActiveTurnTasks()
+                ttsClient.stopPlayback()
+            }
             // Clear the streaming-TTS dispatch state so the new turn
             // starts fresh — without this, the diff tracker would think
             // half of the previous reply had already been queued.
@@ -506,6 +518,8 @@ extension CompanionManager {
                 responseOverlayManager.updateStreamingText("speech model still loading…")
                 responseOverlayManager.finishStreaming()
                 voiceState = .idle
+                globalPushToTalkShortcutMonitor.discardSimulatedPress()
+                currentDictationTrigger = .keyboard
                 return
             }
             // Surface the conversation at the mascot perch (top-right) the
@@ -518,7 +532,7 @@ extension CompanionManager {
             // this turn. Keyboard → next to the cursor (rides with the
             // Codex arrow); avatar tap → next to the walking character.
             switch currentDictationTrigger {
-            case .keyboard, .wakeWord:
+            case .keyboard, .microphoneButton, .wakeWord, .bargeIn:
                 responseOverlayManager.setAnchor(.belowRightOfCursor)
                 // The avatar is just visual noise during a keyboard-
                 // triggered turn. Hide it; it comes back when we return
@@ -536,9 +550,14 @@ extension CompanionManager {
             // Capture self weakly in the outer task so it matches the weak
             // captures in the escaping draft/submit closures below — the task
             // must not extend this manager's lifetime past app teardown.
+            let captureMode = currentDictationTrigger.captureMode
             pendingKeyboardShortcutStartTask = Task { [weak self] in
                 guard let self else { return }
-                await self.buddyDictationManager.startPushToTalkFromKeyboardShortcut(
+                await self.buddyDictationManager.startDictation(
+                    captureMode: captureMode,
+                    onEndOfUtterance: { [weak self] in
+                        self?.globalPushToTalkShortcutMonitor.simulateShortcutReleased()
+                    },
                     currentDraftText: "",
                     updateDraftText: { [weak self] partialTranscript in
                         // The transcription provider may call us off-main;
@@ -616,10 +635,12 @@ extension CompanionManager {
             PaceAnalytics.trackPushToTalkReleased()
             pendingKeyboardShortcutStartTask?.cancel()
             pendingKeyboardShortcutStartTask = nil
-            buddyDictationManager.stopPushToTalkFromKeyboardShortcut()
+            buddyDictationManager.stopCurrentDictation()
+            currentDictationTrigger = .keyboard
             // The stop button only makes sense while we're actually
             // recording — clear it as soon as the release fires.
             responseOverlayManager.setListeningForAudio(false)
+            responseOverlayManager.updateStreamingText("transcribing…")
             // Safety net: if no transcript materialises within 5s (silent
             // audio, WhisperKit hang, mic permission revoked), clean up so
             // the overlay doesn't sit on "listening…" indefinitely and the

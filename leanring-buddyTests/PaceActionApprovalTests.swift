@@ -3,10 +3,61 @@
 //  leanring-buddyTests
 //
 
+import CoreGraphics
+import Foundation
 import Testing
 @testable import Pace
 
 struct PaceActionApprovalTests {
+    @Test func repeatedPartialInspectionKeepsBothExactRequestsAndReadEvidence() {
+        let request = #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","name":"see","arguments":{"app_target":"Safari","window_id":84,"ocr":true}}}}"#
+        let partialEvidence = """
+        Warning: AX tree incomplete. Retry once with the same exact app_target and window_id.
+        Save at (1245, 340) size 39×13 [not actionable]
+        Engine temperature 81°C. Fuel remaining 37%.
+        """
+        let observation = PaceActionExecutionObservation(toolName: "mcp.peekaboo.see", summary: partialEvidence)
+        var inspectionHistory = PaceAgentInspectionHistory()
+        inspectionHistory.append(plannerRequest: request, observations: [observation])
+        inspectionHistory.append(plannerRequest: request, observations: [observation])
+
+        let continuation = inspectionHistory.formattedForPlanner
+        #expect(continuation.components(separatedBy: request).count - 1 == 2)
+        #expect(continuation.components(separatedBy: partialEvidence).count - 1 == 2)
+        #expect(continuation.contains("Completed inspection step 1"))
+        #expect(continuation.contains("Completed inspection step 2"))
+
+        let answer = PaceActionTagParser.parseActions(
+            from: "The engine is at 81°C with 37% fuel remaining. [POINT:1264.5,346.5:Save:desktop] [DONE]")
+        #expect(PaceActionApprovalPolicy.permitsObservationOnly(answer.executionPlan))
+        let (isDone, textAfterDoneStrip) = PaceTagParsers.parseAndStripDoneSignal(from: answer.spokenText)
+        #expect(isDone)
+        let pointing = PaceTagParsers.parsePointingCoordinates(from: textAfterDoneStrip)
+        #expect(pointing.coordinate?.x == 1264.5)
+        #expect(pointing.coordinate?.y == 346.5)
+        #expect(pointing.usesDesktopCoordinates)
+        let click = PaceActionTagParser.parseActions(from: "[CLICK:1264,347]")
+        #expect(!PaceActionApprovalPolicy.permitsObservationOnly(click.executionPlan))
+        let mcpClick = PaceActionTagParser.parseActions(
+            from: #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","name":"click","arguments":{"coords":"1264,347","foreground":true}}}}"#)
+        #expect(!PaceActionApprovalPolicy.permitsObservationOnly(mcpClick.executionPlan))
+    }
+
+    @Test func inspectionHistoryRetainsOnlyTwoRecentRequestsWithinPromptBudget() {
+        var inspectionHistory = PaceAgentInspectionHistory()
+        for stepNumber in 1...16 {
+            inspectionHistory.append(
+                plannerRequest: "see Safari window 84 request \(stepNumber)",
+                observations: [.init(toolName: "mcp.peekaboo.see", summary: String(repeating: "x", count: 20_000))])
+        }
+        let continuation = inspectionHistory.formattedForPlanner
+        #expect(continuation.count <= PaceAgentInspectionHistory.maximumCharacterCount)
+        #expect(continuation.contains("see Safari window 84 request 15"))
+        #expect(continuation.contains("see Safari window 84 request 16"))
+        #expect(!continuation.contains("Completed inspection step 14\n"))
+        #expect(continuation.contains("[inspection result truncated to fit the prompt budget]"))
+    }
+
     @Test func linearObservationRequiresTheExactOfficialReadOnlyConfiguration() {
         let plan = PaceActionExecutionPlan.serial(actions: [
             .mcp(PaceMCPToolCall(serverName: "linear", toolName: "list_issues", arguments: [:]))

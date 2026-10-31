@@ -181,7 +181,7 @@ nonisolated enum PaceToolPreflight {
              .listCalendarEvents, .createCalendarEvent, .createReminder, .finder, .createNote, .appendNote,
              .searchNotes, .composeMail, .createThingsToDo, .runShortcut, .openMessages, .downloadFile,
              .startTimer, .recordFlow, .runFlow, .mcp,
-             .drawAnnotation, .clearAnnotations:
+            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
             return false
         }
     }
@@ -212,7 +212,7 @@ nonisolated enum PaceToolPreflight {
             .readClipboard, .openApplication, .openBrowser, .screenCapture, .meeting, .codexSession, .openURL,
              .adjustVolume, .adjustBrightness, .listCalendarEvents, .createCalendarEvent,
              .createReminder, .finder, .downloadFile, .startTimer, .recordFlow, .runFlow,
-             .drawAnnotation, .clearAnnotations:
+            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
             return false
         }
     }

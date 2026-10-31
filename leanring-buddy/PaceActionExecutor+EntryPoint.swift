@@ -226,7 +226,7 @@ extension PaceActionExecutor {
             return runFlow(flowRequest)
         case .mcp(let mcpToolCall):
             return await callMCPTool(mcpToolCall)
-        case .drawAnnotation, .clearAnnotations:
+        case .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
             // Tuition-mode annotation actions are drained out of the
             // plan by `PaceAnnotationActionDrainer` in CompanionManager
             // before it ever reaches the executor. If one slips through

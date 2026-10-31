@@ -54,7 +54,7 @@ extension CompanionManager {
             print("🔗 Deeplink listen ignored — turn in flight (\(voiceState))")
             return
         }
-        currentDictationTrigger = .keyboard
+        currentDictationTrigger = .microphoneButton
         globalPushToTalkShortcutMonitor.simulateShortcutPressed()
     }
 
@@ -211,6 +211,25 @@ extension CompanionManager {
     }
 
     func start() {
+        diagramOverlayController.onDidPresent = { [weak self] in
+            self?.imageOverlayController.hideForDiagramReplacement()
+            NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+        }
+        imageOverlayController.authorizationCheck = { [weak self] in
+            guard let self else { return false }
+            return self.canGenerateImagesWithCodex
+        }
+        imageOverlayController.onWillGenerate = { [weak self] in
+            self?.diagramOverlayController.hideForImageReplacement()
+            NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+        }
+        imageOverlayController.onGenerationProgress = { [weak self] message in
+            self?.currentTurnHUDState = .acting(message)
+            self?.responseOverlayManager.updateStreamingText(message)
+        }
+        diagramOverlayController.onAskAboutPart = { [weak self] transcript in
+            self?.submitChatTranscriptFromDeepLink(transcript)
+        }
         refreshAllPermissions()
         loadPersistedToolCallDebugRecords()
         // Warm the local Shortcuts names asynchronously. Natural transcript
@@ -734,6 +753,8 @@ extension CompanionManager {
     }
 
     func stop() {
+        imageOverlayController.dismiss()
+        diagramOverlayController.dismiss()
         PaceScreenRecordingController.shared.shutdown()
         stopCompanionRuntime()
         appUsageTracker?.stop()
