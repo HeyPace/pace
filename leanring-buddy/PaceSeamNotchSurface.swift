@@ -71,12 +71,12 @@ struct PaceSeamNotchSurface: View {
         .background(displayMode == .active ? Color.black : Color.clear)
         .overlay {
             if displayMode == .active {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                UnevenRoundedRectangle(bottomLeadingRadius: 16, bottomTrailingRadius: 16, style: .continuous)
                     .stroke(Color.white.opacity(0.07), lineWidth: 0.5)
                     .allowsHitTesting(false)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 16, bottomTrailingRadius: 16, style: .continuous))
     }
 
     private var header: some View {
@@ -184,13 +184,13 @@ struct PaceSeamNotchHeader: View {
     ) -> some View {
         let cap = content()
             .background {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                UnevenRoundedRectangle(bottomLeadingRadius: 12, bottomTrailingRadius: 12, style: .continuous)
                     .fill(Color(white: hoveredWingLabel == label ? 0.16 : 0.08))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        UnevenRoundedRectangle(bottomLeadingRadius: 12, bottomTrailingRadius: 12, style: .continuous)
                             .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
                     }
-                    .frame(width: 32, height: 28)
+                    .frame(width: 32, height: physicalHousingHeight)
             }
         if let action {
             Button(action: action) { cap.contentShape(Rectangle()) }

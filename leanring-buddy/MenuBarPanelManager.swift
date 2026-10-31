@@ -73,7 +73,7 @@ private struct PaceConversationPanelSurface: View {
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
                 .background(Color.black)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 24, bottomTrailingRadius: 24, style: .continuous))
             case .anchored:
                 if usesChatPanelAsPrimarySurface {
                     PaceChatPanelView(companionManager: companionManager)
