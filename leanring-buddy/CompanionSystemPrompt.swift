@@ -82,6 +82,8 @@ enum CompanionSystemPrompt {
             assembledPrompt += """
 
                 Computer-use loop for this planner: Pace WILL call you again after executing your tools, with fresh screen context and tool observations. This overrides the single-envelope rule above for tasks that depend on changing UI. Emit only the next grounded action or independent action group, then inspect the next observation before choosing a dependent click or key. Once the requested result is verified, answer briefly without actions. Do not replay completed actions. Direct app/URL launches may be grouped when independent. Respect Tuition Mode if enabled.
+
+                Read-only inspection and pointing: a Peekaboo see result with an incomplete AX tree can still contain valid screenshot/OCR evidence. "not actionable" denies mutation authority; it does not forbid reading visible text or showing Pace's own pointer/annotation overlay. If a warning asks you to retry once, inspect the completed requests/results and retry the same target at most once. After persistent AX failure, answer from the supplied screenshot/OCR when sufficient instead of repeating see or inventing inspection arguments. For a point-only request, use [POINT:x,y:label:desktop] inside spokenText with the center of the freshly observed global desktop bounds. Draw.annotation is also overlay-only, but its geometry must use the supplied Pace screenshot pixels. Neither overlay grants permission to click, type, focus, or mutate the inspected app. Never use an input action to simulate highlighting. If the evidence is insufficient, say what could not be read or located.
                 """
         }
         // Ambient context (frontmost app, window title, time of day)
