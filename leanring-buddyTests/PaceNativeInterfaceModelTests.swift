@@ -166,11 +166,11 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         XCTAssertEqual(idleGeometry?.presentationFrame.height, expectedPhysicalHousingFrame.height)
         XCTAssertEqual(
             hoverGeometry?.presentationFrame,
-            CGRect(x: 727.5, y: 1_053, width: 273, height: 32)
+            CGRect(x: 727.5, y: 1_085, width: 273, height: 32)
         )
         XCTAssertEqual(
             activeGeometry?.presentationFrame,
-            CGRect(x: 727.5, y: 1_021, width: 273, height: 64)
+            CGRect(x: 727.5, y: 1_053, width: 273, height: 64)
         )
 
     }
@@ -202,8 +202,8 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         XCTAssertEqual(activeGeometry.presentationFrame.width, idleGeometry.presentationFrame.width)
         XCTAssertEqual(activeGeometry.presentationFrame.maxY, idleGeometry.presentationFrame.maxY)
         XCTAssertLessThan(activeGeometry.presentationFrame.minY, idleGeometry.presentationFrame.minY)
-        XCTAssertEqual(activeGeometry.presentationFrame.maxY, activeGeometry.physicalHousingFrame.minY)
-        XCTAssertFalse(activeGeometry.presentationFrame.intersects(activeGeometry.physicalHousingFrame))
+        XCTAssertEqual(activeGeometry.presentationFrame.maxY, activeGeometry.physicalHousingFrame.maxY)
+        XCTAssertTrue(activeGeometry.presentationFrame.contains(activeGeometry.physicalHousingFrame))
     }
 
     func testSeamKeepsReadableWingsBesideWiderHardwareHousing() throws {
@@ -232,10 +232,10 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         XCTAssertEqual(placement.frame.width, 520)
         XCTAssertEqual(placement.frame.height, 412)
         XCTAssertEqual(placement.frame.midX, housing.midX)
-        XCTAssertEqual(placement.frame.maxY, housing.minY)
-        XCTAssertFalse(placement.frame.intersects(housing))
+        XCTAssertEqual(placement.frame.maxY, housing.maxY)
+        XCTAssertTrue(placement.frame.contains(housing))
         XCTAssertEqual(placement.collapsedFrame.midX, housing.midX)
-        XCTAssertEqual(placement.collapsedFrame.maxY, housing.minY)
+        XCTAssertEqual(placement.collapsedFrame.maxY, housing.maxY)
         XCTAssertEqual(placement.collapsedFrame.height, housing.height)
         XCTAssertEqual(placement.collapsedFrame.width, 273)
     }
@@ -249,7 +249,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             contentSize: CGSize(width: 520, height: 540))
         XCTAssertEqual(placement.collapsedFrame.width, 388)
         XCTAssertEqual((placement.collapsedFrame.width - housing.width) / 2, 44)
-        XCTAssertEqual(placement.frame.maxY, housing.minY)
+        XCTAssertEqual(placement.frame.maxY, housing.maxY)
     }
 
     func testConversationWithoutPhysicalHousingUsesClampedAnchorAndGap() {
@@ -263,7 +263,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         XCTAssertEqual(placement.collapsedFrame.height, 24)
     }
 
-    func testNotchControlsAndConversationLeaveTheEntireMenuRowUncovered() throws {
+    func testNotchAndConversationStayAttachedToHardwareAcrossDisplayOrigins() throws {
         let menuHeights: [CGFloat] = [24, 32, 38]
         for screenOrigin in [CGPoint.zero, CGPoint(x: -1_728, y: 180), CGPoint(x: 240, y: -1_117)] {
             for menuHeight in menuHeights {
@@ -278,16 +278,16 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
                         screenFrame: screenFrame, safeAreaTopInset: menuHeight,
                         auxiliaryTopLeftArea: leftArea, auxiliaryTopRightArea: rightArea,
                         displayMode: displayMode))
-                    XCTAssertEqual(geometry.presentationFrame.maxY, menuRow.minY)
-                    XCTAssertFalse(geometry.presentationFrame.intersects(menuRow))
+                    XCTAssertEqual(geometry.presentationFrame.maxY, screenFrame.maxY)
+                    XCTAssertTrue(geometry.presentationFrame.contains(geometry.physicalHousingFrame))
 
                     let placement = PaceConversationPanelPlacement.resolve(
                         notchGeometry: geometry, anchorFrame: geometry.presentationFrame,
                         screenFrame: screenFrame, contentSize: CGSize(width: 520, height: 540))
-                    XCTAssertEqual(placement.frame.maxY, menuRow.minY)
-                    XCTAssertEqual(placement.collapsedFrame.maxY, menuRow.minY)
-                    XCTAssertFalse(placement.frame.intersects(menuRow))
-                    XCTAssertFalse(placement.collapsedFrame.intersects(menuRow))
+                    XCTAssertEqual(placement.frame.maxY, screenFrame.maxY)
+                    XCTAssertEqual(placement.collapsedFrame.maxY, screenFrame.maxY)
+                    XCTAssertTrue(placement.frame.contains(geometry.physicalHousingFrame))
+                    XCTAssertTrue(placement.collapsedFrame.contains(geometry.physicalHousingFrame))
                 }
             }
         }

@@ -87,7 +87,6 @@ struct PaceSeamNotchSurface: View {
             physicalHousingHeight: physicalHousingHeight,
             signalState: signalState,
             isOffDeviceTurn: isOffDeviceTurn,
-            showsShortcutHints: displayMode == .hover,
             isCameraActive: isCameraActive,
             isScreenActive: isScreenActive,
             persistentStatus: persistentStatus,
@@ -119,7 +118,6 @@ struct PaceSeamNotchHeader: View {
     let physicalHousingHeight: CGFloat
     let signalState: PaceSignalState
     let isOffDeviceTurn: Bool
-    var showsShortcutHints = false
     var isExpanded = false
     var isCameraActive = false
     var isScreenActive = false
@@ -128,14 +126,17 @@ struct PaceSeamNotchHeader: View {
     var onBrandTap: (() -> Void)? = nil
     var onChatTap: (() -> Void)? = nil
     @State private var hoveredWingLabel: String?
-    @State private var isHeaderHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { geometry in
             let wingWidth = max(0, (geometry.size.width - physicalHousingWidth) / 2)
             HStack(spacing: 0) {
-                wingButton(label: "Open Pace", action: onBrandTap) {
+                wingButton(
+                    label: "Open Pace",
+                    shortcutHint: "Hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) to speak",
+                    action: onBrandTap
+                ) {
                     Image(systemName: signalState == .listening ? "mic.fill" : "mic")
                         .font(.system(size: 16, weight: .regular))
                         .accessibilityHidden(true)
@@ -145,17 +146,12 @@ struct PaceSeamNotchHeader: View {
                         .fixedSize()
                         .frame(width: wingWidth, height: physicalHousingHeight)
                 }
-                Text("\(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) Speak  ·  \(PaceNotchChatShortcut.currentShortcutOption.notchDisplayLabel) Chat")
-                    .font(.system(size: 9.5, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.64))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                    .frame(width: physicalHousingWidth, height: physicalHousingHeight)
-                    .opacity(showsShortcutHints || isHeaderHovered ? 1 : 0)
-                    .animation(.easeOut(duration: DS.Motion.micro), value: showsShortcutHints || isHeaderHovered)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-                wingButton(label: isExpanded ? "Close conversation" : "Open conversation", action: onChatTap) {
+                Color.clear.frame(width: physicalHousingWidth)
+                wingButton(
+                    label: isExpanded ? "Close conversation" : "Open conversation",
+                    shortcutHint: isExpanded ? "Close conversation · Esc" : "Open chat · \(PaceNotchChatShortcut.currentShortcutOption.notchDisplayLabel)",
+                    action: onChatTap
+                ) {
                     Group {
                         if isExpanded {
                             Image(systemName: "xmark")
@@ -191,12 +187,12 @@ struct PaceSeamNotchHeader: View {
             }
         }
         .frame(height: physicalHousingHeight)
-        .onHover { isHeaderHovered = $0 }
     }
 
     @ViewBuilder
     private func wingButton<Content: View>(
         label: String,
+        shortcutHint: String,
         action: (() -> Void)?,
         @ViewBuilder content: () -> Content
     ) -> some View {
@@ -214,6 +210,7 @@ struct PaceSeamNotchHeader: View {
                 }
                 .pointerCursor()
                 .accessibilityLabel(label)
+                .help(shortcutHint)
         } else {
             cap
         }
