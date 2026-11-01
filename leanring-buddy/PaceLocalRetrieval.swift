@@ -856,8 +856,10 @@ final class PaceLocalRetriever: PaceRetriever {
     private let store: PaceRetrievalStore
     private let maximumContextCharacters: Int
     private let embeddingClient: PaceTextEmbedding
+    private let appliesPersistedSourcePreferences: Bool
     private(set) var lastQueryDurationMilliseconds: Int?
     private var screenWatchJournal: PaceScreenWatchJournal?
+    private(set) var screenWatchHistoryRevision: UInt64 = 0
     private var meetingNotesJournal: PaceMeetingNotesJournal?
     private var researchJournal: PaceResearchJournal?
 
@@ -873,6 +875,7 @@ final class PaceLocalRetriever: PaceRetriever {
                 persistenceURL: Self.defaultPersistenceURL()
         )
         self.maximumContextCharacters = maximumContextCharacters
+        self.appliesPersistedSourcePreferences = appliesPersistedSourcePreferences
         // Short timeout: re-ranking sits on the turn path, so a cold or
         // missing embedding model must degrade to lexical order quickly.
         self.embeddingClient =
@@ -890,6 +893,7 @@ final class PaceLocalRetriever: PaceRetriever {
     }
 
     func upsertDocuments(_ documents: [PaceRetrievalDocument]) {
+        if documents.contains(where: { $0.source == .screenWatchHistory }) { invalidateScreenWatchJournal() }
         store.upsertDocuments(documents)
     }
 
@@ -902,7 +906,10 @@ final class PaceLocalRetriever: PaceRetriever {
     }
 
     func setSourceEnabled(_ isEnabled: Bool, for source: PaceRetrievalSource) {
-        PaceRetrievalSourcePreferences.setEnabled(isEnabled, for: source)
+        if source == .screenWatchHistory { invalidateScreenWatchJournal() }
+        if appliesPersistedSourcePreferences {
+            PaceRetrievalSourcePreferences.setEnabled(isEnabled, for: source)
+        }
         store.setSourceEnabled(isEnabled, for: source)
     }
 
@@ -915,6 +922,7 @@ final class PaceLocalRetriever: PaceRetriever {
         forSource source: PaceRetrievalSource,
         status: PaceRetrievalSourceStatus? = nil
     ) {
+        if source == .screenWatchHistory { invalidateScreenWatchJournal() }
         store.removeDocuments(withSource: source)
         store.upsertDocuments(documents)
         if let status {
@@ -923,13 +931,15 @@ final class PaceLocalRetriever: PaceRetriever {
     }
 
     func clearDocuments(forSource source: PaceRetrievalSource) {
+        if source == .screenWatchHistory { invalidateScreenWatchJournal() }
         store.removeDocuments(withSource: source)
         lastQueryDurationMilliseconds = nil
     }
 
     func resetIndex(preservePreferences: Bool = true) {
+        invalidateScreenWatchJournal()
         store.reset()
-        applyPersistedSourcePreferences()
+        if appliesPersistedSourcePreferences { applyPersistedSourcePreferences() }
         if preservePreferences {
             refreshPreferenceDocuments()
             refreshCompetitiveResearchDocuments()
@@ -947,10 +957,12 @@ final class PaceLocalRetriever: PaceRetriever {
         store.upsertDocuments(PaceCompetitiveResearchSeeds.documents)
     }
 
-    /// Journals a watch-mode screen event so "what did I do today?" style
-    /// questions can be answered from local history. Recording is free of
-    /// model calls — the screen description, when present, comes from the
-    /// caller's already-cached analysis.
+    private func invalidateScreenWatchJournal() {
+        screenWatchHistoryRevision &+= 1
+        screenWatchJournal = nil
+    }
+
+    /// Stores locally redacted observed screen text, without invoking a planner.
     func recordScreenWatchObservation(
         screenLabel: String,
         categoryDisplayName: String,
@@ -969,15 +981,14 @@ final class PaceLocalRetriever: PaceRetriever {
             screenDescription: screenDescription
         ))
         screenWatchJournal = journal
-        if let changedDocument {
-            store.upsertDocuments([changedDocument])
+        if changedDocument != nil {
+            screenWatchHistoryRevision &+= 1
+            store.removeDocuments(withSource: .screenWatchHistory)
+            store.upsertDocuments(journal.allDocuments(now: now))
         }
     }
 
-    /// Rebuilds the in-memory journal from persisted documents on the first
-    /// event after launch — without this, the first post-restart event would
-    /// upsert a same-id day bucket and clobber the earlier history. Also the
-    /// single point where the retention window is enforced.
+    /// Rehydrates the same persisted journal used for every accepted write.
     private func rehydratedScreenWatchJournal(now: Date) -> PaceScreenWatchJournal {
         var journal = PaceScreenWatchJournal(
             rehydratingFrom: store.documents(withSource: .screenWatchHistory),
@@ -1139,7 +1150,7 @@ final class PaceLocalRetriever: PaceRetriever {
             from: lexicalCandidateMatches(for: query),
             limit: query.maximumResultCount
         )
-        return composeContextBlock(from: matches, startedAt: retrievalStartedAt)
+        return composeContextBlock(from: matches, startedAt: retrievalStartedAt, queryText: query.text)
     }
 
     /// Async variant that re-ranks the lexical candidate pool by embedding
@@ -1148,6 +1159,7 @@ final class PaceLocalRetriever: PaceRetriever {
     /// the plain lexical order — never worse than `localContextBlock`.
     func rerankedLocalContextBlock(for query: PaceRetrievalQuery) async -> String? {
         let retrievalStartedAt = Date()
+        let screenHistoryRevisionAtStart = screenWatchHistoryRevision
         let candidateMatches = lexicalCandidateMatches(for: query)
         guard !candidateMatches.isEmpty else {
             return composeContextBlock(from: [], startedAt: retrievalStartedAt)
@@ -1157,8 +1169,12 @@ final class PaceLocalRetriever: PaceRetriever {
             matches: candidateMatches,
             embedder: embeddingClient
         )
-        let matches = selectMatches(from: rerankedMatches, limit: query.maximumResultCount)
-        return composeContextBlock(from: matches, startedAt: retrievalStartedAt)
+        let currentMatches = rerankedMatches.filter {
+            $0.source != .screenWatchHistory || (isSourceEnabled(.screenWatchHistory)
+                && screenHistoryRevisionAtStart == screenWatchHistoryRevision)
+        }
+        let matches = selectMatches(from: currentMatches, limit: query.maximumResultCount)
+        return composeContextBlock(from: matches, startedAt: retrievalStartedAt, queryText: query.text)
     }
 
     /// Wider-than-requested lexical candidate pool so re-ranking and source
@@ -1266,7 +1282,8 @@ final class PaceLocalRetriever: PaceRetriever {
 
     private func composeContextBlock(
         from matches: [PaceRetrievalMatch],
-        startedAt retrievalStartedAt: Date
+        startedAt retrievalStartedAt: Date,
+        queryText: String = ""
     ) -> String? {
         let retrievalDurationMilliseconds = Int(Date().timeIntervalSince(retrievalStartedAt) * 1000)
         lastQueryDurationMilliseconds = retrievalDurationMilliseconds
@@ -1283,16 +1300,29 @@ final class PaceLocalRetriever: PaceRetriever {
         // documents to "today"/"yesterday" questions instead of hedging.
         let todayKey = PaceAppUsageJournal.dayFormatter.string(from: Date())
         var lines = ["LOCAL CONTEXT (today is \(todayKey))"]
-        var characterCount = lines[0].count
+        if matches.contains(where: { $0.source == .screenWatchHistory }) {
+            lines.append(PaceScreenWatchRecallEvidence.trustInstruction)
+        }
+        var characterCount = lines.joined(separator: "\n").count
+        var renderedMatchCount = 0
 
         for (index, match) in matches.enumerated() {
-            let line = "\(index + 1). \(match.source.displayName): \(match.title): \"\(match.excerpt)\""
+            let line: String
+            if match.source == .screenWatchHistory {
+                guard isSourceEnabled(.screenWatchHistory) else { continue }
+                line = "\(index + 1). " + PaceScreenWatchRecallEvidence.render(
+                    text: store.documents(withSource: .screenWatchHistory).first(where: { $0.id == match.documentId })?.text ?? match.excerpt,
+                    fallbackDate: match.modifiedAt, query: queryText, maximumCharacters: 500)
+            } else {
+                line = "\(index + 1). \(match.source.displayName): \(match.title): \"\(match.excerpt)\""
+            }
             guard characterCount + line.count + 1 <= maximumContextCharacters else { break }
             lines.append(line)
+            renderedMatchCount += 1
             characterCount += line.count + 1
         }
 
-        guard lines.count > 1 else { return nil }
+        guard renderedMatchCount > 0 else { return nil }
         return lines.joined(separator: "\n")
     }
 

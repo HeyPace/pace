@@ -55,32 +55,6 @@ extension CompanionManager {
         }
     }
 
-    func handleWatchModeEvent(_ event: PaceScreenWatchEvent) async {
-        recordWatchModeEventInJournal(event)
-    }
-
-    func recordWatchModeEventInJournal(_ event: PaceScreenWatchEvent) {
-        // Frontmost app name is a cheap synchronous NSWorkspace read — the
-        // same source the ASR contextual-phrase builder uses.
-        let frontmostApplicationName = NSWorkspace.shared.frontmostApplication?.localizedName
-        // Reuse the per-screen VLM cache only while it is fresh enough to
-        // still describe roughly what the user is looking at. Never run the
-        // VLM from here — journaling must stay free.
-        let freshCachedScreenDescription = screenContextService.cachedDescriptionIfFresh(
-            screenLabel: event.screenLabel,
-            maxAgeSeconds: 120,
-            referenceDate: event.detectedAt
-        )
-        localRetriever.recordScreenWatchObservation(
-            screenLabel: event.screenLabel,
-            categoryDisplayName: event.category.displayName,
-            frontmostApplicationName: frontmostApplicationName,
-            screenDescription: freshCachedScreenDescription,
-            now: event.detectedAt
-        )
-        refreshLocalRetrievalPublishedState()
-    }
-
     func requestUserApprovalForActionPlan(
         _ actionExecutionPlan: PaceActionExecutionPlan,
         preflightIssues: [PaceToolPreflightIssue] = [],

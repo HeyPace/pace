@@ -262,6 +262,7 @@ extension CompanionManager {
             isWatchModeEnabled = enabled
             screenSuggestionVisualGate = PaceScreenSuggestionVisualGate()
             screenSuggestionCoordinator.setEnabled(enabled)
+            screenWatchNoteCoordinator.invalidate()
         }
         reconcileWatchRuntime()
     }

@@ -26,17 +26,20 @@ final class PaceMemoryRetriever {
     /// init.
     private let shouldInjectSensitiveTopics: () -> Bool
     private let isSourceEnabled: (PaceRetrievalSource) -> Bool
+    private let screenWatchHistoryRevision: () -> UInt64
 
     init(
         memoryIndex: PaceMemoryIndex,
         embeddingClient: any PaceTextEmbedding,
         shouldInjectSensitiveTopics: @escaping () -> Bool,
-        isSourceEnabled: @escaping (PaceRetrievalSource) -> Bool = PaceRetrievalSourcePreferences.isEnabled
+        isSourceEnabled: @escaping (PaceRetrievalSource) -> Bool = PaceRetrievalSourcePreferences.isEnabled,
+        screenWatchHistoryRevision: @escaping () -> UInt64 = { 0 }
     ) {
         self.memoryIndex = memoryIndex
         self.embeddingClient = embeddingClient
         self.shouldInjectSensitiveTopics = shouldInjectSensitiveTopics
         self.isSourceEnabled = isSourceEnabled
+        self.screenWatchHistoryRevision = screenWatchHistoryRevision
     }
 
     /// Assembles the recall context block for `query`, or nil when there is
@@ -65,6 +68,7 @@ final class PaceMemoryRetriever {
         // drops) still leaves up to `maxEntries` survivors.
         let overFetchCount = maxEntries + excludingEntryIds.count + 8
 
+        let screenHistoryRevisionAtStart = screenWatchHistoryRevision()
         let keywordRankedEntries = memoryIndex.rankByKeywordSimilarity(
             toQuery: trimmedQuery,
             topN: overFetchCount
@@ -87,10 +91,16 @@ final class PaceMemoryRetriever {
         }
 
         return filteredContextBlock(
-            fromRankedEntries: rankedEntries,
+            fromRankedEntries: rankedEntries.filter { entry in
+                guard entry.source == .screenWatchHistory else { return true }
+                guard screenHistoryRevisionAtStart == screenWatchHistoryRevision(),
+                      let currentEntry = memoryIndex.entry(id: entry.id), currentEntry.isActive else { return false }
+                return currentEntry.text == entry.text && currentEntry.updatedAt == entry.updatedAt
+            },
             excludingEntryIds: excludingEntryIds,
             maxEntries: maxEntries,
-            now: now
+            now: now,
+            query: trimmedQuery
         )
     }
 
@@ -128,7 +138,8 @@ final class PaceMemoryRetriever {
         fromRankedEntries rankedEntries: [PaceMemoryEntry],
         excludingEntryIds: Set<String>,
         maxEntries: Int,
-        now: Date
+        now: Date,
+        query: String
     ) -> String? {
         let injectSensitiveTopics = shouldInjectSensitiveTopics()
         var survivingEntries: [PaceMemoryEntry] = []
@@ -147,7 +158,7 @@ final class PaceMemoryRetriever {
         }
 
         guard !survivingEntries.isEmpty else { return nil }
-        return Self.formatContextBlock(from: survivingEntries, now: now)
+        return Self.formatContextBlock(from: survivingEntries, now: now, query: query)
     }
 
     // MARK: - Pure helpers
@@ -169,11 +180,19 @@ final class PaceMemoryRetriever {
     /// entry. Conversation-turn text has newlines collapsed so each entry
     /// stays on a single line; all entries are capped so a runaway entry
     /// can't dominate the planner's context window.
-    static func formatContextBlock(from entries: [PaceMemoryEntry], now: Date) -> String {
+    static func formatContextBlock(from entries: [PaceMemoryEntry], now: Date, query: String = "") -> String {
         let maximumRenderedCharacterCount = 180
 
         var lines: [String] = ["LOCAL CONTEXT (memory)"]
+        if entries.contains(where: { $0.source == .screenWatchHistory }) {
+            lines.append(PaceScreenWatchRecallEvidence.trustInstruction)
+        }
         for entry in entries {
+            if entry.source == .screenWatchHistory {
+                lines.append("- " + PaceScreenWatchRecallEvidence.render(text: entry.text,
+                    fallbackDate: entry.updatedAt, query: query, maximumCharacters: maximumRenderedCharacterCount))
+                continue
+            }
             let renderedEntryText: String
             switch entry.kind {
             case .fact:

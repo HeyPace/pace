@@ -49,7 +49,7 @@ struct PaceScreenSuggestionCoordinatorTests {
                 observedAt: observedAt, expiresAt: observedAt.addingTimeInterval(45))
         }
 
-        func observation(text: String = "TCP congestion control", sceneIdentity: PaceScreenSceneIdentity? = nil) -> PaceScreenSuggestionCoordinator.Observation {
+        func observation(text: String = "TCP congestion control", sceneIdentity: PaceScreenSceneIdentity? = nil) -> PaceScreenWatchObservation {
             .init(capture: CompanionScreenCapture(imageData: Data(text.utf8), label: "screen", isCursorScreen: true,
                 displayWidthInPoints: 100, displayHeightInPoints: 100, displayFrame: .zero,
                 screenshotWidthInPixels: 100, screenshotHeightInPixels: 100),
@@ -1183,7 +1183,7 @@ struct PaceScreenSuggestionIntegrationTests {
         manager.startWatchRuntime()
         manager.startWatchRuntime()
         manager.setWatchModeEnabled(true)
-        #expect(manager.watchWorkspaceLifecycleObservers.count == 4)
+        #expect(manager.watchWorkspaceLifecycleObservers.count == 6)
         #expect(manager.watchDistributedLifecycleObservers.count == 2)
         #expect(manager.screenWatchModeController.isWatching)
         manager.stopWatchRuntime()

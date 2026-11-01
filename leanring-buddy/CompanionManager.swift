@@ -446,6 +446,8 @@ final class CompanionManager: ObservableObject {
     var lastScreenSuggestionDeliveryAt: Date?
     var screenSuggestionVisualGate = PaceScreenSuggestionVisualGate()
     lazy var screenSuggestionCoordinator = makeScreenSuggestionCoordinator()
+    lazy var screenWatchNoteCoordinator = makeScreenWatchNoteCoordinator()
+    var watchPrivacySubscriptions: Set<AnyCancellable> = []
     lazy var screenSuggestionNotification = PaceScreenSuggestionNotificationController(
         presenter: PaceScreenSuggestionNotificationPanel(),
         onAction: { [weak self] suggestion, action in
@@ -723,7 +725,9 @@ final class CompanionManager: ObservableObject {
         embeddingClient: PaceChainedTextEmbeddingClient.makePaceDefault(),
         shouldInjectSensitiveTopics: {
             PaceUserPreferencesStore.bool(.injectSensitiveEpisodicTopics, default: false)
-        }
+        },
+        isSourceEnabled: { [weak self] source in self?.localRetriever.isSourceEnabled(source) ?? false },
+        screenWatchHistoryRevision: { [weak self] in self?.localRetriever.screenWatchHistoryRevision ?? 0 }
     )
 
     /// Off-hot-path embedding scheduler — extracted into its own

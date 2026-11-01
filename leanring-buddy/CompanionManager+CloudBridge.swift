@@ -20,6 +20,7 @@ extension CompanionManager {
         // Rebuild the planner so the new mode takes effect on the next turn
         // without requiring an app restart.
         screenSuggestionCoordinator.invalidate(clearAnchor: true)
+        screenWatchNoteCoordinator.invalidate()
         plannerClient = BuddyPlannerClientFactory.makeDefault()
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
@@ -28,6 +29,7 @@ extension CompanionManager {
         cloudBridgeUpstream = upstream
         PaceCloudBridgeConsent.saveUpstream(upstream)
         screenSuggestionCoordinator.invalidate(clearAnchor: true)
+        screenWatchNoteCoordinator.invalidate()
         plannerClient = BuddyPlannerClientFactory.makeDefault()
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
@@ -36,6 +38,7 @@ extension CompanionManager {
         cloudBridgeModel = model
         PaceCloudBridgeConsent.saveModel(model)
         screenSuggestionCoordinator.invalidate(clearAnchor: true)
+        screenWatchNoteCoordinator.invalidate()
         plannerClient = BuddyPlannerClientFactory.makeDefault()
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }

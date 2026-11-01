@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 
 nonisolated enum PaceScreenWatchPauseReason: Hashable {
@@ -70,44 +71,94 @@ extension CompanionManager {
         )
     }
 
+    func makeScreenWatchNoteCoordinator() -> PaceScreenWatchNoteCoordinator {
+        PaceScreenWatchNoteCoordinator(
+            isEligible: { [weak self] observation in
+                self?.screenWatchNoteCaptureAllowed(observation) ?? false
+            },
+            sourceRevision: { [weak self] in self?.localRetriever.screenWatchHistoryRevision ?? 0 },
+            recognizeText: { [weak self] observation in
+                guard let self else { return [] }
+                return try await visionOCRClient.recognizeText(in: observation.capture.imageData,
+                    screenshotWidthInPixels: observation.capture.screenshotWidthInPixels,
+                    screenshotHeightInPixels: observation.capture.screenshotHeightInPixels)
+            },
+            persist: { [weak self] observation, excerpt in
+                guard let self else { return }
+                localRetriever.recordScreenWatchObservation(screenLabel: observation.capture.label,
+                    categoryDisplayName: "observed screen text",
+                    frontmostApplicationName: observation.applicationDisplayName ?? observation.sceneIdentity.applicationBundleIdentifier,
+                    screenDescription: excerpt, now: observation.observedAt)
+                // Retention evictions must reach recall in the same synchronous write.
+                syncConnectorsIntoUnifiedMemory()
+                refreshLocalRetrievalPublishedState()
+                PaceAPIAuditLog.shared.record(subsystem: "screen", operation: "screen_watch_note",
+                    target: "local_screen_history", durationMilliseconds: 0, outcome: "processed",
+                    inputCharacterCount: excerpt.count)
+            }
+        )
+    }
+
+    func screenWatchNoteCaptureAllowed(_ observation: PaceScreenWatchObservation) -> Bool {
+        guard localRetriever.isSourceEnabled(.screenWatchHistory), screenSuggestionCaptureAllowed(),
+              let application = NSWorkspace.shared.frontmostApplication,
+              application.processIdentifier == observation.sceneIdentity.applicationProcessIdentifier,
+              application.bundleIdentifier == observation.sceneIdentity.applicationBundleIdentifier else { return false }
+        let cursorScreen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
+        let displayIdentifier = cursorScreen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32
+        return displayIdentifier == observation.sceneIdentity.displayIdentifier
+    }
+
+    func observeWatchSample(_ observation: PaceScreenWatchObservation) {
+        screenSuggestionCoordinator.observe(observation)
+        screenWatchNoteCoordinator.observe(observation)
+    }
+
     func screenSuggestionCaptureAllowed() -> Bool {
         if !screenSuggestionNotificationPresentationAllowed() { screenSuggestionNotification.discard() }
         if let pauseSummary = screenWatchRuntimePauseSummary() {
             if isWatchModeEnabled {
                 latestWatchModeSummary = pauseSummary
                 screenSuggestionCoordinator.invalidate(clearAnchor: true)
+                screenWatchNoteCoordinator.invalidate()
                 cancelWatchSuggestionSpeech()
             }
             return false
         }
         guard !activeCallDetector.isOnActiveCall else {
             screenSuggestionCoordinator.invalidate()
+            screenWatchNoteCoordinator.invalidate()
             latestWatchModeSummary = "Watch paused · active call"
             return false
         }
         guard !focusModeMonitor.isCurrentlyInUserFocus else {
             screenSuggestionCoordinator.invalidate()
+            screenWatchNoteCoordinator.invalidate()
             latestWatchModeSummary = "Watch paused · macOS Focus is active"
             return false
         }
         guard thermalStateAdvisor.currentRecommendation != .suspendBackground,
               thermalStateAdvisor.currentRecommendation != .dampenBackgroundLoops else {
             screenSuggestionCoordinator.invalidate()
+            screenWatchNoteCoordinator.invalidate()
             latestWatchModeSummary = "Watch paused · thermal pressure"
             return false
         }
         guard let application = NSWorkspace.shared.frontmostApplication else {
             screenSuggestionCoordinator.invalidate()
+            screenWatchNoteCoordinator.invalidate()
             latestWatchModeSummary = "Watch paused · no foreground application"
             return false
         }
         guard application.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
             screenSuggestionCoordinator.invalidate()
+            screenWatchNoteCoordinator.invalidate()
             latestWatchModeSummary = "Watch paused · switch from Pace to another app"
             return false
         }
         guard !PaceScreenSuggestionPrivacy.isSensitiveApplication(application.bundleIdentifier) else {
             screenSuggestionCoordinator.invalidate()
+            screenWatchNoteCoordinator.invalidate()
             latestWatchModeSummary = "Watch paused · protected application"
             return false
         }
@@ -155,7 +206,7 @@ extension CompanionManager {
             isInUserFocusMode: focusModeMonitor.isCurrentlyInUserFocus)
     }
 
-    func evaluateScreenSuggestion(_ observation: PaceScreenSuggestionCoordinator.Observation) async throws -> PaceScreenSuggestionDecision {
+    func evaluateScreenSuggestion(_ observation: PaceScreenWatchObservation) async throws -> PaceScreenSuggestionDecision {
         guard screenSuggestionEvaluationAllowed(observation.sceneIdentity) else { return .quiet }
         guard let fingerprint = PaceScreenImageDiffer.fingerprint(for: observation.capture.imageData),
               screenSuggestionVisualGate.needsEvaluation(sceneIdentity: observation.sceneIdentity, fingerprint: fingerprint) else { return .quiet }
@@ -360,6 +411,7 @@ extension CompanionManager {
         watchRuntimeGeneration &+= 1
         screenWatchModeController.stopWatching()
         screenSuggestionCoordinator.setEnabled(false)
+        screenWatchNoteCoordinator.invalidate()
         cancelWatchSuggestionSpeech()
         screenSuggestionNotification.discard()
         removeWatchLifecycleObservers()
@@ -399,6 +451,7 @@ extension CompanionManager {
         if let pauseSummary = screenWatchRuntimePauseSummary() {
             screenWatchModeController.stopWatching()
             screenSuggestionCoordinator.invalidate(clearAnchor: true)
+            screenWatchNoteCoordinator.invalidate()
             cancelWatchSuggestionSpeech()
             latestWatchModeSummary = isWatchModeEnabled ? pauseSummary : nil
             return
@@ -407,17 +460,30 @@ extension CompanionManager {
         latestWatchModeSummary = "Watching · suggestions use the selected planner"
         screenWatchModeController.startWatching(
             shouldCapture: { [weak self] in self?.screenSuggestionCaptureAllowed() ?? false },
-            onSample: { [weak self] capture, sceneIdentity, observedAt in
-                self?.screenSuggestionCoordinator.observe(.init(capture: capture,
-                    sceneIdentity: sceneIdentity, observedAt: observedAt))
-            },
-            onMeaningfulChange: { [weak self] event in await self?.handleWatchModeEvent(event) }
+            onSample: { [weak self] observation in self?.observeWatchSample(observation) },
+            onMeaningfulChange: { _ in }
         )
     }
 
     func installWatchLifecycleObservers() {
         removeWatchLifecycleObservers()
         let runtimeGeneration = watchRuntimeGeneration
+        for eventName in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
+            let observer = NSWorkspace.shared.notificationCenter.addObserver(forName: eventName,
+                object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.screenWatchNoteCoordinator.invalidate() }
+            }
+            watchWorkspaceLifecycleObservers.append(observer)
+        }
+        activeCallDetector.$isOnActiveCall.dropFirst().sink { [weak self] _ in
+            self?.screenWatchNoteCoordinator.invalidate()
+        }.store(in: &watchPrivacySubscriptions)
+        focusModeMonitor.$isCurrentlyInUserFocus.dropFirst().sink { [weak self] _ in
+            self?.screenWatchNoteCoordinator.invalidate()
+        }.store(in: &watchPrivacySubscriptions)
+        thermalStateAdvisor.$currentRecommendation.dropFirst().sink { [weak self] _ in
+            self?.screenWatchNoteCoordinator.invalidate()
+        }.store(in: &watchPrivacySubscriptions)
         let workspaceEvents: [(Notification.Name, PaceScreenWatchPauseReason, Bool)] = [
             (NSWorkspace.willSleepNotification, .systemSleeping, true),
             (NSWorkspace.didWakeNotification, .systemSleeping, false),
@@ -451,6 +517,7 @@ extension CompanionManager {
     }
 
     func removeWatchLifecycleObservers() {
+        watchPrivacySubscriptions.removeAll()
         for observer in watchWorkspaceLifecycleObservers {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }

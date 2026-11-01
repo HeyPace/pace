@@ -21,6 +21,10 @@ const result = spawnSync('bash', [
   'PaceScreenSuggestionCoordinatorTests',
   'PaceScreenSuggestionBoundaryTests',
   'PaceScreenSuggestionIntegrationTests',
+  'PaceScreenWatchNoteCoordinatorTests',
+  'PaceScreenWatchNoteRecallTests',
+  'PaceScreenWatchJournalTests',
+  'PaceMemoryRetrieverTests',
 ], { cwd: repositoryRoot, stdio: 'inherit' });
 if (result.error) throw result.error;
 process.exit(result.status ?? 1);

@@ -221,6 +221,7 @@ extension CompanionManager {
     }
 
     func setLocalRetrievalSourceEnabled(_ isEnabled: Bool, for source: PaceRetrievalSource) {
+        if source == .screenWatchHistory { screenWatchNoteCoordinator.invalidate() }
         localRetriever.setSourceEnabled(isEnabled, for: source)
         syncConnectorsIntoUnifiedMemory()
         refreshLocalRetrievalPublishedState()
@@ -335,6 +336,10 @@ extension CompanionManager {
 
     func clearLocalRetrievalSource(_ source: PaceRetrievalSource) {
         localRetriever.clearDocuments(forSource: source)
+        if source == .screenWatchHistory {
+            screenWatchNoteCoordinator.invalidate()
+            syncConnectorsIntoUnifiedMemory()
+        }
         // Research history keeps an in-memory journal cache; drop it too so
         // the Activity-tab per-source clear can't leave a stale roster behind.
         if source == .researchHistory {
@@ -579,6 +584,8 @@ extension CompanionManager {
 
     func resetLocalRetrievalIndex() {
         localRetriever.resetIndex(preservePreferences: true)
+        screenWatchNoteCoordinator.invalidate()
+        syncConnectorsIntoUnifiedMemory()
         refreshFileRetrievalDocumentsIfAllowed(force: true)
         refreshCalendarRetrievalDocumentsIfAllowed(force: true)
         refreshRemindersRetrievalDocumentsIfAllowed(force: true)

@@ -1,11 +1,5 @@
 import Foundation
 
-nonisolated struct PaceScreenSceneIdentity: Equatable, Sendable {
-    let displayIdentifier: UInt32
-    let applicationProcessIdentifier: Int32
-    let applicationBundleIdentifier: String
-}
-
 @MainActor
 struct PaceScreenSuggestionVisualGate {
     private var evaluatedSceneIdentity: PaceScreenSceneIdentity?
@@ -157,20 +151,14 @@ nonisolated enum PaceScreenSuggestionBoundary {
 /// evidence without invalidating the inference already running for the same app.
 @MainActor
 final class PaceScreenSuggestionCoordinator {
-    struct Observation {
-        let capture: CompanionScreenCapture
-        let sceneIdentity: PaceScreenSceneIdentity
-        let observedAt: Date
-    }
-
     private let now: () -> Date
     private let isEligible: (PaceScreenSceneIdentity) -> Bool
-    private let evaluate: (Observation) async throws -> PaceScreenSuggestionDecision
-    private let validate: (PaceScreenSuggestion, Observation) async throws -> Bool
+    private let evaluate: (PaceScreenWatchObservation) async throws -> PaceScreenSuggestionDecision
+    private let validate: (PaceScreenSuggestion, PaceScreenWatchObservation) async throws -> Bool
     private let deliver: (PaceScreenSuggestion) -> Bool
     private let updateStatus: (String) -> Void
     private(set) var isEnabled = false
-    private(set) var pendingObservation: Observation?
+    private(set) var pendingObservation: PaceScreenWatchObservation?
     private(set) var isEvaluationInFlight = false
     private(set) var deliveredSuggestion: PaceScreenSuggestion?
     private var evaluationTask: Task<Void, Never>?
@@ -184,8 +172,8 @@ final class PaceScreenSuggestionCoordinator {
     init(now: @escaping () -> Date = Date.init,
          minimumEvaluationInterval: TimeInterval = 60,
          isEligible: @escaping (PaceScreenSceneIdentity) -> Bool,
-         evaluate: @escaping (Observation) async throws -> PaceScreenSuggestionDecision,
-         validate: @escaping (PaceScreenSuggestion, Observation) async throws -> Bool,
+         evaluate: @escaping (PaceScreenWatchObservation) async throws -> PaceScreenSuggestionDecision,
+         validate: @escaping (PaceScreenSuggestion, PaceScreenWatchObservation) async throws -> Bool,
          deliver: @escaping (PaceScreenSuggestion) -> Bool,
          updateStatus: @escaping (String) -> Void) {
         self.now = now
@@ -212,7 +200,7 @@ final class PaceScreenSuggestionCoordinator {
         // Keep the slot occupied until an uncooperative cancelled client finishes.
     }
 
-    func observe(_ observation: Observation) {
+    func observe(_ observation: PaceScreenWatchObservation) {
         guard isEnabled else { return }
         if currentScene != observation.sceneIdentity {
             invalidate(clearAnchor: false)
