@@ -1195,11 +1195,6 @@ extension CompanionManager {
         screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
     ) async {
         guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
-        if let screenSuggestionContext, case .notification = screenSuggestionContext {
-            lastIntentRouteForEpisodicExtraction = .pureKnowledge
-            handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
-            return
-        }
         ttsClient.stopPlayback()
         pendingIntentClarification = nil
         // A new turn supersedes any unanswered click-target question —
@@ -1233,6 +1228,11 @@ extension CompanionManager {
         // sweep timer so the menu-bar surface drops "session live"
         // indicators without needing a new turn.
         evaluateThreadIdleAndResetIfNeeded(now: Date())
+        if let screenSuggestionContext, case .notification = screenSuggestionContext {
+            lastIntentRouteForEpisodicExtraction = .pureKnowledge
+            handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
+            return
+        }
         if transcript == PaceDiagramDocument.selectedPartQuestion, diagramOverlayController.document == nil {
             handleImmediateLocalModeResponse(
                 transcript: transcript,

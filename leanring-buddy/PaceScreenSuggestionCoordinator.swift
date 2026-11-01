@@ -286,11 +286,19 @@ final class PaceScreenSuggestionCoordinator {
     func followUpSuggestion(for transcript: String) -> PaceScreenSuggestion? {
         guard isEnabled, let deliveredSuggestion,
               now().timeIntervalSince(deliveredSuggestion.observedAt) <= 300 else { return nil }
-        let normalized = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        var normalized = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".!?"))
         let acknowledgements = ["yes", "sure", "okay", "ok", "please", "yes please", "go ahead"]
-        let followUpPrefixes = ["explain", "draw", "diagram", "show", "tell me more", "help"]
-        guard acknowledgements.contains(normalized)
-            || followUpPrefixes.contains(where: { normalized == $0 || normalized.hasPrefix($0 + " ") }) else { return nil }
+        let bareFollowUps = ["explain", "draw", "diagram", "show", "tell me more", "help"]
+        if normalized.hasPrefix("please ") { normalized = String(normalized.dropFirst(7)) }
+        let refersToOffer = normalized.range(
+            of: #"^(?:explain|draw|diagram|show|show me|tell me more about|help me understand|help me with) (?:it|this|that)(?: (?:please|in more detail|step by step|visually|with a diagram))?$"#,
+            options: .regularExpression) != nil
+        let subject = deliveredSuggestion.subject.lowercased()
+        let subjectFollowUps = ["explain \(subject)", "draw \(subject)", "diagram \(subject)",
+            "tell me more about \(subject)", "help me understand \(subject)"]
+        guard acknowledgements.contains(normalized) || bareFollowUps.contains(normalized)
+            || refersToOffer || subjectFollowUps.contains(normalized) else { return nil }
         return deliveredSuggestion
     }
 

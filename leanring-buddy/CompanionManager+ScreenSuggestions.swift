@@ -275,9 +275,15 @@ extension CompanionManager {
         NotificationCenter.default.post(name: .paceShowPanel, object: PaceConversationPanelPresentationIntent.preview)
     }
 
+    func screenSuggestionContextForCurrentPrivacyGate(_ context: PaceScreenSuggestionRequestContext?) -> PaceScreenSuggestionRequestContext? {
+        if let context, case .followUp = context, !screenSuggestionNotificationPresentationAllowed() { return nil }
+        return context
+    }
+
     func discardScreenSuggestionRequestIfUnavailable(_ context: PaceScreenSuggestionRequestContext?,
                                                      eventIdentifier: String?) -> Bool {
-        guard let context, !screenSuggestionNotificationPresentationAllowed() else { return false }
+        guard let context, case .notification = context,
+              !screenSuggestionNotificationPresentationAllowed() else { return false }
         if let eventIdentifier {
             conversationRecorder.updateDeliveryState(.cancelled, eventIdentifier: eventIdentifier)
         }
@@ -288,6 +294,14 @@ extension CompanionManager {
     func validateScreenSuggestionRequestForPlanner(_ context: PaceScreenSuggestionRequestContext?,
                                                    turnLease: PaceTurnLease) -> Bool {
         guard isActiveTurn(turnLease) else { return false }
+        if let context, case .followUp = context, !screenSuggestionNotificationPresentationAllowed() {
+            let transcript = activeConversationPlannerTranscript ?? activeConversationUserEvent?.text
+            guard let transcript else { return false }
+            commitInterruptedAssistantPrefix()
+            streamingSentenceTTSPipeline.prepareForSupersedingStreamWithinTurn()
+            sendTranscriptToPlannerWithScreenshot(transcript: transcript, continuingAcceptedRequest: true)
+            return false
+        }
         guard discardScreenSuggestionRequestIfUnavailable(context,
             eventIdentifier: activeConversationUserEvent?.eventID) else { return true }
         cancelActiveTurnTasks()

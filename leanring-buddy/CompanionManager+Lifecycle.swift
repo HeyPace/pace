@@ -130,7 +130,8 @@ extension CompanionManager {
     }
 
     private func startQueuedChatTurn(_ queuedTurn: PaceQueuedChatTurn) {
-        guard !discardScreenSuggestionRequestIfUnavailable(queuedTurn.screenSuggestionContext,
+        let screenSuggestionContext = screenSuggestionContextForCurrentPrivacyGate(queuedTurn.screenSuggestionContext)
+        guard !discardScreenSuggestionRequestIfUnavailable(screenSuggestionContext,
             eventIdentifier: queuedTurn.optimisticMessageIdentifier) else { return }
         let transcript = queuedTurn.transcript
         // The notch chat input lives in the same panel as the turn HUD,
@@ -180,7 +181,7 @@ extension CompanionManager {
         PaceLatencyBudget.shared.mark(.sttComplete)
         voiceState = .processing
         pendingTypedConversationEventIdentifier = queuedTurn.optimisticMessageIdentifier
-        sendTranscriptToPlannerWithScreenshot(transcript: transcript, screenSuggestionContext: queuedTurn.screenSuggestionContext)
+        sendTranscriptToPlannerWithScreenshot(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
     }
 
     func clearQueuedChatTurns() {
@@ -209,7 +210,7 @@ extension CompanionManager {
             }
     }
 
-    private func drainNextQueuedChatTurnIfPossible() {
+    func drainNextQueuedChatTurnIfPossible() {
         while voiceState == .idle,
             !buddyDictationManager.isRecordingFromKeyboardShortcut,
             !buddyDictationManager.isRecordingFromMicrophoneButton,

@@ -207,7 +207,7 @@ final class CompanionManager: ObservableObject {
     /// identifiers (Zoom, Teams, FaceTime, Slack) every five seconds.
     /// Combined with the input-activity monitor, this gives the
     /// restraint gate a "user is busy" signal without permission cost.
-    let activeCallDetector = PaceActiveCallDetector()
+    var activeCallDetector = PaceActiveCallDetector()
     /// Drives the chat input visibility inside the notch panel. Set
     /// `true` when the chat shortcut fires; the panel renders a
     /// TextField bound to `@FocusState` keyed on this flag. Cleared
@@ -252,7 +252,7 @@ final class CompanionManager: ObservableObject {
     lazy var conversationRecorder = PaceConversationRecorder(persister: localRetriever, chatSession: chatSession)
     var activeConversationUserEvent: ConversationEvent?
     var activeConversationPlannerTranscript: String?
-    var activeConversationScreenSuggestionContext: PaceScreenSuggestion?
+    var activeConversationScreenSuggestionContext: PaceScreenSuggestionRequestContext?
     var pendingTypedConversationEventIdentifier: String?
     var activeConversationVisibleAssistantText = ""
     var activeConversationAssistantEventIdentifier: String?

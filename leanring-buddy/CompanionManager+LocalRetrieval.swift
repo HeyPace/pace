@@ -90,19 +90,25 @@ extension CompanionManager {
         query: String,
         route: PaceIntentRoute,
         isFirstPlannerStep: Bool = true,
-        memoryQuery: String? = nil
+        memoryQuery: String? = nil,
+        loadFreshReadOnlyContext: (@MainActor (String) async -> String?)? = nil
     ) async -> String {
         guard isFirstPlannerStep else { return userPrompt }
-        guard
-            PaceRetrievalContextPolicy.shouldQueryLocalContext(
-                forTranscript: query,
-            route: route
-            ) || memoryQuery?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        else {
-            return userPrompt
-        }
+        let shouldLoadFreshContext = PaceRetrievalContextPolicy.shouldQueryLocalContext(
+            forTranscript: query, route: route)
+        let hasMemoryQuery = memoryQuery?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        guard shouldLoadFreshContext || hasMemoryQuery else { return userPrompt }
 
-        let freshContextBlock = await freshReadOnlyLocalContext(for: query)
+        let freshContextBlock: String?
+        if shouldLoadFreshContext {
+            if let loadFreshReadOnlyContext {
+                freshContextBlock = await loadFreshReadOnlyContext(query)
+            } else {
+                freshContextBlock = await freshReadOnlyLocalContext(for: query)
+            }
+        } else {
+            freshContextBlock = nil
+        }
         let groundedPrompt = freshContextBlock.map { "\($0)\n\n\(userPrompt)" } ?? userPrompt
         defer {
             // Updates the Settings retrieval status AND debounce-triggers the

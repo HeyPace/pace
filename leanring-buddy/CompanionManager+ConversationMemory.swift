@@ -43,8 +43,8 @@ extension CompanionManager {
     func beginConversationRequest(_ transcript: String, screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil) {
         let typedEventIdentifier = pendingTypedConversationEventIdentifier
         pendingTypedConversationEventIdentifier = nil
-        activeConversationScreenSuggestionContext = screenSuggestionContext
-            ?? (typedEventIdentifier == nil ? screenSuggestionCoordinator.followUpSuggestion(for: transcript).map(PaceScreenSuggestionRequestContext.followUp) : nil)
+        activeConversationScreenSuggestionContext = screenSuggestionContextForCurrentPrivacyGate(screenSuggestionContext
+            ?? (typedEventIdentifier == nil ? screenSuggestionCoordinator.followUpSuggestion(for: transcript).map(PaceScreenSuggestionRequestContext.followUp) : nil))
         if typedEventIdentifier == nil, activeConversationScreenSuggestionContext != nil {
             chatSession.acknowledgeScreenSuggestions()
         }

@@ -86,6 +86,19 @@ struct PaceScreenSuggestionCoordinatorTests {
         #expect(harness.coordinator.followUpContext(for: "what time is it") == nil)
     }
 
+    @Test func unrelatedExplicitRequestsDoNotAcquireTheLatestWatchSubject() async {
+        let harness = Harness()
+        harness.coordinator.setEnabled(true)
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        for transcript in ["show me my calendar", "help me write an email", "explain orbital mechanics", "draw a bicycle"] {
+            #expect(harness.coordinator.followUpSuggestion(for: transcript) == nil)
+        }
+        for transcript in ["yes", "please explain", "explain that", "draw it", "tell me more", "explain TCP congestion"] {
+            #expect(harness.coordinator.followUpSuggestion(for: transcript) != nil)
+        }
+    }
+
     @Test func inputToIdleUsesLatestFrameWithoutNeedingAnotherChange() async {
         let harness = Harness()
         harness.eligible = false
@@ -730,6 +743,14 @@ struct PaceScreenSuggestionIntegrationTests {
         manager.handleScreenSuggestionNotificationAction(suggestion, action: .explain)
         let acceptedTurn = try #require(manager.chatTurnQueue.pendingTurns.first)
         #expect(acceptedTurn.screenSuggestionContext == .notification(suggestion))
+        manager.pendingClickTargetClarification = PacePendingClickTargetClarification(prompt: "Which button?", options: [],
+            candidateSet: PaceClickCandidateSet(candidates: [], clickCount: 1), screenCaptures: [])
+        manager.pendingIntentClarification = PacePendingIntentClarification(originalTranscript: "Old request",
+            clarification: PaceIntentClarification(question: "Which task?", options: ["First", "Second"]))
+        manager.annotationOverlayController.setAnnotations([
+            PaceRenderedAnnotation(geometry: .rect(CGRect(x: 0, y: 0, width: 10, height: 10)),
+                style: .default, screenIndex: 1)
+        ])
         manager.voiceState = .idle
         for _ in 0..<2_000 {
             if !planner.prompts.isEmpty { break }
@@ -740,6 +761,9 @@ struct PaceScreenSuggestionIntegrationTests {
         #expect(planner.systemPrompts[0].contains("INTERACTIVE VISUAL EXPLANATIONS"))
         #expect(planner.prompts[0].contains(suggestion.untrustedFollowUpContext))
         #expect(manager.lastIntentRouteForEpisodicExtraction == .pureKnowledge)
+        #expect(manager.pendingClickTargetClarification == nil)
+        #expect(manager.pendingIntentClarification == nil)
+        #expect(manager.annotationOverlayController.activeAnnotations.isEmpty)
         if PaceUserPreferencesStore.bool(.useUnifiedMemoryRecall, default: true) {
             #expect(embedding.queries == [suggestion.subject])
         }
@@ -783,6 +807,98 @@ struct PaceScreenSuggestionIntegrationTests {
         #expect(history.turns.first { $0.id == acceptedTurn.optimisticMessageIdentifier }?.conversationEvent?.deliveryState == .cancelled)
         #expect(manager.activeConversationScreenSuggestionContext == nil)
         #expect(manager.voiceState == .idle)
+    }
+
+    private func installWatchAnchor(in manager: CompanionManager) async throws -> PaceScreenSuggestion {
+        let harness = PaceScreenSuggestionCoordinatorTests.Harness()
+        manager.screenSuggestionCoordinator = harness.coordinator
+        harness.coordinator.setEnabled(true)
+        harness.coordinator.observe(harness.observation())
+        for _ in 0..<1_000 {
+            if !harness.deliveries.isEmpty { break }
+            await Task.yield()
+        }
+        return try #require(harness.deliveries.first)
+    }
+
+    @Test func explicitCalendarRequestAfterWatchOfferSurvivesActiveCallGate() async throws {
+        let (manager, history, planner, _) = makeQueuedRequestFixture()
+        defer { finishQueuedRequestFixture(manager) }
+        _ = try await installWatchAnchor(in: manager)
+        manager.activeCallDetector = PaceActiveCallDetector(runningApplicationBundleIdentifiersProvider: { ["us.zoom.xos"] })
+        manager.activeCallDetector.recomputeForTesting()
+        #expect(!manager.screenSuggestionNotificationPresentationAllowed())
+        manager.submitChatTranscriptFromDeepLink("show me my calendar")
+        let queuedTurn = try #require(manager.chatTurnQueue.pendingTurns.first)
+        #expect(queuedTurn.screenSuggestionContext == nil)
+        manager.voiceState = .idle
+        manager.drainNextQueuedChatTurnIfPossible()
+        #expect(manager.activeConversationUserEvent?.eventID == queuedTurn.optimisticMessageIdentifier)
+        #expect(manager.activeConversationScreenSuggestionContext == nil)
+        #expect(manager.validateScreenSuggestionRequestForPlanner(nil, turnLease: manager.turnLeaseRegistry.currentLease))
+        #expect(history.turns.first { $0.id == queuedTurn.optimisticMessageIdentifier }?.conversationEvent?.deliveryState == .accepted)
+        #expect(planner.prompts.isEmpty)
+    }
+
+    @Test func queuedDeicticFollowUpAfterWatchOffKeepsTheAcceptedUserRequestWithoutOCR() async throws {
+        let (manager, history, planner, _) = makeQueuedRequestFixture()
+        defer { finishQueuedRequestFixture(manager) }
+        let suggestion = try await installWatchAnchor(in: manager)
+        manager.submitChatTranscriptFromDeepLink("explain that")
+        let queuedTurn = try #require(manager.chatTurnQueue.pendingTurns.first)
+        #expect(queuedTurn.screenSuggestionContext == .followUp(suggestion))
+        manager.isWatchModeEnabled = false
+        manager.screenSuggestionCoordinator.setEnabled(false)
+        manager.voiceState = .idle
+        manager.drainNextQueuedChatTurnIfPossible()
+        #expect(manager.chatTurnQueue.isEmpty)
+        #expect(manager.activeConversationUserEvent?.eventID == queuedTurn.optimisticMessageIdentifier)
+        #expect(manager.activeConversationPlannerTranscript == "explain that")
+        #expect(manager.activeConversationScreenSuggestionContext == nil)
+        #expect(history.turns.first { $0.id == queuedTurn.optimisticMessageIdentifier }?.conversationEvent?.deliveryState == .accepted)
+        #expect(!manager.chatSession.userFacingMessages.contains { $0.body.contains("I can’t open that explanation right now") })
+        #expect(planner.prompts.isEmpty)
+    }
+
+    @Test func liveDeicticContextRevocationRepreparesTheSameAcceptedRequestAndKeepsMute() async throws {
+        let (manager, history, planner, _) = makeQueuedRequestFixture()
+        defer { finishQueuedRequestFixture(manager) }
+        let suggestion = try await installWatchAnchor(in: manager)
+        manager.submitChatTranscriptFromDeepLink("explain that")
+        let queuedTurn = try #require(manager.chatTurnQueue.pendingTurns.first)
+        manager.pendingTypedConversationEventIdentifier = queuedTurn.optimisticMessageIdentifier
+        manager.beginConversationRequest(queuedTurn.transcript, screenSuggestionContext: .followUp(suggestion))
+        let lease = manager.turnLeaseRegistry.beginTurn()
+        manager.streamingSentenceTTSPipeline.setMutedForCurrentTurn(true)
+        manager.watchPlannerConsentProvider = { false }
+        #expect(!manager.validateScreenSuggestionRequestForPlanner(.followUp(suggestion), turnLease: lease))
+        #expect(manager.activeConversationUserEvent?.eventID == queuedTurn.optimisticMessageIdentifier)
+        #expect(manager.activeConversationPlannerTranscript == "explain that")
+        #expect(manager.activeConversationScreenSuggestionContext == nil)
+        #expect(!manager.turnLeaseRegistry.isCurrent(lease))
+        #expect(history.turns.first { $0.id == queuedTurn.optimisticMessageIdentifier }?.conversationEvent?.deliveryState == .accepted)
+        #expect(planner.prompts.isEmpty)
+        manager.currentTurnDispatchTask?.cancel()
+        let client = try #require(manager.ttsClient as? PaceConversationRecorderTests.DismissalTTSClient)
+        await manager.streamingSentenceTTSPipeline.flushFinal(finalSpokenText: "The replacement reply stays muted.")
+        #expect(client.spokenTexts.isEmpty)
+    }
+
+    @Test func screenSubjectMemoryQueryCannotEnableFreshSourceReadsExcludedByTrustedPolicy() async {
+        let (manager, _, _, embedding) = makeQueuedRequestFixture()
+        defer { finishQueuedRequestFixture(manager) }
+        var freshReadCount = 0
+        let prompt = await manager.appendLocalRetrievalContext(to: "Trusted request",
+            query: "show me my calendar", route: .readScreen, memoryQuery: "TCP congestion",
+            loadFreshReadOnlyContext: { _ in
+                freshReadCount += 1
+                return "UNREQUESTED_CALENDAR_DATA"
+            })
+        #expect(freshReadCount == 0)
+        #expect(!prompt.contains("UNREQUESTED_CALENDAR_DATA"))
+        if PaceUserPreferencesStore.bool(.useUnifiedMemoryRecall, default: true) {
+            #expect(embedding.queries == ["TCP congestion"])
+        }
     }
 
     @Test func watchLifecycleDiscardsPopupWithoutClearingUnreadOrReplayingOnResume() {
@@ -979,6 +1095,9 @@ struct PaceScreenSuggestionIntegrationTests {
     @Test func acceptedVoiceFollowUpAcknowledgesSavedOfferWithoutAcknowledgingUnrelatedVoice() async {
         let preferences = makeWatchDefaults()
         let manager = makeWatchManager(defaults: preferences)
+        manager.isWatchModeEnabled = true
+        manager.isWatchRuntimeStarted = true
+        manager.watchForegroundApplicationIdentifierProvider = { "com.apple.Safari" }
         let history = History()
         let session = PaceChatSession(historySource: history, transcriptSubmitter: Submitter(), preferences: preferences)
         manager.chatSession = session
