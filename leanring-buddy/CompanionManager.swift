@@ -219,15 +219,11 @@ final class CompanionManager: ObservableObject {
     /// `isGlowBorderEnabled` preference (default OFF).
     let glowBorderManager = GlowBorderManager()
 
-    /// Tooltip-style bubble that follows the cursor and shows what's
-    /// happening through the voice turn: "listening…", interim
-    /// transcript, the planner's streaming text. Replaces the pure-
-    /// spinner UX so users can see the pipeline is alive when something
-    /// (Whisper download, slow LM Studio cold-start, network) is taking
-    /// a while.
+    /// Keep the legacy transcript bubble hidden; chat owns conversation text.
+    /// Pinpoint labels and teaching annotations use the separate screen overlay.
     lazy var responseOverlayManager: CompanionResponseOverlayManager = {
         let manager = CompanionResponseOverlayManager()
-        manager.setAnnotationsEnabled(areCursorAnnotationsEnabled)
+        manager.setAnnotationsEnabled(false)
         manager.setStopButtonCallback { [weak self] in
             self?.handleStopButtonTapped()
         }
@@ -930,16 +926,13 @@ final class CompanionManager: ObservableObject {
     @Published var isPaceCursorEnabled: Bool = PaceUserPreferencesStore
         .bool(.isPaceCursorEnabled, default: true)
 
-    /// User preference for whether cursor-adjacent annotation bubbles are
-    /// shown. Turning this off keeps the cursor/tool flow active but hides
-    /// the transcript/response bubble and the small pointer labels.
+    /// User preference for cursor-adjacent pinpoint labels and annotations.
     @Published var areCursorAnnotationsEnabled: Bool = PaceUserPreferencesStore
         .bool(.areCursorAnnotationsEnabled, default: true)
 
     func setCursorAnnotationsEnabled(_ enabled: Bool) {
         areCursorAnnotationsEnabled = enabled
         PaceUserPreferencesStore.setBool(enabled, for: .areCursorAnnotationsEnabled)
-        responseOverlayManager.setAnnotationsEnabled(enabled)
     }
 
     /// User preference for the screen-edge glow border. When toggled
