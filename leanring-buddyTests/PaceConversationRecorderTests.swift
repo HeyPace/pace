@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -249,6 +250,41 @@ struct PaceConversationRecorderTests {
         #expect(manager.voiceState == .idle && client.stopCount == 1)
         manager.imageOverlayController.dismiss(intent: .userInitiated)
         #expect(client.stopCount == 2)
+    }
+
+    @Test func presentingAnnotationsAutomaticallyHidesChatWithoutStoppingSpeech() async throws {
+        let (manager, _, client) = makeDismissalFixture()
+        manager.mascotModeActive = false
+        let lease = manager.turnLeaseRegistry.beginTurn()
+        manager.voiceState = .responding
+        let responseTask = Task<Void, Never> {}
+        manager.currentResponseTask = responseTask
+        let panelManager = MenuBarPanelManager(companionManager: manager)
+        let previousWindowIdentifiers = Set(NSApplication.shared.windows.map(ObjectIdentifier.init))
+        panelManager.showPanelForSmokeTest()
+        let panel = try #require(NSApplication.shared.windows.first {
+            !previousWindowIdentifiers.contains(ObjectIdentifier($0)) && $0.isVisible
+        })
+        defer {
+            manager.annotationOverlayController.clear(reason: "test cleanup")
+            panel.orderOut(nil)
+            manager.cancelActiveTurnTasks()
+        }
+        #expect(panel.isVisible)
+        manager.annotationOverlayController.setAnnotations([
+            PaceRenderedAnnotation(geometry: .rect(CGRect(x: 0, y: 0, width: 10, height: 10)),
+                style: .default, screenIndex: 1)
+        ])
+        for _ in 0..<100 {
+            if !panel.isVisible { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(!panel.isVisible)
+        #expect(manager.turnLeaseRegistry.isCurrent(lease))
+        #expect(!responseTask.isCancelled)
+        #expect(manager.voiceState == .responding)
+        #expect(client.stopCount == 0)
+        withExtendedLifetime(panelManager) {}
     }
 
     @Test func closingDuringFinalSynthesisCannotRestoreRespondingState() async throws {

@@ -10,20 +10,20 @@ struct PaceQueuedChatTurn: Identifiable, Equatable, Sendable {
     let transcript: String
     let shouldMuteTTS: Bool
     let optimisticMessageIdentifier: String?
-    let screenSuggestion: PaceScreenSuggestion?
+    let screenSuggestionContext: PaceScreenSuggestionRequestContext?
 
     init(
         id: UUID = UUID(),
         transcript: String,
         shouldMuteTTS: Bool,
         optimisticMessageIdentifier: String? = nil,
-        screenSuggestion: PaceScreenSuggestion? = nil
+        screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
     ) {
         self.id = id
         self.transcript = transcript
         self.shouldMuteTTS = shouldMuteTTS
         self.optimisticMessageIdentifier = optimisticMessageIdentifier
-        self.screenSuggestion = screenSuggestion
+        self.screenSuggestionContext = screenSuggestionContext
     }
 }
 

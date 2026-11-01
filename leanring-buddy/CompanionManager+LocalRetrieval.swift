@@ -89,14 +89,15 @@ extension CompanionManager {
         to userPrompt: String,
         query: String,
         route: PaceIntentRoute,
-        isFirstPlannerStep: Bool = true
+        isFirstPlannerStep: Bool = true,
+        memoryQuery: String? = nil
     ) async -> String {
         guard isFirstPlannerStep else { return userPrompt }
         guard
             PaceRetrievalContextPolicy.shouldQueryLocalContext(
                 forTranscript: query,
             route: route
-            )
+            ) || memoryQuery?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         else {
             return userPrompt
         }
@@ -125,7 +126,7 @@ extension CompanionManager {
         let verbatimWindowTurnIds = Set(threadMemory.verbatimWindow().map { $0.turnId })
         guard
             let memoryContextBlock = await memoryRetriever.assembleContextBlock(
-                forQuery: query,
+                forQuery: memoryQuery ?? query,
             excludingEntryIds: verbatimWindowTurnIds,
             maxEntries: 8,
             now: Date()

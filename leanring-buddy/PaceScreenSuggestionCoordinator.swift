@@ -42,6 +42,22 @@ nonisolated struct PaceScreenSuggestion: Equatable, Sendable {
     }
 }
 
+nonisolated enum PaceScreenSuggestionRequestContext: Equatable, Sendable {
+    case notification(PaceScreenSuggestion)
+    case followUp(PaceScreenSuggestion)
+
+    var suggestion: PaceScreenSuggestion {
+        switch self {
+        case .notification(let suggestion), .followUp(let suggestion): return suggestion
+        }
+    }
+
+    var requiresFreshScreenContext: Bool {
+        if case .followUp = self { return true }
+        return false
+    }
+}
+
 nonisolated enum PaceScreenSuggestionDecision {
     case quiet
     case suggest(PaceScreenSuggestion)

@@ -80,8 +80,8 @@ extension CompanionManager {
             return "escalating to large model"
         }
     }
-    func handleChitchatFastPath(transcript: String, screenSuggestion: PaceScreenSuggestion? = nil) {
-        handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestion: screenSuggestion)
+    func handleChitchatFastPath(transcript: String, screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil) {
+        handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
     }
 
     func prewarmTextOnlyPlannerInBackgroundIfNeeded() {
@@ -530,16 +530,16 @@ extension CompanionManager {
         }
     }
 
-    func transcriptWithScreenSuggestionContext(_ transcript: String, screenSuggestion: PaceScreenSuggestion?) -> String {
-        guard let screenSuggestion else { return transcript }
-        return transcript + "\n\n" + screenSuggestion.untrustedFollowUpContext
+    func transcriptWithScreenSuggestionContext(_ transcript: String, screenSuggestionContext: PaceScreenSuggestionRequestContext?) -> String {
+        guard let screenSuggestionContext else { return transcript }
+        return transcript + "\n\n" + screenSuggestionContext.suggestion.untrustedFollowUpContext
     }
 
     /// Fast path for pure knowledge questions. Skips screenshot capture,
     /// AX, OCR, VLM, and agent-mode tool docs. Uses the dedicated
     /// text-only planner so answers keep the configured local model's
     /// reliability while action/screen turns retain their richer prompt.
-    func handleTextOnlyPlannerFastPath(transcript: String, screenSuggestion: PaceScreenSuggestion? = nil) {
+    func handleTextOnlyPlannerFastPath(transcript: String, screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil) {
         let turnLease = turnLeaseRegistry.currentLease
         currentTurnHUDState = .understanding("answering without screen")
         responseOverlayManager.showOverlayAndBeginStreaming()
@@ -547,7 +547,8 @@ extension CompanionManager {
         // Capture self weakly so this matches the weak capture in the nested
         // eager-filler task below and never extends the manager's lifetime.
         currentResponseTask = Task { [weak self] in
-            guard let self, self.isActiveTurn(turnLease) else { return }
+            guard let self,
+                  self.validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
             voiceState = .processing
             let usesOffDeviceTextPlanner = activePlannerTierIsOffDevice
             foregroundOffDeviceTurnInFlight = usesOffDeviceTextPlanner
@@ -571,11 +572,12 @@ extension CompanionManager {
                 let imageDismissalGeneration = imageOverlayController.dismissalGeneration
                 let userPromptForPlanner = await appendLocalRetrievalContext(
                     to: imageOverlayController.appendingPlannerContext(
-                        to: diagramOverlayController.appendingPlannerContext(to: transcriptWithScreenSuggestionContext(transcript, screenSuggestion: screenSuggestion))),
+                        to: diagramOverlayController.appendingPlannerContext(to: transcriptWithScreenSuggestionContext(transcript, screenSuggestionContext: screenSuggestionContext))),
                     query: transcript,
-                    route: .answerDirectly
+                    route: .answerDirectly,
+                    memoryQuery: screenSuggestionContext?.suggestion.subject
                 )
-                guard self.isActiveTurn(turnLease) else { return }
+                guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
 
                 let threadSummaryInjectionForTurn = threadMemory.injectionPrefix()
 
@@ -663,6 +665,7 @@ extension CompanionManager {
                         currentTurnHUDState = .understanding("re-routing to \(preferredReRoutePlanner.displayName)")
 
                         do {
+                            guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
                             let (reRoutedResponseText, _) = try await preferredReRoutePlanner.generateResponseStreaming(
                                 images: [],
                                 systemPrompt: CompanionSystemPrompt.buildTextOnly(
@@ -1126,22 +1129,23 @@ extension CompanionManager {
     /// planner re-anchors on the conversation history rather than a
     /// repeated user statement.
     func sendTranscriptToPlannerWithScreenshot(transcript: String, continuingAcceptedRequest: Bool = false,
-                                              screenSuggestion: PaceScreenSuggestion? = nil) {
-        let capturedScreenSuggestion = continuingAcceptedRequest ? activeConversationScreenSuggestion : screenSuggestion
+                                              screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil) {
+        let capturedScreenSuggestionContext = continuingAcceptedRequest ? nil : screenSuggestionContext
         cancelActiveTurnTasks(preservingConversationRequest: continuingAcceptedRequest)
         if continuingAcceptedRequest {
+            activeConversationScreenSuggestionContext = nil
             activeConversationPlannerTranscript = transcript
         } else {
-            beginConversationRequest(transcript, screenSuggestion: capturedScreenSuggestion)
+            beginConversationRequest(transcript, screenSuggestionContext: capturedScreenSuggestionContext)
         }
-        let screenSuggestionForRequest = activeConversationScreenSuggestion
+        let screenSuggestionContextForRequest = activeConversationScreenSuggestionContext
         let turnLease = turnLeaseRegistry.beginTurn()
         currentTurnDispatchTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.sendTranscriptToPlannerWithScreenshotAsync(
                 transcript: transcript,
                 turnLease: turnLease,
-                screenSuggestion: screenSuggestionForRequest
+                screenSuggestionContext: screenSuggestionContextForRequest
             )
         }
     }
@@ -1188,9 +1192,14 @@ extension CompanionManager {
     func sendTranscriptToPlannerWithScreenshotAsync(
         transcript: String,
         turnLease: PaceTurnLease,
-        screenSuggestion: PaceScreenSuggestion? = nil
+        screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
     ) async {
-        guard isActiveTurn(turnLease) else { return }
+        guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
+        if let screenSuggestionContext, case .notification = screenSuggestionContext {
+            lastIntentRouteForEpisodicExtraction = .pureKnowledge
+            handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
+            return
+        }
         ttsClient.stopPlayback()
         pendingIntentClarification = nil
         // A new turn supersedes any unanswered click-target question —
@@ -1470,7 +1479,7 @@ extension CompanionManager {
         if !imageNeedsScreenContext
             && PaceImageGenerationRequest.canUseImageOnlyFastPath(transcript, hasActiveImage: hasActiveImage)
         {
-            handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestion: screenSuggestion)
+            handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
             return
         }
         let hasActiveDiagram = diagramOverlayController.document != nil
@@ -1493,7 +1502,7 @@ extension CompanionManager {
         if !diagramNeedsScreenContext
             && PaceDiagramDocument.canUseDiagramOnlyFastPath(transcript, hasActiveDiagram: hasActiveDiagram)
         {
-            handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestion: screenSuggestion)
+            handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
             return
         }
 
@@ -1503,7 +1512,7 @@ extension CompanionManager {
         // enough to return .chitchat (not .unknown). Anything ambiguous
         // falls through to the full pipeline.
         let intentPrediction: PaceIntentPrediction
-        if diagramNeedsScreenContext || screenSuggestion != nil {
+        if diagramNeedsScreenContext || screenSuggestionContext?.requiresFreshScreenContext == true {
             intentPrediction = PaceIntentPrediction(intent: .screenDescription, confidence: 1)
         } else {
             intentPrediction = await intentClassifier.classify(
@@ -1733,7 +1742,7 @@ extension CompanionManager {
             print(
                 "🎯 Intent: \(mutableIntentPrediction.intent.rawValue) (complexity \(mutableIntentPrediction.complexity.rawValue)) — local text-only fallback; larger model unavailable"
             )
-            handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestion: screenSuggestion)
+            handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
             return
         }
         // Fast paths use .route (not .intent) so a low-confidence
@@ -1744,14 +1753,14 @@ extension CompanionManager {
             print(
                 "🎯 Intent: chitchat (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — fast-path"
             )
-            handleChitchatFastPath(transcript: transcript, screenSuggestion: screenSuggestion)
+            handleChitchatFastPath(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
             return
         }
         if !requestsInteractiveDiagram && !requestsGeneratedImage && mutableIntentPrediction.route == .answerDirectly {
             print(
                 "🎯 Intent: pureKnowledge (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — text-only planner"
             )
-            handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestion: screenSuggestion)
+            handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
             return
         }
         // Fast local-action path is skipped for research turns —
@@ -1843,7 +1852,7 @@ extension CompanionManager {
             var diagramDismissalGeneration = diagramOverlayController.dismissalGeneration
             let imageDismissalGeneration = imageOverlayController.dismissalGeneration
             var currentTurnUserPrompt = imageOverlayController.appendingPlannerContext(
-                to: diagramOverlayController.appendingPlannerContext(to: transcriptWithScreenSuggestionContext(transcript, screenSuggestion: screenSuggestion)))
+                to: diagramOverlayController.appendingPlannerContext(to: transcriptWithScreenSuggestionContext(transcript, screenSuggestionContext: screenSuggestionContext)))
             if let physicalSceneContext = consumePacePadPhysicalSceneContext() {
                 currentTurnUserPrompt +=
                     "\n\nPhysical scene observed locally from the paired iPad for this turn only:\n"
@@ -1994,6 +2003,7 @@ extension CompanionManager {
                     )
                     let useSpeculativeRace =
                         isFirstStep
+                        && screenSuggestionContext == nil
                         && !isResearchTurn
                         && !activePlannerTierIsOffDevice
                         && diagramOverlayController.document == nil
@@ -2068,7 +2078,8 @@ extension CompanionManager {
                             to: await appendConfiguredMCPContext(to: screenContextPrompt),
                             query: transcript,
                             route: intentPrediction.route,
-                            isFirstPlannerStep: isFirstStep
+                            isFirstPlannerStep: isFirstStep,
+                            memoryQuery: screenSuggestionContext?.suggestion.subject
                         )
                         userPromptForPlannerForDebug = userPromptForPlanner
                         let screenContextElapsedMs = Int(
@@ -2098,6 +2109,7 @@ extension CompanionManager {
                             plannerClientForThisTurn.supportsImageInput && useLocalVLMForScreenContext
                             ? labeledImages : []
 
+                        guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
                         let (singlePlannerResponseText, _) =
                             try await plannerClientForThisTurn.generateResponseStreaming(
                                 images: imagesForPlanner,

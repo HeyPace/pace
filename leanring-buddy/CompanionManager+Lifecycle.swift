@@ -85,13 +85,13 @@ extension CompanionManager {
 
     func submitScreenSuggestionRequest(_ transcript: String, suggestion: PaceScreenSuggestion) {
         isChatModeMutedForCurrentTurn = chatSession.isChatTTSMuted
-        submitChatTranscript(transcript, optimisticMessageIdentifier: nil, screenSuggestion: suggestion)
+        submitChatTranscript(transcript, optimisticMessageIdentifier: nil, screenSuggestionContext: .notification(suggestion))
     }
 
     private func submitChatTranscript(
         _ transcript: String,
         optimisticMessageIdentifier: String?,
-        screenSuggestion: PaceScreenSuggestion? = nil
+        screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
     ) {
         let acceptedEvent = acceptConversationRequest(transcript, origin: .typed,
             eventIdentifier: optimisticMessageIdentifier ?? UUID().uuidString)
@@ -99,7 +99,7 @@ extension CompanionManager {
             transcript: transcript,
             shouldMuteTTS: isChatModeMutedForCurrentTurn,
             optimisticMessageIdentifier: acceptedEvent.eventID,
-            screenSuggestion: screenSuggestion ?? screenSuggestionCoordinator.followUpSuggestion(for: transcript)
+            screenSuggestionContext: screenSuggestionContext ?? screenSuggestionCoordinator.followUpSuggestion(for: transcript).map(PaceScreenSuggestionRequestContext.followUp)
         )
         isChatModeMutedForCurrentTurn = false
 
@@ -130,6 +130,8 @@ extension CompanionManager {
     }
 
     private func startQueuedChatTurn(_ queuedTurn: PaceQueuedChatTurn) {
+        guard !discardScreenSuggestionRequestIfUnavailable(queuedTurn.screenSuggestionContext,
+            eventIdentifier: queuedTurn.optimisticMessageIdentifier) else { return }
         let transcript = queuedTurn.transcript
         // The notch chat input lives in the same panel as the turn HUD,
         // so as soon as a turn is committed the input collapses and
@@ -178,7 +180,7 @@ extension CompanionManager {
         PaceLatencyBudget.shared.mark(.sttComplete)
         voiceState = .processing
         pendingTypedConversationEventIdentifier = queuedTurn.optimisticMessageIdentifier
-        sendTranscriptToPlannerWithScreenshot(transcript: transcript, screenSuggestion: queuedTurn.screenSuggestion)
+        sendTranscriptToPlannerWithScreenshot(transcript: transcript, screenSuggestionContext: queuedTurn.screenSuggestionContext)
     }
 
     func clearQueuedChatTurns() {
@@ -208,22 +210,37 @@ extension CompanionManager {
     }
 
     private func drainNextQueuedChatTurnIfPossible() {
-        guard voiceState == .idle,
+        while voiceState == .idle,
             !buddyDictationManager.isRecordingFromKeyboardShortcut,
             !buddyDictationManager.isRecordingFromMicrophoneButton,
             !buddyDictationManager.isPreparingToRecord,
             !buddyDictationManager.isFinalizingTranscript,
             let nextQueuedTurn = chatTurnQueue.dequeue()
-        else {
-            return
+        {
+            queuedChatTurnCount = chatTurnQueue.count
+            print("🧾 Starting queued typed turn; \(queuedChatTurnCount) remaining")
+            startQueuedChatTurn(nextQueuedTurn)
         }
-
-        queuedChatTurnCount = chatTurnQueue.count
-        print("🧾 Starting queued typed turn; \(queuedChatTurnCount) remaining")
-        startQueuedChatTurn(nextQueuedTurn)
     }
 
     func bindVisualExplanationCallbacks() {
+        annotationOverlayController.onActiveAnnotationsPresenceChanged = { [weak self] annotationsArePresent in
+            guard let self else { return }
+            if annotationsArePresent {
+                NotificationCenter.default.post(name: .paceDismissPanel, object: PaceExplanationDismissalIntent.automatic)
+            }
+            guard self.mascotModeActive else { return }
+            if annotationsArePresent || detectedElementScreenLocation != nil {
+                overlayWindowManager.isSuppressed = false
+                overlayWindowManager.hasShownOverlayBefore = true
+                overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
+                isOverlayVisible = true
+            } else {
+                overlayWindowManager.hideOverlay()
+                overlayWindowManager.isSuppressed = true
+                isOverlayVisible = false
+            }
+        }
         diagramOverlayController.onUserDismissed = { [weak self] in
             self?.handleExplanationDismissal(.userInitiated)
         }
@@ -261,26 +278,6 @@ extension CompanionManager {
         // inherit the CLI's ten-second timeout.
         Task { @MainActor in
             _ = await PaceShortcutsAutomationProvider.shared.catalog()
-        }
-        // Mascot mode suppresses the whole cursor overlay window — but the
-        // tuition-annotation layer LIVES in that window, so a planner
-        // `draw_annotation` would render into a hidden panel and the user
-        // would see nothing (live-diagnosed 2026-07-12: the entire draw
-        // pipeline worked; only the window was hidden). Transiently reveal
-        // the overlay while annotations are present, and re-suppress when
-        // they clear (next user turn / 30 s auto-fade / explicit clear).
-        annotationOverlayController.onActiveAnnotationsPresenceChanged = { [weak self] annotationsArePresent in
-            guard let self, self.mascotModeActive else { return }
-            if annotationsArePresent || detectedElementScreenLocation != nil {
-                overlayWindowManager.isSuppressed = false
-                overlayWindowManager.hasShownOverlayBefore = true
-                overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
-                isOverlayVisible = true
-            } else {
-                overlayWindowManager.hideOverlay()
-                overlayWindowManager.isSuppressed = true
-                isOverlayVisible = false
-            }
         }
         // Meeting recordings launch sweep, off the main actor (file IO):
         // repair any `.part` WAVs a force-quit left behind, then prune

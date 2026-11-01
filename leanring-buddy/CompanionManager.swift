@@ -252,7 +252,7 @@ final class CompanionManager: ObservableObject {
     lazy var conversationRecorder = PaceConversationRecorder(persister: localRetriever, chatSession: chatSession)
     var activeConversationUserEvent: ConversationEvent?
     var activeConversationPlannerTranscript: String?
-    var activeConversationScreenSuggestion: PaceScreenSuggestion?
+    var activeConversationScreenSuggestionContext: PaceScreenSuggestion?
     var pendingTypedConversationEventIdentifier: String?
     var activeConversationVisibleAssistantText = ""
     var activeConversationAssistantEventIdentifier: String?

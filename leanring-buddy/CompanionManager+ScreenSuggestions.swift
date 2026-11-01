@@ -266,6 +266,39 @@ extension CompanionManager {
             && !PaceScreenSuggestionPrivacy.isSensitiveApplication(watchForegroundApplicationIdentifierProvider())
     }
 
+    func recordUnavailableScreenSuggestionFeedback(_ suggestion: PaceScreenSuggestion, eventIdentifier: String? = nil) {
+        let feedbackIdentifier = "screen-suggestion-unavailable-" + (eventIdentifier ?? suggestion.identifier.uuidString)
+        if conversationRecorder.event(withIdentifier: feedbackIdentifier) == nil {
+            recordAssistantNarration("I can’t open that explanation right now. Watch is paused or privacy protections are active.",
+                origin: .failure, eventIdentifier: feedbackIdentifier, turnIdentifier: eventIdentifier)
+        }
+        NotificationCenter.default.post(name: .paceShowPanel, object: PaceConversationPanelPresentationIntent.preview)
+    }
+
+    func discardScreenSuggestionRequestIfUnavailable(_ context: PaceScreenSuggestionRequestContext?,
+                                                     eventIdentifier: String?) -> Bool {
+        guard let context, !screenSuggestionNotificationPresentationAllowed() else { return false }
+        if let eventIdentifier {
+            conversationRecorder.updateDeliveryState(.cancelled, eventIdentifier: eventIdentifier)
+        }
+        recordUnavailableScreenSuggestionFeedback(context.suggestion, eventIdentifier: eventIdentifier)
+        return true
+    }
+
+    func validateScreenSuggestionRequestForPlanner(_ context: PaceScreenSuggestionRequestContext?,
+                                                   turnLease: PaceTurnLease) -> Bool {
+        guard isActiveTurn(turnLease) else { return false }
+        guard discardScreenSuggestionRequestIfUnavailable(context,
+            eventIdentifier: activeConversationUserEvent?.eventID) else { return true }
+        cancelActiveTurnTasks()
+        streamingSentenceTTSPipeline.stopForUserDismissal()
+        streamingSentenceTTSPipeline.finalizeInFlightStreamedTextForTurn()
+        responseOverlayManager.finishStreaming()
+        voiceState = .idle
+        currentTurnHUDState = .idle
+        return false
+    }
+
     func handleScreenSuggestionNotificationAction(_ suggestion: PaceScreenSuggestion,
                                                  action: PaceScreenSuggestionNotificationAction) {
         if action == .dismiss {
@@ -275,12 +308,7 @@ extension CompanionManager {
         }
         guard let request = action.request(for: suggestion) else { return }
         guard screenSuggestionNotificationPresentationAllowed() else {
-            let feedbackIdentifier = "screen-suggestion-unavailable-" + suggestion.identifier.uuidString
-            if conversationRecorder.event(withIdentifier: feedbackIdentifier) == nil {
-                recordAssistantNarration("I can’t open that explanation right now. Watch is paused or privacy protections are active.",
-                    origin: .failure, eventIdentifier: feedbackIdentifier)
-            }
-            NotificationCenter.default.post(name: .paceShowPanel, object: PaceConversationPanelPresentationIntent.preview)
+            recordUnavailableScreenSuggestionFeedback(suggestion)
             return
         }
         chatSession.acknowledgeScreenSuggestion(eventIdentifier: suggestion.conversationEventIdentifier)
