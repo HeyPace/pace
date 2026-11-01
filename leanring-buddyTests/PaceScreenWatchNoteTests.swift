@@ -508,9 +508,10 @@ struct PaceScreenWatchNoteRecallTests {
         for dayOffset in 0..<8 {
             let observedAt = harness.now.addingTimeInterval(-Double(dayOffset) * 86_400 * 14)
             var journal = PaceScreenWatchJournal(rehydratingFrom: [], now: observedAt)
-            let document = try #require(journal.record(PaceScreenWatchJournalEntry(recordedAt: observedAt,
+            let recordedDocument = journal.record(PaceScreenWatchJournalEntry(recordedAt: observedAt,
                 screenLabel: "primary focus", categoryDisplayName: "observed screen text",
-                frontmostApplicationName: "Captured Safari", screenDescription: excerpt)))
+                frontmostApplicationName: "Captured Safari", screenDescription: excerpt))
+            let document = try #require(recordedDocument)
             persistedDocuments.append(document)
             manager.memoryIndex.upsert(memoryEntry(document))
         }
