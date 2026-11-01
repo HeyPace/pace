@@ -15,6 +15,11 @@ import Combine
 import QuartzCore
 import SwiftUI
 
+enum PaceExplanationAutoClose {
+    static let delay: Duration = .seconds(30)
+    static let windowIdentifier = NSUserInterfaceItemIdentifier("PaceExplanation")
+}
+
 extension Notification.Name {
     static let paceDismissPanel = Notification.Name("paceDismissPanel")
     static let paceNotchConversationVisibilityChanged = Notification.Name("paceNotchConversationVisibilityChanged")
@@ -139,16 +144,28 @@ final class MenuBarPanelManager: NSObject {
     private var visibilityAnimationGeneration = 0
     private var dismissPanelObserver: NSObjectProtocol?
     private var showPanelObserver: NSObjectProtocol?
+    private var explanationVoiceStateObservation: AnyCancellable?
+    private var explanationInteractionMonitor: Any?
+    private var explanationAutoCloseTask: Task<Void, Never>?
+    private var explanationAutoCloseGeneration = 0
+    private var explanationAutoCloseIsArmed = false
+    private let waitForExplanationAutoClose: @MainActor (Duration) async throws -> Void
 
     private let companionManager: CompanionManager
     private let usesChatPanelAsPrimarySurface: Bool
     private let panelWidth: CGFloat
     private let panelHeight: CGFloat
-    init(companionManager: CompanionManager) {
+    init(
+        companionManager: CompanionManager,
+        waitForExplanationAutoClose: @escaping @MainActor (Duration) async throws -> Void = {
+            try await Task.sleep(for: $0)
+        }
+    ) {
         let shouldUseChatPanelAsPrimarySurface = PaceUserPreferencesStore.bool(
             for: .useChatPanelAsPrimarySurface
         )
         self.companionManager = companionManager
+        self.waitForExplanationAutoClose = waitForExplanationAutoClose
         self.usesChatPanelAsPrimarySurface = shouldUseChatPanelAsPrimarySurface
         if shouldUseChatPanelAsPrimarySurface {
             self.panelWidth = 320
@@ -158,6 +175,13 @@ final class MenuBarPanelManager: NSObject {
             self.panelHeight = PaceQuickPanelMetrics.height
         }
         super.init()
+        explanationVoiceStateObservation = companionManager.$voiceState
+            .removeDuplicates { $0 == $1 }
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] voiceState in
+                self?.handleExplanationVoiceStateChange(voiceState)
+            }
         menuBarOccupancyObserver = NotificationCenter.default.addObserver(
             forName: .paceMenuBarOccupancyChanged, object: nil, queue: .main
         ) { [weak self] _ in
@@ -198,6 +222,8 @@ final class MenuBarPanelManager: NSObject {
     }
 
     deinit {
+        explanationAutoCloseTask?.cancel()
+        if let explanationInteractionMonitor { NSEvent.removeMonitor(explanationInteractionMonitor) }
         if let menuBarOccupancyObserver { NotificationCenter.default.removeObserver(menuBarOccupancyObserver) }
         if let screenParametersObserver { NotificationCenter.default.removeObserver(screenParametersObserver) }
         if let workspaceWakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(workspaceWakeObserver) }
@@ -292,6 +318,7 @@ final class MenuBarPanelManager: NSObject {
         if panel.isVisible { companionManager.chatSession.conversationPanelDidShow(intent) }
         panelShownAt = Date()
         installClickOutsideMonitor()
+        resetExplanationAutoCloseAfterInteraction()
     }
 
     private func hidePanel(intent: PaceExplanationDismissalIntent = .automatic) {
@@ -360,7 +387,79 @@ final class MenuBarPanelManager: NSObject {
         menuBarPanel.titlebarAppearsTransparent = true
 
         menuBarPanel.contentView = hostingView
+        menuBarPanel.identifier = PaceExplanationAutoClose.windowIdentifier
         panel = menuBarPanel
+    }
+
+    func handleExplanationVoiceStateChange(_ voiceState: CompanionVoiceState) {
+        explanationAutoCloseTask?.cancel()
+        explanationAutoCloseGeneration += 1
+        explanationAutoCloseIsArmed = voiceState == .idle
+        if voiceState == .idle {
+            if explanationInteractionMonitor == nil {
+                // Only observe input delivered to Pace's explanation windows.
+                // Other apps keep their normal input path and never reset this timer.
+                explanationInteractionMonitor = NSEvent.addLocalMonitorForEvents(
+                    matching: [.leftMouseDown, .rightMouseDown, .leftMouseDragged, .scrollWheel, .keyDown]
+                ) { [weak self] event in
+                    if event.window?.identifier == PaceExplanationAutoClose.windowIdentifier {
+                        self?.resetExplanationAutoCloseAfterInteraction()
+                    }
+                    return event
+                }
+            }
+            resetExplanationAutoCloseAfterInteraction()
+        } else {
+            removeExplanationInteractionMonitor()
+        }
+    }
+
+    func resetExplanationAutoCloseAfterInteraction() {
+        guard explanationAutoCloseIsArmed else { return }
+        explanationAutoCloseTask?.cancel()
+        explanationAutoCloseGeneration += 1
+        let generation = explanationAutoCloseGeneration
+        let waitForExplanationAutoClose = waitForExplanationAutoClose
+        explanationAutoCloseTask = Task { [weak self] in
+            do {
+                // Some planner paths return to idle before the audio queue drains.
+                while self?.companionManager.voiceState == .idle,
+                    self?.companionManager.ttsClient.isPlaying == true
+                {
+                    try await waitForExplanationAutoClose(.milliseconds(200))
+                    guard !Task.isCancelled else { return }
+                }
+                guard !Task.isCancelled, self?.companionManager.voiceState == .idle else { return }
+                try await waitForExplanationAutoClose(PaceExplanationAutoClose.delay)
+                guard !Task.isCancelled, let self,
+                    generation == explanationAutoCloseGeneration,
+                    companionManager.voiceState == .idle
+                else { return }
+                if companionManager.ttsClient.isPlaying
+                    || !companionManager.chatSession.draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || NSApp.modalWindow != nil
+                {
+                    resetExplanationAutoCloseAfterInteraction()
+                    return
+                }
+                if case .generating = companionManager.imageOverlayController.state {
+                    resetExplanationAutoCloseAfterInteraction()
+                    return
+                }
+                explanationAutoCloseIsArmed = false
+                removeExplanationInteractionMonitor()
+                hidePanel()
+                companionManager.diagramOverlayController.dismiss()
+                companionManager.imageOverlayController.dismiss()
+            } catch {
+                // A new turn or interaction replaces the previous countdown.
+            }
+        }
+    }
+
+    private func removeExplanationInteractionMonitor() {
+        if let explanationInteractionMonitor { NSEvent.removeMonitor(explanationInteractionMonitor) }
+        explanationInteractionMonitor = nil
     }
 
     private func positionPanelBelowAnchor() {

@@ -22,6 +22,7 @@ final class PaceImageOverlayManager {
             panel.hidesOnDeactivate = false
             panel.isFloatingPanel = true
             panel.setAccessibilityLabel("Pace generated image")
+            panel.identifier = PaceExplanationAutoClose.windowIdentifier
             panel.isReleasedWhenClosed = false
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             panel.contentMinSize = .init(width: 420, height: 320)

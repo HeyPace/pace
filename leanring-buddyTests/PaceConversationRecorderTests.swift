@@ -35,7 +35,7 @@ struct PaceConversationRecorderTests {
         private(set) var spokenTexts: [String] = []
         private(set) var stopCount = 0
         private(set) var lastStopReason: PaceTTSStopReason = .naturalCompletion
-        var isPlaying: Bool { false }
+        var isPlaying = false
 
         func speakText(_ text: String) async throws {
             spokenTexts.append(text)
@@ -66,6 +66,131 @@ struct PaceConversationRecorderTests {
         manager.conversationRecorder = recorder
         manager.bindVisualExplanationCallbacks()
         return (manager, persister, client)
+    }
+
+    final class ExplanationAutoCloseSleepGate {
+        var requestedDurations: [Duration] = []
+        var continuations: [CheckedContinuation<Void, Never>] = []
+
+        func wait(_ duration: Duration) async {
+            requestedDurations.append(duration)
+            await withCheckedContinuation { continuations.append($0) }
+        }
+
+        func resumeNext() {
+            guard !continuations.isEmpty else { return }
+            continuations.removeFirst().resume()
+        }
+
+        func resumeAll() {
+            let pendingContinuations = continuations
+            continuations.removeAll()
+            for continuation in pendingContinuations { continuation.resume() }
+        }
+    }
+
+    func waitForAutoCloseSleeps(_ count: Int, gate: ExplanationAutoCloseSleepGate) async throws {
+        for _ in 0..<1_000 {
+            if gate.requestedDurations.count >= count { break }
+            await Task.yield()
+        }
+        try #require(gate.requestedDurations.count >= count)
+    }
+
+    @Test func explanationAutoCloseStartsThirtySecondsAfterAudioDrains() async throws {
+        let (manager, _, client) = makeDismissalFixture()
+        manager.voiceState = .responding
+        client.isPlaying = true
+        let gate = ExplanationAutoCloseSleepGate()
+        let panelManager = MenuBarPanelManager(companionManager: manager,
+            waitForExplanationAutoClose: { await gate.wait($0) })
+        defer {
+            panelManager.handleExplanationVoiceStateChange(.processing)
+            gate.resumeAll()
+        }
+        let initialDismissalGeneration = manager.diagramOverlayController.dismissalGeneration
+
+        manager.voiceState = .idle
+        try await waitForAutoCloseSleeps(1, gate: gate)
+        #expect(gate.requestedDurations == [.milliseconds(200)])
+        #expect(manager.diagramOverlayController.dismissalGeneration == initialDismissalGeneration)
+        client.isPlaying = false
+        gate.resumeNext()
+        try await waitForAutoCloseSleeps(2, gate: gate)
+        #expect(gate.requestedDurations.last == .seconds(30))
+        gate.resumeNext()
+        for _ in 0..<1_000 {
+            if manager.diagramOverlayController.dismissalGeneration > initialDismissalGeneration { break }
+            await Task.yield()
+        }
+        #expect(manager.diagramOverlayController.dismissalGeneration == initialDismissalGeneration + 1)
+        #expect(manager.imageOverlayController.dismissalGeneration == 1)
+        #expect(client.stopCount == 0)
+        #expect(manager.voiceState == .idle)
+    }
+
+    @Test func interactingRestartsAutoCloseAndRetiresTheOldCountdown() async throws {
+        let (manager, _, client) = makeDismissalFixture()
+        let gate = ExplanationAutoCloseSleepGate()
+        let panelManager = MenuBarPanelManager(companionManager: manager,
+            waitForExplanationAutoClose: { await gate.wait($0) })
+        defer {
+            panelManager.handleExplanationVoiceStateChange(.processing)
+            gate.resumeAll()
+        }
+        panelManager.handleExplanationVoiceStateChange(.idle)
+        try await waitForAutoCloseSleeps(1, gate: gate)
+        panelManager.resetExplanationAutoCloseAfterInteraction()
+        try await waitForAutoCloseSleeps(2, gate: gate)
+        #expect(gate.requestedDurations == [.seconds(30), .seconds(30)])
+        gate.resumeNext()
+        for _ in 0..<20 { await Task.yield() }
+        #expect(manager.diagramOverlayController.dismissalGeneration == 0)
+        gate.resumeNext()
+        for _ in 0..<1_000 {
+            if manager.diagramOverlayController.dismissalGeneration > 0 { break }
+            await Task.yield()
+        }
+        #expect(manager.diagramOverlayController.dismissalGeneration == 1)
+        #expect(client.stopCount == 0)
+    }
+
+    @Test func newTurnPreventsThePreviousExplanationFromAutoClosing() async throws {
+        let (manager, _, _) = makeDismissalFixture()
+        let gate = ExplanationAutoCloseSleepGate()
+        let panelManager = MenuBarPanelManager(companionManager: manager,
+            waitForExplanationAutoClose: { await gate.wait($0) })
+        defer {
+            panelManager.handleExplanationVoiceStateChange(.processing)
+            gate.resumeAll()
+        }
+        panelManager.handleExplanationVoiceStateChange(.idle)
+        try await waitForAutoCloseSleeps(1, gate: gate)
+        manager.voiceState = .processing
+        panelManager.handleExplanationVoiceStateChange(.processing)
+        gate.resumeNext()
+        for _ in 0..<20 { await Task.yield() }
+        #expect(manager.diagramOverlayController.dismissalGeneration == 0)
+        #expect(manager.imageOverlayController.dismissalGeneration == 0)
+    }
+
+    @Test func autoClosePreservesAnUnsentDraftAndAllowsAnotherThirtySeconds() async throws {
+        let (manager, _, _) = makeDismissalFixture()
+        let gate = ExplanationAutoCloseSleepGate()
+        let panelManager = MenuBarPanelManager(companionManager: manager,
+            waitForExplanationAutoClose: { await gate.wait($0) })
+        defer {
+            panelManager.handleExplanationVoiceStateChange(.processing)
+            gate.resumeAll()
+        }
+        panelManager.handleExplanationVoiceStateChange(.idle)
+        try await waitForAutoCloseSleeps(1, gate: gate)
+        manager.chatSession.draftMessageText = "Explain the next part"
+        gate.resumeNext()
+        try await waitForAutoCloseSleeps(2, gate: gate)
+        #expect(gate.requestedDurations == [.seconds(30), .seconds(30)])
+        #expect(manager.chatSession.draftMessageText == "Explain the next part")
+        #expect(manager.diagramOverlayController.dismissalGeneration == 0)
     }
 
     @Test func explicitPanelCloseCancelsSpeechQueuedTurnsAndPreservesInterruptedHistory() async {

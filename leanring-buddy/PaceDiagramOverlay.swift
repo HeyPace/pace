@@ -187,6 +187,7 @@ private final class PaceDiagramIslandPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         animationBehavior = .none
         setAccessibilityLabel("Pace diagram")
+        identifier = PaceExplanationAutoClose.windowIdentifier
     }
 
     override var canBecomeKey: Bool { !ignoresMouseEvents }
