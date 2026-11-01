@@ -266,11 +266,11 @@ extension CompanionManager {
             && !PaceScreenSuggestionPrivacy.isSensitiveApplication(watchForegroundApplicationIdentifierProvider())
     }
 
-    func recordUnavailableScreenSuggestionFeedback(_ suggestion: PaceScreenSuggestion, eventIdentifier: String? = nil) {
+    func recordUnavailableScreenSuggestionFeedback(_ suggestion: PaceScreenSuggestion, eventIdentifier: String? = nil,
+                                                   message: String = "I can’t open that explanation right now. Watch is paused or privacy protections are active.") {
         let feedbackIdentifier = "screen-suggestion-unavailable-" + (eventIdentifier ?? suggestion.identifier.uuidString)
         if conversationRecorder.event(withIdentifier: feedbackIdentifier) == nil {
-            recordAssistantNarration("I can’t open that explanation right now. Watch is paused or privacy protections are active.",
-                origin: .failure, eventIdentifier: feedbackIdentifier, turnIdentifier: eventIdentifier)
+            recordAssistantNarration(message, origin: .failure, eventIdentifier: feedbackIdentifier, turnIdentifier: eventIdentifier)
         }
         NotificationCenter.default.post(name: .paceShowPanel, object: PaceConversationPanelPresentationIntent.preview)
     }
@@ -294,16 +294,13 @@ extension CompanionManager {
     func validateScreenSuggestionRequestForPlanner(_ context: PaceScreenSuggestionRequestContext?,
                                                    turnLease: PaceTurnLease) -> Bool {
         guard isActiveTurn(turnLease) else { return false }
-        if let context, case .followUp = context, !screenSuggestionNotificationPresentationAllowed() {
-            let transcript = activeConversationPlannerTranscript ?? activeConversationUserEvent?.text
-            guard let transcript else { return false }
-            commitInterruptedAssistantPrefix()
-            streamingSentenceTTSPipeline.prepareForSupersedingStreamWithinTurn()
-            sendTranscriptToPlannerWithScreenshot(transcript: transcript, continuingAcceptedRequest: true)
-            return false
+        guard let context, !screenSuggestionNotificationPresentationAllowed() else { return true }
+        if case .followUp = context {
+            recordUnavailableScreenSuggestionFeedback(context.suggestion, eventIdentifier: activeConversationUserEvent?.eventID,
+                message: "I stopped that screen follow-up because Watch is unavailable. Restate the topic to continue.")
+        } else {
+            _ = discardScreenSuggestionRequestIfUnavailable(context, eventIdentifier: activeConversationUserEvent?.eventID)
         }
-        guard discardScreenSuggestionRequestIfUnavailable(context,
-            eventIdentifier: activeConversationUserEvent?.eventID) else { return true }
         cancelActiveTurnTasks()
         streamingSentenceTTSPipeline.stopForUserDismissal()
         streamingSentenceTTSPipeline.finalizeInFlightStreamedTextForTurn()

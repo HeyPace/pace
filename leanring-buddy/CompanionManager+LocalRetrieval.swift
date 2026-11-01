@@ -132,7 +132,7 @@ extension CompanionManager {
         let verbatimWindowTurnIds = Set(threadMemory.verbatimWindow().map { $0.turnId })
         guard
             let memoryContextBlock = await memoryRetriever.assembleContextBlock(
-                forQuery: memoryQuery ?? query,
+                forQuery: shouldLoadFreshContext ? query : (memoryQuery ?? query),
             excludingEntryIds: verbatimWindowTurnIds,
             maxEntries: 8,
             now: Date()

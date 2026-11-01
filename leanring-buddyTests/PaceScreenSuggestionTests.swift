@@ -861,7 +861,7 @@ struct PaceScreenSuggestionIntegrationTests {
         #expect(planner.prompts.isEmpty)
     }
 
-    @Test func liveDeicticContextRevocationRepreparesTheSameAcceptedRequestAndKeepsMute() async throws {
+    @Test func liveDeicticContextRevocationStopsWithoutRestartingTheAcceptedRequest() async throws {
         let (manager, history, planner, _) = makeQueuedRequestFixture()
         defer { finishQueuedRequestFixture(manager) }
         let suggestion = try await installWatchAnchor(in: manager)
@@ -870,19 +870,61 @@ struct PaceScreenSuggestionIntegrationTests {
         manager.pendingTypedConversationEventIdentifier = queuedTurn.optimisticMessageIdentifier
         manager.beginConversationRequest(queuedTurn.transcript, screenSuggestionContext: .followUp(suggestion))
         let lease = manager.turnLeaseRegistry.beginTurn()
-        manager.streamingSentenceTTSPipeline.setMutedForCurrentTurn(true)
         manager.watchPlannerConsentProvider = { false }
         #expect(!manager.validateScreenSuggestionRequestForPlanner(.followUp(suggestion), turnLease: lease))
-        #expect(manager.activeConversationUserEvent?.eventID == queuedTurn.optimisticMessageIdentifier)
-        #expect(manager.activeConversationPlannerTranscript == "explain that")
+        #expect(manager.activeConversationUserEvent == nil)
+        #expect(manager.activeConversationPlannerTranscript == nil)
         #expect(manager.activeConversationScreenSuggestionContext == nil)
         #expect(!manager.turnLeaseRegistry.isCurrent(lease))
-        #expect(history.turns.first { $0.id == queuedTurn.optimisticMessageIdentifier }?.conversationEvent?.deliveryState == .accepted)
+        #expect(history.turns.first { $0.id == queuedTurn.optimisticMessageIdentifier }?.conversationEvent?.deliveryState == .cancelled)
         #expect(planner.prompts.isEmpty)
-        manager.currentTurnDispatchTask?.cancel()
-        let client = try #require(manager.ttsClient as? PaceConversationRecorderTests.DismissalTTSClient)
-        await manager.streamingSentenceTTSPipeline.flushFinal(finalSpokenText: "The replacement reply stays muted.")
-        #expect(client.spokenTexts.isEmpty)
+        #expect(manager.currentTurnDispatchTask == nil)
+        #expect(manager.voiceState == .idle)
+        #expect(manager.chatSession.userFacingMessages.contains { $0.body.contains("Restate the topic to continue") })
+    }
+
+    @Test func watchRevocationBetweenAgentStepsNeverReplaysACompletedExecutorAction() async throws {
+        let (manager, history, planner, _) = makeQueuedRequestFixture()
+        defer { finishQueuedRequestFixture(manager) }
+        let suggestion = try await installWatchAnchor(in: manager)
+        manager.submitChatTranscriptFromDeepLink("explain that")
+        let queuedTurn = try #require(manager.chatTurnQueue.pendingTurns.first)
+        manager.pendingTypedConversationEventIdentifier = queuedTurn.optimisticMessageIdentifier
+        manager.beginConversationRequest(queuedTurn.transcript, screenSuggestionContext: .followUp(suggestion))
+        let lease = manager.turnLeaseRegistry.beginTurn()
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: true)
+        var executedActionCount = 0
+        executor.startFlowRecordingCallback = { _ in
+            executedActionCount += 1
+            return "The first action completed."
+        }
+        manager.actionExecutor = executor
+        let observations = await executor.executeActionPlan(.serial(actions: [.recordFlow(.init(name: "Test step"))]),
+            screenCaptures: [])
+        try #require(observations.count == 1)
+        manager.recordConversationTurn(userTranscript: queuedTurn.transcript, assistantResponse: "The first action completed.")
+        manager.watchPlannerConsentProvider = { false }
+
+        #expect(!manager.validateScreenSuggestionRequestForPlanner(.followUp(suggestion), turnLease: lease))
+        #expect(executedActionCount == 1)
+        #expect(planner.prompts.isEmpty)
+        #expect(manager.currentTurnDispatchTask == nil)
+        #expect(manager.currentResponseTask == nil)
+        #expect(!manager.turnLeaseRegistry.isCurrent(lease))
+        #expect(manager.voiceState == .idle)
+        #expect(history.turns.filter { $0.conversationEvent?.text == "The first action completed." }.count == 1)
+        #expect(manager.chatSession.userFacingMessages.contains { $0.body.contains("Restate the topic to continue") })
+    }
+
+    @Test func trustedMemoryRequestTakesPrecedenceOverOfferedSubjectFallback() async {
+        let (manager, _, _, embedding) = makeQueuedRequestFixture()
+        defer { finishQueuedRequestFixture(manager) }
+        let trustedQuery = "compare this to my notes on congestion"
+        _ = await manager.appendLocalRetrievalContext(to: "Trusted request", query: trustedQuery,
+            route: .readScreen, memoryQuery: "TCP congestion", loadFreshReadOnlyContext: { _ in nil })
+        if PaceUserPreferencesStore.bool(.useUnifiedMemoryRecall, default: true) {
+            #expect(embedding.queries == [trustedQuery])
+        }
     }
 
     @Test func screenSubjectMemoryQueryCannotEnableFreshSourceReadsExcludedByTrustedPolicy() async {
