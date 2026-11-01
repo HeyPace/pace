@@ -370,6 +370,9 @@ struct PaceScreenWatchNoteRecallTests {
         let retriever = PaceLocalRetriever(store: PaceInMemoryRetrievalStore(), appliesPersistedSourcePreferences: false, embeddingClient: embedding)
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         record("Turbofan bypass research old evidence", in: retriever, now: now)
+        // A single lexical candidate bypasses embedding reranking entirely.
+        record("Turbofan bypass research from another activity date", in: retriever, now: now.addingTimeInterval(86_400))
+        #expect(retriever.documents(forSource: .screenWatchHistory).count == 2)
         let recall = Task { await retriever.rerankedLocalContextBlock(for: PaceRetrievalQuery(text: "Turbofan bypass")) }
         await settle()
         #expect(embedding.continuation != nil)
