@@ -500,6 +500,37 @@ struct PaceScreenWatchNoteRecallTests {
         #expect(manager.lastUnifiedMemoryConnectorSyncAt == nil)
     }
 
+    @Test func duplicateAfterRestartIgnoresPersistedSubminuteTimestampWithoutWritingOrSyncing() throws {
+        let persistenceURL = FileManager.default.temporaryDirectory.appendingPathComponent("pace-precision-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: persistenceURL) }
+        var writes = 0
+        let writer: (Data, URL) throws -> Void = { data, url in
+            writes += 1
+            try data.write(to: url, options: [.atomic])
+        }
+        let initial = PaceLocalRetriever(store: PaceInMemoryRetrievalStore(persistenceURL: persistenceURL, persistenceWriter: writer),
+            appliesPersistedSourcePreferences: false)
+        let observedAt = Date(timeIntervalSince1970: 1_800_000_007.375)
+        let excerpt = "Turbofan bypass visible research"
+        initial.recordScreenWatchObservation(screenLabel: "primary focus", categoryDisplayName: "observed screen text",
+            frontmostApplicationName: "Captured Safari", screenDescription: excerpt, now: observedAt)
+        let initialDocument = try #require(initial.documents(forSource: .screenWatchHistory).first)
+        #expect(initialDocument.modifiedAt == observedAt)
+        let restarted = PaceLocalRetriever(store: PaceInMemoryRetrievalStore(persistenceURL: persistenceURL, persistenceWriter: writer),
+            appliesPersistedSourcePreferences: false)
+        writes = 0
+        let harness = PaceScreenWatchNoteCoordinatorTests.Harness()
+        harness.now = observedAt.addingTimeInterval(30)
+        let manager = CompanionManager(watchModeDefaults: UserDefaults(suiteName: "PaceQuietWatch-\(UUID())")!)
+        manager.localRetriever = restarted
+        var syncCount = 0
+        manager.unifiedMemoryConnectorSyncEffects = { _ in syncCount += 1 }
+        #expect(!manager.persistScreenWatchNote(harness.observation(), excerpt: excerpt))
+        #expect(writes == 0)
+        #expect(syncCount == 0)
+        #expect(restarted.documents(forSource: .screenWatchHistory).first == initialDocument)
+    }
+
     @Test func duplicateAfterRehydrationStillProjectsActualRetentionEvictions() throws {
         let harness = PaceScreenWatchNoteCoordinatorTests.Harness()
         let manager = CompanionManager(watchModeDefaults: UserDefaults(suiteName: "PaceQuietWatch-\(UUID())")!)

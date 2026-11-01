@@ -19,6 +19,7 @@ extension CompanionManager {
             PaceEpisodicTombstone.retentionInterval,
             now: Date()
         )
+        spotlightMemoryIndexer.prepareMirrorAfterUpgrade(toMatch: memoryIndex.allEntries())
     }
 
     /// Persist the whole index atomically while limiting mirroring to the

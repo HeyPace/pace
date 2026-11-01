@@ -62,7 +62,7 @@ extension CompanionManager {
                 let boxes = try await self.visionOCRClient.recognizeText(in: observation.capture.imageData,
                     screenshotWidthInPixels: observation.capture.screenshotWidthInPixels,
                     screenshotHeightInPixels: observation.capture.screenshotHeightInPixels)
-                let freshOCR = PaceScreenSuggestionBoundary.redactedOCR(boxes.map(\.text).joined(separator: "\n"))
+                guard let freshOCR = PaceScreenSuggestionBoundary.redactedBackgroundOCR(boxes.map(\.text).joined(separator: "\n")) else { return false }
                 return freshOCR.localizedCaseInsensitiveContains(suggestion.subject)
                     && freshOCR.localizedCaseInsensitiveContains(suggestion.evidence)
             },
@@ -228,8 +228,8 @@ extension CompanionManager {
               configuration == PacePlannerTierStore.loadConfiguration(),
               directConsent == PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
               bridgeConfiguration == PaceCloudBridgeConsent.loadConfiguration() else { return .quiet }
-        let ocr = PaceScreenSuggestionBoundary.redactedOCR(boxes.map(\.text).joined(separator: "\n"))
-        guard ocr.count >= 30 else { return .quiet }
+        guard let ocr = PaceScreenSuggestionBoundary.redactedBackgroundOCR(boxes.map(\.text).joined(separator: "\n")),
+              ocr.count >= 30 else { return .quiet }
         let selectedPlanner = try BuddyPlannerClientFactory.makeScreenSuggestionClient()
         let disclosureLease = beginScreenSuggestionDisclosureLease(isOffDevice: selectedPlanner.isOffDevice)
         defer { endScreenSuggestionDisclosureLease(disclosureLease) }

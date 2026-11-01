@@ -360,6 +360,13 @@ struct PaceScreenSuggestionBoundaryTests {
         }
     }
 
+    @Test func backgroundSuggestionOCRRejectsSeparatedSensitiveLabelsAndValues() {
+        let separatedOCR = "Jet engine research\nRecovery code\nexample-value\nOrdinary visible article body"
+        #expect(PaceScreenSuggestionBoundary.redactedBackgroundOCR(separatedOCR) == nil)
+        #expect(PaceScreenSuggestionBoundary.redactedBackgroundOCR("Jet engine article contact example@example.invalid")
+            == "Jet engine article contact [redacted]")
+    }
+
     @Test func redactsSensitiveLinesAddressesNumbersAndBoundsEgress() {
         let input = "TCP congestion control\npassword: hunter2\nAPI key: sk-test-secret\nalice@example.com\n4111 1111 1111 1111\n" + String(repeating: "ordinary paragraph ", count: 1000)
         let redacted = PaceScreenSuggestionBoundary.redactedOCR(input)

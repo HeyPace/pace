@@ -25,6 +25,7 @@ const result = spawnSync('bash', [
   'PaceScreenWatchNoteRecallTests',
   'PaceScreenWatchJournalTests',
   'PaceMemoryRetrieverTests',
+  'PaceSpotlightMemoryIndexerTests',
 ], { cwd: repositoryRoot, stdio: 'inherit' });
 if (result.error) throw result.error;
 process.exit(result.status ?? 1);

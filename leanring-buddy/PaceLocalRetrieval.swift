@@ -1009,7 +1009,9 @@ final class PaceLocalRetriever: PaceRetriever {
         let currentDocuments = journal.allDocuments(now: now)
         screenWatchJournal = journal
         let persistedDocuments = store.documents(withSource: .screenWatchHistory)
-        guard changedDocument != nil || currentDocuments.sorted(by: { $0.id < $1.id }) != persistedDocuments.sorted(by: { $0.id < $1.id }) else {
+        let currentContentByIdentifier = Dictionary(uniqueKeysWithValues: currentDocuments.map { ($0.id, $0.text) })
+        let persistedContentByIdentifier = Dictionary(uniqueKeysWithValues: persistedDocuments.map { ($0.id, $0.text) })
+        guard changedDocument != nil || currentContentByIdentifier != persistedContentByIdentifier else {
             return false
         }
         store.replaceDocuments(currentDocuments, forSource: .screenWatchHistory)

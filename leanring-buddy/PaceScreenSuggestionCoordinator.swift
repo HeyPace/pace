@@ -76,6 +76,17 @@ nonisolated enum PaceScreenSuggestionBoundary {
 
     static let sensitiveLineRedactionMarker = "[private text redacted]"
 
+    static func containsSensitiveOCRLabel(_ text: String) -> Bool {
+        text.components(separatedBy: .newlines).contains {
+            redactedOCR($0).contains(sensitiveLineRedactionMarker)
+        }
+    }
+
+    static func redactedBackgroundOCR(_ text: String) -> String? {
+        guard !containsSensitiveOCRLabel(text) else { return nil }
+        return redactedOCR(text)
+    }
+
     static func redactedOCR(_ text: String) -> String {
         let sensitiveLinePattern = #"(?i)(password|passphrase|secret|api[ _-]?key|access[ _-]?token|authorization|bearer|private[ _-]?key|recovery[ _-]?code|credit[ _-]?card|verification[ _-]?code|one[ -]?time[ -]?(code|password)|\botp\b)"#
         let cleanedLines = text.components(separatedBy: .newlines).map { line in

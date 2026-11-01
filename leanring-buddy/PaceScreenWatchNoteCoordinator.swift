@@ -95,11 +95,7 @@ final class PaceScreenWatchNoteCoordinator {
 
 nonisolated enum PaceScreenWatchNoteText {
     static func excerpt(from boxes: [RecognizedTextBox], screenshotHeightInPixels: Int) -> String? {
-        let hasSensitiveLabel = boxes.contains { box in
-            box.text.components(separatedBy: .newlines).contains {
-                PaceScreenSuggestionBoundary.redactedOCR($0).contains(PaceScreenSuggestionBoundary.sensitiveLineRedactionMarker)
-            }
-        }
+        let hasSensitiveLabel = boxes.contains { PaceScreenSuggestionBoundary.containsSensitiveOCRLabel($0.text) }
         guard !hasSensitiveLabel else { return nil }
         let positionedBoxes = boxes.filter { $0.pixelBoundingBox.count == 4 && !$0.text.isEmpty }
         // Exclude the menu/tab/address strip only when a useful body exists.

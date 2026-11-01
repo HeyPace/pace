@@ -2,11 +2,8 @@
 //  PaceSpotlightMemoryIndexerTests.swift
 //  leanring-buddyTests
 //
-//  Pure mapping tests for the Spotlight memory mirror. The CoreSpotlight
-//  index call itself can't be unit-tested cleanly (requires a real
-//  CSSearchableIndex backing store and process-level entitlements);
-//  these tests pin the pure entry → CSSearchableItem mapping rules
-//  so the mirror can't silently start indexing the wrong fields.
+//  Pure mapping and fake-operation tests for the Spotlight memory mirror.
+//  No test mutates the system search index.
 //
 
 import CoreSpotlight
@@ -122,6 +119,101 @@ struct PaceSpotlightMemoryIndexerTests {
         #expect(PaceSpotlightMemoryIndexer.humanReadableKindLabel(forKind: .preference) == "preference")
         #expect(PaceSpotlightMemoryIndexer.humanReadableKindLabel(forKind: .journalEvent) == "journal event")
         #expect(PaceSpotlightMemoryIndexer.humanReadableKindLabel(forKind: .summary) == "summary")
+    }
+
+    @MainActor private final class FakeIndex {
+        var operations: [String] = []
+        var indexCompletion: PaceSpotlightMemoryIndexer.Completion?
+        var deleteCompletion: PaceSpotlightMemoryIndexer.Completion?
+
+        func index(_ items: [CSSearchableItem], completion: @escaping PaceSpotlightMemoryIndexer.Completion) {
+            operations.append("index:" + items.map(\.uniqueIdentifier).joined(separator: ","))
+            indexCompletion = completion
+        }
+
+        func deleteDomains(_ identifiers: [String], completion: @escaping PaceSpotlightMemoryIndexer.Completion) {
+            operations.append("delete:" + identifiers.joined(separator: ","))
+            deleteCompletion = completion
+        }
+
+        func finishIndex(error: Error? = nil) {
+            let completion = indexCompletion
+            indexCompletion = nil
+            completion?(error)
+        }
+
+        func finishDelete(error: Error? = nil) {
+            let completion = deleteCompletion
+            deleteCompletion = nil
+            completion?(error)
+        }
+    }
+
+    @MainActor @Test func startupCleanupPurgesOnlyPaceDomainBeforeMirroringLatestAllowedSnapshot() {
+        let fakeIndex = FakeIndex()
+        var completedMigrations = 0
+        let indexer = PaceSpotlightMemoryIndexer(indexOperation: fakeIndex.index,
+            deleteDomainOperation: fakeIndex.deleteDomains, hasCompletedLegacyCleanup: { false },
+            markLegacyCleanupComplete: { completedMigrations += 1 })
+        var screenEntry = makeEntry(id: "private-screen", text: "Observed article text")
+        screenEntry.source = .screenWatchHistory
+        indexer.prepareMirrorAfterUpgrade(toMatch: [screenEntry, makeEntry(id: "initial", text: "Allowed initial memory")])
+        #expect(fakeIndex.operations == ["delete:com.pace.app.memory"])
+        #expect(completedMigrations == 0)
+        indexer.syncMirror(toMatch: [screenEntry, makeEntry(id: "latest", text: "Allowed latest memory")])
+        #expect(fakeIndex.operations.count == 1)
+        fakeIndex.finishDelete()
+        #expect(completedMigrations == 1)
+        #expect(fakeIndex.operations == ["delete:com.pace.app.memory", "index:latest"])
+        fakeIndex.finishIndex()
+    }
+
+    @MainActor @Test func cleanupWaitsForPendingIndexCompletionSoLateWritesCannotRacePurge() {
+        let fakeIndex = FakeIndex()
+        let indexer = PaceSpotlightMemoryIndexer(indexOperation: fakeIndex.index,
+            deleteDomainOperation: fakeIndex.deleteDomains, hasCompletedLegacyCleanup: { false },
+            markLegacyCleanupComplete: {})
+        indexer.syncMirror(toMatch: [makeEntry(id: "already-running", text: "Earlier allowed memory")])
+        indexer.prepareMirrorAfterUpgrade(toMatch: [makeEntry(id: "startup", text: "Startup allowed memory")])
+        indexer.syncMirror(toMatch: [makeEntry(id: "latest", text: "Latest allowed memory")])
+        #expect(fakeIndex.operations == ["index:already-running"])
+        fakeIndex.finishIndex()
+        #expect(fakeIndex.operations == ["index:already-running", "delete:com.pace.app.memory"])
+        fakeIndex.finishDelete()
+        #expect(fakeIndex.operations == ["index:already-running", "delete:com.pace.app.memory", "index:latest"])
+        fakeIndex.finishIndex()
+    }
+
+    @MainActor @Test func failedCleanupDoesNotMarkMigrationOrMirrorAheadOfRetry() {
+        let fakeIndex = FakeIndex()
+        var completedMigrations = 0
+        let indexer = PaceSpotlightMemoryIndexer(indexOperation: fakeIndex.index,
+            deleteDomainOperation: fakeIndex.deleteDomains, hasCompletedLegacyCleanup: { false },
+            markLegacyCleanupComplete: { completedMigrations += 1 })
+        indexer.prepareMirrorAfterUpgrade(toMatch: [makeEntry(id: "initial", text: "Allowed initial memory")])
+        fakeIndex.finishDelete(error: URLError(.cannotWriteToFile))
+        #expect(completedMigrations == 0)
+        #expect(fakeIndex.operations == ["delete:com.pace.app.memory"])
+        indexer.syncMirror(toMatch: [makeEntry(id: "retry", text: "Allowed retry memory")])
+        #expect(fakeIndex.operations == ["delete:com.pace.app.memory", "delete:com.pace.app.memory"])
+        fakeIndex.finishDelete()
+        #expect(completedMigrations == 1)
+        #expect(fakeIndex.operations.last == "index:retry")
+        fakeIndex.finishIndex()
+    }
+
+    @MainActor @Test func completedMigrationIsNotRepeatedAndIndexFailureDoesNotBlockLaterSync() {
+        let fakeIndex = FakeIndex()
+        var completedMigrations = 0
+        let indexer = PaceSpotlightMemoryIndexer(indexOperation: fakeIndex.index,
+            deleteDomainOperation: fakeIndex.deleteDomains, hasCompletedLegacyCleanup: { true },
+            markLegacyCleanupComplete: { completedMigrations += 1 })
+        indexer.prepareMirrorAfterUpgrade(toMatch: [makeEntry(id: "initial", text: "Allowed initial memory")])
+        fakeIndex.finishIndex(error: URLError(.cannotWriteToFile))
+        indexer.syncMirror(toMatch: [makeEntry(id: "later", text: "Allowed later memory")])
+        #expect(fakeIndex.operations == ["index:initial", "index:later"])
+        #expect(completedMigrations == 0)
+        fakeIndex.finishIndex()
     }
 
     // MARK: - Builders

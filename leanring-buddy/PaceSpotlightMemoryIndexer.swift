@@ -11,9 +11,9 @@
 //  truth; this indexer never reads from Spotlight and never round-
 //  trips data through it. Spotlight gets the same content the user
 //  has already stored on this Mac, with the same on-device posture
-//  as the rest of the app. On `clear()` we wipe the mirrored items
-//  alongside the source JSON so an explicit memory reset actually
-//  removes the Spotlight index too.
+//  as the rest of the app. Passive screen history is excluded. A
+//  one-time upgrade purge removes legacy replicas from Pace's own
+//  domain before allowed memories are mirrored again.
 //
 //  Failure posture: best-effort. CoreSpotlight is unavailable in
 //  unsigned dev bundles, sandboxed CI, and a handful of corner
@@ -27,30 +27,88 @@ import Foundation
 @MainActor
 final class PaceSpotlightMemoryIndexer {
 
-    private let spotlightDomainIdentifier = "com.pace.app.memory"
-    private let spotlightIndex: CSSearchableIndex
+    typealias Completion = @MainActor (Error?) -> Void
+    typealias IndexOperation = ([CSSearchableItem], @escaping Completion) -> Void
+    typealias DeleteDomainOperation = ([String], @escaping Completion) -> Void
 
-    /// Lightweight contract so unit tests can verify the mapping
-    /// helpers without touching the live CSSearchableIndex. Behind
-    /// the scenes the production indexer just forwards to
-    /// `CSSearchableIndex.default()`.
-    init(spotlightIndex: CSSearchableIndex = .default()) {
-        self.spotlightIndex = spotlightIndex
+    private let spotlightDomainIdentifier = "com.pace.app.memory"
+    private let indexOperation: IndexOperation
+    private let deleteDomainOperation: DeleteDomainOperation
+    private let markLegacyCleanupComplete: () -> Void
+    private var legacyCleanupIsComplete: Bool
+    private var cleanupIsRequired = false
+    private var isOperationInFlight = false
+    private var pendingMirrorEntries: [PaceMemoryEntry]?
+    private var hasReportedCleanupFailure = false
+
+    init(spotlightIndex: CSSearchableIndex = .default(),
+         indexOperation: IndexOperation? = nil,
+         deleteDomainOperation: DeleteDomainOperation? = nil,
+         hasCompletedLegacyCleanup: () -> Bool = {
+             UserDefaults.standard.bool(forKey: "PaceSpotlightScreenHistoryCleanupV1")
+         },
+         markLegacyCleanupComplete: @escaping () -> Void = {
+             UserDefaults.standard.set(true, forKey: "PaceSpotlightScreenHistoryCleanupV1")
+         }) {
+        self.indexOperation = indexOperation ?? { items, completion in
+            spotlightIndex.indexSearchableItems(items) { error in
+                Task { @MainActor in completion(error) }
+            }
+        }
+        self.deleteDomainOperation = deleteDomainOperation ?? { identifiers, completion in
+            spotlightIndex.deleteSearchableItems(withDomainIdentifiers: identifiers) { error in
+                Task { @MainActor in completion(error) }
+            }
+        }
+        self.legacyCleanupIsComplete = hasCompletedLegacyCleanup()
+        self.markLegacyCleanupComplete = markLegacyCleanupComplete
     }
 
-    /// Replace the Spotlight mirror with the current active entries.
-    /// Tombstoned entries are dropped from Spotlight; active entries
-    /// are upserted. Called from CompanionManager after every memory
-    /// mutation, matching the source JSON's write cadence.
+    func prepareMirrorAfterUpgrade(toMatch activeEntries: [PaceMemoryEntry]) {
+        if !legacyCleanupIsComplete { cleanupIsRequired = true }
+        syncMirror(toMatch: activeEntries)
+    }
+
     func syncMirror(toMatch activeEntries: [PaceMemoryEntry]) {
-        let searchableItems = Self.buildSearchableItems(
-            fromActiveEntries: activeEntries,
-            domainIdentifier: spotlightDomainIdentifier
-        )
-        spotlightIndex.indexSearchableItems(searchableItems) { error in
-            if let error {
-                print("⚠️  Spotlight memory mirror failed: \(error.localizedDescription)")
+        pendingMirrorEntries = activeEntries
+        performNextOperationIfAvailable()
+    }
+
+    private func performNextOperationIfAvailable() {
+        guard !isOperationInFlight else { return }
+        if cleanupIsRequired {
+            isOperationInFlight = true
+            // Await every prior index completion before purging. Otherwise a
+            // late Spotlight write could restore a replica after its deletion.
+            deleteDomainOperation([spotlightDomainIdentifier]) { [weak self] error in
+                guard let self else { return }
+                isOperationInFlight = false
+                guard error == nil else {
+                    if !hasReportedCleanupFailure {
+                        print("⚠️ Spotlight legacy screen-history cleanup failed; awaiting retry.")
+                        hasReportedCleanupFailure = true
+                    }
+                    return
+                }
+                cleanupIsRequired = false
+                legacyCleanupIsComplete = true
+                hasReportedCleanupFailure = false
+                markLegacyCleanupComplete()
+                performNextOperationIfAvailable()
             }
+            return
+        }
+        guard let pendingMirrorEntries else { return }
+        self.pendingMirrorEntries = nil
+        let searchableItems = Self.buildSearchableItems(fromActiveEntries: pendingMirrorEntries,
+            domainIdentifier: spotlightDomainIdentifier)
+        guard !searchableItems.isEmpty else { return }
+        isOperationInFlight = true
+        indexOperation(searchableItems) { [weak self] error in
+            guard let self else { return }
+            isOperationInFlight = false
+            if error != nil { print("⚠️ Spotlight memory mirror failed.") }
+            performNextOperationIfAvailable()
         }
     }
 

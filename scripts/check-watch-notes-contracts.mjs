@@ -9,6 +9,7 @@ const result = spawnSync('bash', [
   'PaceScreenWatchJournalTests',
   'PaceLocalRetrievalTests',
   'PaceMemoryRetrieverTests',
+  'PaceSpotlightMemoryIndexerTests',
   'PaceScreenImageDifferTests',
   'PaceScreenContextServiceTests',
   'PaceAppUsageJournalTests',
