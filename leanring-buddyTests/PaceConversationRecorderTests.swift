@@ -253,25 +253,15 @@ struct PaceConversationRecorderTests {
     }
 
     @Test func presentingAnnotationsAutomaticallyHidesChatWithoutStoppingSpeech() async throws {
-        let showPanelProbeObserver = NotificationCenter.default.addObserver(
-            forName: .paceShowPanel, object: nil, queue: .main
-        ) { notification in
-            let requestKind: String
-            if let presentationIntent = notification.object as? PaceConversationPanelPresentationIntent {
-                requestKind = presentationIntent == .preview ? "preview" : "interactive"
-            } else {
-                requestKind = "defaultInteractive"
-            }
-            print("PacePanelProbe paceShowPanel requestKind=\(requestKind)")
-        }
-        defer { NotificationCenter.default.removeObserver(showPanelProbeObserver) }
         let (manager, _, client) = makeDismissalFixture()
         manager.mascotModeActive = false
         let lease = manager.turnLeaseRegistry.beginTurn()
         manager.voiceState = .responding
         let responseTask = Task<Void, Never> {}
         manager.currentResponseTask = responseTask
-        let panelManager = MenuBarPanelManager(companionManager: manager)
+        // Check dismissal and speech continuity without depending on test-host animation completion.
+        let panelManager = MenuBarPanelManager(companionManager: manager,
+            shouldReducePanelMotion: { true })
         let previousWindowIdentifiers = Set(NSApplication.shared.windows.map(ObjectIdentifier.init))
         panelManager.showPanelForSmokeTest()
         let panel = try #require(NSApplication.shared.windows.first {
