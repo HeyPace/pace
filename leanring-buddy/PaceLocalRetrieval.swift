@@ -163,6 +163,7 @@ nonisolated struct PaceRetrievalSourceStatus: Equatable {
 protocol PaceRetrievalStore: AnyObject {
     func reset()
     func upsertDocuments(_ documents: [PaceRetrievalDocument])
+    func replaceDocuments(_ documents: [PaceRetrievalDocument], forSource source: PaceRetrievalSource)
     func documents(withSource source: PaceRetrievalSource) -> [PaceRetrievalDocument]
     func removeDocuments(withSource source: PaceRetrievalSource)
     func updateSourceStatus(_ status: PaceRetrievalSourceStatus)
@@ -427,9 +428,14 @@ final class PaceInMemoryRetrievalStore: PaceRetrievalStore {
     private var statusesBySource: [PaceRetrievalSource: PaceRetrievalSourceStatus] = [:]
     private var disabledSources: Set<PaceRetrievalSource> = []
     private let persistenceURL: URL?
+    private let persistenceWriter: (Data, URL) throws -> Void
 
-    init(persistenceURL: URL? = nil) {
+    init(persistenceURL: URL? = nil,
+         persistenceWriter: @escaping (Data, URL) throws -> Void = { data, url in
+             try data.write(to: url, options: [.atomic])
+         }) {
         self.persistenceURL = persistenceURL
+        self.persistenceWriter = persistenceWriter
         loadPersistedDocumentsIfAvailable()
     }
 
@@ -459,6 +465,26 @@ final class PaceInMemoryRetrievalStore: PaceRetrievalStore {
         }
 
         refreshSourceStatuses()
+        persistDocuments()
+    }
+
+    func replaceDocuments(_ documents: [PaceRetrievalDocument], forSource source: PaceRetrievalSource) {
+        let documentIdsForSource = documentsById.values.filter { $0.source == source }.map(\.id)
+        let safeDocuments = documents.filter { document in
+            guard let localURL = document.localURL else { return true }
+            return !PaceSecretPathExclusionPolicy.shouldExclude(localURL: localURL)
+        }
+        for documentId in documentIdsForSource {
+            documentsById.removeValue(forKey: documentId)
+            chunksByDocumentId.removeValue(forKey: documentId)
+        }
+        for document in safeDocuments {
+            documentsById[document.id] = document
+            chunksByDocumentId[document.id] = Self.makeChunks(for: document)
+        }
+        refreshSourceStatuses()
+        // Persist the complete replacement once. A crash must leave either the
+        // prior journal or its replacement, never an intermediate empty source.
         persistDocuments()
     }
 
@@ -845,7 +871,7 @@ final class PaceInMemoryRetrievalStore: PaceRetrievalStore {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
             let data = try encoder.encode(persistedState)
-            try data.write(to: persistenceURL, options: [.atomic])
+            try persistenceWriter(data, persistenceURL)
         } catch {
             print("⚠️ Local retrieval persistence failed: \(error.localizedDescription)")
         }
@@ -923,8 +949,7 @@ final class PaceLocalRetriever: PaceRetriever {
         status: PaceRetrievalSourceStatus? = nil
     ) {
         if source == .screenWatchHistory { invalidateScreenWatchJournal() }
-        store.removeDocuments(withSource: source)
-        store.upsertDocuments(documents)
+        store.replaceDocuments(documents, forSource: source)
         if let status {
             store.updateSourceStatus(status)
         }
@@ -983,8 +1008,7 @@ final class PaceLocalRetriever: PaceRetriever {
         screenWatchJournal = journal
         if changedDocument != nil {
             screenWatchHistoryRevision &+= 1
-            store.removeDocuments(withSource: .screenWatchHistory)
-            store.upsertDocuments(journal.allDocuments(now: now))
+            store.replaceDocuments(journal.allDocuments(now: now), forSource: .screenWatchHistory)
         }
     }
 

@@ -381,6 +381,51 @@ struct PaceScreenWatchNoteRecallTests {
         #expect(retriever.localContextBlock(for: PaceRetrievalQuery(text: "old evidence")) == nil)
     }
 
+    @Test func sourceReplacementPersistsOneCompleteSnapshotAndRemovesEvictedChunks() throws {
+        let persistenceURL = FileManager.default.temporaryDirectory.appendingPathComponent("pace-replacement-\(UUID()).json")
+        var observedStore: PaceInMemoryRetrievalStore?
+        defer {
+            observedStore = nil
+            try? FileManager.default.removeItem(at: persistenceURL)
+        }
+        var memorySnapshots: [Set<String>] = []
+        var persistedSnapshots: [Set<String>] = []
+        var statusCountsAtWrite: [Int] = []
+        let store = PaceInMemoryRetrievalStore(persistenceURL: persistenceURL, persistenceWriter: { data, url in
+            memorySnapshots.append(Set(observedStore?.documents(withSource: .screenWatchHistory).map(\.id) ?? []))
+            statusCountsAtWrite.append(observedStore?.sourceStatuses.first(where: { $0.source == .screenWatchHistory })?.documentCount ?? 0)
+            try data.write(to: url, options: [.atomic])
+            persistedSnapshots.append(Set(PaceInMemoryRetrievalStore(persistenceURL: url)
+                .documents(withSource: .screenWatchHistory).map(\.id)))
+        })
+        observedStore = store
+        let retriever = PaceLocalRetriever(store: store, appliesPersistedSourcePreferences: false)
+        let retained = PaceRetrievalDocument(id: "retained", source: .screenWatchHistory,
+            title: "retained", text: "retainedquietscreenoriginal")
+        let evicted = PaceRetrievalDocument(id: "evicted", source: .screenWatchHistory,
+            title: "evicted", text: "obsoletequietscreenevidence")
+        let unrelated = PaceRetrievalDocument(id: "unrelated", source: .file, title: "unrelated", text: "unrelatedfileevidence")
+        store.upsertDocuments([retained, evicted, unrelated])
+        memorySnapshots.removeAll()
+        persistedSnapshots.removeAll()
+        statusCountsAtWrite.removeAll()
+        let replacement = PaceRetrievalDocument(id: "retained", source: .screenWatchHistory,
+            title: "retained", text: "retainedquietscreenupdated")
+        let added = PaceRetrievalDocument(id: "added", source: .screenWatchHistory, title: "added", text: "newquietscreencontext")
+        let excluded = PaceRetrievalDocument(id: "excluded", source: .screenWatchHistory, title: "excluded", text: "mustnotpersist",
+            localURL: URL(fileURLWithPath: "/tmp/pace-replacement/.ssh/id_ed25519"))
+        retriever.replaceDocuments([replacement, added, excluded], forSource: .screenWatchHistory)
+        #expect(memorySnapshots == [Set(["retained", "added"])])
+        #expect(persistedSnapshots == [Set(["retained", "added"])])
+        #expect(statusCountsAtWrite == [2])
+        #expect(store.search(PaceRetrievalQuery(text: "obsoletequietscreenevidence")).isEmpty)
+        #expect(store.search(PaceRetrievalQuery(text: "retainedquietscreenoriginal")).isEmpty)
+        #expect(store.search(PaceRetrievalQuery(text: "retainedquietscreenupdated")).first?.documentId == "retained")
+        let restarted = PaceInMemoryRetrievalStore(persistenceURL: persistenceURL)
+        #expect(restarted.documents(withSource: .file).map(\.id) == ["unrelated"])
+        #expect(restarted.documents(withSource: .screenWatchHistory).contains(where: { $0.text == "retainedquietscreenupdated" }))
+    }
+
     @Test func isolatedSourcePreferencesNeverWriteOwnersGlobalChoice() {
         let before = PaceRetrievalSourcePreferences.isEnabled(.screenWatchHistory)
         let retriever = PaceLocalRetriever(store: PaceInMemoryRetrievalStore(), appliesPersistedSourcePreferences: false)
