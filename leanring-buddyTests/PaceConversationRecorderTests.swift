@@ -253,6 +253,18 @@ struct PaceConversationRecorderTests {
     }
 
     @Test func presentingAnnotationsAutomaticallyHidesChatWithoutStoppingSpeech() async throws {
+        let showPanelProbeObserver = NotificationCenter.default.addObserver(
+            forName: .paceShowPanel, object: nil, queue: .main
+        ) { notification in
+            let requestKind: String
+            if let presentationIntent = notification.object as? PaceConversationPanelPresentationIntent {
+                requestKind = presentationIntent == .preview ? "preview" : "interactive"
+            } else {
+                requestKind = "defaultInteractive"
+            }
+            print("PacePanelProbe paceShowPanel requestKind=\(requestKind)")
+        }
+        defer { NotificationCenter.default.removeObserver(showPanelProbeObserver) }
         let (manager, _, client) = makeDismissalFixture()
         manager.mascotModeActive = false
         let lease = manager.turnLeaseRegistry.beginTurn()
@@ -279,7 +291,8 @@ struct PaceConversationRecorderTests {
             if !panel.isVisible { break }
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(!panel.isVisible)
+        let panelWasVisibleAtAssertion = panel.isVisible
+        #expect(!panelWasVisibleAtAssertion)
         #expect(manager.turnLeaseRegistry.isCurrent(lease))
         #expect(!responseTask.isCancelled)
         #expect(manager.voiceState == .responding)

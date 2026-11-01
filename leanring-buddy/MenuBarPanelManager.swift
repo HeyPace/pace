@@ -278,6 +278,7 @@ final class MenuBarPanelManager: NSObject {
     // MARK: - Panel Lifecycle
 
     private func showPanel(intent: PaceConversationPanelPresentationIntent = .interactive) {
+        print("PacePanelProbe showPanel manager=\(ObjectIdentifier(self)) generation=\(visibilityAnimationGeneration) isPanelPresented=\(isPanelPresented) panelIsVisible=\(String(describing: panel?.isVisible))")
         PaceMenuBarOccupancyMonitor.shared.start()
         PaceMenuBarOccupancyMonitor.shared.refresh()
         if panel == nil {
@@ -322,6 +323,7 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func hidePanel(intent: PaceExplanationDismissalIntent = .automatic) {
+        print("PacePanelProbe hidePanel manager=\(ObjectIdentifier(self)) generation=\(visibilityAnimationGeneration) isPanelPresented=\(isPanelPresented) panelIsVisible=\(String(describing: panel?.isVisible))")
         companionManager.handleExplanationDismissal(intent)
         let wasVisible = isPanelPresented
         surfaceModel.presentation = .hidden
@@ -335,6 +337,7 @@ final class MenuBarPanelManager: NSObject {
         removeClickOutsideMonitor()
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             panel.orderOut(nil)
+            print("PacePanelProbe orderOut reducedMotion manager=\(ObjectIdentifier(self)) generation=\(visibilityAnimationGeneration) isPanelPresented=\(isPanelPresented) panelIsVisible=\(panel.isVisible)")
             updateNotchConversationVisibility()
             return
         }
@@ -344,11 +347,14 @@ final class MenuBarPanelManager: NSObject {
             panel.animator().setFrame(surfaceModel.placement.collapsedFrame, display: true)
         } completionHandler: { [weak self, weak panel] in
             Task { @MainActor in
+                let managerIdentifier = self.map { String(describing: ObjectIdentifier($0)) } ?? "nil"
+                print("PacePanelProbe hideAnimationCompletion manager=\(managerIdentifier) generation=\(String(describing: self?.visibilityAnimationGeneration)) capturedGeneration=\(animationGeneration) isPanelPresented=\(String(describing: self?.isPanelPresented)) panelIsVisible=\(String(describing: panel?.isVisible))")
                 guard let self, let panel,
                     self.visibilityAnimationGeneration == animationGeneration,
                     !self.isPanelPresented
                 else { return }
                 panel.orderOut(nil)
+                print("PacePanelProbe orderOut animationCompletion manager=\(ObjectIdentifier(self)) generation=\(self.visibilityAnimationGeneration) isPanelPresented=\(self.isPanelPresented) panelIsVisible=\(panel.isVisible)")
                 self.updateNotchConversationVisibility()
             }
         }
