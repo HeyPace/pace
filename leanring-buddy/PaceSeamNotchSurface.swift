@@ -148,8 +148,9 @@ struct PaceSeamNotchHeader: View {
                         .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
                         .animation(.easeOut(duration: DS.Motion.micro), value: signalState == .listening)
                         .fixedSize()
-                        .frame(width: wingWidth, height: physicalHousingHeight)
+                        .frame(width: min(40, wingWidth), height: physicalHousingHeight)
                 }
+                .frame(width: wingWidth, height: physicalHousingHeight)
                 Color.clear.frame(width: physicalHousingWidth)
                 wingButton(
                     label: isExpanded ? "Close conversation" : "Open conversation",
@@ -190,7 +191,7 @@ struct PaceSeamNotchHeader: View {
                     .animation(reduceMotion ? nil : .easeOut(duration: DS.Motion.micro), value: screenReadActivity.isReading)
                     .foregroundStyle(isOffDeviceTurn ? DS.Colors.offDeviceSignal : Color.white.opacity(0.94))
                     .fixedSize()
-                    .frame(width: wingWidth, height: physicalHousingHeight)
+                    .frame(width: min(40, wingWidth), height: physicalHousingHeight)
                     .overlay(alignment: .bottomTrailing) {
                         HStack(spacing: 4) {
                             if let companionStatusColor {
@@ -207,10 +208,11 @@ struct PaceSeamNotchHeader: View {
                             }
                         }
                         .fixedSize()
-                        .padding(.trailing, 12)
+                        .padding(.trailing, 3)
                         .padding(.bottom, 2)
                     }
                 }
+                .frame(width: wingWidth, height: physicalHousingHeight)
             }
         }
         .frame(height: physicalHousingHeight)
@@ -224,9 +226,10 @@ struct PaceSeamNotchHeader: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         let cap = content()
-            .background(hoveredWingLabel == label ? Color.white.opacity(0.08) : Color.clear)
+            .background(hoveredWingLabel == label ? Color.white.opacity(0.08) : Color.clear,
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         if let action {
-            Button(action: action) { cap.contentShape(Rectangle()) }
+            Button(action: action) { cap.contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous)) }
                 .buttonStyle(PaceNotchButtonStyle(isHovered: hoveredWingLabel == label))
                 .onHover { isHovered in
                     if isHovered {

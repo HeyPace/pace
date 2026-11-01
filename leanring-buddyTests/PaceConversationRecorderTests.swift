@@ -277,6 +277,66 @@ struct PaceConversationRecorderTests {
         #expect(manager.streamingSentenceTTSPipeline.firstSpokenWordCharacterCount == 0)
     }
 
+    @Test func userCloseThenAcceptedWatchOfferSpeaksWithoutRevivingOldChunks() async {
+        let (manager, _, client) = makeDismissalFixture()
+        let oldLease = manager.turnLeaseRegistry.beginTurn()
+        await manager.streamingSentenceTTSPipeline.acceptStreamedText("The old explanation is finished.")
+        manager.handleExplanationDismissal(.userInitiated)
+        let observedAt = Date()
+        let suggestion = PaceScreenSuggestion(identifier: UUID(), subject: "TCP congestion",
+            evidence: "TCP congestion control", offer: "Want an explanation of TCP congestion?",
+            sceneIdentity: .init(displayIdentifier: 1, applicationProcessIdentifier: 42,
+                applicationBundleIdentifier: "com.apple.Safari"),
+            observedAt: observedAt, expiresAt: observedAt.addingTimeInterval(45))
+        manager.recordAssistantNarration(suggestion.offer, origin: .proactive,
+            eventIdentifier: suggestion.conversationEventIdentifier)
+        await manager.speakAcceptedWatchSuggestion(suggestion,
+            speechGeneration: manager.watchSuggestionSpeechGeneration)
+        await manager.streamingSentenceTTSPipeline.acceptStreamedText("The old reply must never resume.",
+            expectedTurnLease: oldLease, currentTurnLease: manager.turnLeaseRegistry.currentLease)
+
+        #expect(client.spokenTexts == ["The old explanation is finished.", suggestion.offer])
+        #expect(manager.voiceState == .idle)
+        #expect(manager.streamingSentenceTTSPipeline.inFlightStreamedText.isEmpty)
+        #expect(manager.chatSession.userFacingMessages.filter { $0.body == suggestion.offer }.count == 1)
+    }
+
+    @Test func oldWatchSpeechCompletionCannotRetireANewerReplyMirror() async throws {
+        let (manager, _, client) = makeDismissalFixture()
+        client.suspendsSubmissions = true
+        let observedAt = Date()
+        let suggestion = PaceScreenSuggestion(identifier: UUID(), subject: "TCP congestion",
+            evidence: "TCP congestion control", offer: "Want an explanation of TCP congestion?",
+            sceneIdentity: .init(displayIdentifier: 1, applicationProcessIdentifier: 42,
+                applicationBundleIdentifier: "com.apple.Safari"),
+            observedAt: observedAt, expiresAt: observedAt.addingTimeInterval(45))
+        let speechGeneration = manager.watchSuggestionSpeechGeneration
+        let oldSpeech = Task { await manager.speakAcceptedWatchSuggestion(suggestion, speechGeneration: speechGeneration) }
+        defer {
+            oldSpeech.cancel()
+            client.submission?.resume()
+            client.submission = nil
+            manager.cancelActiveTurnTasks()
+        }
+        for _ in 0..<1_000 {
+            if client.submission != nil { break }
+            await Task.yield()
+        }
+        let oldSubmission = try #require(client.submission)
+        manager.cancelWatchSuggestionSpeech()
+        manager.streamingSentenceTTSPipeline.resetForNewTurn()
+        client.suspendsSubmissions = false
+        await manager.streamingSentenceTTSPipeline.acceptStreamedText("This is the new explanation.")
+        manager.voiceState = .responding
+        client.submission = nil
+        oldSubmission.resume()
+        await oldSpeech.value
+
+        #expect(manager.streamingSentenceTTSPipeline.inFlightStreamedText == "This is the new explanation.")
+        #expect(manager.voiceState == .responding)
+        #expect(client.spokenTexts == [suggestion.offer, "This is the new explanation."])
+    }
+
     @Test func sameSecondIdenticalRequestsAndAssistantNarrationsHaveDistinctIdentities() {
         let (persister, session, recorder) = makeFixture()
         let createdAt = Date(timeIntervalSince1970: 1234)

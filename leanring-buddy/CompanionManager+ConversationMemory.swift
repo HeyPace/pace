@@ -40,10 +40,12 @@ extension CompanionManager {
         conversationRecorder.acceptRequest(transcript, origin: origin, eventIdentifier: eventIdentifier)
     }
 
-    func beginConversationRequest(_ transcript: String) {
+    func beginConversationRequest(_ transcript: String, screenSuggestion: PaceScreenSuggestion? = nil) {
         let typedEventIdentifier = pendingTypedConversationEventIdentifier
         pendingTypedConversationEventIdentifier = nil
-        if typedEventIdentifier == nil, screenSuggestionCoordinator.followUpContext(for: transcript) != nil {
+        activeConversationScreenSuggestion = screenSuggestion
+            ?? (typedEventIdentifier == nil ? screenSuggestionCoordinator.followUpSuggestion(for: transcript) : nil)
+        if typedEventIdentifier == nil, activeConversationScreenSuggestion != nil {
             chatSession.acknowledgeScreenSuggestions()
         }
         activeConversationUserEvent = acceptConversationRequest(transcript,
@@ -64,6 +66,7 @@ extension CompanionManager {
         activeConversationVisibleAssistantText = ""
         activeConversationUserEvent = nil
         activeConversationPlannerTranscript = nil
+        activeConversationScreenSuggestion = nil
         activeConversationAssistantEventIdentifier = nil
         lastConversationAssistantEventIdentifier = nil
         liveSpeechDraft = ""

@@ -83,16 +83,23 @@ extension CompanionManager {
         submitChatTranscript(transcript, optimisticMessageIdentifier: nil)
     }
 
+    func submitScreenSuggestionRequest(_ transcript: String, suggestion: PaceScreenSuggestion) {
+        isChatModeMutedForCurrentTurn = chatSession.isChatTTSMuted
+        submitChatTranscript(transcript, optimisticMessageIdentifier: nil, screenSuggestion: suggestion)
+    }
+
     private func submitChatTranscript(
         _ transcript: String,
-        optimisticMessageIdentifier: String?
+        optimisticMessageIdentifier: String?,
+        screenSuggestion: PaceScreenSuggestion? = nil
     ) {
         let acceptedEvent = acceptConversationRequest(transcript, origin: .typed,
             eventIdentifier: optimisticMessageIdentifier ?? UUID().uuidString)
         let queuedTurn = PaceQueuedChatTurn(
             transcript: transcript,
             shouldMuteTTS: isChatModeMutedForCurrentTurn,
-            optimisticMessageIdentifier: acceptedEvent.eventID
+            optimisticMessageIdentifier: acceptedEvent.eventID,
+            screenSuggestion: screenSuggestion ?? screenSuggestionCoordinator.followUpSuggestion(for: transcript)
         )
         isChatModeMutedForCurrentTurn = false
 
@@ -171,7 +178,7 @@ extension CompanionManager {
         PaceLatencyBudget.shared.mark(.sttComplete)
         voiceState = .processing
         pendingTypedConversationEventIdentifier = queuedTurn.optimisticMessageIdentifier
-        sendTranscriptToPlannerWithScreenshot(transcript: transcript)
+        sendTranscriptToPlannerWithScreenshot(transcript: transcript, screenSuggestion: queuedTurn.screenSuggestion)
     }
 
     func clearQueuedChatTurns() {

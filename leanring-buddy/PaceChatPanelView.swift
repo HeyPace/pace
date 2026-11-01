@@ -38,7 +38,6 @@ struct PaceChatPanelView: View {
     /// conversation but snaps instead of animating.
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotionIsEnabled
 
-    @State private var draftMessageText: String = ""
     @FocusState private var isChatInputFocused: Bool
 
     private let panelWidth: CGFloat = 320
@@ -648,7 +647,7 @@ struct PaceChatPanelView: View {
 
     private var dockedInputRow: some View {
         HStack(spacing: 8) {
-            TextField("Message Pace…", text: $draftMessageText, axis: .vertical)
+            TextField("Message Pace…", text: $chatSession.draftMessageText, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .foregroundColor(DS.Colors.textPrimary)
@@ -684,7 +683,7 @@ struct PaceChatPanelView: View {
     }
 
     private var isDraftMessageTextEmpty: Bool {
-        draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        chatSession.draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Submits through `PaceChatSession.submitUserMessage`, which appends
@@ -692,11 +691,11 @@ struct PaceChatPanelView: View {
     /// voice (`CompanionManager.submitChatTranscriptFromChatSession`) —
     /// same intent classification, approval policy, and memory writes.
     private func submitDraftMessageText() {
-        let trimmedDraftMessageText = draftMessageText
+        let trimmedDraftMessageText = chatSession.draftMessageText
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDraftMessageText.isEmpty else { return }
         chatSession.submitUserMessage(trimmedDraftMessageText)
-        draftMessageText = ""
+        chatSession.draftMessageText = ""
         isChatInputFocused = true
     }
 }

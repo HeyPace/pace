@@ -229,24 +229,32 @@ extension CompanionManager {
                 guard let self, !Task.isCancelled,
                       watchSuggestionSpeechGeneration == speechGeneration,
                       screenSuggestionEvaluationAllowed(suggestion.sceneIdentity) else { return }
-                isWatchSuggestionSpeaking = true
-                defer {
-                    if watchSuggestionSpeechGeneration == speechGeneration {
-                        watchSuggestionSpeechTask = nil
-                        isWatchSuggestionSpeaking = false
-                        if voiceState == .responding { voiceState = .idle }
-                    }
-                }
-                voiceState = .responding
-                await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: suggestion.offer)
-                while ttsClient.isPlaying && !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 80_000_000)
-                }
+                await speakAcceptedWatchSuggestion(suggestion, speechGeneration: speechGeneration)
             }
             watchSuggestionSpeechTask = speechTask
             currentResponseTask = speechTask
         }
         return true
+    }
+
+    func speakAcceptedWatchSuggestion(_ suggestion: PaceScreenSuggestion, speechGeneration: UInt64) async {
+        guard !Task.isCancelled, watchSuggestionSpeechGeneration == speechGeneration,
+              voiceState == .idle else { return }
+        streamingSentenceTTSPipeline.resetForNewTurn()
+        isWatchSuggestionSpeaking = true
+        defer {
+            if watchSuggestionSpeechGeneration == speechGeneration {
+                streamingSentenceTTSPipeline.finalizeInFlightStreamedTextForTurn()
+                watchSuggestionSpeechTask = nil
+                isWatchSuggestionSpeaking = false
+                if voiceState == .responding { voiceState = .idle }
+            }
+        }
+        voiceState = .responding
+        await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: suggestion.offer)
+        while ttsClient.isPlaying && !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 80_000_000)
+        }
     }
 
     func screenSuggestionNotificationPresentationAllowed() -> Bool {
@@ -265,12 +273,20 @@ extension CompanionManager {
             chatSession.acknowledgeScreenSuggestion(eventIdentifier: suggestion.conversationEventIdentifier)
             return
         }
-        guard screenSuggestionNotificationPresentationAllowed(),
-              let request = action.request(for: suggestion) else { return }
+        guard let request = action.request(for: suggestion) else { return }
+        guard screenSuggestionNotificationPresentationAllowed() else {
+            let feedbackIdentifier = "screen-suggestion-unavailable-" + suggestion.identifier.uuidString
+            if conversationRecorder.event(withIdentifier: feedbackIdentifier) == nil {
+                recordAssistantNarration("I can’t open that explanation right now. Watch is paused or privacy protections are active.",
+                    origin: .failure, eventIdentifier: feedbackIdentifier)
+            }
+            NotificationCenter.default.post(name: .paceShowPanel, object: PaceConversationPanelPresentationIntent.preview)
+            return
+        }
         chatSession.acknowledgeScreenSuggestion(eventIdentifier: suggestion.conversationEventIdentifier)
         cancelWatchSuggestionSpeech()
         NotificationCenter.default.post(name: .paceShowPanel, object: PaceConversationPanelPresentationIntent.interactive)
-        chatSession.submitUserMessage(request)
+        submitScreenSuggestionRequest(request, suggestion: suggestion)
     }
 
     func cancelWatchSuggestionSpeech() {

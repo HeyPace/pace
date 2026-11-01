@@ -527,30 +527,34 @@ struct PaceScreenSuggestionIntegrationTests {
             manager.isWatchModeEnabled = true
             manager.isWatchRuntimeStarted = true
             manager.watchForegroundApplicationIdentifierProvider = { "com.apple.Safari" }
-            let submitter = Submitter()
-            let session = PaceChatSession(historySource: History(), transcriptSubmitter: submitter)
+            let history = History()
+            let session = PaceChatSession(historySource: history,
+                transcriptSubmitter: PaceChatSessionSubmitterAdapter(owner: manager))
             manager.chatSession = session
+            manager.conversationRecorder = PaceConversationRecorder(persister: history, chatSession: session)
+            manager.voiceState = .processing
             session.draftMessageText = "Keep this unfinished question"
             let suggestion = notificationSuggestion(observedAt: Date().addingTimeInterval(-600))
             session.upsertConversationEvent(ConversationEvent(eventID: suggestion.conversationEventIdentifier,
                 role: .pace, origin: .proactive, text: suggestion.offer, createdAt: suggestion.observedAt))
             manager.handleScreenSuggestionNotificationAction(suggestion, action: action)
-            #expect(submitter.transcripts.count == 1)
-            #expect(submitter.transcripts.first == action.request(for: suggestion))
-            #expect(submitter.transcripts.first?.contains(suggestion.subject) == true)
-            #expect(submitter.transcripts.first?.contains(suggestion.evidence) == true)
-            #expect(submitter.transcripts.first?.contains(suggestion.offer) == true)
-            #expect(submitter.transcripts.first?.hasPrefix("Please ") == true)
+            let queuedTurn = manager.chatTurnQueue.pendingTurns.first
+            #expect(manager.chatTurnQueue.count == 1)
+            #expect(queuedTurn?.transcript == action.request(for: suggestion))
+            #expect(queuedTurn?.screenSuggestion == suggestion)
+            #expect(queuedTurn?.transcript.contains(suggestion.evidence) == false)
+            #expect(queuedTurn?.transcript.hasPrefix("Please ") == true)
             #expect(session.draftMessageText == "Keep this unfinished question")
             #expect(session.userFacingMessages.filter { $0.role == .user }.count == 1)
             #expect(!session.hasUnreadScreenSuggestion)
             #expect(manager.isWatchModeEnabled)
-            if action == .draw { #expect(submitter.transcripts.first?.contains("labeled, interactive") == true) }
+            if action == .draw { #expect(queuedTurn?.transcript.contains("labeled, interactive") == true) }
             if action == .explain {
-                #expect(submitter.transcripts.first?.contains("labeled, interactive visual") == true)
-                #expect(submitter.transcripts.first?.contains("Show the visual early") == true)
-                #expect(submitter.transcripts.first?.contains("highlight the part") == true)
+                #expect(queuedTurn?.transcript.contains("labeled, interactive visual") == true)
+                #expect(queuedTurn?.transcript.contains("Show the visual early") == true)
+                #expect(queuedTurn?.transcript.contains("highlight the part") == true)
             }
+            manager.clearQueuedChatTurns()
             manager.stopWatchRuntime()
         }
     }
@@ -561,8 +565,12 @@ struct PaceScreenSuggestionIntegrationTests {
         manager.isWatchRuntimeStarted = true
         manager.watchForegroundApplicationIdentifierProvider = { "com.apple.Safari" }
         let submitter = Submitter()
-        let session = PaceChatSession(historySource: History(), transcriptSubmitter: submitter)
+        let client = PaceConversationRecorderTests.DismissalTTSClient()
+        manager.ttsClient = client
+        let history = History()
+        let session = PaceChatSession(historySource: history, transcriptSubmitter: submitter)
         manager.chatSession = session
+        manager.conversationRecorder = PaceConversationRecorder(persister: history, chatSession: session)
         let firstSuggestion = notificationSuggestion(observedAt: Date().addingTimeInterval(-20))
         let latestSuggestion = notificationSuggestion()
         for suggestion in [firstSuggestion, latestSuggestion] {
@@ -574,16 +582,80 @@ struct PaceScreenSuggestionIntegrationTests {
         manager.watchPlannerConsentProvider = { false }
         manager.handleScreenSuggestionNotificationAction(latestSuggestion, action: .explain)
         #expect(submitter.transcripts.isEmpty)
+        #expect(manager.chatTurnQueue.isEmpty)
+        #expect(session.userFacingMessages.filter { $0.role == .user }.isEmpty)
+        #expect(session.userFacingMessages.contains { $0.body.contains("I can’t open that explanation right now") })
         #expect(session.hasUnreadScreenSuggestion)
         manager.watchPlannerConsentProvider = { true }
         manager.watchForegroundApplicationIdentifierProvider = { "com.1password.1password" }
         manager.handleScreenSuggestionNotificationAction(latestSuggestion, action: .draw)
         #expect(submitter.transcripts.isEmpty)
+        #expect(session.userFacingMessages.filter { $0.body.contains("I can’t open that explanation right now") }.count == 1)
+        #expect(client.spokenTexts.isEmpty)
         #expect(session.hasUnreadScreenSuggestion)
         manager.handleScreenSuggestionNotificationAction(latestSuggestion, action: .dismiss)
         #expect(!session.hasUnreadScreenSuggestion)
         #expect(manager.isWatchModeEnabled)
         manager.stopWatchRuntime()
+    }
+
+    @Test func acceptedNotificationAndGenericFollowUpRetainTheirOwnQueuedAnchors() async throws {
+        let preferences = makeWatchDefaults()
+        let manager = makeWatchManager(defaults: preferences)
+        manager.isWatchModeEnabled = true
+        manager.isWatchRuntimeStarted = true
+        manager.watchForegroundApplicationIdentifierProvider = { "com.apple.Safari" }
+        manager.screenSuggestionNotification = PaceScreenSuggestionNotificationController(
+            presenter: NotificationPresenter()) { _, _ in }
+        let history = History()
+        let session = PaceChatSession(historySource: history,
+            transcriptSubmitter: PaceChatSessionSubmitterAdapter(owner: manager), preferences: preferences)
+        manager.chatSession = session
+        manager.conversationRecorder = PaceConversationRecorder(persister: history, chatSession: session)
+        let harness = PaceScreenSuggestionCoordinatorTests.Harness()
+        manager.screenSuggestionCoordinator = harness.coordinator
+        harness.coordinator.setEnabled(true)
+        harness.coordinator.observe(harness.observation())
+        for _ in 0..<1_000 {
+            if !harness.deliveries.isEmpty { break }
+            await Task.yield()
+        }
+        let latestSuggestion = try #require(harness.deliveries.first)
+        let clickedSuggestion = PaceScreenSuggestion(identifier: UUID(), subject: "Brayton cycle",
+            evidence: "Brayton cycle compression and expansion", offer: "Want to explore the Brayton cycle?",
+            sceneIdentity: latestSuggestion.sceneIdentity,
+            observedAt: latestSuggestion.observedAt, expiresAt: latestSuggestion.expiresAt)
+        manager.voiceState = .processing
+        defer {
+            manager.cancelActiveTurnTasks()
+            manager.clearQueuedChatTurns()
+            manager.stopWatchRuntime()
+        }
+        manager.handleScreenSuggestionNotificationAction(clickedSuggestion, action: .draw)
+        manager.submitChatTranscriptFromDeepLink("explain that")
+        manager.submitChatTranscriptFromDeepLink("what time is it")
+        let queuedTurns = manager.chatTurnQueue.pendingTurns
+        try #require(queuedTurns.count == 3)
+        #expect(queuedTurns[0].screenSuggestion == clickedSuggestion)
+        #expect(queuedTurns[1].screenSuggestion == latestSuggestion)
+        #expect(queuedTurns[2].screenSuggestion == nil)
+        harness.coordinator.invalidate(clearAnchor: true)
+        #expect(queuedTurns[0].screenSuggestion == clickedSuggestion)
+        #expect(queuedTurns[1].screenSuggestion == latestSuggestion)
+
+        manager.pendingTypedConversationEventIdentifier = queuedTurns[0].optimisticMessageIdentifier
+        manager.sendTranscriptToPlannerWithScreenshot(transcript: queuedTurns[0].transcript,
+            screenSuggestion: queuedTurns[0].screenSuggestion)
+        #expect(manager.activeConversationScreenSuggestion == clickedSuggestion)
+        let prompt = manager.transcriptWithScreenSuggestionContext(queuedTurns[0].transcript,
+            screenSuggestion: manager.activeConversationScreenSuggestion)
+        #expect(prompt.contains(clickedSuggestion.untrustedFollowUpContext))
+        #expect(!prompt.contains(latestSuggestion.evidence))
+        manager.sendTranscriptToPlannerWithScreenshot(transcript: "Continue the explanation", continuingAcceptedRequest: true)
+        #expect(manager.activeConversationScreenSuggestion == clickedSuggestion)
+        manager.cancelActiveTurnTasks()
+        #expect(manager.activeConversationScreenSuggestion == nil)
+        #expect(session.userFacingMessages.filter { $0.role == .user }.count == 3)
     }
 
     @Test func watchLifecycleDiscardsPopupWithoutClearingUnreadOrReplayingOnResume() {
@@ -784,6 +856,7 @@ struct PaceScreenSuggestionIntegrationTests {
         let session = PaceChatSession(historySource: history, transcriptSubmitter: Submitter(), preferences: preferences)
         manager.chatSession = session
         manager.conversationRecorder = PaceConversationRecorder(persister: history, chatSession: session)
+        manager.conversationRecorder = PaceConversationRecorder(persister: history, chatSession: session)
         let observedAt = Date()
         let scene = PaceScreenSceneIdentity(displayIdentifier: 1, applicationProcessIdentifier: 42,
             applicationBundleIdentifier: "com.apple.Safari")
@@ -803,9 +876,15 @@ struct PaceScreenSuggestionIntegrationTests {
         for _ in 0..<100 { await Task.yield() }
         #expect(coordinator.followUpContext(for: "yes") != nil)
         manager.beginConversationRequest("what time is it")
+        #expect(manager.activeConversationScreenSuggestion == nil)
         #expect(session.hasUnreadScreenSuggestion)
         manager.beginConversationRequest("yes")
         #expect(!session.hasUnreadScreenSuggestion)
+        #expect(manager.activeConversationScreenSuggestion == suggestion)
+        coordinator.invalidate(clearAnchor: true)
+        #expect(manager.activeConversationScreenSuggestion == suggestion)
+        manager.interruptConversationRequest()
+        #expect(manager.activeConversationScreenSuggestion == nil)
     }
 
     @Test func runtimeStopPreservesChoiceAndRepeatedStartOwnsOneObserverSet() {

@@ -7,13 +7,12 @@ nonisolated enum PaceScreenSuggestionNotificationAction: Equatable {
     case draw
     case dismiss
 
-    func request(for suggestion: PaceScreenSuggestion) -> String? {
-        let context = "Your offer was “\(suggestion.offer)”. The page said “\(suggestion.evidence)”."
+    func request(for _: PaceScreenSuggestion) -> String? {
         switch self {
         case .explain:
-            return "Please explain “\(suggestion.subject)” with a detailed, labeled, interactive visual and brief step-by-step narration. Show the visual early, highlight the part you are explaining, and reuse it as the explanation progresses. \(context)"
+            return "Please explain the offered subject with a detailed, labeled, interactive visual and brief step-by-step narration. Show the visual early, highlight the part you are explaining, and reuse it as the explanation progresses."
         case .draw:
-            return "Please draw a detailed, labeled, interactive diagram explaining “\(suggestion.subject)”. Use an illustrative figure suited to the topic, with selectable parts; use a rotatable 3D model for a physical object when useful. \(context)"
+            return "Please draw a detailed, labeled, interactive diagram explaining the offered subject. Use an illustrative figure suited to the topic, with selectable parts; use a rotatable 3D model for a physical object when useful."
         case .dismiss:
             return nil
         }

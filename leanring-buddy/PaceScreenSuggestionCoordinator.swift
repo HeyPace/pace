@@ -23,7 +23,7 @@ struct PaceScreenSuggestionVisualGate {
     }
 }
 
-nonisolated struct PaceScreenSuggestion {
+nonisolated struct PaceScreenSuggestion: Equatable, Sendable {
     let identifier: UUID
     let subject: String
     let evidence: String
@@ -267,7 +267,7 @@ final class PaceScreenSuggestionCoordinator {
         }
     }
 
-    func followUpContext(for transcript: String) -> String? {
+    func followUpSuggestion(for transcript: String) -> PaceScreenSuggestion? {
         guard isEnabled, let deliveredSuggestion,
               now().timeIntervalSince(deliveredSuggestion.observedAt) <= 300 else { return nil }
         let normalized = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
@@ -275,7 +275,11 @@ final class PaceScreenSuggestionCoordinator {
         let followUpPrefixes = ["explain", "draw", "diagram", "show", "tell me more", "help"]
         guard acknowledgements.contains(normalized)
             || followUpPrefixes.contains(where: { normalized == $0 || normalized.hasPrefix($0 + " ") }) else { return nil }
-        return deliveredSuggestion.untrustedFollowUpContext
+        return deliveredSuggestion
+    }
+
+    func followUpContext(for transcript: String) -> String? {
+        followUpSuggestion(for: transcript)?.untrustedFollowUpContext
     }
 
     func appendingFollowUpContext(to transcript: String) -> String {
