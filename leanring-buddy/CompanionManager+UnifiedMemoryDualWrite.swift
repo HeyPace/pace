@@ -21,14 +21,16 @@ extension CompanionManager {
         )
     }
 
-    /// Persist the whole index. Best-effort; the file is small for one
-    /// user and the store swallows any write failure. Also mirrors the
-    /// active subset into CoreSpotlight on every save so the system
-    /// search index stays consistent with what's actually persisted.
-    func persistUnifiedMemory() {
+    /// Persist the whole index atomically while limiting mirroring to the
+    /// changed sources. Passive screen history stays inside Pace because
+    /// system-index replicas cannot follow its source-clear privacy boundary.
+    func persistUnifiedMemory(sourceSubset: Set<PaceRetrievalSource>? = nil) {
         let allEntries = memoryIndex.allEntries()
         memoryStore.save(allEntries)
-        spotlightMemoryIndexer.syncMirror(toMatch: allEntries)
+        let entriesToMirror = allEntries.filter {
+            $0.source != .screenWatchHistory && (sourceSubset?.contains($0.source) ?? true)
+        }
+        if !entriesToMirror.isEmpty { spotlightMemoryIndexer.syncMirror(toMatch: entriesToMirror) }
     }
 
     /// Dual-write a completed conversation turn into the unified index.
@@ -107,7 +109,14 @@ extension CompanionManager {
         scheduleLazyEmbedding(entryIdsAndTextsToEmbed)
     }
 
-    func scheduleLazyEmbedding(_ entryIdsAndTexts: [(id: String, text: String)]) {
-        lazyEmbeddingScheduler.schedule(entryIdsAndTexts)
+    func scheduleLazyEmbedding(_ entryIdsAndTexts: [(id: String, text: String)],
+                               sourceSubset: Set<PaceRetrievalSource>? = nil) {
+        if let sourceSubset {
+            lazyEmbeddingScheduler.schedule(entryIdsAndTexts, onScheduledEmbeddingsPersisted: { [weak self] in
+                self?.persistUnifiedMemory(sourceSubset: sourceSubset)
+            })
+        } else {
+            lazyEmbeddingScheduler.schedule(entryIdsAndTexts)
+        }
     }
 }

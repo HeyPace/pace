@@ -45,12 +45,13 @@ final class PaceLazyEmbeddingScheduler {
     /// Returns immediately — the detached task does the work and
     /// writes its result back to the index when ready. The user-
     /// facing turn never waits on this.
-    func schedule(_ entryIdsAndTexts: [(id: String, text: String)]) {
+    func schedule(_ entryIdsAndTexts: [(id: String, text: String)],
+                  onScheduledEmbeddingsPersisted: (() -> Void)? = nil) {
         guard !entryIdsAndTexts.isEmpty else { return }
         let entryIds = entryIdsAndTexts.map { $0.id }
         let entryTexts = entryIdsAndTexts.map { $0.text }
         let memoryIndexReference = memoryIndex
-        let onPersistCallback = onEmbeddingsPersisted
+        let onPersistCallback = onScheduledEmbeddingsPersisted ?? onEmbeddingsPersisted
         let clientFactory = embeddingClientFactory
         Task.detached(priority: .utility) {
             let embeddingClient = clientFactory()

@@ -162,7 +162,7 @@ extension CompanionManager {
         return summary
     }
 
-    func refreshLocalRetrievalPublishedState() {
+    func refreshLocalRetrievalPublishedState(sourceSubset: Set<PaceRetrievalSource>? = nil) {
         let sourceStatuses = localRetriever.sourceStatuses
         localRetrievalSourceStatuses = sourceStatuses
         localRetrievalSummary = localRetrievalSummaryText(
@@ -171,7 +171,11 @@ extension CompanionManager {
         )
         // Trail connector changes into the unified index (debounced). This
         // only READS from the retriever, so it can't re-enter this method.
-        syncConnectorsIntoUnifiedMemoryIfDue()
+        if let sourceSubset {
+            syncConnectorsIntoUnifiedMemory(sourceSubset: sourceSubset)
+        } else {
+            syncConnectorsIntoUnifiedMemoryIfDue()
+        }
     }
 
     func addLocalRetrievalFileRootURLs(_ rootURLs: [URL]) {

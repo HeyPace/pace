@@ -17,20 +17,29 @@ final class PaceScreenWatchNoteCoordinator {
     private var epoch: UInt64 = 0
     private var lastAttemptAt: Date?
     private var recognitionTask: Task<Void, Never>?
+    private var hasReportedDelayedRecognition = false
+    private let onDelayedRecognition: () -> Void
 
     init(now: @escaping () -> Date = Date.init,
          isEligible: @escaping (PaceScreenWatchObservation) -> Bool,
          sourceRevision: @escaping () -> UInt64,
          recognizeText: @escaping (PaceScreenWatchObservation) async throws -> [RecognizedTextBox],
-         persist: @escaping (PaceScreenWatchObservation, String) -> Void) {
+         persist: @escaping (PaceScreenWatchObservation, String) -> Void,
+         onDelayedRecognition: @escaping () -> Void = {}) {
         self.now = now
         self.isEligible = isEligible
         self.sourceRevision = sourceRevision
         self.recognizeText = recognizeText
         self.persist = persist
+        self.onDelayedRecognition = onDelayedRecognition
     }
 
     func observe(_ observation: PaceScreenWatchObservation) {
+        if recognitionTask != nil, !hasReportedDelayedRecognition,
+           let lastAttemptAt, now().timeIntervalSince(lastAttemptAt) > 12 {
+            hasReportedDelayedRecognition = true
+            onDelayedRecognition()
+        }
         guard isEligible(observation) else { return }
         if currentScene != observation.sceneIdentity {
             invalidate()
@@ -56,6 +65,7 @@ final class PaceScreenWatchNoteCoordinator {
               lastAttemptAt.map({ now().timeIntervalSince($0) >= 30 }) ?? true else { return }
         self.pendingObservation = nil
         lastAttemptAt = now()
+        hasReportedDelayedRecognition = false
         let attemptEpoch = epoch
         let observation = pendingObservation.observation
         recognitionTask = Task { [weak self] in
@@ -85,6 +95,12 @@ final class PaceScreenWatchNoteCoordinator {
 
 nonisolated enum PaceScreenWatchNoteText {
     static func excerpt(from boxes: [RecognizedTextBox], screenshotHeightInPixels: Int) -> String? {
+        let hasSensitiveLabel = boxes.contains { box in
+            box.text.components(separatedBy: .newlines).contains {
+                PaceScreenSuggestionBoundary.redactedOCR($0).contains(PaceScreenSuggestionBoundary.sensitiveLineRedactionMarker)
+            }
+        }
+        guard !hasSensitiveLabel else { return nil }
         let positionedBoxes = boxes.filter { $0.pixelBoundingBox.count == 4 && !$0.text.isEmpty }
         // Exclude the menu/tab/address strip only when a useful body exists.
         // Geometry is deliberately conservative and makes no claim about tasks.
@@ -103,8 +119,7 @@ nonisolated enum PaceScreenWatchNoteText {
         }
         let redactedText = PaceScreenSuggestionBoundary.redactedOCR(orderedBoxes.map(\.text).joined(separator: "\n"))
         let meaningfulLines = redactedText.components(separatedBy: .newlines).filter {
-            let visibleText = $0.replacingOccurrences(of: "[private text redacted]", with: "")
-                .replacingOccurrences(of: "[redacted]", with: "")
+            let visibleText = $0.replacingOccurrences(of: "[redacted]", with: "")
             return visibleText.contains(where: { $0.isLetter || $0.isNumber })
         }
         let collapsedText = meaningfulLines.joined(separator: " ").split(whereSeparator: \.isWhitespace).joined(separator: " ")

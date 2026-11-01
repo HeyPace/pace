@@ -76,7 +76,7 @@ extension CompanionManager {
             isEligible: { [weak self] observation in
                 self?.screenWatchNoteCaptureAllowed(observation) ?? false
             },
-            sourceRevision: { [weak self] in self?.localRetriever.screenWatchHistoryRevision ?? 0 },
+            sourceRevision: { [weak self] in self?.localRetriever.screenWatchHistoryAccessGeneration ?? 0 },
             recognizeText: { [weak self] observation in
                 guard let self else { return [] }
                 return try await visionOCRClient.recognizeText(in: observation.capture.imageData,
@@ -84,19 +84,26 @@ extension CompanionManager {
                     screenshotHeightInPixels: observation.capture.screenshotHeightInPixels)
             },
             persist: { [weak self] observation, excerpt in
-                guard let self else { return }
-                localRetriever.recordScreenWatchObservation(screenLabel: observation.capture.label,
-                    categoryDisplayName: "observed screen text",
-                    frontmostApplicationName: observation.applicationDisplayName ?? observation.sceneIdentity.applicationBundleIdentifier,
-                    screenDescription: excerpt, now: observation.observedAt)
-                // Retention evictions must reach recall in the same synchronous write.
-                syncConnectorsIntoUnifiedMemory()
-                refreshLocalRetrievalPublishedState()
+                _ = self?.persistScreenWatchNote(observation, excerpt: excerpt)
+            },
+            onDelayedRecognition: {
                 PaceAPIAuditLog.shared.record(subsystem: "screen", operation: "screen_watch_note",
-                    target: "local_screen_history", durationMilliseconds: 0, outcome: "processed",
-                    inputCharacterCount: excerpt.count)
+                    target: "local_screen_history", durationMilliseconds: 0, outcome: "ocr_delayed")
             }
         )
+    }
+
+    @discardableResult
+    func persistScreenWatchNote(_ observation: PaceScreenWatchObservation, excerpt: String) -> Bool {
+        guard localRetriever.recordScreenWatchObservation(screenLabel: observation.capture.label,
+            categoryDisplayName: "observed screen text",
+            frontmostApplicationName: observation.applicationDisplayName ?? observation.sceneIdentity.applicationBundleIdentifier,
+            screenDescription: excerpt, now: observation.observedAt) else { return false }
+        refreshLocalRetrievalPublishedState(sourceSubset: [.screenWatchHistory])
+        PaceAPIAuditLog.shared.record(subsystem: "screen", operation: "screen_watch_note",
+            target: "local_screen_history", durationMilliseconds: 0, outcome: "stored",
+            inputCharacterCount: excerpt.count)
+        return true
     }
 
     func screenWatchNoteCaptureAllowed(_ observation: PaceScreenWatchObservation) -> Bool {
@@ -475,13 +482,13 @@ extension CompanionManager {
             }
             watchWorkspaceLifecycleObservers.append(observer)
         }
-        activeCallDetector.$isOnActiveCall.dropFirst().sink { [weak self] _ in
+        activeCallDetector.$isOnActiveCall.removeDuplicates().dropFirst().sink { [weak self] _ in
             self?.screenWatchNoteCoordinator.invalidate()
         }.store(in: &watchPrivacySubscriptions)
-        focusModeMonitor.$isCurrentlyInUserFocus.dropFirst().sink { [weak self] _ in
+        focusModeMonitor.$isCurrentlyInUserFocus.removeDuplicates().dropFirst().sink { [weak self] _ in
             self?.screenWatchNoteCoordinator.invalidate()
         }.store(in: &watchPrivacySubscriptions)
-        thermalStateAdvisor.$currentRecommendation.dropFirst().sink { [weak self] _ in
+        thermalStateAdvisor.$currentRecommendation.removeDuplicates().dropFirst().sink { [weak self] _ in
             self?.screenWatchNoteCoordinator.invalidate()
         }.store(in: &watchPrivacySubscriptions)
         let workspaceEvents: [(Notification.Name, PaceScreenWatchPauseReason, Bool)] = [

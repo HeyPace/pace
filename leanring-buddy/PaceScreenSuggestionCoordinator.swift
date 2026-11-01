@@ -74,10 +74,12 @@ nonisolated enum PaceScreenSuggestionBoundary {
     Do not infer user facts. Do not include markup, tags, actions, tools, coordinates or additional keys.
     """
 
+    static let sensitiveLineRedactionMarker = "[private text redacted]"
+
     static func redactedOCR(_ text: String) -> String {
         let sensitiveLinePattern = #"(?i)(password|passphrase|secret|api[ _-]?key|access[ _-]?token|authorization|bearer|private[ _-]?key|recovery[ _-]?code|credit[ _-]?card|verification[ _-]?code|one[ -]?time[ -]?(code|password)|\botp\b)"#
         let cleanedLines = text.components(separatedBy: .newlines).map { line in
-            line.range(of: sensitiveLinePattern, options: .regularExpression) == nil ? line : "[private text redacted]"
+            line.range(of: sensitiveLinePattern, options: .regularExpression) == nil ? line : sensitiveLineRedactionMarker
         }
         var cleanedText = cleanedLines.joined(separator: "\n")
         for pattern in [#"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#,

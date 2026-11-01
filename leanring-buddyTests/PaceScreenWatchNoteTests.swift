@@ -1,4 +1,5 @@
 import AppKit
+import CoreSpotlight
 import Foundation
 import Testing
 @testable import Pace
@@ -13,13 +14,15 @@ struct PaceScreenWatchNoteCoordinatorTests {
         var recognitionTexts: [String] = []
         var activeRecognitions = 0
         var maximumActiveRecognitions = 0
+        var delayedRecognitions = 0
+        var recognitionBoxes: [RecognizedTextBox]?
         var continuation: CheckedContinuation<[RecognizedTextBox], Error>?
         let retriever = PaceLocalRetriever(store: PaceInMemoryRetrievalStore(), appliesPersistedSourcePreferences: false)
         let scene = PaceScreenSceneIdentity(displayIdentifier: 1, applicationProcessIdentifier: 42,
             applicationBundleIdentifier: "com.apple.Safari")
         lazy var coordinator = PaceScreenWatchNoteCoordinator(now: { self.now },
             isEligible: { _ in self.eligible && self.retriever.isSourceEnabled(.screenWatchHistory) },
-            sourceRevision: { self.retriever.screenWatchHistoryRevision },
+            sourceRevision: { self.retriever.screenWatchHistoryAccessGeneration },
             recognizeText: { observation in
                 let text = String(decoding: observation.capture.imageData, as: UTF8.self)
                 self.recognitionTexts.append(text)
@@ -30,13 +33,13 @@ struct PaceScreenWatchNoteCoordinatorTests {
                 if self.holdRecognition {
                     return try await withCheckedThrowingContinuation { self.continuation = $0 }
                 }
-                return [RecognizedTextBox(text: text, pixelBoundingBox: [20, 200, 500, 25])]
+                return self.recognitionBoxes ?? [RecognizedTextBox(text: text, pixelBoundingBox: [20, 200, 500, 25])]
             },
             persist: { observation, excerpt in
                 self.retriever.recordScreenWatchObservation(screenLabel: observation.capture.label,
                     categoryDisplayName: "observed screen text", frontmostApplicationName: observation.applicationDisplayName,
                     screenDescription: excerpt, now: observation.observedAt)
-            })
+            }, onDelayedRecognition: { self.delayedRecognitions += 1 })
 
         var documents: [PaceRetrievalDocument] { retriever.documents(forSource: .screenWatchHistory) }
 
@@ -231,13 +234,85 @@ struct PaceScreenWatchNoteCoordinatorTests {
         }
     }
 
+    @Test func unchangedCallPollsDoNotCancelOCRButRealCallTransitionsRevokeIt() async {
+        let harness = Harness()
+        let manager = CompanionManager(watchModeDefaults: UserDefaults(suiteName: "PaceQuietWatch-\(UUID())")!)
+        manager.screenWatchNoteCoordinator = harness.coordinator
+        var callApplications: Set<String> = []
+        manager.activeCallDetector = PaceActiveCallDetector(runningApplicationBundleIdentifiersProvider: { callApplications })
+        manager.installWatchLifecycleObservers()
+        defer { manager.stopWatchRuntime() }
+        harness.holdRecognition = true
+        harness.coordinator.observe(harness.observation(text: "Initial visible engine research"))
+        await settle()
+        for _ in 0..<5 {
+            manager.activeCallDetector.recomputeForTesting()
+            manager.thermalStateAdvisor.applyThermalStateForTesting(.nominal)
+        }
+        harness.finish(text: "Initial visible engine research")
+        await settle()
+        #expect(harness.documents.first?.text.contains("Initial visible engine research") == true)
+        harness.now = harness.now.addingTimeInterval(30)
+        harness.coordinator.observe(harness.observation(text: "Later visible engine research"))
+        await settle()
+        callApplications = ["us.zoom.xos"]
+        manager.activeCallDetector.recomputeForTesting()
+        callApplications = []
+        manager.activeCallDetector.recomputeForTesting()
+        harness.finish(text: "Later visible engine research")
+        await settle()
+        #expect(harness.documents.first?.text.contains("Later visible engine research") == false)
+    }
+
+    @Test func delayedOCRReportsOnceWithoutReleasingItsOccupiedSlot() async {
+        let harness = Harness()
+        harness.holdRecognition = true
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        for elapsedSeconds in 13...40 {
+            harness.now = Date(timeIntervalSince1970: 1_800_000_000 + Double(elapsedSeconds))
+            harness.coordinator.observe(harness.observation(text: "Latest visible engine research \(elapsedSeconds)"))
+        }
+        #expect(harness.delayedRecognitions == 1)
+        #expect(harness.recognitionTexts.count == 1)
+        #expect(harness.activeRecognitions == 1)
+        harness.holdRecognition = false
+        harness.finish()
+        await settle()
+        #expect(harness.maximumActiveRecognitions == 1)
+        #expect(harness.recognitionTexts.count == 2)
+        #expect(harness.delayedRecognitions == 1)
+        #expect(harness.documents.first?.text.contains("Latest visible engine research 40") == true)
+    }
+
+    @Test func separatedSensitiveLabelAndValueRejectEntirePersistedNote() async {
+        let harness = Harness()
+        harness.recognitionBoxes = [
+            RecognizedTextBox(text: "Recovery code", pixelBoundingBox: [10, 10, 100, 20]),
+            RecognizedTextBox(text: "example-value", pixelBoundingBox: [20, 200, 300, 20]),
+            RecognizedTextBox(text: "An ordinary useful paragraph about jet engines", pixelBoundingBox: [20, 240, 500, 20])
+        ]
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        #expect(harness.documents.isEmpty)
+        harness.now = harness.now.addingTimeInterval(30)
+        harness.recognitionBoxes = [RecognizedTextBox(text: "Jet engine notes contact example@example.invalid", pixelBoundingBox: [20, 200, 500, 20])]
+        harness.coordinator.observe(harness.observation())
+        await settle()
+        #expect(harness.documents.first?.text.contains("Jet engine notes contact [redacted]") == true)
+        #expect(harness.documents.first?.text.contains("example@example.invalid") == false)
+    }
+
     @Test func deterministicBodyExcerptRedactsSensitiveTextAndSkipsBlankOrPrivateOnlyScreens() {
         let boxes = [RecognizedTextBox(text: "File Edit View chrome", pixelBoundingBox: [0, 10, 100, 20]),
             RecognizedTextBox(text: "Second useful paragraph about turbines", pixelBoundingBox: [20, 240, 300, 20]),
             RecognizedTextBox(text: "password: do-not-store-me", pixelBoundingBox: [20, 220, 300, 20]),
             RecognizedTextBox(text: "First useful paragraph about bypass", pixelBoundingBox: [20, 200, 300, 20])]
         let excerpt = PaceScreenWatchNoteText.excerpt(from: boxes, screenshotHeightInPixels: 1000)
-        #expect(excerpt == "First useful paragraph about bypass Second useful paragraph about turbines")
+        #expect(excerpt == nil)
+        let ordinaryBoxes = boxes.filter { !$0.text.hasPrefix("password:") }
+        #expect(PaceScreenWatchNoteText.excerpt(from: ordinaryBoxes, screenshotHeightInPixels: 1000)
+            == "First useful paragraph about bypass Second useful paragraph about turbines")
         #expect(PaceScreenWatchNoteText.excerpt(from: [], screenshotHeightInPixels: 1000) == nil)
         #expect(PaceScreenWatchNoteText.excerpt(from: [RecognizedTextBox(text: "api key: sk-private", pixelBoundingBox: [0, 200, 100, 20])], screenshotHeightInPixels: 1000) == nil)
         let longExcerpt = PaceScreenWatchNoteText.excerpt(from: [RecognizedTextBox(text: String(repeating: "visible words ", count: 100), pixelBoundingBox: [0, 200, 100, 20])], screenshotHeightInPixels: 1000)
@@ -345,7 +420,7 @@ struct PaceScreenWatchNoteRecallTests {
             index.upsert(entry)
             let retriever = PaceMemoryRetriever(memoryIndex: index, embeddingClient: embedding,
                 shouldInjectSensitiveTopics: { true }, isSourceEnabled: { local.isSourceEnabled($0) },
-                screenWatchHistoryRevision: { local.screenWatchHistoryRevision })
+                screenWatchHistoryAccessGeneration: { local.screenWatchHistoryAccessGeneration })
             let recall = Task { await retriever.assembleContextBlock(forQuery: "Turbofan bypass", excludingEntryIds: [], maxEntries: 4, now: now) }
             await settle()
             #expect(embedding.continuation != nil)
@@ -354,6 +429,7 @@ struct PaceScreenWatchNoteRecallTests {
             } else if mutation == "replaced" {
                 var replacement = entry
                 replacement.text = "Replacement history has no old evidence"
+                local.replaceDocuments([], forSource: .screenWatchHistory)
                 index.upsert(replacement)
             } else {
                 local.setSourceEnabled(false, for: .screenWatchHistory)
@@ -382,6 +458,131 @@ struct PaceScreenWatchNoteRecallTests {
         record("Fresh compressor research after clear", in: retriever, now: now.addingTimeInterval(30))
         #expect(retriever.documents(forSource: .screenWatchHistory).first?.text.contains("old evidence") == false)
         #expect(retriever.localContextBlock(for: PaceRetrievalQuery(text: "old evidence")) == nil)
+    }
+
+    @Test func passiveScreenNotesNeverEnterSpotlightWhileOtherMemoriesStillDo() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let document = PaceRetrievalDocument(id: "screen-note", source: .screenWatchHistory,
+            title: "observed screen text", text: "Visible jet engine research", modifiedAt: now)
+        let screenEntry = memoryEntry(document)
+        let ordinaryEntry = PaceMemoryEntry(id: "ordinary-memory", kind: .journalEvent, text: "Existing allowed note",
+            structured: nil, source: .notes, createdAt: now, updatedAt: now, embedding: nil,
+            confidence: nil, topicTags: [], tombstonedAt: nil)
+        let items = PaceSpotlightMemoryIndexer.buildSearchableItems(fromActiveEntries: [screenEntry, ordinaryEntry],
+            domainIdentifier: "pace-quiet-notes-test")
+        #expect(items.map(\.uniqueIdentifier) == ["ordinary-memory"])
+    }
+
+    @Test func duplicateNotesSkipProjectionAndChangedNotesOnlySynchronizeScreenHistory() {
+        let harness = PaceScreenWatchNoteCoordinatorTests.Harness()
+        let manager = CompanionManager(watchModeDefaults: UserDefaults(suiteName: "PaceQuietWatch-\(UUID())")!)
+        manager.localRetriever = harness.retriever
+        let unrelatedDocument = PaceRetrievalDocument(id: "unrelated-notes", source: .notes,
+            title: "local notes", text: "New connector text waiting for its normal sync")
+        harness.retriever.upsertDocuments([unrelatedDocument])
+        var unrelatedEntry = memoryEntry(PaceRetrievalDocument(id: "unrelated-notes", source: .screenWatchHistory,
+            title: "curated notes", text: "Existing unrelated unified text", modifiedAt: harness.now))
+        unrelatedEntry.source = .notes
+        manager.memoryIndex.upsert(unrelatedEntry)
+        var embeddingBatches: [[String]] = []
+        manager.unifiedMemoryConnectorSyncEffects = { entries in embeddingBatches.append(entries.map(\.id)) }
+        let observation = harness.observation()
+        #expect(manager.persistScreenWatchNote(observation, excerpt: "Turbofan bypass visible research"))
+        let journalIdentifier = harness.documents.first?.id
+        #expect(embeddingBatches.count == 1)
+        #expect(embeddingBatches.first == journalIdentifier.map { [$0] })
+        #expect(manager.memoryIndex.entry(id: unrelatedEntry.id) == unrelatedEntry)
+        #expect(manager.lastUnifiedMemoryConnectorSyncAt == nil)
+        harness.now = harness.now.addingTimeInterval(30)
+        #expect(!manager.persistScreenWatchNote(harness.observation(), excerpt: "Turbofan bypass visible research"))
+        #expect(embeddingBatches.count == 1)
+        #expect(manager.memoryIndex.entry(id: unrelatedEntry.id) == unrelatedEntry)
+        #expect(manager.lastUnifiedMemoryConnectorSyncAt == nil)
+    }
+
+    @Test func duplicateAfterRehydrationStillProjectsActualRetentionEvictions() throws {
+        let harness = PaceScreenWatchNoteCoordinatorTests.Harness()
+        let manager = CompanionManager(watchModeDefaults: UserDefaults(suiteName: "PaceQuietWatch-\(UUID())")!)
+        var persistedDocuments: [PaceRetrievalDocument] = []
+        let excerpt = "Turbofan bypass visible research"
+        for dayOffset in 0..<8 {
+            let observedAt = harness.now.addingTimeInterval(-Double(dayOffset) * 86_400 * 14)
+            var journal = PaceScreenWatchJournal(rehydratingFrom: [], now: observedAt)
+            let document = try #require(journal.record(PaceScreenWatchJournalEntry(recordedAt: observedAt,
+                screenLabel: "primary focus", categoryDisplayName: "observed screen text",
+                frontmostApplicationName: "Captured Safari", screenDescription: excerpt)))
+            persistedDocuments.append(document)
+            manager.memoryIndex.upsert(memoryEntry(document))
+        }
+        harness.retriever.upsertDocuments(persistedDocuments)
+        manager.localRetriever = harness.retriever
+        let generationBeforeWrite = harness.retriever.screenWatchHistoryAccessGeneration
+        var syncCount = 0
+        manager.unifiedMemoryConnectorSyncEffects = { _ in syncCount += 1 }
+        let evictedIdentifier = try #require(persistedDocuments.last?.id)
+        #expect(manager.persistScreenWatchNote(harness.observation(), excerpt: excerpt))
+        #expect(harness.documents.count == 7)
+        #expect(harness.documents.first(where: { $0.id == persistedDocuments[0].id })?.text == persistedDocuments[0].text)
+        #expect(manager.memoryIndex.entry(id: evictedIdentifier) == nil)
+        #expect(harness.retriever.screenWatchHistoryAccessGeneration == generationBeforeWrite)
+        #expect(syncCount == 1)
+        #expect(!manager.persistScreenWatchNote(harness.observation(), excerpt: excerpt))
+        #expect(syncCount == 1)
+    }
+
+    @Test func appendDuringEmbeddingRetainsCurrentPermittedEvidenceInBothRecallPaths() async throws {
+        for route in ["lexical", "unified"] {
+            let embedding = HeldEmbedding()
+            let local = PaceLocalRetriever(store: PaceInMemoryRetrievalStore(), appliesPersistedSourcePreferences: false, embeddingClient: embedding)
+            let now = Date(timeIntervalSince1970: 1_800_000_000)
+            var journal = PaceScreenWatchJournal(rehydratingFrom: [], now: now)
+            for dayOffset in 0..<2 {
+                _ = journal.record(PaceScreenWatchJournalEntry(recordedAt: now.addingTimeInterval(-Double(dayOffset) * 86_400),
+                    screenLabel: "primary focus", categoryDisplayName: "observed screen text",
+                    frontmostApplicationName: "Safari", screenDescription: "Turbofan bypass original visible research"))
+            }
+            let documents = journal.allDocuments(now: now)
+            local.upsertDocuments(documents)
+            let generationBeforeAppend = local.screenWatchHistoryAccessGeneration
+            let index = PaceMemoryIndex()
+            for document in documents { index.upsert(memoryEntry(document)) }
+            let unified = PaceMemoryRetriever(memoryIndex: index, embeddingClient: embedding,
+                shouldInjectSensitiveTopics: { true }, isSourceEnabled: { local.isSourceEnabled($0) },
+                screenWatchHistoryAccessGeneration: { local.screenWatchHistoryAccessGeneration })
+            let recall = Task {
+                if route == "lexical" {
+                    return await local.rerankedLocalContextBlock(for: PaceRetrievalQuery(text: "Turbofan bypass"))
+                }
+                return await unified.assembleContextBlock(forQuery: "Turbofan bypass", excludingEntryIds: [], maxEntries: 4, now: now)
+            }
+            await settle()
+            #expect(embedding.continuation != nil)
+            record("Turbofan bypass newly observed permitted evidence", in: local, now: now.addingTimeInterval(30))
+            for document in local.documents(forSource: .screenWatchHistory) { index.upsert(memoryEntry(document)) }
+            #expect(local.screenWatchHistoryAccessGeneration == generationBeforeAppend)
+            embedding.finish()
+            let block = await recall.value
+            #expect(block?.contains("newly observed permitted evidence") == true)
+            #expect(block?.contains("untrusted observed quoted text") == true)
+        }
+    }
+
+    @Test func evictedHistoryCannotReturnThroughOldLexicalMatchesDuringEmbedding() async throws {
+        let embedding = HeldEmbedding()
+        let local = PaceLocalRetriever(store: PaceInMemoryRetrievalStore(), appliesPersistedSourcePreferences: false, embeddingClient: embedding)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        record("Turbofan bypass oldest visible evidence", in: local, now: now.addingTimeInterval(-86_400 * 6))
+        record("Turbofan bypass newest visible evidence", in: local, now: now)
+        let recall = Task { await local.rerankedLocalContextBlock(for: PaceRetrievalQuery(text: "Turbofan bypass")) }
+        await settle()
+        #expect(embedding.continuation != nil)
+        for dayOffset in 1..<7 {
+            record("Later compressor research activity date \(dayOffset)", in: local, now: now.addingTimeInterval(Double(dayOffset) * 86_400))
+        }
+        embedding.finish()
+        let block = await recall.value
+        #expect(block?.contains("oldest visible evidence") == false)
+        #expect(block?.contains("newest visible evidence") == true)
     }
 
     @Test func sourceReplacementPersistsOneCompleteSnapshotAndRemovesEvictedChunks() throws {

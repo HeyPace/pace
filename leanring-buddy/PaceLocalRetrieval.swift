@@ -885,7 +885,7 @@ final class PaceLocalRetriever: PaceRetriever {
     private let appliesPersistedSourcePreferences: Bool
     private(set) var lastQueryDurationMilliseconds: Int?
     private var screenWatchJournal: PaceScreenWatchJournal?
-    private(set) var screenWatchHistoryRevision: UInt64 = 0
+    private(set) var screenWatchHistoryAccessGeneration: UInt64 = 0
     private var meetingNotesJournal: PaceMeetingNotesJournal?
     private var researchJournal: PaceResearchJournal?
 
@@ -983,19 +983,20 @@ final class PaceLocalRetriever: PaceRetriever {
     }
 
     private func invalidateScreenWatchJournal() {
-        screenWatchHistoryRevision &+= 1
+        screenWatchHistoryAccessGeneration &+= 1
         screenWatchJournal = nil
     }
 
     /// Stores locally redacted observed screen text, without invoking a planner.
+    @discardableResult
     func recordScreenWatchObservation(
         screenLabel: String,
         categoryDisplayName: String,
         frontmostApplicationName: String?,
         screenDescription: String?,
         now: Date = Date()
-    ) {
-        guard isSourceEnabled(.screenWatchHistory) else { return }
+    ) -> Bool {
+        guard isSourceEnabled(.screenWatchHistory) else { return false }
         var journal = screenWatchJournal ?? rehydratedScreenWatchJournal(now: now)
         let changedDocument = journal.record(
             PaceScreenWatchJournalEntry(
@@ -1005,21 +1006,19 @@ final class PaceLocalRetriever: PaceRetriever {
             frontmostApplicationName: frontmostApplicationName,
             screenDescription: screenDescription
         ))
+        let currentDocuments = journal.allDocuments(now: now)
         screenWatchJournal = journal
-        if changedDocument != nil {
-            screenWatchHistoryRevision &+= 1
-            store.replaceDocuments(journal.allDocuments(now: now), forSource: .screenWatchHistory)
+        let persistedDocuments = store.documents(withSource: .screenWatchHistory)
+        guard changedDocument != nil || currentDocuments.sorted(by: { $0.id < $1.id }) != persistedDocuments.sorted(by: { $0.id < $1.id }) else {
+            return false
         }
+        store.replaceDocuments(currentDocuments, forSource: .screenWatchHistory)
+        return true
     }
 
     /// Rehydrates the same persisted journal used for every accepted write.
     private func rehydratedScreenWatchJournal(now: Date) -> PaceScreenWatchJournal {
-        var journal = PaceScreenWatchJournal(
-            rehydratingFrom: store.documents(withSource: .screenWatchHistory),
-            now: now
-        )
-        replaceDocuments(journal.allDocuments(now: now), forSource: .screenWatchHistory)
-        return journal
+        PaceScreenWatchJournal(rehydratingFrom: store.documents(withSource: .screenWatchHistory), now: now)
     }
 
     /// Journals synthesized meeting notes so "what did we decide in
@@ -1183,7 +1182,7 @@ final class PaceLocalRetriever: PaceRetriever {
     /// the plain lexical order — never worse than `localContextBlock`.
     func rerankedLocalContextBlock(for query: PaceRetrievalQuery) async -> String? {
         let retrievalStartedAt = Date()
-        let screenHistoryRevisionAtStart = screenWatchHistoryRevision
+        let screenHistoryAccessGenerationAtStart = screenWatchHistoryAccessGeneration
         let candidateMatches = lexicalCandidateMatches(for: query)
         guard !candidateMatches.isEmpty else {
             return composeContextBlock(from: [], startedAt: retrievalStartedAt)
@@ -1195,7 +1194,7 @@ final class PaceLocalRetriever: PaceRetriever {
         )
         let currentMatches = rerankedMatches.filter {
             $0.source != .screenWatchHistory || (isSourceEnabled(.screenWatchHistory)
-                && screenHistoryRevisionAtStart == screenWatchHistoryRevision)
+                && screenHistoryAccessGenerationAtStart == screenWatchHistoryAccessGeneration)
         }
         let matches = selectMatches(from: currentMatches, limit: query.maximumResultCount)
         return composeContextBlock(from: matches, startedAt: retrievalStartedAt, queryText: query.text)
@@ -1333,10 +1332,11 @@ final class PaceLocalRetriever: PaceRetriever {
         for (index, match) in matches.enumerated() {
             let line: String
             if match.source == .screenWatchHistory {
-                guard isSourceEnabled(.screenWatchHistory) else { continue }
+                guard isSourceEnabled(.screenWatchHistory),
+                      let currentDocument = store.documents(withSource: .screenWatchHistory).first(where: { $0.id == match.documentId }) else { continue }
                 line = "\(index + 1). " + PaceScreenWatchRecallEvidence.render(
-                    text: store.documents(withSource: .screenWatchHistory).first(where: { $0.id == match.documentId })?.text ?? match.excerpt,
-                    fallbackDate: match.modifiedAt, query: queryText, maximumCharacters: 500)
+                    text: currentDocument.text,
+                    fallbackDate: currentDocument.modifiedAt, query: queryText, maximumCharacters: 500)
             } else {
                 line = "\(index + 1). \(match.source.displayName): \(match.title): \"\(match.excerpt)\""
             }

@@ -26,20 +26,20 @@ final class PaceMemoryRetriever {
     /// init.
     private let shouldInjectSensitiveTopics: () -> Bool
     private let isSourceEnabled: (PaceRetrievalSource) -> Bool
-    private let screenWatchHistoryRevision: () -> UInt64
+    private let screenWatchHistoryAccessGeneration: () -> UInt64
 
     init(
         memoryIndex: PaceMemoryIndex,
         embeddingClient: any PaceTextEmbedding,
         shouldInjectSensitiveTopics: @escaping () -> Bool,
         isSourceEnabled: @escaping (PaceRetrievalSource) -> Bool = PaceRetrievalSourcePreferences.isEnabled,
-        screenWatchHistoryRevision: @escaping () -> UInt64 = { 0 }
+        screenWatchHistoryAccessGeneration: @escaping () -> UInt64 = { 0 }
     ) {
         self.memoryIndex = memoryIndex
         self.embeddingClient = embeddingClient
         self.shouldInjectSensitiveTopics = shouldInjectSensitiveTopics
         self.isSourceEnabled = isSourceEnabled
-        self.screenWatchHistoryRevision = screenWatchHistoryRevision
+        self.screenWatchHistoryAccessGeneration = screenWatchHistoryAccessGeneration
     }
 
     /// Assembles the recall context block for `query`, or nil when there is
@@ -68,7 +68,7 @@ final class PaceMemoryRetriever {
         // drops) still leaves up to `maxEntries` survivors.
         let overFetchCount = maxEntries + excludingEntryIds.count + 8
 
-        let screenHistoryRevisionAtStart = screenWatchHistoryRevision()
+        let screenHistoryAccessGenerationAtStart = screenWatchHistoryAccessGeneration()
         let keywordRankedEntries = memoryIndex.rankByKeywordSimilarity(
             toQuery: trimmedQuery,
             topN: overFetchCount
@@ -91,11 +91,12 @@ final class PaceMemoryRetriever {
         }
 
         return filteredContextBlock(
-            fromRankedEntries: rankedEntries.filter { entry in
-                guard entry.source == .screenWatchHistory else { return true }
-                guard screenHistoryRevisionAtStart == screenWatchHistoryRevision(),
-                      let currentEntry = memoryIndex.entry(id: entry.id), currentEntry.isActive else { return false }
-                return currentEntry.text == entry.text && currentEntry.updatedAt == entry.updatedAt
+            fromRankedEntries: rankedEntries.compactMap { entry in
+                guard entry.source == .screenWatchHistory else { return entry }
+                guard screenHistoryAccessGenerationAtStart == screenWatchHistoryAccessGeneration(),
+                      let currentEntry = memoryIndex.entry(id: entry.id), currentEntry.isActive,
+                      currentEntry.source == .screenWatchHistory else { return nil }
+                return currentEntry
             },
             excludingEntryIds: excludingEntryIds,
             maxEntries: maxEntries,

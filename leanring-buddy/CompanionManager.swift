@@ -727,7 +727,7 @@ final class CompanionManager: ObservableObject {
             PaceUserPreferencesStore.bool(.injectSensitiveEpisodicTopics, default: false)
         },
         isSourceEnabled: { [weak self] source in self?.localRetriever.isSourceEnabled(source) ?? false },
-        screenWatchHistoryRevision: { [weak self] in self?.localRetriever.screenWatchHistoryRevision ?? 0 }
+        screenWatchHistoryAccessGeneration: { [weak self] in self?.localRetriever.screenWatchHistoryAccessGeneration ?? 0 }
     )
 
     /// Off-hot-path embedding scheduler — extracted into its own
@@ -743,6 +743,7 @@ final class CompanionManager: ObservableObject {
     /// Throttle so the connector resync runs at most once a minute even
     /// though `refreshLocalRetrievalPublishedState()` fires after every
     /// retrieval write.
+    var unifiedMemoryConnectorSyncEffects: (([(id: String, text: String)]) -> Void)?
     var lastUnifiedMemoryConnectorSyncAt: Date?
     static let unifiedMemoryConnectorSyncMinimumInterval: TimeInterval = 60
 

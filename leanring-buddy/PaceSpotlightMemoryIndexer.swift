@@ -65,7 +65,7 @@ final class PaceSpotlightMemoryIndexer {
         domainIdentifier: String
     ) -> [CSSearchableItem] {
         return entries.compactMap { entry in
-            guard entry.isActive else { return nil }
+            guard entry.isActive, entry.source != .screenWatchHistory else { return nil }
             return buildSearchableItem(forEntry: entry, domainIdentifier: domainIdentifier)
         }
     }
