@@ -172,7 +172,7 @@ struct PaceScreenSuggestionNotificationView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
             HStack(spacing: 9) {
-                PaceBrandMark().foregroundStyle(Color(red: 0.75, green: 0.84, blue: 1))
+                PaceBrandMark().foregroundStyle(.white.opacity(0.94))
                     .frame(width: 25, height: 25)
                     .padding(5)
                     .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 9))
@@ -207,7 +207,7 @@ struct PaceScreenSuggestionNotificationView: View {
         .padding(18)
         .frame(width: 360, alignment: .leading)
         .foregroundStyle(.white.opacity(0.94))
-        .background(Color(red: 0.098, green: 0.11, blue: 0.137), in: RoundedRectangle(cornerRadius: 16))
+        .background(Color.black, in: RoundedRectangle(cornerRadius: 16))
         .overlay { RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.15), lineWidth: 1) }
         .colorScheme(.dark)
         .accessibilityElement(children: .contain)
@@ -239,8 +239,9 @@ private struct PaceSuggestionNotificationButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .foregroundStyle(isPrimary ? Color(red: 0.12, green: 0.17, blue: 0.24) : .white.opacity(isHovered ? 0.95 : 0.65))
+                .foregroundStyle(.white.opacity(isPrimary || isHovered ? 0.95 : 0.65))
                 .background(background, in: RoundedRectangle(cornerRadius: 8))
+                .overlay { RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(isPrimary ? 0.16 : 0), lineWidth: 1) }
                 .overlay { PointerCursorView().allowsHitTesting(false) }
                 .opacity(configuration.isPressed ? 0.76 : 1)
                 .onHover { isHovered = $0 }
@@ -248,7 +249,7 @@ private struct PaceSuggestionNotificationButtonStyle: ButtonStyle {
         }
 
         private var background: Color {
-            if isPrimary { return Color(red: 0.78, green: 0.87, blue: 1).opacity(isHovered ? 1 : 0.92) }
+            if isPrimary { return .white.opacity(configuration.isPressed ? 0.20 : isHovered ? 0.16 : 0.10) }
             return .white.opacity(configuration.isPressed ? 0.13 : isHovered ? 0.08 : 0.025)
         }
     }
