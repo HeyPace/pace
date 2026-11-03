@@ -111,7 +111,7 @@ private struct PaceImageOverlayView: View {
         }
     }
 
-    private var chrome: Color { Color(red: 0.075, green: 0.08, blue: 0.09) }
+    private var chrome: Color { DS.Colors.background }
 
     private var title: String {
         if case .generating(let request) = controller.state { return request.title }

@@ -374,7 +374,7 @@ private struct PaceDiagramHeaderView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(hex: "#0C1117").opacity(0.92), in: RoundedRectangle(cornerRadius: 15))
+        .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: 15))
         .buttonStyle(DiagramQuietButtonStyle())
     }
 }
@@ -427,7 +427,7 @@ private struct PaceDiagramDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(hex: "#101318").opacity(0.98), in: RoundedRectangle(cornerRadius: 18))
+        .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.12), lineWidth: 1))
         .foregroundStyle(DS.Colors.textPrimary)
         .buttonStyle(DiagramQuietButtonStyle())

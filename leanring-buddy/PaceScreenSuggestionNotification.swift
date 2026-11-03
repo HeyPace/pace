@@ -207,7 +207,7 @@ struct PaceScreenSuggestionNotificationView: View {
         .padding(18)
         .frame(width: 360, alignment: .leading)
         .foregroundStyle(.white.opacity(0.94))
-        .background(Color.black, in: RoundedRectangle(cornerRadius: 16))
+        .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: 16))
         .overlay { RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.15), lineWidth: 1) }
         .colorScheme(.dark)
         .accessibilityElement(children: .contain)

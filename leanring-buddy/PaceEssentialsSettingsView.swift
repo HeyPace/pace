@@ -17,8 +17,8 @@ struct PaceEssentialsSettingsView: View {
     }
 
     private enum Appearance {
-        static let surface = Color(hex: "#202124")
-        static let raised = Color(hex: "#28292D")
+        static let surface = DS.Colors.background
+        static let raised = DS.Colors.surfaceRaised
         static let border = Color(hex: "#37383C")
         static let primary = Color(hex: "#F1F1F2")
         static let secondary = Color(hex: "#AAABB1")

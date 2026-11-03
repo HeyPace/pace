@@ -82,14 +82,8 @@ struct PaceChatPanelView: View {
         }
     }
 
-    /// System material per the PRD design language, darkened with the
-    /// existing background token so the DS text colors keep contrast on
-    /// any desktop wallpaper behind the panel.
     private var panelBackground: some View {
-        ZStack {
-            Rectangle().fill(.ultraThinMaterial)
-            DS.Colors.background.opacity(0.72)
-        }
+        DS.Colors.background
     }
 
     // MARK: - Header strip

@@ -58,7 +58,7 @@ struct PaceFigureView: View {
                         .font(DS.Typography.body)
                         .foregroundStyle(DS.Colors.textPrimary)
                         .padding(20)
-                        .background(Color(hex: "#11151C"), in: RoundedRectangle(cornerRadius: 14))
+                        .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: 14))
                 }
             }
 
@@ -91,7 +91,7 @@ struct PaceFigureView: View {
             .foregroundStyle(DS.Colors.textPrimary)
             .padding(.horizontal, 16)
             .padding(.vertical, 11)
-            .background(Color(hex: "#11151C").opacity(0.97), in: RoundedRectangle(cornerRadius: 18))
+            .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: 18))
             .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.09), lineWidth: 1))
         }
         .onDisappear { model.stopProjection() }
@@ -342,7 +342,7 @@ private struct PaceFigureCalloutsView: View {
                             .foregroundStyle(.white)
                             .padding(8)
                             .frame(width: labelWidth, alignment: .leading)
-                            .background(Color(hex: "#141C26").opacity(0.97), in: RoundedRectangle(cornerRadius: 10))
+                            .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: 10))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 10).strokeBorder(
                                     Color(hex: selectedNodeID == node.id ? "#9CC9FC" : "#61778E"), lineWidth: 1))

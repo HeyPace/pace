@@ -89,7 +89,8 @@ final class PaceMainWindowManager {
             defer: false
         )
         newWindow.title = "Pace Settings"
-        newWindow.titlebarAppearsTransparent = false
+        newWindow.titlebarAppearsTransparent = true
+        newWindow.backgroundColor = .black
         newWindow.isMovableByWindowBackground = true
         newWindow.contentMinSize = minimumContentSize
         newWindow.contentViewController = hostingController

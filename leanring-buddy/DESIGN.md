@@ -26,14 +26,14 @@ website, a generic AI dashboard, or a developer console.
 
 ## Color And Material
 
-- **Canvas:** near-black graphite (`#080A0D`), not featureless pure black.
-- **Primary surface:** `#101318` with a quiet top-edge highlight.
-- **Raised surface:** `#171B22`.
+- **Canvas and surfaces:** pure black (`#000000`) across the notch, conversation,
+  Settings and its title bar, notifications, and image/diagram controls. Use the
+  shared `DS.Colors.background` token; hierarchy comes from spacing and borders.
 - **Border:** `#2A3039` at low contrast.
 - **Primary text:** warm off-white (`#F1F0EC`).
 - **Secondary text:** cool gray (`#A7AFBA`).
 - **Muted text:** `#8B9590`, lifted above the original muted value so 9–12pt
-  metadata remains above 4.5:1 on every graphite surface.
+  metadata remains above 4.5:1 on every black surface.
 - **Local signal:** electric Pace blue (`#4F8BFF`). Blue means active local
   input, focus, selection, or the primary safe action; it is not decoration.
 - **PacePad expression:** deep ocean blue (`#2A94E1`) is reserved for the
@@ -45,9 +45,8 @@ website, a generic AI dashboard, or a developer console.
 - **Success:** green (`#34D399`) only after a completed outcome.
 - **Failure:** system red only for an actual error or denied destructive state.
 
-Depth comes from material and light rather than gradients. Native material may
-soften the quick panel over the desktop, but content surfaces stay legible and
-do not become translucent glass cards nested inside other glass cards.
+Surface fills remain opaque black. Borders, readable text, and subtle hover
+feedback provide separation without graphite panels or translucent material.
 
 ## Typography
 
