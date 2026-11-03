@@ -290,6 +290,23 @@ final class PaceIntentClassifier {
         "in plain english what is ", "describe ",
     ]
 
+    // Match the whole utterance so arithmetic embedded in screen/action
+    // requests cannot suppress context. This recognizes syntax, never solves it.
+    private static let arithmeticExpressionPattern: NSRegularExpression? = {
+        let units = "(?:zero|one|two|three|four|five|six|seven|eight|nine)"
+        let teens = "(?:ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)"
+        let tens = "(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)"
+        let spokenNumber = "(?:\(units)|\(teens)|\(tens)(?:[ -]\(units))?)"
+        let number = "(?:(?:negative|minus)\\s+|[+-])?(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+|\(spokenNumber))"
+        let arithmeticOperator = "(?:\\s*[+*/×÷^−x-]\\s*|\\s+(?:plus|minus|times|multiplied by|divided by|over)\\s+)"
+        // "More to" is an observed dictation lead-in; accepting it is safe only
+        // when every remaining token is a complete arithmetic expression.
+        let questionLeadIn = "(?:(?:what is|what's|what’s|what|calculate|compute|evaluate|more to)\\s+)?"
+        return try? NSRegularExpression(
+            pattern: "\\A(?:please\\s+)?\(questionLeadIn)\(number)(?:\(arithmeticOperator)\(number))+(?:\\s+please)?[.!?]*\\z"
+        )
+    }()
+
     /// Action verbs — when the transcript contains any of these AND
     /// doesn't look like a description hint ("describe", "show me"),
     /// it's probably a screen-action turn.
@@ -440,6 +457,13 @@ final class PaceIntentClassifier {
             if lowercaseTranscript.contains(descriptionHint) {
                 return PaceIntentPrediction(intent: .screenDescription, confidence: 0.95)
             }
+        }
+
+        if Self.arithmeticExpressionPattern?.firstMatch(
+            in: lowercaseTranscript,
+            range: NSRange(lowercaseTranscript.startIndex..., in: lowercaseTranscript)
+        ) != nil {
+            return PaceIntentPrediction(intent: .pureKnowledge, confidence: 0.95)
         }
 
         // Action: any action verb in the transcript.

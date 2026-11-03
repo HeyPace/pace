@@ -52,6 +52,60 @@ struct PaceIntentClassifierTests {
         }
     }
 
+    @Test func selfContainedArithmeticRoutesTextOnly() {
+        let classifier = PaceIntentClassifier()
+        for question in [
+            "More to 7 times 9.",
+            "More to twelve times eight?",
+            "7 times 9",
+            "seven times nine",
+            "12 + 34",
+            "6*8",
+            "8×9",
+            "24 / 6",
+            "twenty-one divided by three",
+            "ninety nine minus nineteen",
+            "2.5 plus 0.75",
+            "negative five times 3",
+            "-4 + 10",
+            "2 plus 3 times four",
+            "Calculate 18 divided by 3.",
+            "Please compute 8 minus 2!",
+            "Hey Pace, what is seven times nine?",
+        ] {
+            let prediction = classifier.classify(question)
+            #expect(prediction.intent == .pureKnowledge,
+                "expected pureKnowledge for \(question), got \(prediction.intent)")
+            #expect(prediction.route == .answerDirectly,
+                "expected text-only route for \(question), got \(prediction.route)")
+        }
+    }
+
+    @Test func arithmeticFragmentsKeepScreenActionAndContextRouting() {
+        let classifier = PaceIntentClassifier()
+        for request in [
+            "7 times 9 on this screen",
+            "More to 7 times 9 in the visible text.",
+            "7 times that",
+            "7 times 9 and read the result here",
+            "7 times 9 then tell me about this window",
+            "calculate 7 times 9 and explain the chart",
+            "what about 7 times 9",
+            "7 times",
+            "7 9",
+            "seven timesnine",
+        ] {
+            #expect(classifier.classify(request).route == .fullPipeline,
+                "expected full context for \(request)")
+        }
+        #expect(classifier.classify("More to 7 times 9 in the selected text.").route == .executeTool)
+        #expect(classifier.classify("click 7 times 9").route == .executeTool)
+        #expect(classifier.classify("what is 7 times 9 then type the result").route == .executeTool)
+        #expect(classifier.classify("describe this: 7 times 9").route == .readScreen)
+        #expect(classifier.classify("explain what's shown: 7 times 9").route == .readScreen)
+        #expect(classifier.classify("what does this show: 7 times 9").route == .readScreen)
+    }
+
     @Test func micCheckQuestionsRouteToChitchatAndNotTheScreenPipeline() async throws {
         let classifier = PaceIntentClassifier()
         for question in [
