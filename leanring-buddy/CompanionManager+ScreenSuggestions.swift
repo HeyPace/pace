@@ -135,7 +135,7 @@ extension CompanionManager {
         guard !activeCallDetector.isOnActiveCall else {
             screenSuggestionCoordinator.invalidate()
             screenWatchNoteCoordinator.invalidate()
-            latestWatchModeSummary = "Watch paused · active call"
+            latestWatchModeSummary = "Watch paused · call or audio activity"
             return false
         }
         guard !focusModeMonitor.isCurrentlyInUserFocus else {

@@ -7,9 +7,10 @@
 //  silent (and get queued) during Zoom, Teams, FaceTime, Slack
 //  huddles, etc.
 //
-//  CoreAudio process metadata distinguishes idle call apps from audio
-//  I/O without recording audio. Unknown telemetry retains the conservative
-//  running-app fallback, so a failed read cannot enable Watch during a call.
+//  With a call app open, any audio I/O conservatively pauses Watch. This
+//  includes unrelated playback: helper ownership is not reliable enough to
+//  exclude it safely. Silent idle apps no longer pause Watch indefinitely.
+//  Metadata reads never record audio; unavailable reads retain the pause.
 //
 
 import AppKit
@@ -20,7 +21,8 @@ import Foundation
 @MainActor
 final class PaceActiveCallDetector: ObservableObject {
     enum ProcessAudioSnapshot: Equatable {
-        case available(activeBundleIdentifiers: Set<String>)
+        case idle
+        case active
         case unavailable
     }
 
@@ -35,8 +37,8 @@ final class PaceActiveCallDetector: ObservableObject {
     /// Match is case-insensitive. Keep this list intentionally narrow:
     /// the cost of a false positive is silenced proactive speech.
     ///
-    /// Browser calls need a separate page-aware signal; browser audio
-    /// alone cannot distinguish a meeting from ordinary media playback.
+    /// Browser-only calls need a separate page-aware signal; no browser
+    /// bundle alone identifies a call.
     nonisolated static let callBundleIdentifiers: Set<String> = [
         "us.zoom.xos",
         "com.microsoft.teams2",
@@ -102,20 +104,10 @@ final class PaceActiveCallDetector: ObservableObject {
         runningBundleIdentifiers: Set<String>,
         processAudioSnapshot: ProcessAudioSnapshot
     ) -> Bool {
-        let runningCallBundleIdentifiers = Set(runningBundleIdentifiers.map { $0.lowercased() })
-            .intersection(callBundleIdentifiers.map { $0.lowercased() })
-        guard !runningCallBundleIdentifiers.isEmpty else { return false }
-        guard case .available(let activeBundleIdentifiers) = processAudioSnapshot else { return true }
-        return activeBundleIdentifiers.contains { activeBundleIdentifier in
-            let normalizedActiveBundleIdentifier = activeBundleIdentifier.lowercased()
-            if runningCallBundleIdentifiers.contains("com.apple.facetime"),
-               ["com.apple.avconferenced", "com.apple.telephonyutilities"].contains(normalizedActiveBundleIdentifier) {
-                return true
-            }
-            return runningCallBundleIdentifiers.contains { callBundleIdentifier in
-                normalizedActiveBundleIdentifier == callBundleIdentifier
-                    || normalizedActiveBundleIdentifier.hasPrefix(callBundleIdentifier + ".")
-            }
+        guard runningBundleIdentifiers.contains(where: { callBundleIdentifiers.contains($0.lowercased()) }) else { return false }
+        switch processAudioSnapshot {
+        case .idle: return false
+        case .active, .unavailable: return true
         }
     }
 
@@ -125,7 +117,7 @@ final class PaceActiveCallDetector: ObservableObject {
         let systemObject = AudioObjectID(kAudioObjectSystemObject)
         guard AudioObjectGetPropertyDataSize(systemObject, &processListAddress, 0, nil, &processListSize) == noErr,
               processListSize % UInt32(MemoryLayout<AudioObjectID>.size) == 0 else { return .unavailable }
-        guard processListSize > 0 else { return .available(activeBundleIdentifiers: []) }
+        guard processListSize > 0 else { return .idle }
         var processObjects = [AudioObjectID](repeating: 0, count: Int(processListSize) / MemoryLayout<AudioObjectID>.size)
         let processListStatus = processObjects.withUnsafeMutableBytes { processBytes in
             AudioObjectGetPropertyData(systemObject, &processListAddress, 0, nil, &processListSize, processBytes.baseAddress!)
@@ -133,41 +125,30 @@ final class PaceActiveCallDetector: ObservableObject {
         guard processListStatus == noErr else { return .unavailable }
         return processAudioSnapshot(
             processObjects: Array(processObjects.prefix(Int(processListSize) / MemoryLayout<AudioObjectID>.size)),
-            activeBundleIdentifierProvider: activeBundleIdentifier
+            audioActivityProvider: processHasAudioActivity
         )
     }
 
     nonisolated static func processAudioSnapshot(
         processObjects: [AudioObjectID],
-        activeBundleIdentifierProvider: (AudioObjectID) throws -> String?
+        audioActivityProvider: (AudioObjectID) throws -> Bool
     ) -> ProcessAudioSnapshot {
-        var activeBundleIdentifiers: Set<String> = []
         for processObject in processObjects {
             do {
-                if let activeBundleIdentifier = try activeBundleIdentifierProvider(processObject) {
-                    guard !activeBundleIdentifier.isEmpty else { return .unavailable }
-                    activeBundleIdentifiers.insert(activeBundleIdentifier)
-                }
+                if try audioActivityProvider(processObject) { return .active }
             } catch ProcessAudioReadError.exited {
                 continue
             } catch {
                 return .unavailable
             }
         }
-        return .available(activeBundleIdentifiers: activeBundleIdentifiers)
+        return .idle
     }
 
-    private nonisolated static func activeBundleIdentifier(_ processObject: AudioObjectID) throws -> String? {
+    private nonisolated static func processHasAudioActivity(_ processObject: AudioObjectID) throws -> Bool {
         let inputIsRunning = try audioActivity(processObject, selector: kAudioProcessPropertyIsRunningInput)
         let outputIsRunning = try audioActivity(processObject, selector: kAudioProcessPropertyIsRunningOutput)
-        guard inputIsRunning || outputIsRunning else { return nil }
-        var bundleAddress = audioPropertyAddress(kAudioProcessPropertyBundleID)
-        var bundleIdentifier: Unmanaged<CFString>?
-        var bundleSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-        let bundleStatus = AudioObjectGetPropertyData(processObject, &bundleAddress, 0, nil, &bundleSize, &bundleIdentifier)
-        try validateProcessReadStatus(bundleStatus)
-        guard let bundleIdentifier else { throw ProcessAudioReadError.unavailable }
-        return bundleIdentifier.takeRetainedValue() as String
+        return inputIsRunning || outputIsRunning
     }
 
     private nonisolated static func audioActivity(_ processObject: AudioObjectID, selector: AudioObjectPropertySelector) throws -> Bool {

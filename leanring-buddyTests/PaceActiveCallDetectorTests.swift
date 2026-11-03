@@ -8,70 +8,33 @@ final class PaceActiveCallDetectorTests: XCTestCase {
     func testIdleSlackDoesNotPauseWatch() {
         let detector = PaceActiveCallDetector(
             runningApplicationBundleIdentifiersProvider: { [self.slackBundleIdentifier] },
-            processAudioSnapshotProvider: { .available(activeBundleIdentifiers: []) }
+            processAudioSnapshotProvider: { .idle }
         )
         detector.recomputeForTesting()
         XCTAssertFalse(detector.isOnActiveCall)
     }
 
-    func testKnownCallAppsWithAudioPauseWatch() {
+    func testAudioActivityOrUnknownStatePausesEveryKnownCallApp() {
         for bundleIdentifier in PaceActiveCallDetector.callBundleIdentifiers {
-            XCTAssertTrue(PaceActiveCallDetector.hasActiveCall(
-                runningBundleIdentifiers: [bundleIdentifier],
-                processAudioSnapshot: .available(activeBundleIdentifiers: [bundleIdentifier])
-            ))
+            for snapshot in [PaceActiveCallDetector.ProcessAudioSnapshot.active, .unavailable] {
+                XCTAssertTrue(PaceActiveCallDetector.hasActiveCall(
+                    runningBundleIdentifiers: [bundleIdentifier], processAudioSnapshot: snapshot
+                ))
+            }
         }
     }
 
-    func testKnownCallAppsWithUnknownAudioRemainPaused() {
-        for bundleIdentifier in PaceActiveCallDetector.callBundleIdentifiers {
-            XCTAssertTrue(PaceActiveCallDetector.hasActiveCall(
-                runningBundleIdentifiers: [bundleIdentifier], processAudioSnapshot: .unavailable
-            ))
-        }
-    }
-
-    func testSlackAudioHelperPausesWatch() {
+    func testUnattributedOrUnrelatedAudioConservativelyPausesIdleSlack() {
+        let snapshot = PaceActiveCallDetector.processAudioSnapshot(processObjects: [1]) { _ in true }
         XCTAssertTrue(PaceActiveCallDetector.hasActiveCall(
-            runningBundleIdentifiers: [slackBundleIdentifier],
-            processAudioSnapshot: .available(activeBundleIdentifiers: [slackBundleIdentifier + ".helper"])
+            runningBundleIdentifiers: [slackBundleIdentifier], processAudioSnapshot: snapshot
         ))
     }
 
-    func testUnrelatedDictationAndSpeechDoNotMakeIdleSlackACall() {
-        XCTAssertFalse(PaceActiveCallDetector.hasActiveCall(
-            runningBundleIdentifiers: [slackBundleIdentifier],
-            processAudioSnapshot: .available(activeBundleIdentifiers: ["com.pace.app", "com.electron.wispr-flow.helper"])
-        ))
-    }
-
-    func testSimilarBundlePrefixIsNotACallHelper() {
-        XCTAssertFalse(PaceActiveCallDetector.hasActiveCall(
-            runningBundleIdentifiers: ["us.zoom.xos"],
-            processAudioSnapshot: .available(activeBundleIdentifiers: ["us.zoom.xos-unrelated"])
-        ))
-    }
-
-    func testMatchingIsCaseInsensitive() {
+    func testMatchingIsCaseInsensitiveAndKnownIdentifiersAreNormalized() {
+        XCTAssertTrue(PaceActiveCallDetector.callBundleIdentifiers.allSatisfy { $0 == $0.lowercased() })
         XCTAssertTrue(PaceActiveCallDetector.hasActiveCall(
-            runningBundleIdentifiers: ["COM.APPLE.FACETIME"],
-            processAudioSnapshot: .available(activeBundleIdentifiers: ["com.apple.FaceTime"])
-        ))
-    }
-
-    func testFaceTimeSystemAudioServicePausesWatch() {
-        for serviceBundleIdentifier in ["com.apple.avconferenced", "com.apple.TelephonyUtilities"] {
-            XCTAssertTrue(PaceActiveCallDetector.hasActiveCall(
-                runningBundleIdentifiers: ["com.apple.FaceTime"],
-                processAudioSnapshot: .available(activeBundleIdentifiers: [serviceBundleIdentifier])
-            ))
-        }
-    }
-
-    func testUnknownAudioWithoutKnownCallAppDoesNotPauseWatch() {
-        XCTAssertFalse(PaceActiveCallDetector.hasActiveCall(
-            runningBundleIdentifiers: ["com.apple.Safari", "com.apple.Xcode"],
-            processAudioSnapshot: .unavailable
+            runningBundleIdentifiers: ["COM.APPLE.FACETIME"], processAudioSnapshot: .active
         ))
     }
 
@@ -88,7 +51,7 @@ final class PaceActiveCallDetectorTests: XCTestCase {
     }
 
     func testExitedAudioProcessDoesNotInterruptIdleSlackNotes() {
-        var snapshot: PaceActiveCallDetector.ProcessAudioSnapshot = .available(activeBundleIdentifiers: [])
+        var snapshot: PaceActiveCallDetector.ProcessAudioSnapshot = .idle
         let detector = PaceActiveCallDetector(
             runningApplicationBundleIdentifiersProvider: { [self.slackBundleIdentifier] },
             processAudioSnapshotProvider: { snapshot }
@@ -96,7 +59,7 @@ final class PaceActiveCallDetectorTests: XCTestCase {
         for processExited in [false, true, false] {
             snapshot = PaceActiveCallDetector.processAudioSnapshot(processObjects: [1]) { _ in
                 if processExited { throw PaceActiveCallDetector.ProcessAudioReadError.exited }
-                return nil
+                return false
             }
             detector.recomputeForTesting()
             XCTAssertFalse(detector.isOnActiveCall)
@@ -105,43 +68,34 @@ final class PaceActiveCallDetectorTests: XCTestCase {
 
     func testExitedProcessDoesNotEraseAnotherActiveCall() {
         let snapshot = PaceActiveCallDetector.processAudioSnapshot(processObjects: [1, 2]) { processObject in
-            if processObject == 2 { throw PaceActiveCallDetector.ProcessAudioReadError.exited }
-            return self.slackBundleIdentifier + ".helper"
+            if processObject == 1 { throw PaceActiveCallDetector.ProcessAudioReadError.exited }
+            return true
         }
         XCTAssertTrue(PaceActiveCallDetector.hasActiveCall(
             runningBundleIdentifiers: [slackBundleIdentifier], processAudioSnapshot: snapshot
         ))
     }
 
-    func testUnreadableOrUnidentifiedActiveProcessRetainsPrivacyPause() {
-        let unreadableSnapshot = PaceActiveCallDetector.processAudioSnapshot(processObjects: [1]) { _ in
+    func testUnreadableProcessRetainsPrivacyPause() {
+        let snapshot = PaceActiveCallDetector.processAudioSnapshot(processObjects: [1]) { _ in
             throw PaceActiveCallDetector.ProcessAudioReadError.unavailable
         }
-        let unidentifiedSnapshot = PaceActiveCallDetector.processAudioSnapshot(processObjects: [1]) { _ in "" }
-        for snapshot in [unreadableSnapshot, unidentifiedSnapshot] {
-            XCTAssertEqual(snapshot, .unavailable)
-            XCTAssertTrue(PaceActiveCallDetector.hasActiveCall(
-                runningBundleIdentifiers: [slackBundleIdentifier], processAudioSnapshot: snapshot
-            ))
-        }
+        XCTAssertEqual(snapshot, .unavailable)
+        XCTAssertTrue(PaceActiveCallDetector.hasActiveCall(
+            runningBundleIdentifiers: [slackBundleIdentifier], processAudioSnapshot: snapshot
+        ))
     }
 
-    func testAudioCallTransitionsResumeAndPauseWatch() {
-        var snapshot: PaceActiveCallDetector.ProcessAudioSnapshot = .available(activeBundleIdentifiers: [])
+    func testAudioTransitionsResumeAndPauseWatch() {
+        var snapshot: PaceActiveCallDetector.ProcessAudioSnapshot = .idle
         let detector = PaceActiveCallDetector(
             runningApplicationBundleIdentifiersProvider: { [self.slackBundleIdentifier] },
             processAudioSnapshotProvider: { snapshot }
         )
-        detector.recomputeForTesting()
-        XCTAssertFalse(detector.isOnActiveCall)
-        snapshot = .available(activeBundleIdentifiers: [slackBundleIdentifier + ".helper"])
-        detector.recomputeForTesting()
-        XCTAssertTrue(detector.isOnActiveCall)
-        snapshot = .unavailable
-        detector.recomputeForTesting()
-        XCTAssertTrue(detector.isOnActiveCall)
-        snapshot = .available(activeBundleIdentifiers: [])
-        detector.recomputeForTesting()
-        XCTAssertFalse(detector.isOnActiveCall)
+        for (nextSnapshot, expectedPause) in [(PaceActiveCallDetector.ProcessAudioSnapshot.idle, false), (.active, true), (.unavailable, true), (.idle, false)] {
+            snapshot = nextSnapshot
+            detector.recomputeForTesting()
+            XCTAssertEqual(detector.isOnActiveCall, expectedPause)
+        }
     }
 }
