@@ -222,7 +222,10 @@ struct PaceScreenWatchNoteCoordinatorTests {
             case "call":
                 // The detector's existing published seam must revoke immediately.
                 manager.activeCallDetector.stop()
-                manager.activeCallDetector = PaceActiveCallDetector(runningApplicationBundleIdentifiersProvider: { ["us.zoom.xos"] })
+                manager.activeCallDetector = PaceActiveCallDetector(
+                    runningApplicationBundleIdentifiersProvider: { ["us.zoom.xos"] },
+                    processAudioSnapshotProvider: { .unavailable }
+                )
                 manager.installWatchLifecycleObservers()
                 manager.activeCallDetector.recomputeForTesting()
             default: manager.thermalStateAdvisor.applyThermalStateForTesting(.serious)
@@ -239,7 +242,10 @@ struct PaceScreenWatchNoteCoordinatorTests {
         let manager = CompanionManager(watchModeDefaults: UserDefaults(suiteName: "PaceQuietWatch-\(UUID())")!)
         manager.screenWatchNoteCoordinator = harness.coordinator
         var callApplications: Set<String> = []
-        manager.activeCallDetector = PaceActiveCallDetector(runningApplicationBundleIdentifiersProvider: { callApplications })
+        manager.activeCallDetector = PaceActiveCallDetector(
+            runningApplicationBundleIdentifiersProvider: { callApplications },
+            processAudioSnapshotProvider: { .unavailable }
+        )
         manager.installWatchLifecycleObservers()
         defer { manager.stopWatchRuntime() }
         harness.holdRecognition = true

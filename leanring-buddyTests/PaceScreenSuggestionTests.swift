@@ -833,7 +833,10 @@ struct PaceScreenSuggestionIntegrationTests {
         let (manager, history, planner, _) = makeQueuedRequestFixture()
         defer { finishQueuedRequestFixture(manager) }
         _ = try await installWatchAnchor(in: manager)
-        manager.activeCallDetector = PaceActiveCallDetector(runningApplicationBundleIdentifiersProvider: { ["us.zoom.xos"] })
+        manager.activeCallDetector = PaceActiveCallDetector(
+            runningApplicationBundleIdentifiersProvider: { ["us.zoom.xos"] },
+            processAudioSnapshotProvider: { .unavailable }
+        )
         manager.activeCallDetector.recomputeForTesting()
         #expect(!manager.screenSuggestionNotificationPresentationAllowed())
         manager.submitChatTranscriptFromDeepLink("show me my calendar")

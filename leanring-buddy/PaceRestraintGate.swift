@@ -113,13 +113,6 @@ nonisolated enum PaceRestraintGate {
     static let proactiveCooldownSeconds: TimeInterval = 10 * 60
     static let episodicRecallCooldownSeconds: TimeInterval = 30
 
-    private static let activeCallBundleIdentifiers: Set<String> = [
-        "us.zoom.xos",
-        "com.microsoft.teams",
-        "com.apple.facetime",
-        "com.tinyspeck.slackmacgap",
-    ]
-
     /// Per-profile cooldown tuning. Talkative shortens the focus
     /// cooldown to keep nudges feeling responsive; reserved triples it
     /// so Pace effectively talks once per half-hour at most. Episodic
@@ -223,8 +216,8 @@ nonisolated enum PaceRestraintGate {
     private static func frontmostAppLooksLikeActiveCall(_ bundleIdentifier: String?) -> Bool {
         guard let bundleIdentifier else { return false }
         let normalizedIdentifier = bundleIdentifier.lowercased()
-        if activeCallBundleIdentifiers.contains(normalizedIdentifier) {
-            return true
+        if PaceActiveCallDetector.callBundleIdentifiers.contains(normalizedIdentifier) {
+            return false
         }
         return normalizedIdentifier.contains("zoom")
             || normalizedIdentifier.contains("teams")

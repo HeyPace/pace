@@ -7,68 +7,51 @@
 //  silent (and get queued) during Zoom, Teams, FaceTime, Slack
 //  huddles, etc.
 //
-//  v1 ships only the running-applications signal: if a known call
-//  bundle identifier is present in `NSWorkspace.shared
-//  .runningApplications`, the user is treated as "on a call". This is
-//  a deliberate v1 simplification:
-//
-//    - it covers the launches users care about (Zoom, Teams, FaceTime,
-//      Slack) with zero permission cost,
-//    - it can over-fire when a call app is open but idle (Slack
-//      running ≠ huddle, Teams running ≠ active meeting), which is the
-//      restraint-safe direction — we'd rather stay quiet than barge in,
-//    - it has zero CoreAudio surface area, so the detector cannot fail
-//      to a noisier state due to a missing API or a denied input device.
-//
-//  TODO (v1.1): cross-reference with `CoreAudio` input-device-is-running
-//  on the default built-in input. With both signals AND'd, an open-but-
-//  idle Slack stops counting as a call while an active huddle still
-//  does. The current design intentionally errs toward "stay quiet"
-//  until the audio signal lands. The bundle-ID list is otherwise the
-//  same set `PaceRestraintGate.activeCallBundleIdentifiers` already
-//  pattern-matches against.
+//  CoreAudio process metadata distinguishes idle call apps from audio
+//  I/O without recording audio. Unknown telemetry retains the conservative
+//  running-app fallback, so a failed read cannot enable Watch during a call.
 //
 
 import AppKit
 import Combine
+import CoreAudio
 import Foundation
 
 @MainActor
 final class PaceActiveCallDetector: ObservableObject {
-    /// True when at least one running application matches a known
-    /// call-app bundle identifier. Polled — not reactive — so callers
-    /// can read a stable snapshot without subscribing to AppKit
-    /// notifications.
+    enum ProcessAudioSnapshot: Equatable {
+        case available(activeBundleIdentifiers: Set<String>)
+        case unavailable
+    }
+
     @Published private(set) var isOnActiveCall: Bool = false
 
     /// Bundle identifiers Pace treats as "the user might be on a call".
     /// Match is case-insensitive. Keep this list intentionally narrow:
     /// the cost of a false positive is silenced proactive speech.
     ///
-    /// Google Meet is intentionally absent — it runs as a Chrome PWA
-    /// without a distinguishing bundle ID. The v1.1 CoreAudio path
-    /// will catch it.
-    static let callBundleIdentifiers: Set<String> = [
+    /// Browser calls need a separate page-aware signal; browser audio
+    /// alone cannot distinguish a meeting from ordinary media playback.
+    nonisolated static let callBundleIdentifiers: Set<String> = [
         "us.zoom.xos",
         "com.microsoft.teams2",
         "com.microsoft.teams",
         "com.apple.facetime",
-        "com.apple.FaceTime",
         "com.tinyspeck.slackmacgap",
     ]
 
     private static let pollIntervalSeconds: TimeInterval = 5
 
     private let runningApplicationBundleIdentifiersProvider: () -> Set<String>
+    private let processAudioSnapshotProvider: () -> ProcessAudioSnapshot
     private var pollTimer: Timer?
 
-    /// Designated initializer. The bundle-identifier provider is
-    /// injected so XCTests can simulate "Zoom running" or
-    /// "FaceTime running" without launching a real call app.
     init(
-        runningApplicationBundleIdentifiersProvider: @escaping () -> Set<String> = PaceActiveCallDetector.liveRunningApplicationBundleIdentifiers
+        runningApplicationBundleIdentifiersProvider: @escaping () -> Set<String> = PaceActiveCallDetector.liveRunningApplicationBundleIdentifiers,
+        processAudioSnapshotProvider: @escaping () -> ProcessAudioSnapshot = PaceActiveCallDetector.liveProcessAudioSnapshot
     ) {
         self.runningApplicationBundleIdentifiersProvider = runningApplicationBundleIdentifiersProvider
+        self.processAudioSnapshotProvider = processAudioSnapshotProvider
     }
 
     func start() {
@@ -100,22 +83,73 @@ final class PaceActiveCallDetector: ObservableObject {
     /// next timer tick.
     func recomputeForTesting() {
         let currentlyRunningBundleIdentifiers = runningApplicationBundleIdentifiersProvider()
-        isOnActiveCall = Self.anyCallBundleIdentifierIsRunning(
-            among: currentlyRunningBundleIdentifiers
+        isOnActiveCall = Self.hasActiveCall(
+            runningBundleIdentifiers: currentlyRunningBundleIdentifiers,
+            processAudioSnapshot: processAudioSnapshotProvider()
         )
     }
 
-    /// Pure classifier — case-insensitive membership check. Exposed
-    /// at the type level so unit tests can verify the matching logic
-    /// directly without constructing a detector instance.
-    static func anyCallBundleIdentifierIsRunning(among runningBundleIdentifiers: Set<String>) -> Bool {
-        let normalizedRunningBundleIdentifiers = Set(
-            runningBundleIdentifiers.map { $0.lowercased() }
-        )
-        let normalizedCallBundleIdentifiers = Set(
-            callBundleIdentifiers.map { $0.lowercased() }
-        )
-        return !normalizedRunningBundleIdentifiers.isDisjoint(with: normalizedCallBundleIdentifiers)
+    static func hasActiveCall(
+        runningBundleIdentifiers: Set<String>,
+        processAudioSnapshot: ProcessAudioSnapshot
+    ) -> Bool {
+        let runningCallBundleIdentifiers = Set(runningBundleIdentifiers.map { $0.lowercased() })
+            .intersection(callBundleIdentifiers.map { $0.lowercased() })
+        guard !runningCallBundleIdentifiers.isEmpty else { return false }
+        guard case .available(let activeBundleIdentifiers) = processAudioSnapshot else { return true }
+        return activeBundleIdentifiers.contains { activeBundleIdentifier in
+            let normalizedActiveBundleIdentifier = activeBundleIdentifier.lowercased()
+            if runningCallBundleIdentifiers.contains("com.apple.facetime"),
+               ["com.apple.avconferenced", "com.apple.telephonyutilities"].contains(normalizedActiveBundleIdentifier) {
+                return true
+            }
+            return runningCallBundleIdentifiers.contains { callBundleIdentifier in
+                normalizedActiveBundleIdentifier == callBundleIdentifier
+                    || normalizedActiveBundleIdentifier.hasPrefix(callBundleIdentifier + ".")
+            }
+        }
+    }
+
+    nonisolated static func liveProcessAudioSnapshot() -> ProcessAudioSnapshot {
+        var processListAddress = audioPropertyAddress(kAudioHardwarePropertyProcessObjectList)
+        var processListSize: UInt32 = 0
+        let systemObject = AudioObjectID(kAudioObjectSystemObject)
+        guard AudioObjectGetPropertyDataSize(systemObject, &processListAddress, 0, nil, &processListSize) == noErr,
+              processListSize % UInt32(MemoryLayout<AudioObjectID>.size) == 0 else { return .unavailable }
+        guard processListSize > 0 else { return .available(activeBundleIdentifiers: []) }
+        var processObjects = [AudioObjectID](repeating: 0, count: Int(processListSize) / MemoryLayout<AudioObjectID>.size)
+        let processListStatus = processObjects.withUnsafeMutableBytes { processBytes in
+            AudioObjectGetPropertyData(systemObject, &processListAddress, 0, nil, &processListSize, processBytes.baseAddress!)
+        }
+        guard processListStatus == noErr else { return .unavailable }
+        var activeBundleIdentifiers: Set<String> = []
+        for processObject in processObjects.prefix(Int(processListSize) / MemoryLayout<AudioObjectID>.size) {
+            guard let inputIsRunning = audioActivity(processObject, selector: kAudioProcessPropertyIsRunningInput),
+                  let outputIsRunning = audioActivity(processObject, selector: kAudioProcessPropertyIsRunningOutput) else { return .unavailable }
+            guard inputIsRunning || outputIsRunning else { continue }
+            var bundleAddress = audioPropertyAddress(kAudioProcessPropertyBundleID)
+            var bundleIdentifier: Unmanaged<CFString>?
+            var bundleSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+            let bundleStatus = AudioObjectGetPropertyData(processObject, &bundleAddress, 0, nil, &bundleSize, &bundleIdentifier)
+            guard bundleStatus == noErr, let bundleIdentifier else { return .unavailable }
+            let activeBundleIdentifier = bundleIdentifier.takeRetainedValue() as String
+            guard !activeBundleIdentifier.isEmpty else { return .unavailable }
+            activeBundleIdentifiers.insert(activeBundleIdentifier)
+        }
+        return .available(activeBundleIdentifiers: activeBundleIdentifiers)
+    }
+
+    private nonisolated static func audioActivity(_ processObject: AudioObjectID, selector: AudioObjectPropertySelector) -> Bool? {
+        var propertyAddress = audioPropertyAddress(selector)
+        var value: UInt32 = 0
+        var valueSize = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(processObject, &propertyAddress, 0, nil, &valueSize, &value) == noErr,
+              valueSize == MemoryLayout<UInt32>.size, value <= 1 else { return nil }
+        return value == 1
+    }
+
+    private nonisolated static func audioPropertyAddress(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
     }
 
     /// Default live provider. Snapshots `NSWorkspace.runningApplications`

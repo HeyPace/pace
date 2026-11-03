@@ -38,7 +38,7 @@ final class PaceRestraintGateTests: XCTestCase {
             lastEpisodicRecallAt: nil,
             lastUserInputAt: nil,
             frontmostAppBundleIdentifier: "us.zoom.xos",
-            isOnActiveCall: false,
+            isOnActiveCall: true,
             wakeWordConfidence: 0.9,
             intent: .pureKnowledge,
             proactiveSource: .wakeWord,
@@ -48,14 +48,14 @@ final class PaceRestraintGateTests: XCTestCase {
         XCTAssertEqual(PaceRestraintGate.decide(context), .queueUntilIdle(reason: "active call"))
     }
 
-    func testOrdinaryBrowserWindowDoesNotPretendToBeAnActiveCall() {
-        for browserBundleIdentifier in ["com.google.Chrome", "com.apple.Safari"] {
+    func testIdleSupportedAppDoesNotPretendToBeAnActiveCall() {
+        for applicationBundleIdentifier in ["com.google.Chrome", "com.apple.Safari", "com.tinyspeck.slackmacgap", "us.zoom.xos", "com.microsoft.teams2", "com.apple.FaceTime"] {
             let context = PaceRestraintContext(
                 now: Date(),
                 lastProactiveUtteranceAt: nil,
                 lastEpisodicRecallAt: nil,
                 lastUserInputAt: nil,
-                frontmostAppBundleIdentifier: browserBundleIdentifier,
+                frontmostAppBundleIdentifier: applicationBundleIdentifier,
                 isOnActiveCall: false,
                 wakeWordConfidence: nil,
                 intent: .pureKnowledge,
