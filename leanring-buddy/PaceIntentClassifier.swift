@@ -298,7 +298,8 @@ final class PaceIntentClassifier {
         let tens = "(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)"
         let spokenNumber = "(?:\(units)|\(teens)|\(tens)(?:[ -]\(units))?)"
         let number = "(?:(?:negative|minus)\\s+|[+-])?(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+|\(spokenNumber))"
-        let arithmeticOperator = "(?:\\s*[+*/×÷^−x-]\\s*|\\s+(?:plus|minus|times|multiplied by|divided by|over)\\s+)"
+        // Unspaced dates and phone numbers must keep their context-dependent route.
+        let arithmeticOperator = "(?:\\s*[+*×÷^−]\\s*|\\s+[-/x]\\s+|(?<=[0-9])x(?=[0-9])|\\s+(?:plus|minus|times|multiplied by|divided by|over)\\s+)"
         // "More to" is an observed dictation lead-in; accepting it is safe only
         // when every remaining token is a complete arithmetic expression.
         let questionLeadIn = "(?:(?:what is|what's|what’s|what|calculate|compute|evaluate|more to)\\s+)?"

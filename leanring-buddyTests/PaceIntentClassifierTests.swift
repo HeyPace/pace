@@ -62,6 +62,8 @@ struct PaceIntentClassifierTests {
             "12 + 34",
             "6*8",
             "8×9",
+            "8x9",
+            "eight x nine",
             "24 / 6",
             "twenty-one divided by three",
             "ninety nine minus nineteen",
@@ -94,6 +96,13 @@ struct PaceIntentClassifierTests {
             "7 times",
             "7 9",
             "seven timesnine",
+            "2026-11-04",
+            "555-1234",
+            "1-800-555-1234",
+            "1-2-3",
+            "11/4",
+            "one-two",
+            "sixx nine",
         ] {
             #expect(classifier.classify(request).route == .fullPipeline,
                 "expected full context for \(request)")
