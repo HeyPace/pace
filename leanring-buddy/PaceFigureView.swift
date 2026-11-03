@@ -273,6 +273,8 @@ private struct PaceFigureRenderer: NSViewRepresentable {
 private final class PaceFigureARView: ARView {
     var onViewportSizeChanged: ((CGSize) -> Void)?
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func layout() {
         super.layout()
         onViewportSizeChanged?(bounds.size)

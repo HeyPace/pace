@@ -15,6 +15,8 @@ const result = spawnSync('bash', [
   'StreamingSentenceTTSPipelineParsingTests',
   'PaceBargeInVADIntegrationTests',
   'PaceDiagramTests',
+  'PaceFigureSceneTests',
+  'PaceFigureCameraFramingTests',
   'PaceImageGenerationTests',
   'PaceNativeInterfaceModelTests',
   'PaceScreenContextServiceTests',
