@@ -7,7 +7,7 @@
 //  silent (and get queued) during Zoom, Teams, FaceTime, Slack
 //  huddles, etc.
 //
-//  With a call app open, any audio I/O conservatively pauses Watch. This
+//  With a call app open, other processes’ audio I/O pauses Watch. This
 //  includes unrelated playback: helper ownership is not reliable enough to
 //  exclude it safely. Silent idle apps no longer pause Watch indefinitely.
 //  Metadata reads never record audio; unavailable reads retain the pause.
@@ -29,6 +29,12 @@ final class PaceActiveCallDetector: ObservableObject {
     enum ProcessAudioReadError: Error {
         case exited
         case unavailable
+    }
+
+    struct ProcessAudioActivity: Equatable {
+        let processIdentifier: pid_t
+        let inputIsRunning: Bool
+        let outputIsRunning: Bool
     }
 
     @Published private(set) var isOnActiveCall: Bool = false
@@ -125,17 +131,21 @@ final class PaceActiveCallDetector: ObservableObject {
         guard processListStatus == noErr else { return .unavailable }
         return processAudioSnapshot(
             processObjects: Array(processObjects.prefix(Int(processListSize) / MemoryLayout<AudioObjectID>.size)),
-            audioActivityProvider: processHasAudioActivity
+            ownProcessIdentifier: ProcessInfo.processInfo.processIdentifier,
+            processActivityProvider: processAudioActivity
         )
     }
 
     nonisolated static func processAudioSnapshot(
         processObjects: [AudioObjectID],
-        audioActivityProvider: (AudioObjectID) throws -> Bool
+        ownProcessIdentifier: pid_t,
+        processActivityProvider: (AudioObjectID) throws -> ProcessAudioActivity
     ) -> ProcessAudioSnapshot {
         for processObject in processObjects {
             do {
-                if try audioActivityProvider(processObject) { return .active }
+                let activity = try processActivityProvider(processObject)
+                if activity.processIdentifier != ownProcessIdentifier,
+                   activity.inputIsRunning || activity.outputIsRunning { return .active }
             } catch ProcessAudioReadError.exited {
                 continue
             } catch {
@@ -145,10 +155,19 @@ final class PaceActiveCallDetector: ObservableObject {
         return .idle
     }
 
-    private nonisolated static func processHasAudioActivity(_ processObject: AudioObjectID) throws -> Bool {
+    private nonisolated static func processAudioActivity(_ processObject: AudioObjectID) throws -> ProcessAudioActivity {
+        var processAddress = audioPropertyAddress(kAudioProcessPropertyPID)
+        var processIdentifier: pid_t = 0
+        var processSize = UInt32(MemoryLayout<pid_t>.size)
+        let processStatus = AudioObjectGetPropertyData(processObject, &processAddress, 0, nil, &processSize, &processIdentifier)
+        try validateProcessReadStatus(processStatus)
+        guard processSize == MemoryLayout<pid_t>.size, processIdentifier > 0 else { throw ProcessAudioReadError.unavailable }
+        if processIdentifier == ProcessInfo.processInfo.processIdentifier {
+            return ProcessAudioActivity(processIdentifier: processIdentifier, inputIsRunning: false, outputIsRunning: false)
+        }
         let inputIsRunning = try audioActivity(processObject, selector: kAudioProcessPropertyIsRunningInput)
         let outputIsRunning = try audioActivity(processObject, selector: kAudioProcessPropertyIsRunningOutput)
-        return inputIsRunning || outputIsRunning
+        return ProcessAudioActivity(processIdentifier: processIdentifier, inputIsRunning: inputIsRunning, outputIsRunning: outputIsRunning)
     }
 
     private nonisolated static func audioActivity(_ processObject: AudioObjectID, selector: AudioObjectPropertySelector) throws -> Bool {
