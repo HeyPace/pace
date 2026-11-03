@@ -607,6 +607,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
     }
 
     private func startRecognitionSession() async throws {
+        let recognitionStartedAt = Date()
         // Cancel any pending lazy engine close — the engine is about
         // to be reused for this new session.
         cancelLazyEngineClose()
@@ -686,6 +687,11 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
             try audioEngine.start()
             isAudioEngineKeptWarm = true
         }
+        PaceAPIAuditLog.shared.record(
+            subsystem: "dictation", operation: "capture_ready", target: transcriptionProvider.displayName,
+            durationMilliseconds: Int(Date().timeIntervalSince(recognitionStartedAt) * 1000), outcome: "started",
+            detail: "capture_id=\(captureSessionIdentifier.uuidString); sample_rate=\(inputFormat.sampleRate); channels=\(inputFormat.channelCount)"
+        )
     }
 
     private func handlePartialTranscriptUpdate(_ transcriptText: String) {
@@ -772,6 +778,12 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         let elapsedSeconds = Date().timeIntervalSince(startedAt)
         let elapsedMs = Int(elapsedSeconds * 1000)
         print("📊 Audio session \(reason): \(sessionBufferAppendedCount) buffers / peak RMS \(String(format: "%.4f", sessionPeakAudioRMS)) / elapsed \(elapsedMs)ms")
+        PaceAPIAuditLog.shared.record(
+            subsystem: "dictation", operation: "capture_summary", target: transcriptionProvider.displayName,
+            durationMilliseconds: elapsedMs,
+            outcome: sessionBufferAppendedCount > 0 ? "samples_received" : "no_samples",
+            detail: "capture_id=\(activeCaptureSessionIdentifier.uuidString); buffers=\(sessionBufferAppendedCount); peak_rms=\(String(format: "%.6f", sessionPeakAudioRMS)); reason=\(reason)"
+        )
         sessionAudioStartedAt = nil
     }
 
