@@ -24,6 +24,11 @@ final class PaceActiveCallDetector: ObservableObject {
         case unavailable
     }
 
+    enum ProcessAudioReadError: Error {
+        case exited
+        case unavailable
+    }
+
     @Published private(set) var isOnActiveCall: Bool = false
 
     /// Bundle identifiers Pace treats as "the user might be on a call".
@@ -83,6 +88,10 @@ final class PaceActiveCallDetector: ObservableObject {
     /// next timer tick.
     func recomputeForTesting() {
         let currentlyRunningBundleIdentifiers = runningApplicationBundleIdentifiersProvider()
+        guard currentlyRunningBundleIdentifiers.contains(where: { Self.callBundleIdentifiers.contains($0.lowercased()) }) else {
+            isOnActiveCall = false
+            return
+        }
         isOnActiveCall = Self.hasActiveCall(
             runningBundleIdentifiers: currentlyRunningBundleIdentifiers,
             processAudioSnapshot: processAudioSnapshotProvider()
@@ -122,30 +131,58 @@ final class PaceActiveCallDetector: ObservableObject {
             AudioObjectGetPropertyData(systemObject, &processListAddress, 0, nil, &processListSize, processBytes.baseAddress!)
         }
         guard processListStatus == noErr else { return .unavailable }
+        return processAudioSnapshot(
+            processObjects: Array(processObjects.prefix(Int(processListSize) / MemoryLayout<AudioObjectID>.size)),
+            activeBundleIdentifierProvider: activeBundleIdentifier
+        )
+    }
+
+    nonisolated static func processAudioSnapshot(
+        processObjects: [AudioObjectID],
+        activeBundleIdentifierProvider: (AudioObjectID) throws -> String?
+    ) -> ProcessAudioSnapshot {
         var activeBundleIdentifiers: Set<String> = []
-        for processObject in processObjects.prefix(Int(processListSize) / MemoryLayout<AudioObjectID>.size) {
-            guard let inputIsRunning = audioActivity(processObject, selector: kAudioProcessPropertyIsRunningInput),
-                  let outputIsRunning = audioActivity(processObject, selector: kAudioProcessPropertyIsRunningOutput) else { return .unavailable }
-            guard inputIsRunning || outputIsRunning else { continue }
-            var bundleAddress = audioPropertyAddress(kAudioProcessPropertyBundleID)
-            var bundleIdentifier: Unmanaged<CFString>?
-            var bundleSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-            let bundleStatus = AudioObjectGetPropertyData(processObject, &bundleAddress, 0, nil, &bundleSize, &bundleIdentifier)
-            guard bundleStatus == noErr, let bundleIdentifier else { return .unavailable }
-            let activeBundleIdentifier = bundleIdentifier.takeRetainedValue() as String
-            guard !activeBundleIdentifier.isEmpty else { return .unavailable }
-            activeBundleIdentifiers.insert(activeBundleIdentifier)
+        for processObject in processObjects {
+            do {
+                if let activeBundleIdentifier = try activeBundleIdentifierProvider(processObject) {
+                    guard !activeBundleIdentifier.isEmpty else { return .unavailable }
+                    activeBundleIdentifiers.insert(activeBundleIdentifier)
+                }
+            } catch ProcessAudioReadError.exited {
+                continue
+            } catch {
+                return .unavailable
+            }
         }
         return .available(activeBundleIdentifiers: activeBundleIdentifiers)
     }
 
-    private nonisolated static func audioActivity(_ processObject: AudioObjectID, selector: AudioObjectPropertySelector) -> Bool? {
+    private nonisolated static func activeBundleIdentifier(_ processObject: AudioObjectID) throws -> String? {
+        let inputIsRunning = try audioActivity(processObject, selector: kAudioProcessPropertyIsRunningInput)
+        let outputIsRunning = try audioActivity(processObject, selector: kAudioProcessPropertyIsRunningOutput)
+        guard inputIsRunning || outputIsRunning else { return nil }
+        var bundleAddress = audioPropertyAddress(kAudioProcessPropertyBundleID)
+        var bundleIdentifier: Unmanaged<CFString>?
+        var bundleSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        let bundleStatus = AudioObjectGetPropertyData(processObject, &bundleAddress, 0, nil, &bundleSize, &bundleIdentifier)
+        try validateProcessReadStatus(bundleStatus)
+        guard let bundleIdentifier else { throw ProcessAudioReadError.unavailable }
+        return bundleIdentifier.takeRetainedValue() as String
+    }
+
+    private nonisolated static func audioActivity(_ processObject: AudioObjectID, selector: AudioObjectPropertySelector) throws -> Bool {
         var propertyAddress = audioPropertyAddress(selector)
         var value: UInt32 = 0
         var valueSize = UInt32(MemoryLayout<UInt32>.size)
-        guard AudioObjectGetPropertyData(processObject, &propertyAddress, 0, nil, &valueSize, &value) == noErr,
-              valueSize == MemoryLayout<UInt32>.size, value <= 1 else { return nil }
+        let status = AudioObjectGetPropertyData(processObject, &propertyAddress, 0, nil, &valueSize, &value)
+        try validateProcessReadStatus(status)
+        guard valueSize == MemoryLayout<UInt32>.size, value <= 1 else { throw ProcessAudioReadError.unavailable }
         return value == 1
+    }
+
+    private nonisolated static func validateProcessReadStatus(_ status: OSStatus) throws {
+        if status == kAudioHardwareBadObjectError { throw ProcessAudioReadError.exited }
+        guard status == noErr else { throw ProcessAudioReadError.unavailable }
     }
 
     private nonisolated static func audioPropertyAddress(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
