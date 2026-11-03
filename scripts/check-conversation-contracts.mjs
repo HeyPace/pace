@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 const result = spawnSync('bash', [
   'scripts/test-pace.sh',
+  'PaceFlowReplayTests',
   'PaceConversationRecorderTests',
   'PaceChatSessionTests',
   'PaceChatTranscriptModelTests',

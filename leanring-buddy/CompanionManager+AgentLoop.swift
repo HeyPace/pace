@@ -1375,7 +1375,7 @@ extension CompanionManager {
             return
         }
 
-        if let flowCommand = PaceFlowCommandParser.parse(transcript) {
+        if let flowCommand = PaceFlowCommandParser.parse(transcript, isRecordedFlow: { flowStore.load(named: $0) != nil }) {
             print("🔁 Flow voice command: \(flowCommand)")
             handleFlowCommand(flowCommand, transcript: transcript)
             return

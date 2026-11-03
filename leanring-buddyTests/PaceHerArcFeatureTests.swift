@@ -705,7 +705,7 @@ final class PaceFlowReplayTests: XCTestCase {
             .startRecording(name: "morning standup")
         )
         XCTAssertEqual(PaceFlowCommandParser.parse("stop recording"), .stopRecording)
-        XCTAssertEqual(PaceFlowCommandParser.parse("run morning standup"), .run(name: "morning standup"))
+        XCTAssertEqual(PaceFlowCommandParser.parse("run morning standup", isRecordedFlow: { $0 == "morning standup" }), .run(name: "morning standup"))
         XCTAssertEqual(PaceFlowCommandParser.parse("delete the flow morning standup"), .delete(name: "morning standup"))
     }
 
@@ -725,7 +725,35 @@ final class PaceFlowReplayTests: XCTestCase {
             XCTFail("skill parser should claim 'run the cat search skill'")
         }
         // Plain flow runs (no "skill" mention) are untouched.
-        XCTAssertEqual(PaceFlowCommandParser.parse("run email zero"), .run(name: "email zero"))
+        XCTAssertEqual(PaceFlowCommandParser.parse("run email zero", isRecordedFlow: { $0 == "email zero" }), .run(name: "email zero"))
+    }
+
+    func testUnmatchedReplayAliasesLeaveQuestionsAndTasksForTheAssistant() {
+        for transcript in ["Do you see my screen? This is the competition.", "Do you see my screen?",
+                           "Do I need to change this?", "Do these numbers make sense?",
+                           "run the tests for this project", "do a comparison of these products"] {
+            XCTAssertNil(PaceFlowCommandParser.parse(transcript), transcript)
+        }
+    }
+
+    func testBareReplayAliasesMatchOnlyFlowsThatActuallyExist() throws {
+        let store = PaceFlowStore(directoryURL: temporaryDirectoryURL)
+        try store.save(PaceRecordedFlow(name: "Morning Standup", createdAt: Date(), steps: []))
+        for transcript in ["run Morning Standup", "do Morning Standup"] {
+            XCTAssertEqual(PaceFlowCommandParser.parse(transcript, isRecordedFlow: { store.load(named: $0) != nil }),
+                           .run(name: "Morning Standup"))
+        }
+        XCTAssertNil(PaceFlowCommandParser.parse("Do you see my screen? This is the competition.",
+                                                isRecordedFlow: { store.load(named: $0) != nil }))
+        XCTAssertNil(PaceFlowCommandParser.parse("run the cat search skill", isRecordedFlow: { _ in true }))
+    }
+
+    func testExplicitReplayRequestsStillNameMissingFlows() {
+        for transcript in ["run the flow Morning Standup", "run flow Morning Standup",
+                           "do the flow Morning Standup", "play back Morning Standup"] {
+            XCTAssertEqual(PaceFlowCommandParser.parse(transcript), .run(name: "Morning Standup"))
+        }
+        XCTAssertNil(PaceFlowCommandParser.parse("run flow "))
     }
 
     func testSkillRunResolverMatchesSpokenNameToLongerTaughtSlug() {
