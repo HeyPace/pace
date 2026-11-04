@@ -122,7 +122,7 @@ private struct PaceLivingNotchAccessibilityModifier: ViewModifier {
 final class PaceMenuBarOverlayManager {
     private weak var companionManager: CompanionManager?
     private var overlayPanel: PaceMenuBarOverlayPanel?
-    private var fallbackMenuBarStatusItem: NSStatusItem?
+    private(set) var fallbackMenuBarStatusItem: NSStatusItem?
     private var companionManagerObservation: AnyCancellable?
     private var companionControlCenterObservation: AnyCancellable?
     private var notchConversationVisibilityObserver: NSObjectProtocol?
@@ -227,7 +227,7 @@ final class PaceMenuBarOverlayManager {
         hoverOpenTask?.cancel()
         isVisible = false
         overlayPanel?.orderOut(nil)
-        removeFallbackMenuBarStatusItem()
+        fallbackMenuBarStatusItem?.isVisible = false
     }
 
     private func createOverlayPanel(
@@ -276,6 +276,7 @@ final class PaceMenuBarOverlayManager {
         guard isVisible, let companionManager else { return }
         if isNotchConversationVisible {
             overlayPanel?.orderOut(nil)
+            updateFallbackMenuBarStatusItem(for: .livingNotch)
             return
         }
 
@@ -352,15 +353,16 @@ final class PaceMenuBarOverlayManager {
         overlayPanel.orderFrontRegardless()
     }
 
-    private func updateFallbackMenuBarStatusItem(
-        for ambientHomePresentation: PaceAmbientHomePresentation
+    func updateFallbackMenuBarStatusItem(
+        for ambientHomePresentation: PaceAmbientHomePresentation,
+        connectedDisplaysNeedFallback: Bool? = nil
     ) {
-        switch ambientHomePresentation {
-        case .livingNotch:
-            removeFallbackMenuBarStatusItem()
-        case .menuBarItem:
-            createFallbackMenuBarStatusItemIfNeeded()
+        let needsFallbackOnConnectedDisplay = connectedDisplaysNeedFallback ?? NSScreen.screens.contains {
+            PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: .resting) == nil
         }
+        let shouldShowStatusItem = needsFallbackOnConnectedDisplay || ambientHomePresentation == .menuBarItem
+        if shouldShowStatusItem { createFallbackMenuBarStatusItemIfNeeded() }
+        fallbackMenuBarStatusItem?.isVisible = shouldShowStatusItem
         fallbackMenuBarStatusItem?.button?.contentTintColor =
             companionManager?.isOffDeviceTurnInFlight == true ? .systemOrange : .labelColor
         fallbackMenuBarStatusItem?.button?.toolTip =
@@ -372,6 +374,7 @@ final class PaceMenuBarOverlayManager {
         guard fallbackMenuBarStatusItem == nil else { return }
 
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem.autosaveName = "PaceFallbackMenuBarItem"
         guard let button = statusItem.button else {
             NSStatusBar.system.removeStatusItem(statusItem)
             return
@@ -381,12 +384,6 @@ final class PaceMenuBarOverlayManager {
         button.target = self
         button.action = #selector(fallbackMenuBarStatusItemTapped)
         fallbackMenuBarStatusItem = statusItem
-    }
-
-    private func removeFallbackMenuBarStatusItem() {
-        guard let fallbackMenuBarStatusItem else { return }
-        NSStatusBar.system.removeStatusItem(fallbackMenuBarStatusItem)
-        self.fallbackMenuBarStatusItem = nil
     }
 
     @objc private func fallbackMenuBarStatusItemTapped() {

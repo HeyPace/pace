@@ -76,6 +76,51 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.route.reason, .pointerDown)
     }
 
+    func testClickRetiresRouteReadWithoutRetiringTheNewApplicationsObserver() async throws {
+        for usesExplicitAnchor in [false, true] {
+            let gate = FocusReadGate()
+            let observerProbe = FocusObserverProbe()
+            var frontmostProcessIdentifier: pid_t = 99
+            var systemUptime: TimeInterval = 0
+            let coordinator = PaceActiveDisplayCoordinator(
+                screens: { [self.laptop, self.leftDisplay, self.upperDisplay] },
+                pointerLocation: { CGPoint(x: 700, y: 500) },
+                systemUptime: { systemUptime },
+                frontmostProcessIdentifier: { frontmostProcessIdentifier }, ownProcessIdentifier: 42,
+                focusedWindowReader: { processIdentifier, _ in await gate.read(processIdentifier: processIdentifier) },
+                focusedWindowObservationFactory: { processIdentifier, onChange in
+                    await observerProbe.makeBinding(processIdentifier: processIdentifier, onChange: onChange)
+                })
+            coordinator.handleSystemEvent(.applicationActivated)
+            try await gate.waitForReadCount(1)
+            await gate.completeNext(with: CGRect(x: 100, y: 100, width: 900, height: 700))
+            try await observerProbe.waitForObservedProcessIdentifier(99)
+
+            frontmostProcessIdentifier = 100
+            coordinator.handleSystemEvent(.applicationActivated)
+            try await gate.waitForReadCount(2)
+            if usesExplicitAnchor {
+                coordinator.selectDisplay(containing: CGRect(x: -1000, y: 900, width: 24, height: 24))
+            } else {
+                coordinator.pointerDidClick(at: CGPoint(x: -900, y: 400))
+            }
+            let clickedRoute = coordinator.route
+            await gate.completeNext(with: CGRect(x: 100, y: 100, width: 900, height: 700))
+            try await observerProbe.waitForObservedProcessIdentifier(100)
+            XCTAssertEqual(coordinator.route, clickedRoute)
+
+            systemUptime = 1
+            await observerProbe.sendFocusedWindowChange()
+            try await gate.waitForReadCount(3)
+            await gate.completeNext(with: CGRect(x: 100, y: 1500, width: 1200, height: 700))
+            await drainTasks()
+            let readProcessIdentifiers = await gate.readProcessIdentifiers
+            XCTAssertEqual(readProcessIdentifiers, [99, 100, 100])
+            XCTAssertEqual(coordinator.route.displayID, upperDisplay.displayID)
+            XCTAssertEqual(coordinator.route.reason, .focusedWindowChanged)
+        }
+    }
+
     func testSpaceChangeOnTheSameDisplayReassertsAndRetiresOldFocusedWindowRead() async throws {
         let gate = FocusReadGate()
         let coordinator = makeCoordinator(gate: gate)
@@ -207,6 +252,188 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(NSApp.isActive, originalApplicationActivity)
     }
 
+    func testOutsideClickKeepsTheConversationOnItsOldDisplayUntilDismissal() async throws {
+        let fixture = try makeTwoPlacementFixture()
+        var scheduledDismissals: [@MainActor () -> Void] = []
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let panelManager = MenuBarPanelManager(
+            companionManager: manager, activeDisplayCoordinator: fixture.coordinator,
+            usesChatPanelAsPrimarySurface: false,
+            panelPlacementResolver: fixture.placement,
+            scheduleOutsideClickDismissal: { scheduledDismissals.append($0) },
+            shouldReducePanelMotion: { true })
+        defer { panelManager.hidePanelForSmokeTest() }
+        panelManager.showPanelForSmokeTest()
+        await drainTasks()
+        let window = try XCTUnwrap(NSApp.windows.first {
+            $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible
+        })
+        let oldFrame = window.frame
+        let firstResponder = window.firstResponder
+        let keyWindow = NSApp.keyWindow
+        let applicationWasActive = NSApp.isActive
+        let outsideClick = CGPoint(x: -900, y: 400)
+        panelManager.dismissPanelIfClickIsOutside(at: outsideClick, currentDate: Date().addingTimeInterval(1))
+        XCTAssertEqual(scheduledDismissals.count, 1)
+        fixture.coordinator.pointerDidClick(at: outsideClick)
+        fixture.coordinator.handleSystemEvent(.activeSpaceChanged)
+        XCTAssertEqual(window.frame, oldFrame)
+        XCTAssertTrue(window.isVisible)
+        XCTAssertTrue(window.firstResponder === firstResponder)
+        XCTAssertTrue(NSApp.keyWindow === keyWindow)
+        XCTAssertEqual(NSApp.isActive, applicationWasActive)
+        scheduledDismissals[0]()
+        XCTAssertEqual(panelManager.presentation, .hidden)
+        XCTAssertFalse(window.isVisible)
+    }
+
+    func testNotchAndAnchoredLayoutsKeepTheActualChatHistoryAndComposerAlive() async throws {
+        let fixture = try makeTwoPlacementFixture()
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        manager.chatSession.draftMessageText = "Keep this unfinished question"
+        for questionNumber in 1...20 {
+            manager.chatSession.appendCompletedTurn(
+                userTranscript: "Saved question \(questionNumber)", assistantResponse: "Saved response \(questionNumber)",
+                recordedAt: Date(timeIntervalSince1970: TimeInterval(questionNumber)))
+        }
+        let panelManager = MenuBarPanelManager(
+            companionManager: manager, activeDisplayCoordinator: fixture.coordinator,
+            usesChatPanelAsPrimarySurface: false, panelPlacementResolver: fixture.placement,
+            shouldReducePanelMotion: { true })
+        defer { panelManager.hidePanelForSmokeTest() }
+        panelManager.showPanelForSmokeTest()
+        let window = try XCTUnwrap(NSApp.windows.first {
+            $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible
+        })
+        let contentView = try XCTUnwrap(window.contentView)
+        let historyButton = try await waitForAccessibilityElement(label: "Conversation history", in: contentView)
+        XCTAssertTrue(historyButton.accessibilityPerformPress())
+        _ = try await waitForAccessibilityElement(label: "Return to conversation", in: contentView)
+        let composer = try await waitForFocusedComposer(in: window)
+        let historyScrollView = try XCTUnwrap(scrollableHistory(in: contentView))
+        historyScrollView.contentView.scroll(to: CGPoint(x: 0, y: 80))
+        historyScrollView.reflectScrolledClipView(historyScrollView.contentView)
+        let scrollOrigin = historyScrollView.contentView.bounds.origin
+        XCTAssertGreaterThan(scrollOrigin.y, 0)
+        let historyMessages = manager.chatSession.messages
+        composer.setSelectedRange(NSRange(location: 5, length: 6))
+        let composerDelegate = composer.delegate as AnyObject?
+        let keyWindow = NSApp.keyWindow
+        let applicationWasActive = NSApp.isActive
+        let presentation = panelManager.presentation
+        let initialFrame = window.frame
+        for clickLocation in [CGPoint(x: -900, y: 400), CGPoint(x: 700, y: 500)] {
+            fixture.coordinator.pointerDidClick(at: clickLocation)
+            _ = try await waitForAccessibilityElement(label: "Return to conversation", in: contentView)
+            await drainTasks()
+            contentView.layoutSubtreeIfNeeded()
+            XCTAssertEqual(window.frame, fixture.placement(fixture.coordinator.route)?.frame)
+            XCTAssertTrue(window.contentView === contentView)
+            XCTAssertTrue(scrollableHistory(in: contentView) === historyScrollView)
+            XCTAssertEqual(historyScrollView.contentView.bounds.origin, scrollOrigin)
+            XCTAssertEqual(manager.chatSession.messages, historyMessages)
+            XCTAssertTrue(window.firstResponder === composer)
+            XCTAssertTrue((composer.delegate as AnyObject?) === composerDelegate)
+            XCTAssertEqual(composer.selectedRange(), NSRange(location: 5, length: 6))
+            XCTAssertTrue(NSApp.keyWindow === keyWindow)
+            XCTAssertEqual(NSApp.isActive, applicationWasActive)
+            XCTAssertEqual(panelManager.presentation, presentation)
+            XCTAssertEqual(manager.chatSession.draftMessageText, "Keep this unfinished question")
+        }
+        XCTAssertEqual(window.frame, initialFrame)
+    }
+
+    func testFallbackStatusItemRetainsItsIdentityAndPlacementNameAcrossDisplayRoutes() throws {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let overlayManager = PaceMenuBarOverlayManager(companionManager: manager, onTap: { _ in })
+        defer { overlayManager.hide() }
+        overlayManager.updateFallbackMenuBarStatusItem(for: .menuBarItem, connectedDisplaysNeedFallback: true)
+        let statusItem = try XCTUnwrap(overlayManager.fallbackMenuBarStatusItem)
+        XCTAssertEqual(statusItem.autosaveName, "PaceFallbackMenuBarItem")
+        for presentation in [PaceAmbientHomePresentation.livingNotch, .menuBarItem, .livingNotch] {
+            overlayManager.updateFallbackMenuBarStatusItem(for: presentation, connectedDisplaysNeedFallback: true)
+            XCTAssertTrue(overlayManager.fallbackMenuBarStatusItem === statusItem)
+            XCTAssertTrue(statusItem.isVisible)
+        }
+        overlayManager.updateFallbackMenuBarStatusItem(for: .livingNotch, connectedDisplaysNeedFallback: false)
+        XCTAssertTrue(overlayManager.fallbackMenuBarStatusItem === statusItem)
+        XCTAssertFalse(statusItem.isVisible)
+        overlayManager.updateFallbackMenuBarStatusItem(for: .menuBarItem, connectedDisplaysNeedFallback: false)
+        XCTAssertTrue(overlayManager.fallbackMenuBarStatusItem === statusItem)
+        XCTAssertTrue(statusItem.isVisible)
+    }
+
+    func testCompactConversationFitsBelowThePhysicalNotchWithoutChangingWideDefaults() {
+        let housingFrame = CGRect(x: 760, y: 1085, width: 200, height: 32)
+        let notchGeometry = PaceLivingNotchGeometry(physicalHousingFrame: housingFrame, presentationFrame: housingFrame)
+        let compactContentSize = CGSize(width: 320, height: 460)
+        let compactPlacement = PaceConversationPanelPlacement.resolve(
+            notchGeometry: notchGeometry, anchorFrame: housingFrame, screenFrame: laptop.frame,
+            contentSize: compactContentSize, notchContentSize: compactContentSize)
+        XCTAssertEqual(compactPlacement.frame.height, housingFrame.height + compactContentSize.height)
+        XCTAssertGreaterThanOrEqual(compactPlacement.frame.width, compactContentSize.width)
+        XCTAssertEqual(compactPlacement.frame.maxY, housingFrame.maxY)
+        let widePlacement = PaceConversationPanelPlacement.resolve(
+            notchGeometry: notchGeometry, anchorFrame: housingFrame, screenFrame: laptop.frame,
+            contentSize: CGSize(width: PaceQuickPanelMetrics.width, height: PaceQuickPanelMetrics.height))
+        XCTAssertEqual(widePlacement.frame.size, CGSize(width: 520, height: 412))
+    }
+
+    private func makeTwoPlacementFixture() throws -> (
+        coordinator: PaceActiveDisplayCoordinator,
+        placement: @MainActor (PaceActiveDisplayRoute) -> PaceConversationPanelPlacement?
+    ) {
+        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let housingFrame = CGRect(x: screen.frame.midX - 100, y: screen.frame.maxY - 32, width: 200, height: 32)
+        let notchGeometry = PaceLivingNotchGeometry(physicalHousingFrame: housingFrame, presentationFrame: housingFrame)
+        let notchPlacement = PaceConversationPanelPlacement.resolve(
+            notchGeometry: notchGeometry, anchorFrame: housingFrame, screenFrame: screen.frame,
+            contentSize: CGSize(width: PaceQuickPanelMetrics.width, height: PaceQuickPanelMetrics.height))
+        let anchoredPlacement = PaceConversationPanelPlacement.anchored(CGRect(
+            x: screen.frame.midX - 260, y: screen.frame.midY - 270, width: 520, height: 540))
+        let coordinator = PaceActiveDisplayCoordinator(
+            screens: { [self.laptop, self.leftDisplay] }, pointerLocation: { CGPoint(x: 700, y: 500) },
+            frontmostProcessIdentifier: { 42 }, ownProcessIdentifier: 42)
+        return (coordinator, { route in route.displayID == self.laptop.displayID ? notchPlacement : anchoredPlacement })
+    }
+
+    private func waitForFocusedComposer(in window: NSWindow) async throws -> NSTextView {
+        for _ in 0..<100 {
+            if let composer = window.firstResponder as? NSTextView { return composer }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw NSError(domain: "PaceActiveDisplayCoordinatorTests", code: 4,
+                      userInfo: [NSLocalizedDescriptionKey: "The chat composer did not receive its initial focus request"])
+    }
+
+    private func scrollableHistory(in view: NSView) -> NSScrollView? {
+        if let scrollView = view as? NSScrollView,
+            (scrollView.documentView?.frame.height ?? 0) > scrollView.contentView.frame.height + 100
+        {
+            return scrollView
+        }
+        return view.subviews.lazy.compactMap { scrollableHistory(in: $0) }.first
+    }
+
+    private func waitForAccessibilityElement(label: String, in view: NSView) async throws -> any NSAccessibility {
+        for _ in 0..<100 {
+            view.layoutSubtreeIfNeeded()
+            if let element = accessibilityElement(label: label, in: view) { return element }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw NSError(domain: "PaceActiveDisplayCoordinatorTests", code: 3,
+                      userInfo: [NSLocalizedDescriptionKey: "Missing chat accessibility element: \(label)"])
+    }
+
+    private func accessibilityElement(label: String, in root: Any, depth: Int = 0) -> (any NSAccessibility)? {
+        guard depth < 30, let element = root as? any NSAccessibility else { return nil }
+        if element.accessibilityLabel() == label { return element }
+        for child in element.accessibilityChildren() ?? [] {
+            if let match = accessibilityElement(label: label, in: child, depth: depth + 1) { return match }
+        }
+        return nil
+    }
+
     private func makeCoordinator(
         gate: FocusReadGate, frontmostProcessIdentifier: @escaping @MainActor () -> pid_t? = { 99 }
     ) -> PaceActiveDisplayCoordinator {
@@ -224,10 +451,12 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
 
 private actor FocusReadGate {
     private(set) var readCount = 0
+    private(set) var readProcessIdentifiers: [pid_t] = []
     private var continuations: [CheckedContinuation<CGRect?, Never>] = []
 
-    func read() async -> CGRect? {
+    func read(processIdentifier: pid_t? = nil) async -> CGRect? {
         readCount += 1
+        if let processIdentifier { readProcessIdentifiers.append(processIdentifier) }
         return await withCheckedContinuation { continuations.append($0) }
     }
 
@@ -243,5 +472,36 @@ private actor FocusReadGate {
         }
         throw NSError(domain: "PaceActiveDisplayCoordinatorTests", code: 1,
                       userInfo: [NSLocalizedDescriptionKey: "Focused-window read did not start"])
+    }
+}
+
+private actor FocusObserverProbe {
+    private var observedProcessIdentifier: pid_t?
+    private var callbacks: [pid_t: @MainActor @Sendable () -> Void] = [:]
+
+    func makeBinding(
+        processIdentifier: pid_t, onChange: @escaping @MainActor @Sendable () -> Void
+    ) -> PaceFocusedWindowObserverBinding {
+        callbacks[processIdentifier] = onChange
+        return PaceFocusedWindowObserverBinding(
+            start: { Task { await self.didStartObserving(processIdentifier) } }, stop: {})
+    }
+
+    func sendFocusedWindowChange() async {
+        guard let observedProcessIdentifier else { return }
+        await callbacks[observedProcessIdentifier]?()
+    }
+
+    private func didStartObserving(_ processIdentifier: pid_t) {
+        observedProcessIdentifier = processIdentifier
+    }
+
+    func waitForObservedProcessIdentifier(_ processIdentifier: pid_t) async throws {
+        for _ in 0..<1000 {
+            if observedProcessIdentifier == processIdentifier { return }
+            await Task.yield()
+        }
+        throw NSError(domain: "PaceActiveDisplayCoordinatorTests", code: 2,
+                      userInfo: [NSLocalizedDescriptionKey: "Focused-window observer did not bind to the frontmost app"])
     }
 }

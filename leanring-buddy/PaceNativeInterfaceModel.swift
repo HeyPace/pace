@@ -81,12 +81,14 @@ nonisolated enum PaceConversationPanelPlacement: Equatable {
         notchGeometry: PaceLivingNotchGeometry?,
         anchorFrame: CGRect,
         screenFrame: CGRect,
-        contentSize: CGSize
+        contentSize: CGSize,
+        notchContentSize: CGSize = CGSize(
+            width: PaceQuickPanelMetrics.width, height: PaceQuickPanelMetrics.seamlessContentHeight)
     ) -> PaceConversationPanelPlacement {
         if let notchGeometry {
             let housing = notchGeometry.physicalHousingFrame
-            let width = min(max(PaceQuickPanelMetrics.width, housing.width + 180), screenFrame.width - 16)
-            let height = min(housing.height + PaceQuickPanelMetrics.seamlessContentHeight, screenFrame.height - 16)
+            let width = min(max(notchContentSize.width, housing.width + 180), screenFrame.width - 16)
+            let height = min(housing.height + notchContentSize.height, screenFrame.height - 16)
             return .physicalNotch(
                 PaceLivingNotchGeometry(
                     physicalHousingFrame: housing,

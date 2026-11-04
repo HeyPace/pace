@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Combine
 
 nonisolated struct PaceMenuBarOccupancy: Equatable, Sendable {
     var itemFrames: [CGRect] = []
@@ -27,17 +28,31 @@ extension Notification.Name {
 @MainActor
 final class PaceMenuBarOccupancyMonitor {
     static let shared = PaceMenuBarOccupancyMonitor()
-    private(set) var occupancy = PaceMenuBarOccupancy()
+    private var cachedOccupancy = PaceMenuBarOccupancy()
+    private var cachedRouteRevision: UInt64?
+    private var cachedProcessIdentifier: pid_t?
+    var occupancy: PaceMenuBarOccupancy {
+        guard cachedRouteRevision == PaceActiveDisplayCoordinator.shared.route.revision,
+            cachedProcessIdentifier == NSWorkspace.shared.frontmostApplication?.processIdentifier
+        else { return PaceMenuBarOccupancy() }
+        return cachedOccupancy
+    }
+    private var displayRouteObservation: AnyCancellable?
     private var refreshTimer: Timer?
     private var activationObserver: NSObjectProtocol?
     private var refreshTask: Task<Void, Never>?
 
     func start() {
         guard refreshTimer == nil else { return }
+        displayRouteObservation = PaceActiveDisplayCoordinator.shared.routeChanges.sink { [weak self] _ in
+            self?.invalidateOccupancy()
+            self?.refresh()
+        }
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                self?.invalidateOccupancy()
                 self?.refresh()
             }
         }
@@ -57,6 +72,7 @@ final class PaceMenuBarOccupancyMonitor {
               let application = NSWorkspace.shared.frontmostApplication,
               let primaryScreen = NSScreen.screens.first else { return }
         let processIdentifier = application.processIdentifier
+        let routeRevision = PaceActiveDisplayCoordinator.shared.route.revision
         let primaryScreenTop = primaryScreen.frame.maxY
         refreshTask = Task { [weak self] in
             let snapshot = await Task.detached(priority: .utility) {
@@ -65,18 +81,34 @@ final class PaceMenuBarOccupancyMonitor {
             }.value
             guard let self else { return }
             self.refreshTask = nil
-            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == processIdentifier else {
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == processIdentifier,
+                PaceActiveDisplayCoordinator.shared.route.revision == routeRevision else {
                 self.refresh()
                 return
             }
-            self.publish(snapshot)
+            self.publish(snapshot, routeRevision: routeRevision, processIdentifier: processIdentifier)
         }
     }
 
-    private func publish(_ snapshot: PaceMenuBarOccupancy) {
-        guard occupancy != snapshot else { return }
-        occupancy = snapshot
-        NotificationCenter.default.post(name: .paceMenuBarOccupancyChanged, object: nil)
+    private func invalidateOccupancy() {
+        let wasReliable = cachedOccupancy.isReliable
+        cachedOccupancy = PaceMenuBarOccupancy()
+        cachedRouteRevision = nil
+        cachedProcessIdentifier = nil
+        if wasReliable {
+            NotificationCenter.default.post(name: .paceMenuBarOccupancyChanged, object: nil)
+        }
+    }
+
+    private func publish(_ snapshot: PaceMenuBarOccupancy, routeRevision: UInt64, processIdentifier: pid_t) {
+        let changed = cachedOccupancy != snapshot || cachedRouteRevision != routeRevision
+            || cachedProcessIdentifier != processIdentifier
+        cachedOccupancy = snapshot
+        cachedRouteRevision = routeRevision
+        cachedProcessIdentifier = processIdentifier
+        if changed {
+            NotificationCenter.default.post(name: .paceMenuBarOccupancyChanged, object: nil)
+        }
     }
 
     nonisolated private static func readOccupancy(
