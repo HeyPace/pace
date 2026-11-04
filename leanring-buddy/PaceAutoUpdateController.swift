@@ -21,25 +21,35 @@ import Sparkle
 final class PaceAutoUpdateController: NSObject {
     static let shared = PaceAutoUpdateController()
 
-    private let updaterController: SPUStandardUpdaterController
+    private let updaterController: SPUStandardUpdaterController?
 
     func checkForUpdatesManually() -> Bool {
-        guard updaterController.updater.canCheckForUpdates else { return false }
+        guard let updaterController, updaterController.updater.canCheckForUpdates else { return false }
         updaterController.checkForUpdates(nil)
         return true
     }
 
-    override init() {
+    override convenience init() {
+        self.init(
+            isLocalDevelopmentBuild: Bundle.main.object(forInfoDictionaryKey: "PaceLocalDevelopmentBuild") as? Bool == true)
+    }
+
+    init(isLocalDevelopmentBuild: Bool) {
         // startingUpdater: true → automatic background check kicks off
         // as soon as the controller is constructed, with the cadence
         // Sparkle's defaults / Info.plist drive (SUEnableAutomaticChecks,
-        // SUScheduledCheckInterval). Manual checks still work either way.
-        self.updaterController = SPUStandardUpdaterController(
+        // SUScheduledCheckInterval) for normal releases.
+        // A local build must never be replaced by the public update feed.
+        self.updaterController = isLocalDevelopmentBuild ? nil : SPUStandardUpdaterController(
             startingUpdater: true,
             updaterDelegate: nil,
             userDriverDelegate: nil
         )
         super.init()
-        print("🔄 PaceAutoUpdateController: started (feed=\(self.updaterController.updater.feedURL?.absoluteString ?? "unset"))")
+        guard let updaterController else {
+            print("🔄 PaceAutoUpdateController: updates disabled for local development build")
+            return
+        }
+        print("🔄 PaceAutoUpdateController: started (feed=\(updaterController.updater.feedURL?.absoluteString ?? "unset"))")
     }
 }

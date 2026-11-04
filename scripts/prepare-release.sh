@@ -56,6 +56,11 @@ mkdir -p "$OUTPUT_APP/Contents/Resources/scripts"
 cp "$SCRIPT_DIR/start-tts-server.sh" "$OUTPUT_APP/Contents/Resources/scripts/start-tts-server.sh"
 chmod +x "$OUTPUT_APP/Contents/Resources/scripts/start-tts-server.sh"
 
+if [[ "${PACE_LOCAL_DEVELOPMENT_BUILD:-0}" == "1" ]]; then
+    /usr/bin/plutil -replace PaceLocalDevelopmentBuild -bool YES "$OUTPUT_APP/Contents/Info.plist"
+    echo "▶ Local development build: public updates disabled"
+fi
+
 if [[ "$SIGNING_IDENTITY" != "-" ]]; then
 security find-identity -v -p codesigning | grep -F "$SIGNING_IDENTITY" >/dev/null || {
     echo "Developer ID identity is not installed: $SIGNING_IDENTITY" >&2

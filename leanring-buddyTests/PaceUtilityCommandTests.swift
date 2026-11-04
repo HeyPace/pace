@@ -37,3 +37,11 @@ struct PaceUtilityCommandTests {
         #expect(try !PaceSileroSpeechDetector.containsSpeech(in: []))
     }
 }
+
+struct PaceAutoUpdateControllerTests {
+    @Test @MainActor func localDevelopmentBuildDeclinesManualUpdates() {
+        let autoUpdateController = PaceAutoUpdateController(isLocalDevelopmentBuild: true)
+
+        #expect(!autoUpdateController.checkForUpdatesManually())
+    }
+}
