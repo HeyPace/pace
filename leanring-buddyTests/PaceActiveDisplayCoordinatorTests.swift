@@ -138,6 +138,21 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.route.displayID, laptop.displayID)
     }
 
+    func testImmediateFocusedWindowChangeAfterClickFollowsTheNewWindow() async throws {
+        let gate = FocusReadGate()
+        let coordinator = PaceActiveDisplayCoordinator(
+            screens: { [self.laptop, self.leftDisplay, self.upperDisplay] },
+            pointerLocation: { CGPoint(x: 700, y: 500) }, systemUptime: { 100 },
+            frontmostProcessIdentifier: { 99 }, ownProcessIdentifier: 42,
+            focusedWindowReader: { _, _ in await gate.read() })
+        coordinator.pointerDidClick(at: CGPoint(x: 700, y: 500))
+        coordinator.handleSystemEvent(.focusedWindowChanged)
+        try await gate.waitForReadCount(1)
+        await gate.completeNext(with: CGRect(x: -1800, y: 200, width: 900, height: 600))
+        await drainTasks()
+        XCTAssertEqual(coordinator.route.displayID, leftDisplay.displayID)
+    }
+
     func testOwnActivationAndFocusNeverBounceToThePointerDisplayOrReadPaceWindows() async {
         let gate = FocusReadGate()
         let coordinator = makeCoordinator(gate: gate, frontmostProcessIdentifier: { 42 })
@@ -415,7 +430,7 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         return view.subviews.lazy.compactMap { scrollableHistory(in: $0) }.first
     }
 
-    private func waitForAccessibilityElement(label: String, in view: NSView) async throws -> any NSAccessibility {
+    private func waitForAccessibilityElement(label: String, in view: NSView) async throws -> any NSAccessibilityProtocol {
         for _ in 0..<100 {
             view.layoutSubtreeIfNeeded()
             if let element = accessibilityElement(label: label, in: view) { return element }
@@ -425,8 +440,8 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
                       userInfo: [NSLocalizedDescriptionKey: "Missing chat accessibility element: \(label)"])
     }
 
-    private func accessibilityElement(label: String, in root: Any, depth: Int = 0) -> (any NSAccessibility)? {
-        guard depth < 30, let element = root as? any NSAccessibility else { return nil }
+    private func accessibilityElement(label: String, in root: Any, depth: Int = 0) -> (any NSAccessibilityProtocol)? {
+        guard depth < 30, let element = root as? any NSAccessibilityProtocol else { return nil }
         if element.accessibilityLabel() == label { return element }
         for child in element.accessibilityChildren() ?? [] {
             if let match = accessibilityElement(label: label, in: child, depth: depth + 1) { return match }

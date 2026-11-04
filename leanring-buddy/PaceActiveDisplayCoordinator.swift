@@ -175,7 +175,7 @@ final class PaceActiveDisplayCoordinator {
             focusedWindowObservation = nil
             return
         }
-        // Activation and AX can arrive after the click that caused them. Keep that explicit choice.
+        // Activation can lag behind its click; a new focused-window event may already be a keyboard switch.
         pendingFocusReason = reason
         beginPendingFocusRefresh()
     }
@@ -187,7 +187,8 @@ final class PaceActiveDisplayCoordinator {
         pendingFocusReason = nil
         let generation = focusRequestGeneration
         let allowsFocusSelection = systemUptime() - lastPointerDownAt >= 0.25
-            || reason == .activeSpaceChanged || reason == .screensChanged || reason == .wake
+            || reason == .focusedWindowChanged || reason == .activeSpaceChanged
+            || reason == .screensChanged || reason == .wake
         let focusedWindowReader = focusedWindowReader
         focusRefreshTask = Task { [weak self] in
             let focusedWindowFrame = await focusedWindowReader(processIdentifier, primaryScreenTop)
