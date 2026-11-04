@@ -13,6 +13,8 @@ extension Notification.Name {
     static let paceSmokeShowDiagram = Notification.Name("com.pace.smoke.showDiagram")
     static let paceSmokeSelectDiagramPart = Notification.Name("com.pace.smoke.selectDiagramPart")
     static let paceSmokeDismissDiagram = Notification.Name("com.pace.smoke.dismissDiagram")
+    static let paceSmokeSpeakFixedPhrase = Notification.Name("com.pace.smoke.speakFixedPhrase")
+    static let paceSmokeRequestSpokenReply = Notification.Name("com.pace.smoke.requestSpokenReply")
     static let paceSmokeShowPanel = Notification.Name("com.pace.smoke.showPanel")
     static let paceSmokeHidePanel = Notification.Name("com.pace.smoke.hidePanel")
     static let paceSmokeShowSettings = Notification.Name("com.pace.smoke.showSettings")
@@ -76,6 +78,39 @@ final class PaceRuntimeSmokeTestHooks {
                 PaceSmokeTestStateStore.recordDiagramState(0, selectedPart: nil)
             }
         #endif
+        observe(.paceSmokeSpeakFixedPhrase) { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                guard companionManager.voiceState == .idle, !companionManager.ttsClient.isPlaying else {
+                    recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "busy")
+                    return
+                }
+                recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "requested")
+                do {
+                    try await companionManager.ttsClient.speakText("Pace local speech playback is working.")
+                    recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "playback_started")
+                } catch {
+                    recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "error")
+                }
+            }
+        }
+
+        observe(.paceSmokeRequestSpokenReply) { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                guard companionManager.voiceState == .idle, !companionManager.ttsClient.isPlaying else {
+                    recordSpeechSmokeResult(operation: "spoken_reply", outcome: "busy")
+                    return
+                }
+                companionManager.submitChatTranscriptFromDeepLink(
+                    "What is two plus two? Reply with one short sentence. Do not use tools or perform any actions."
+                )
+                // Submission is not proof of speech. The regular planner and
+                // speech audit events report the remainder of this turn.
+                recordSpeechSmokeResult(operation: "spoken_reply", outcome: "submitted")
+            }
+        }
+
         observe(.paceSmokeShowPanel) { [weak self] in
             self?.menuBarPanelManager.showPanelForSmokeTest()
             PaceSmokeTestStateStore.recordLastPanelCommand("show")
@@ -150,6 +185,16 @@ final class PaceRuntimeSmokeTestHooks {
                 PaceSmokeTestStateStore.recordLastClickAllFailSummary(summary ?? "<failed>")
             }
         }
+    }
+
+    private func recordSpeechSmokeResult(operation: String, outcome: String) {
+        PaceAPIAuditLog.shared.record(
+            subsystem: "tts",
+            operation: "runtime_smoke.\(operation)",
+            target: "configured_tts",
+            durationMilliseconds: 0,
+            outcome: outcome
+        )
     }
 
     private func observe(_ name: Notification.Name, handler: @escaping @MainActor () -> Void) {

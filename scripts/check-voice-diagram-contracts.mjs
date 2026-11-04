@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url';
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 const runnerPath = fileURLToPath(new URL('./test-pace.sh', import.meta.url));
 const result = spawnSync('bash', [runnerPath,
+  'LocalTTSPlaybackStateTests',
+  'StreamingSentenceTTSPipelineDispatchTests',
+  'PaceBargeInVADIntegrationTests',
   'PaceUtteranceEndpointDetectorTests',
   'GlobalPushToTalkShortcutMonitorTests',
   'PaceNativeInterfaceModelTests',

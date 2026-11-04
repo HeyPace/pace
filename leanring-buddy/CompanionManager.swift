@@ -241,7 +241,14 @@ final class CompanionManager: ObservableObject {
     /// in `CompanionManager`. The pipeline owns the per-turn lifecycle
     /// already; reusing its publisher keeps the streaming wire-up DRY.
     lazy var streamingSentenceTTSPipeline: StreamingSentenceTTSPipeline = {
-        return StreamingSentenceTTSPipeline(ttsClient: ttsClient)
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: ttsClient)
+        pipeline.onPlaybackFailure = { [weak self] in
+            guard let self else { return }
+            let notice = "Voice playback failed; your answer is in chat."
+            self.recordAssistantNarration(notice, origin: .failure)
+            self.currentTurnHUDState = .failed(notice)
+        }
+        return pipeline
     }()
 
     /// Backing store for the in-window chat transcript. Lazy so it

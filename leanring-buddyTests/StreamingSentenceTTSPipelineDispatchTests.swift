@@ -119,6 +119,35 @@ struct StreamingSentenceTTSPipelineDispatchTests {
         #expect(pipeline.inFlightStreamedText == "Fresh response. Keep going.")
     }
 
+    @Test func suspendedStartupCannotDispatchDuplicateChunksOrRewindCursor() async throws {
+        let client = SuspendedDispatchTTSClient()
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
+        let firstSubmission = Task { await pipeline.acceptStreamedText("The first complete sentence.") }
+        defer {
+            firstSubmission.cancel()
+            client.submission?.resume()
+            client.submission = nil
+        }
+        for _ in 0..<1_000 {
+            if client.submission != nil { break }
+            await Task.yield()
+        }
+        let continuation = try #require(client.submission)
+        await pipeline.acceptStreamedText("The first complete sentence.")
+        #expect(client.spokenTexts.count == 1)
+
+        client.suspendsSubmissions = false
+        await pipeline.acceptStreamedText("The first complete sentence. The next complete sentence.")
+        client.submission = nil
+        continuation.resume()
+        await firstSubmission.value
+        await pipeline.flushFinal(finalSpokenText: "The first complete sentence. The next complete sentence.")
+
+        #expect(client.spokenTexts == ["The first complete sentence.", "The next complete sentence."])
+        #expect(pipeline.firstSpokenWordCharacterCount
+            == "The first complete sentence.".count + "The next complete sentence.".count)
+    }
+
     // MARK: - Wave 4: first-sentence 4-char threshold
 
     @Test func fourCharFirstSentenceDispatchesImmediately() async throws {

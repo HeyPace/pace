@@ -3,50 +3,235 @@
 //  leanring-buddyTests
 //
 
+import AVFoundation
 import Foundation
 import Testing
 
 @testable import Pace
 
 @MainActor
+private final class TestSpeechSynthesizer: LocalTTSSpeechSynthesizing {
+    var delegate: (any AVSpeechSynthesizerDelegate)?
+    var isSpeaking = false
+    private(set) var utterances: [AVSpeechUtterance] = []
+    private(set) var stopCount = 0
+    private let delegateSource = AVSpeechSynthesizer()
+
+    func speak(_ utterance: AVSpeechUtterance) { utterances.append(utterance) }
+
+    func stopSpeaking(at boundary: AVSpeechBoundary) -> Bool {
+        stopCount += 1
+        isSpeaking = false
+        return true
+    }
+
+    func start(_ utterance: AVSpeechUtterance) {
+        isSpeaking = true
+        delegate?.speechSynthesizer?(delegateSource, didStart: utterance)
+    }
+
+    func finish(_ utterance: AVSpeechUtterance) {
+        isSpeaking = false
+        delegate?.speechSynthesizer?(delegateSource, didFinish: utterance)
+    }
+
+    func cancel(_ utterance: AVSpeechUtterance) {
+        delegate?.speechSynthesizer?(delegateSource, didCancel: utterance)
+    }
+}
+
+@MainActor
 struct LocalTTSPlaybackStateTests {
-    @Test func pendingUtteranceKeepsPlaybackActiveDuringStartupGracePeriod() {
-        let submittedAt = Date()
-
-        let isPlaying = LocalTTSClient.shouldReportPlaybackActive(
-            synthesizerIsSpeaking: false,
-            isUtterancePending: true,
-            mostRecentUtteranceSubmittedAt: submittedAt,
-            now: submittedAt.addingTimeInterval(0.5)
-        )
-
-        #expect(isPlaying)
+    private func makeAuditLog() -> PaceAPIAuditLog {
+        PaceAPIAuditLog(logFileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("pace-speech-tests-\(UUID().uuidString).jsonl"))
     }
 
-    @Test func stalePendingUtteranceCannotKeepPlaybackActiveForever() {
-        let submittedAt = Date()
-
-        let isPlaying = LocalTTSClient.shouldReportPlaybackActive(
-            synthesizerIsSpeaking: false,
-            isUtterancePending: true,
-            mostRecentUtteranceSubmittedAt: submittedAt,
-            now: submittedAt.addingTimeInterval(
-                LocalTTSClient.pendingPlaybackStartGraceInterval + 0.1
-            )
-        )
-
-        #expect(!isPlaying)
+    private func waitForSubmission(_ synthesizer: TestSpeechSynthesizer, count: Int = 1) async throws {
+        for _ in 0..<1_000 {
+            if synthesizer.utterances.count >= count { return }
+            await Task.yield()
+        }
+        #expect(synthesizer.utterances.count >= count)
+        throw CancellationError()
     }
 
-    @Test func activeSynthesizerAlwaysReportsPlayback() {
-        let isPlaying = LocalTTSClient.shouldReportPlaybackActive(
-            synthesizerIsSpeaking: true,
-            isUtterancePending: false,
-            mostRecentUtteranceSubmittedAt: nil,
-            now: Date()
-        )
+    @Test func submissionOnlySucceedsAfterDelegateConfirmsPlaybackStarted() async throws {
+        let synthesizer = TestSpeechSynthesizer()
+        let auditLog = makeAuditLog()
+        let client = LocalTTSClient(speechSynthesizer: synthesizer, auditLog: auditLog)
+        var submissionReturned = false
+        let submission = Task {
+            try await client.speakText("A private test sentence.")
+            submissionReturned = true
+        }
+        defer { client.stopPlayback() }
+        try await waitForSubmission(synthesizer)
+        #expect(client.isPlaying)
+        #expect(!submissionReturned)
+        synthesizer.start(try #require(synthesizer.utterances.first))
+        try await submission.value
+        #expect(submissionReturned)
+        synthesizer.finish(try #require(synthesizer.utterances.first))
+        for _ in 0..<100 { await Task.yield() }
+        #expect(!client.isPlaying)
+        let entries = auditLog.readAllEntries()
+        #expect(entries.map(\.operation) == ["apple_speech.submit", "apple_speech.start", "apple_speech.finish"])
+        #expect(entries.allSatisfy { $0.detail?.contains("private test") != true })
+    }
 
-        #expect(isPlaying)
+    @Test func missingStartThrowsAndAuditsFailureInsteadOfReportingSuccess() async throws {
+        let synthesizer = TestSpeechSynthesizer()
+        let auditLog = makeAuditLog()
+        let client = LocalTTSClient(speechSynthesizer: synthesizer, playbackStartTimeout: 0.02, auditLog: auditLog)
+        do {
+            try await client.speakText("This never starts.")
+            Issue.record("An unstarted utterance must not report successful playback.")
+        } catch {
+            #expect(error is LocalTTSPlaybackError)
+        }
+        #expect(!client.isPlaying)
+        #expect(synthesizer.stopCount == 1)
+        #expect(auditLog.readAllEntries().contains { $0.operation == "apple_speech.timeout" })
+    }
+
+    @Test func unexpectedNativeCancellationBeforeStartThrowsPlaybackFailure() async throws {
+        let synthesizer = TestSpeechSynthesizer()
+        let client = LocalTTSClient(speechSynthesizer: synthesizer, auditLog: makeAuditLog())
+        var failureNoticeCount = 0
+        client.onPlaybackFailure = { failureNoticeCount += 1 }
+        let submission = Task { try await client.speakText("Native cancellation before playback.") }
+        try await waitForSubmission(synthesizer)
+        synthesizer.cancel(try #require(synthesizer.utterances.first))
+        do {
+            try await submission.value
+            Issue.record("Unexpected native cancellation must fail startup.")
+        } catch {
+            #expect(error as? LocalTTSPlaybackError == .playbackCancelled)
+        }
+        #expect(failureNoticeCount == 1)
+        #expect(!client.isPlaying)
+    }
+
+    @Test func unexpectedNativeCancellationAfterStartReportsVisiblePipelineFailure() async throws {
+        let synthesizer = TestSpeechSynthesizer()
+        let client = LocalTTSClient(speechSynthesizer: synthesizer, auditLog: makeAuditLog())
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
+        var failureNoticeCount = 0
+        pipeline.onPlaybackFailure = { failureNoticeCount += 1 }
+        let submission = Task { await pipeline.acceptStreamedText("This sentence starts before cancellation.") }
+        try await waitForSubmission(synthesizer)
+        let utterance = try #require(synthesizer.utterances.first)
+        synthesizer.start(utterance)
+        await submission.value
+        synthesizer.cancel(utterance)
+        for _ in 0..<100 { await Task.yield() }
+        #expect(failureNoticeCount == 1)
+        #expect(!client.isPlaying)
+        #expect(pipeline.inFlightStreamedText == "This sentence starts before cancellation.")
+    }
+
+    @Test func stopWhilePendingRejectsWaiterAndStaleCallbacksCannotStopFreshSpeech() async throws {
+        let synthesizer = TestSpeechSynthesizer()
+        let client = LocalTTSClient(speechSynthesizer: synthesizer, auditLog: makeAuditLog())
+        var failureNoticeCount = 0
+        client.onPlaybackFailure = { failureNoticeCount += 1 }
+        let oldSubmission = Task { try await client.speakText("Old pending sentence.") }
+        try await waitForSubmission(synthesizer)
+        let oldUtterance = try #require(synthesizer.utterances.first)
+        client.stopPlayback()
+        do {
+            try await oldSubmission.value
+            Issue.record("Stopping pending playback must reject the waiter.")
+        } catch { #expect(error is CancellationError) }
+        #expect(!client.isPlaying)
+
+        let freshSubmission = Task { try await client.speakText("Fresh sentence.") }
+        defer { client.stopPlayback() }
+        try await waitForSubmission(synthesizer, count: 2)
+        let freshUtterance = try #require(synthesizer.utterances.last)
+        synthesizer.start(freshUtterance)
+        try await freshSubmission.value
+        synthesizer.cancel(oldUtterance)
+        synthesizer.finish(oldUtterance)
+        for _ in 0..<100 { await Task.yield() }
+        #expect(client.isPlaying)
+        #expect(synthesizer.stopCount == 1)
+        #expect(failureNoticeCount == 0)
+    }
+
+    @Test func queuedChunkDoesNotExpireWhileEarlierSpeechIsActive() async throws {
+        let synthesizer = TestSpeechSynthesizer()
+        let auditLog = makeAuditLog()
+        let client = LocalTTSClient(speechSynthesizer: synthesizer, playbackStartTimeout: 0.03, auditLog: auditLog)
+        var failureNoticeCount = 0
+        client.onPlaybackFailure = { failureNoticeCount += 1 }
+        let firstSubmission = Task { try await client.speakText("The first sentence keeps speaking.") }
+        defer { client.stopPlayback() }
+        try await waitForSubmission(synthesizer)
+        let firstUtterance = try #require(synthesizer.utterances.first)
+        synthesizer.start(firstUtterance)
+        try await firstSubmission.value
+        try await client.speakText("This sentence waits in the native queue.")
+        try await Task.sleep(for: .milliseconds(70))
+        #expect(client.isPlaying)
+        #expect(synthesizer.stopCount == 0)
+        #expect(!auditLog.readAllEntries().contains { $0.operation == "apple_speech.timeout" })
+
+        // Once the previous sentence ends, a queued chunk that never starts
+        // must still be bounded, even though its submission already returned.
+        synthesizer.finish(firstUtterance)
+        try await Task.sleep(for: .milliseconds(70))
+        #expect(!client.isPlaying)
+        #expect(synthesizer.stopCount == 1)
+        #expect(auditLog.readAllEntries().contains { $0.operation == "apple_speech.timeout" })
+        #expect(failureNoticeCount == 1)
+    }
+
+    @Test func pipelineReportsStartupFailureOnceAndKeepsAnswerTextVisible() async {
+        let synthesizer = TestSpeechSynthesizer()
+        let client = LocalTTSClient(speechSynthesizer: synthesizer, playbackStartTimeout: 0.02, auditLog: makeAuditLog())
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
+        var failureNoticeCount = 0
+        pipeline.onPlaybackFailure = { failureNoticeCount += 1 }
+
+        await pipeline.acceptStreamedText("The answer remains visible in chat.")
+        #expect(failureNoticeCount == 1)
+        #expect(pipeline.firstSpokenWordCharacterCount == 0)
+        #expect(pipeline.inFlightStreamedText == "The answer remains visible in chat.")
+        await pipeline.flushFinal(finalSpokenText: "The answer remains visible in chat.")
+        #expect(synthesizer.utterances.count == 1)
+        #expect(failureNoticeCount == 1)
+    }
+
+    @Test func newTurnCancelsPendingSpeechBeforeFreshResponse() async throws {
+        let synthesizer = TestSpeechSynthesizer()
+        let client = LocalTTSClient(speechSynthesizer: synthesizer, auditLog: makeAuditLog())
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
+        var failureNoticeCount = 0
+        pipeline.onPlaybackFailure = { failureNoticeCount += 1 }
+        let submission = Task { await pipeline.acceptStreamedText("The old turn is waiting to start.") }
+        try await waitForSubmission(synthesizer)
+        pipeline.resetForNewTurn()
+        await submission.value
+        #expect(!client.isPlaying)
+        #expect(synthesizer.stopCount == 1)
+        #expect(pipeline.firstSpokenWordCharacterCount == 0)
+        #expect(failureNoticeCount == 0)
+    }
+
+    @Test func cancellingPendingSubmissionStopsItsQueue() async throws {
+        let synthesizer = TestSpeechSynthesizer()
+        let client = LocalTTSClient(speechSynthesizer: synthesizer, auditLog: makeAuditLog())
+        let submission = Task { try await client.speakText("Cancelled before starting.") }
+        try await waitForSubmission(synthesizer)
+        submission.cancel()
+        do {
+            try await submission.value
+            Issue.record("Cancelled startup must throw.")
+        } catch { #expect(error is CancellationError) }
+        #expect(!client.isPlaying)
+        #expect(synthesizer.stopCount == 1)
     }
 }
 

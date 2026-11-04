@@ -19,6 +19,8 @@ import Foundation
 @MainActor
 final class StreamingSentenceTTSPipeline: ObservableObject {
     private let ttsClient: any BuddyTTSClient
+    var onPlaybackFailure: (() -> Void)?
+    private var hasReportedPlaybackFailureForCurrentTurn = false
     /// Tag-stripped, sentence-bounded text that's already been queued
     /// to the TTS client. We diff against this on each new chunk so
     /// only the new completed sentence(s) get spoken.
@@ -112,12 +114,18 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
 
     init(ttsClient: any BuddyTTSClient) {
         self.ttsClient = ttsClient
+        // Queued Apple chunks can fail after their dispatch returned while
+        // earlier audio was active; those failures still need a visible notice.
+        if let localTTSClient = ttsClient as? LocalTTSClient {
+            localTTSClient.onPlaybackFailure = { [weak self] in self?.reportPlaybackFailureIfNeeded() }
+        }
     }
 
     /// Called when a new voice turn begins. Clears the dispatch
     /// history so the next chunk starts a fresh queue.
     func resetForNewTurn() {
         dispatchGeneration &+= 1
+        if ttsClient.isPlaying { ttsClient.stopPlayback() }
         alreadyDispatchedSafeText = ""
         intentCommittedAt = nil
         hasLoggedTimeToFirstSpokenWord = false
@@ -127,6 +135,7 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         hasDispatchedFirstSentenceOfTurn = false
         firstSpokenWordCharacterCount = 0
         hasFinalizedStreamedTextForTurn = false
+        hasReportedPlaybackFailureForCurrentTurn = false
     }
 
     /// Retires the live streaming-reply mirror at turn completion and
@@ -189,6 +198,7 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     ///    not lost or re-logged. The headline latency metric still reflects
     ///    when the user first heard audio, race or not.
     func prepareForSupersedingStreamWithinTurn() {
+        dispatchGeneration &+= 1
         ttsClient.stopPlayback()
         alreadyDispatchedSafeText = ""
         inFlightStreamedText = ""
@@ -274,7 +284,10 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         // so the text UI sees the rest of the planner output, but the
         // TTS path is silenced — matches the user's expressed intent
         // to stop hearing the response.
-        guard !hasStoppedSpeechForCurrentTurn else { return }
+        guard !hasStoppedSpeechForCurrentTurn else {
+            recordAudioDispatch(outcome: "skipped_user_stop", characterCount: speakableSafePrefix.count)
+            return
+        }
 
         guard speakableSafePrefix.count > alreadyDispatchedSafeText.count else { return }
 
@@ -309,33 +322,58 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         // `inFlightStreamedText` above.
         guard !isMutedForCurrentTurn else {
             alreadyDispatchedSafeText = speakableSafePrefix
+            recordAudioDispatch(outcome: "skipped_muted", characterCount: trimmedNewPortion.count)
             return
         }
 
+        // Startup confirmation suspends. Reserve the prefix first so another
+        // streamed callback cannot submit the same sentence while it waits.
+        alreadyDispatchedSafeText = speakableSafePrefix
+        hasDispatchedFirstSentenceOfTurn = true
+        let expectedDispatchGeneration = dispatchGeneration
+        recordAudioDispatch(outcome: "submitted", characterCount: trimmedNewPortion.count)
         do {
-            let expectedDispatchGeneration = dispatchGeneration
             try await ttsClient.speakText(trimmedNewPortion)
             guard expectedDispatchGeneration == dispatchGeneration, !hasStoppedSpeechForCurrentTurn else { return }
-            alreadyDispatchedSafeText = speakableSafePrefix
-            // Wave 4: the FIRST successful dispatch flips the threshold
-            // gate so subsequent dispatches use the higher 8-char floor.
             // Track total spoken character count so the speculative-
             // planner-race supersede decision can read "how much has
             // the user already heard" without subscribing to TTS state.
-            hasDispatchedFirstSentenceOfTurn = true
             firstSpokenWordCharacterCount += trimmedNewPortion.count
             PaceLatencyBudget.shared.mark(.ttsFirstDispatch)
             logTimeToFirstSpokenWordIfApplicable()
         } catch {
+            recordAudioDispatch(
+                outcome: error is CancellationError ? "cancelled" : "failed",
+                characterCount: trimmedNewPortion.count
+            )
+            if expectedDispatchGeneration == dispatchGeneration, !(error is CancellationError) {
+                reportPlaybackFailureIfNeeded()
+            }
             print("⚠️ Streaming TTS submission failed: \(error.localizedDescription)")
         }
     }
 
+    private func reportPlaybackFailureIfNeeded() {
+        guard !hasStoppedSpeechForCurrentTurn, !hasReportedPlaybackFailureForCurrentTurn else { return }
+        hasReportedPlaybackFailureForCurrentTurn = true
+        onPlaybackFailure?()
+    }
+
+    private func recordAudioDispatch(outcome: String, characterCount: Int) {
+        PaceAPIAuditLog.shared.record(
+            subsystem: "tts",
+            operation: "streaming_speech.dispatch",
+            target: String(describing: type(of: ttsClient)),
+            durationMilliseconds: 0,
+            outcome: outcome,
+            inputCharacterCount: characterCount
+        )
+    }
+
     /// On the first successful dispatch after `markIntentCommitted()`,
-    /// print the time-to-first-spoken-word. AVSpeechSynthesizer
-    /// typically begins audio playback within ~80-200ms of `speak()`
-    /// returning, so this is the closest in-process proxy for "user
-    /// hears the first syllable" without instrumenting the audio HAL.
+    /// print the time-to-first-spoken-word. The Apple client confirms
+    /// its delegate start before the first dispatch returns; this remains
+    /// an in-process proxy rather than a measurement of audible output.
     private func logTimeToFirstSpokenWordIfApplicable() {
         guard !hasLoggedTimeToFirstSpokenWord,
               let intentCommittedAt else {

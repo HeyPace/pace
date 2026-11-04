@@ -13,22 +13,51 @@ import AVFoundation
 import Foundation
 
 @MainActor
+protocol LocalTTSSpeechSynthesizing: AnyObject {
+    var delegate: (any AVSpeechSynthesizerDelegate)? { get set }
+    var isSpeaking: Bool { get }
+    func speak(_ utterance: AVSpeechUtterance)
+    @discardableResult func stopSpeaking(at boundary: AVSpeechBoundary) -> Bool
+}
+
+extension AVSpeechSynthesizer: LocalTTSSpeechSynthesizing {}
+
+enum LocalTTSPlaybackError: Error, LocalizedError, Equatable {
+    case playbackDidNotStart
+    case playbackCancelled
+
+    var errorDescription: String? {
+        switch self {
+        case .playbackDidNotStart:
+            return "Local speech playback did not start. Please try again."
+        case .playbackCancelled:
+            return "Local speech playback stopped unexpectedly. Please try again."
+        }
+    }
+}
+
+@MainActor
 final class LocalTTSClient: NSObject, BuddyTTSClient {
-    private let speechSynthesizer = AVSpeechSynthesizer()
+    private let speechSynthesizer: any LocalTTSSpeechSynthesizing
+    private let playbackStartTimeout: TimeInterval
+    private let auditLog: PaceAPIAuditLog
+    private var pendingUtterances: [PendingUtterance] = []
+    private var playbackStartTimeoutTask: Task<Void, Never>?
+    private var watchedUtteranceIdentifier: ObjectIdentifier?
+    static let defaultPlaybackStartTimeout: TimeInterval = 3
+    var onPlaybackFailure: (() -> Void)?
 
-    // Tracks whether we have an utterance currently being spoken. We can't
-    // rely solely on AVSpeechSynthesizer.isSpeaking because there's a brief
-    // window between calling speak() and the audio actually starting where
-    // isSpeaking returns false but playback is imminent. Without our own flag,
-    // CompanionManager's `while ttsClient.isPlaying` poll would exit early.
-    private var isCurrentlySpeakingOrPending = false
-    private var mostRecentUtteranceSubmittedAt: Date?
+    private final class PendingUtterance {
+        let utterance: AVSpeechUtterance
+        let submittedAt = Date()
+        var hasStarted = false
+        var startupContinuation: CheckedContinuation<Void, Error>?
 
-    /// AVSpeechSynthesizer can briefly report neither speaking nor finished
-    /// immediately after `speak(_:)`. Keep the pending flag alive through that
-    /// startup gap, but do not let a missed delegate callback strand Pace in a
-    /// responding state forever.
-    static let pendingPlaybackStartGraceInterval: TimeInterval = 1
+        init(utterance: AVSpeechUtterance, startupContinuation: CheckedContinuation<Void, Error>?) {
+            self.utterance = utterance
+            self.startupContinuation = startupContinuation
+        }
+    }
 
     /// The voice identifier to use. Defaults to the system "enhanced" or
     /// "premium" English voice when available, which is markedly better
@@ -46,12 +75,7 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
     private var memoizedBestVoice: AVSpeechSynthesisVoice?
     private var hasResolvedBestVoice: Bool = false
 
-    /// The shared delegate that flips `isCurrentlySpeakingOrPending`
-    /// back to false when AVSpeechSynthesizer finishes its queue. One
-    /// observer for the synthesiser's whole lifetime (not per utterance)
-    /// so completion callbacks aren't lost when streaming multiple
-    /// utterances back to back.
-    private var playbackCompletionObserver: LocalTTSPlaybackCompletionObserver?
+    private var playbackObserver: LocalTTSPlaybackObserver?
 
     /// Why playback last ended. Defaults to natural completion; the
     /// streaming pipeline's barge-in path calls
@@ -67,46 +91,35 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
         pendingNextStopReason = reason
     }
 
-    override init() {
-        // Allow callers to override via Info.plist for experimentation.
-        let configuredVoiceIdentifier = AppBundleConfiguration.stringValue(forKey: "LocalTTSVoiceIdentifier")
-        self.preferredVoiceIdentifier = configuredVoiceIdentifier
+    override convenience init() {
+        self.init(speechSynthesizer: AVSpeechSynthesizer())
+    }
+
+    init(
+        speechSynthesizer: any LocalTTSSpeechSynthesizing,
+        playbackStartTimeout: TimeInterval = LocalTTSClient.defaultPlaybackStartTimeout,
+        auditLog: PaceAPIAuditLog = .shared
+    ) {
+        self.speechSynthesizer = speechSynthesizer
+        self.playbackStartTimeout = playbackStartTimeout
+        self.auditLog = auditLog
+        self.preferredVoiceIdentifier = AppBundleConfiguration.stringValue(forKey: "LocalTTSVoiceIdentifier")
         self.speechProsody = LocalTTSProsody.fromBundleConfiguration()
         super.init()
 
-        // Install the playback observer exactly once. AVSpeechSynthesizer
-        // calls delegate methods on an arbitrary thread, so the observer
-        // hops back to MainActor before touching this object's state.
-        let observer = LocalTTSPlaybackCompletionObserver { [weak self] in
+        let observer = LocalTTSPlaybackObserver { [weak self] event, utterance in
             Task { @MainActor in
-                guard let self else { return }
-                // Only clear the pending flag if the synthesiser also
-                // reports no more queued utterances — otherwise we'd
-                // flip false between chunks of the same response.
-                if !self.speechSynthesizer.isSpeaking {
-                    self.isCurrentlySpeakingOrPending = false
-                }
+                self?.handlePlaybackEvent(event, utterance: utterance)
             }
         }
-        self.playbackCompletionObserver = observer
+        self.playbackObserver = observer
         self.speechSynthesizer.delegate = observer
     }
 
     func speakText(_ text: String) async throws {
+        try Task.checkCancellation()
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
-
-        // A fresh utterance means the previous stop reason no longer
-        // applies — reset to natural so a future natural finish reads
-        // correctly. The barge-in flow sets the pending reason BEFORE
-        // calling stopPlayback, so this reset doesn't race the lock.
-        lastStopReason = .naturalCompletion
-        pendingNextStopReason = nil
-
-        // Mark pending immediately so isPlaying returns true between this
-        // call and the synthesizer actually starting audio output.
-        isCurrentlySpeakingOrPending = true
-        mostRecentUtteranceSubmittedAt = Date()
 
         let utterance = AVSpeechUtterance(string: trimmedText)
         utterance.rate = speechProsody.rate
@@ -118,8 +131,117 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
         utterance.voice = pickedVoice
         printVoiceUpgradeHintOnceIfCompact(pickedVoice: pickedVoice)
 
-        speechSynthesizer.speak(utterance)
-        print("🔊 Local TTS: speaking \(trimmedText.count) chars")
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                lastStopReason = .naturalCompletion
+                pendingNextStopReason = nil
+                // A queued chunk can return immediately only after a delegate
+                // confirmed that this queue is already producing speech.
+                let hasConfirmedActivePlayback = pendingUtterances.contains { $0.hasStarted }
+                    && speechSynthesizer.isSpeaking
+                let pendingUtterance = PendingUtterance(
+                    utterance: utterance,
+                    startupContinuation: hasConfirmedActivePlayback ? nil : continuation
+                )
+                pendingUtterances.append(pendingUtterance)
+                recordPlaybackEvent("submit", pendingUtterance: pendingUtterance)
+                speechSynthesizer.speak(utterance)
+                schedulePlaybackStartTimeout()
+                if hasConfirmedActivePlayback { continuation.resume() }
+            }
+        } onCancel: { [weak self] in
+            Task { @MainActor in
+                guard let self,
+                      self.pendingUtterances.contains(where: { $0.utterance === utterance }) else { return }
+                self.lastStopReason = .manualStop
+                self.cancelPendingPlayback(error: CancellationError(), reason: "task_cancelled")
+            }
+        }
+        try Task.checkCancellation()
+    }
+
+    private func handlePlaybackEvent(_ event: LocalTTSPlaybackObserver.Event, utterance: AVSpeechUtterance) {
+        // stop/new-turn clears the queue before touching the synthesizer.
+        // Late callbacks can therefore never mutate a newer queue.
+        guard let pendingUtterance = pendingUtterances.first(where: { $0.utterance === utterance }) else { return }
+        switch event {
+        case .started:
+            pendingUtterance.hasStarted = true
+            recordPlaybackEvent("start", pendingUtterance: pendingUtterance)
+            for queuedUtterance in pendingUtterances {
+                queuedUtterance.startupContinuation?.resume()
+                queuedUtterance.startupContinuation = nil
+            }
+        case .finished, .cancelled:
+            recordPlaybackEvent(event == .finished ? "finish" : "cancel", pendingUtterance: pendingUtterance)
+            // Intentional stops already removed their identities. A native
+            // cancellation still in this queue is an unexpected failure.
+            // A finish without didStart is not evidence that output began.
+            pendingUtterance.startupContinuation?.resume(throwing: event == .cancelled
+                ? LocalTTSPlaybackError.playbackCancelled : LocalTTSPlaybackError.playbackDidNotStart)
+            pendingUtterance.startupContinuation = nil
+            pendingUtterances.removeAll { $0.utterance === utterance }
+            if event == .cancelled || !pendingUtterance.hasStarted { onPlaybackFailure?() }
+        }
+        schedulePlaybackStartTimeout()
+    }
+
+    private func schedulePlaybackStartTimeout() {
+        guard let nextUtterance = pendingUtterances.first, !nextUtterance.hasStarted else {
+            playbackStartTimeoutTask?.cancel()
+            playbackStartTimeoutTask = nil
+            watchedUtteranceIdentifier = nil
+            return
+        }
+        let utteranceIdentifier = ObjectIdentifier(nextUtterance.utterance)
+        guard watchedUtteranceIdentifier != utteranceIdentifier else { return }
+        playbackStartTimeoutTask?.cancel()
+        watchedUtteranceIdentifier = utteranceIdentifier
+        // Only the head of the native queue gets a startup deadline. Later
+        // sentences may legitimately wait through a long spoken paragraph.
+        playbackStartTimeoutTask = Task { @MainActor [weak self, playbackStartTimeout] in
+            do {
+                try await Task.sleep(for: .seconds(playbackStartTimeout))
+            } catch { return }
+            guard let self, let pendingUtterance = self.pendingUtterances.first,
+                  ObjectIdentifier(pendingUtterance.utterance) == utteranceIdentifier,
+                  !pendingUtterance.hasStarted else { return }
+            self.recordPlaybackEvent("timeout", pendingUtterance: pendingUtterance)
+            self.lastStopReason = .manualStop
+            self.cancelPendingPlayback(error: LocalTTSPlaybackError.playbackDidNotStart, reason: "startup_timeout")
+            self.onPlaybackFailure?()
+        }
+    }
+
+    private func cancelPendingPlayback(error: Error, reason: String) {
+        playbackStartTimeoutTask?.cancel()
+        playbackStartTimeoutTask = nil
+        watchedUtteranceIdentifier = nil
+        let cancelledUtterances = pendingUtterances
+        pendingUtterances = []
+        for pendingUtterance in cancelledUtterances {
+            recordPlaybackEvent("cancel", pendingUtterance: pendingUtterance, detail: reason)
+            pendingUtterance.startupContinuation?.resume(throwing: error)
+            pendingUtterance.startupContinuation = nil
+        }
+        speechSynthesizer.stopSpeaking(at: .immediate)
+    }
+
+    private func recordPlaybackEvent(_ event: String, pendingUtterance: PendingUtterance, detail: String? = nil) {
+        let utterance = pendingUtterance.utterance
+        auditLog.record(
+            subsystem: "tts",
+            operation: "apple_speech.\(event)",
+            target: utterance.voice?.identifier ?? "system_default",
+            durationMilliseconds: Int(Date().timeIntervalSince(pendingUtterance.submittedAt) * 1000),
+            outcome: event == "finish" && !pendingUtterance.hasStarted ? "not_started" : event,
+            inputCharacterCount: utterance.speechString.count,
+            detail: "queue=\(pendingUtterances.count);started=\(pendingUtterance.hasStarted);volume=\(utterance.volume);\(detail ?? "")"
+        )
     }
 
     /// Returns the best-available voice, computing it on first call and
@@ -136,46 +258,13 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
     }
 
     var isPlaying: Bool {
-        let shouldReportPlaybackActive = Self.shouldReportPlaybackActive(
-            synthesizerIsSpeaking: speechSynthesizer.isSpeaking,
-            isUtterancePending: isCurrentlySpeakingOrPending,
-            mostRecentUtteranceSubmittedAt: mostRecentUtteranceSubmittedAt,
-            now: Date()
-        )
-        if !shouldReportPlaybackActive {
-            isCurrentlySpeakingOrPending = false
-        }
-        return shouldReportPlaybackActive
-    }
-
-    static func shouldReportPlaybackActive(
-        synthesizerIsSpeaking: Bool,
-        isUtterancePending: Bool,
-        mostRecentUtteranceSubmittedAt: Date?,
-        now: Date
-    ) -> Bool {
-        if synthesizerIsSpeaking {
-            return true
-        }
-        guard
-            isUtterancePending,
-            let mostRecentUtteranceSubmittedAt
-        else {
-            return false
-        }
-        return now.timeIntervalSince(mostRecentUtteranceSubmittedAt)
-            < pendingPlaybackStartGraceInterval
+        !pendingUtterances.isEmpty
     }
 
     func stopPlayback() {
-        // If the streaming pipeline announced a barge-in just before
-        // this call, honor it. Otherwise this is a manual stop
-        // (response-overlay stop button, action approval cancel, etc.).
         lastStopReason = pendingNextStopReason ?? .manualStop
         pendingNextStopReason = nil
-        speechSynthesizer.stopSpeaking(at: .immediate)
-        isCurrentlySpeakingOrPending = false
-        mostRecentUtteranceSubmittedAt = nil
+        cancelPendingPlayback(error: CancellationError(), reason: "requested_stop")
     }
 
     private func bestAvailableVoice() -> AVSpeechSynthesisVoice? {
@@ -264,24 +353,23 @@ private struct LocalTTSProsody {
     }
 }
 
-private final class LocalTTSPlaybackCompletionObserver: NSObject, AVSpeechSynthesizerDelegate {
-    private let onPlaybackFinishedOrCancelled: () -> Void
+private final class LocalTTSPlaybackObserver: NSObject, AVSpeechSynthesizerDelegate {
+    enum Event { case started, finished, cancelled }
+    private let onPlaybackEvent: (Event, AVSpeechUtterance) -> Void
 
-    init(onPlaybackFinishedOrCancelled: @escaping () -> Void) {
-        self.onPlaybackFinishedOrCancelled = onPlaybackFinishedOrCancelled
+    init(onPlaybackEvent: @escaping (Event, AVSpeechUtterance) -> Void) {
+        self.onPlaybackEvent = onPlaybackEvent
     }
 
-    func speechSynthesizer(
-        _ synthesizer: AVSpeechSynthesizer,
-        didFinish utterance: AVSpeechUtterance
-    ) {
-        onPlaybackFinishedOrCancelled()
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        onPlaybackEvent(.started, utterance)
     }
 
-    func speechSynthesizer(
-        _ synthesizer: AVSpeechSynthesizer,
-        didCancel utterance: AVSpeechUtterance
-    ) {
-        onPlaybackFinishedOrCancelled()
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        onPlaybackEvent(.finished, utterance)
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        onPlaybackEvent(.cancelled, utterance)
     }
 }
