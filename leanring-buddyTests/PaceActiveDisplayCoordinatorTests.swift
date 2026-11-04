@@ -168,13 +168,13 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         manager.chatSession.draftMessageText = "Keep this unfinished question"
         let presentation = panelManager.presentation
         let window = try XCTUnwrap(NSApp.windows.first { $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible })
-        let firstResponder = window.firstResponder
         let session = manager.chatSession
         let hadUnreadScreenSuggestion = session.hasUnreadScreenSuggestion
-        let keyWindow = NSApp.keyWindow
-        let applicationWasActive = NSApp.isActive
         panelManager.handleExplanationVoiceStateChange(.idle)
         try await recorderFixture.waitForAutoCloseSleeps(1, gate: sleepGate)
+        let firstResponder = window.firstResponder
+        let keyWindow = NSApp.keyWindow
+        let applicationWasActive = NSApp.isActive
         coordinator.handleSystemEvent(.activeSpaceChanged)
         coordinator.handleSystemEvent(.screensChanged)
         XCTAssertTrue(window.isVisible)
