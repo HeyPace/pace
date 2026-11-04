@@ -297,7 +297,7 @@ struct LocalTTSPlaybackStateTests {
         #expect(failureNoticeCount == 1)
     }
 
-    @Test func newTurnCancelsPendingSpeechBeforeFreshResponse() async throws {
+    @Test func callerStopsPendingSpeechBeforeResettingForFreshResponse() async throws {
         let synthesizer = TestSpeechSynthesizer()
         let client = LocalTTSClient(speechSynthesizer: synthesizer, auditLog: makeAuditLog())
         let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
@@ -305,12 +305,29 @@ struct LocalTTSPlaybackStateTests {
         pipeline.onPlaybackFailure = { failureNoticeCount += 1 }
         let submission = Task { await pipeline.acceptStreamedText("The old turn is waiting to start.") }
         try await waitForSubmission(synthesizer)
+        client.stopPlayback()
         pipeline.resetForNewTurn()
         await submission.value
         #expect(!client.isPlaying)
         #expect(synthesizer.stopCount == 1)
         #expect(pipeline.firstSpokenWordCharacterCount == 0)
         #expect(failureNoticeCount == 0)
+    }
+
+    @Test func resettingPipelineDoesNotInterruptUnrelatedDirectSpeech() async throws {
+        let synthesizer = TestSpeechSynthesizer()
+        let client = LocalTTSClient(speechSynthesizer: synthesizer, auditLog: makeAuditLog())
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
+        let submission = Task { try await client.speakText("An existing reminder is speaking.") }
+        try await waitForSubmission(synthesizer)
+        synthesizer.start(synthesizer.utterances[0])
+        try await submission.value
+
+        pipeline.resetForNewTurn()
+
+        #expect(client.isPlaying)
+        #expect(synthesizer.stopCount == 0)
+        client.stopPlayback()
     }
 
     @Test func cancellingPendingSubmissionStopsItsQueue() async throws {

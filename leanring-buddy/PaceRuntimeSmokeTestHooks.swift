@@ -88,7 +88,8 @@ final class PaceRuntimeSmokeTestHooks {
                 self.recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "requested")
                 do {
                     try await self.companionManager.ttsClient.speakText("Pace local speech playback is working.")
-                    self.recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "playback_started")
+                    let outcome = self.companionManager.ttsClient is LocalTTSClient ? "playback_started" : "enqueued"
+                    self.recordSpeechSmokeResult(operation: "fixed_phrase", outcome: outcome)
                 } catch {
                     self.recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "error")
                 }

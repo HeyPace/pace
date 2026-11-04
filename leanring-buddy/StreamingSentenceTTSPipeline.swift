@@ -120,7 +120,6 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// history so the next chunk starts a fresh queue.
     func resetForNewTurn() {
         dispatchGeneration &+= 1
-        if ttsClient.isPlaying { ttsClient.stopPlayback() }
         alreadyDispatchedSafeText = ""
         intentCommittedAt = nil
         hasLoggedTimeToFirstSpokenWord = false
