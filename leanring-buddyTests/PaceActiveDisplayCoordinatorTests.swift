@@ -322,7 +322,7 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         })
         let contentView = try XCTUnwrap(window.contentView)
         let historyButton = try await waitForAccessibilityElement(label: "Conversation history", in: contentView)
-        XCTAssertTrue(historyButton.accessibilityPerformPress())
+        XCTAssertTrue(performAccessibilityPress(on: historyButton))
         _ = try await waitForAccessibilityElement(label: "Return to conversation", in: contentView)
         let composer = try await waitForFocusedComposer(in: window)
         let historyScrollView = try XCTUnwrap(scrollableHistory(in: contentView))
@@ -358,12 +358,13 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(window.frame, initialFrame)
     }
 
-    func testFallbackStatusItemRetainsItsIdentityAndPlacementNameAcrossDisplayRoutes() throws {
+    func testFallbackStatusItemRetainsItsIdentityAndPlacementNameAcrossDisplayRoutes() async throws {
         let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
         let overlayManager = PaceMenuBarOverlayManager(companionManager: manager, onTap: { _ in })
         defer { overlayManager.hide() }
         overlayManager.updateFallbackMenuBarStatusItem(for: .menuBarItem, connectedDisplaysNeedFallback: true)
         let statusItem = try XCTUnwrap(overlayManager.fallbackMenuBarStatusItem)
+        try await Task.sleep(for: .milliseconds(200))
         XCTAssertEqual(statusItem.autosaveName, "PaceFallbackMenuBarItem")
         for presentation in [PaceAmbientHomePresentation.livingNotch, .menuBarItem, .livingNotch] {
             overlayManager.updateFallbackMenuBarStatusItem(for: presentation, connectedDisplaysNeedFallback: true)
@@ -371,11 +372,15 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
             XCTAssertTrue(statusItem.isVisible)
         }
         overlayManager.updateFallbackMenuBarStatusItem(for: .livingNotch, connectedDisplaysNeedFallback: false)
+        try await Task.sleep(for: .milliseconds(200))
         XCTAssertTrue(overlayManager.fallbackMenuBarStatusItem === statusItem)
         XCTAssertFalse(statusItem.isVisible)
         overlayManager.updateFallbackMenuBarStatusItem(for: .menuBarItem, connectedDisplaysNeedFallback: false)
+        try await Task.sleep(for: .milliseconds(200))
         XCTAssertTrue(overlayManager.fallbackMenuBarStatusItem === statusItem)
         XCTAssertTrue(statusItem.isVisible)
+        overlayManager.hide()
+        try await Task.sleep(for: .milliseconds(200))
     }
 
     func testCompactConversationFitsBelowThePhysicalNotchWithoutChangingWideDefaults() {
@@ -430,23 +435,51 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         return view.subviews.lazy.compactMap { self.scrollableHistory(in: $0) }.first
     }
 
-    private func waitForAccessibilityElement(label: String, in view: NSView) async throws -> any NSAccessibilityProtocol {
+    private func waitForAccessibilityElement(label: String, in view: NSView) async throws -> NSObject {
         for _ in 0..<100 {
             view.layoutSubtreeIfNeeded()
-            if let element = accessibilityElement(label: label, in: view) { return element }
+            var visitedElements: Set<ObjectIdentifier> = []
+            if let element = accessibilityElement(label: label, in: view, visitedElements: &visitedElements) {
+                return element
+            }
             try await Task.sleep(for: .milliseconds(10))
         }
         throw NSError(domain: "PaceActiveDisplayCoordinatorTests", code: 3,
                       userInfo: [NSLocalizedDescriptionKey: "Missing chat accessibility element: \(label)"])
     }
 
-    private func accessibilityElement(label: String, in root: Any, depth: Int = 0) -> (any NSAccessibilityProtocol)? {
-        guard depth < 30, let element = root as? any NSAccessibilityProtocol else { return nil }
-        if element.accessibilityLabel() == label { return element }
-        for child in element.accessibilityChildren() ?? [] {
-            if let match = accessibilityElement(label: label, in: child, depth: depth + 1) { return match }
+    private func accessibilityElement(
+        label: String, in root: Any, visitedElements: inout Set<ObjectIdentifier>, depth: Int = 0
+    ) -> NSObject? {
+        guard depth < 40, let element = root as? NSObject,
+            visitedElements.insert(ObjectIdentifier(element)).inserted else { return nil }
+        // SwiftUI's accessibility bridge exposes selectors without formal NSAccessibilityProtocol conformance.
+        for attribute in ["accessibilityLabel", "accessibilityTitle"] {
+            if accessibilityValue(attribute, on: element) as? String == label { return element }
+        }
+        let accessibilityChildren = accessibilityValue("accessibilityChildren", on: element) as? [Any] ?? []
+        let nativeChildren: [Any] = (element as? NSView)?.subviews ?? []
+        for child in accessibilityChildren + nativeChildren {
+            if let match = accessibilityElement(
+                label: label, in: child, visitedElements: &visitedElements, depth: depth + 1)
+            {
+                return match
+            }
         }
         return nil
+    }
+
+    private func accessibilityValue(_ attribute: String, on element: NSObject) -> Any? {
+        let selector = NSSelectorFromString(attribute)
+        guard element.responds(to: selector) else { return nil }
+        return element.perform(selector)?.takeUnretainedValue()
+    }
+
+    private func performAccessibilityPress(on element: NSObject) -> Bool {
+        let selector = NSSelectorFromString("accessibilityPerformPress")
+        guard element.responds(to: selector), let implementation = element.method(for: selector) else { return false }
+        typealias PressImplementation = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(implementation, to: PressImplementation.self)(element, selector)
     }
 
     private func makeCoordinator(
