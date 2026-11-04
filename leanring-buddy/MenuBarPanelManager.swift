@@ -32,8 +32,16 @@ extension Notification.Name {
 
 /// Custom NSPanel subclass that can become the key window even with
 /// .nonactivatingPanel style, allowing text fields to receive focus.
-private class KeyablePanel: NSPanel {
+final class PaceConversationPanelWindow: NSPanel {
+    var preservesPhysicalNotchAnchor = false
+
     override var canBecomeKey: Bool { true }
+
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        // AppKit's menu-bar avoidance would detach the conversation from its hardware anchor.
+        if preservesPhysicalNotchAnchor { return frameRect }
+        return super.constrainFrameRect(frameRect, to: screen)
+    }
 }
 
 @MainActor
@@ -127,7 +135,7 @@ private struct PaceConversationPanelSurface: View {
 
 @MainActor
 final class MenuBarPanelManager: NSObject {
-    private var panel: NSPanel?
+    private var panel: PaceConversationPanelWindow?
     private let surfaceModel = PaceConversationPanelSurfaceModel()
     private var isPanelPresented: Bool { surfaceModel.presentation.isPresented }
     private var screenParametersObserver: NSObjectProtocol?
@@ -372,7 +380,7 @@ final class MenuBarPanelManager: NSObject {
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
 
-        let menuBarPanel = KeyablePanel(
+        let menuBarPanel = PaceConversationPanelWindow(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -480,6 +488,11 @@ final class MenuBarPanelManager: NSObject {
                 NSScreen.screens.first { $0.frame.contains(notchGeometry.physicalHousingFrame) }?.frame
             } ?? anchorScreen.frame,
             contentSize: CGSize(width: panelWidth, height: panelHeight))
+        if case .physicalNotch = surfaceModel.placement {
+            panel.preservesPhysicalNotchAnchor = true
+        } else {
+            panel.preservesPhysicalNotchAnchor = false
+        }
         if let notchGeometry,
             !PaceMenuBarOccupancyMonitor.shared.occupancy.overlaps(
                 surfaceModel.placement.frame, housingFrame: notchGeometry.physicalHousingFrame)

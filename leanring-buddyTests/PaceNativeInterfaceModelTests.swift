@@ -299,6 +299,42 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         XCTAssertEqual(placement.frame.maxY, housing.maxY)
     }
 
+    @MainActor
+    func testConversationWindowPreservesPhysicalNotchAnchorThroughAppKitConstraints() throws {
+        let screen = try XCTUnwrap(
+            NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main ?? NSScreen.screens.first)
+        guard screen.visibleFrame.maxY < screen.frame.maxY else {
+            throw XCTSkip("This display does not currently reserve a menu-bar row.")
+        }
+        let proposedFrame = NSRect(
+            x: screen.frame.midX - 260, y: screen.frame.maxY - 412,
+            width: 520, height: 412)
+        let ordinaryPanel = NSPanel(
+            contentRect: proposedFrame, styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered, defer: false)
+        let conversationPanel = PaceConversationPanelWindow(
+            contentRect: proposedFrame, styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered, defer: false)
+        defer {
+            ordinaryPanel.close()
+            conversationPanel.close()
+        }
+        ordinaryPanel.isFloatingPanel = true
+        ordinaryPanel.level = .floating
+        conversationPanel.isFloatingPanel = true
+        conversationPanel.level = .floating
+
+        let ordinaryConstrainedFrame = ordinaryPanel.constrainFrameRect(proposedFrame, to: screen)
+        XCTAssertLessThan(ordinaryConstrainedFrame.maxY, screen.frame.maxY)
+        XCTAssertEqual(conversationPanel.constrainFrameRect(proposedFrame, to: screen), ordinaryConstrainedFrame)
+
+        conversationPanel.preservesPhysicalNotchAnchor = true
+        XCTAssertEqual(conversationPanel.constrainFrameRect(proposedFrame, to: screen), proposedFrame)
+
+        conversationPanel.preservesPhysicalNotchAnchor = false
+        XCTAssertEqual(conversationPanel.constrainFrameRect(proposedFrame, to: screen), ordinaryConstrainedFrame)
+    }
+
     func testConversationWithoutPhysicalHousingUsesClampedAnchorAndGap() {
         let placement = PaceConversationPanelPlacement.resolve(
             notchGeometry: nil,
