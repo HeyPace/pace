@@ -137,9 +137,12 @@ private struct PaceConversationPanelSurface: View {
 final class MenuBarPanelManager: NSObject {
     private var panel: PaceConversationPanelWindow?
     private let surfaceModel = PaceConversationPanelSurfaceModel()
-    private var isPanelPresented: Bool { surfaceModel.presentation.isPresented }
+    var presentation: PaceConversationPanelPresentation { surfaceModel.presentation }
+    private var isPanelPresented: Bool { presentation.isPresented }
     private var screenParametersObserver: NSObjectProtocol?
     private var workspaceWakeObserver: NSObjectProtocol?
+    private let activeDisplayCoordinator: PaceActiveDisplayCoordinator
+    private var displayRouteObservation: AnyCancellable?
     private var menuBarOccupancyObserver: NSObjectProtocol?
     private var panelAnchorFrameOverride: NSRect?
     private var clickOutsideMonitor: Any?
@@ -166,6 +169,7 @@ final class MenuBarPanelManager: NSObject {
     private let panelHeight: CGFloat
     init(
         companionManager: CompanionManager,
+        activeDisplayCoordinator: PaceActiveDisplayCoordinator = .shared,
         shouldReducePanelMotion: @escaping @MainActor () -> Bool = {
             NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         },
@@ -177,6 +181,7 @@ final class MenuBarPanelManager: NSObject {
             for: .useChatPanelAsPrimarySurface
         )
         self.companionManager = companionManager
+        self.activeDisplayCoordinator = activeDisplayCoordinator
         self.shouldReducePanelMotion = shouldReducePanelMotion
         self.waitForExplanationAutoClose = waitForExplanationAutoClose
         self.usesChatPanelAsPrimarySurface = shouldUseChatPanelAsPrimarySurface
@@ -188,6 +193,9 @@ final class MenuBarPanelManager: NSObject {
             self.panelHeight = PaceQuickPanelMetrics.height
         }
         super.init()
+        displayRouteObservation = activeDisplayCoordinator.routeChanges.sink { [weak self] _ in
+            self?.repositionVisiblePanel(reassertPresentation: true)
+        }
         explanationVoiceStateObservation = companionManager.$voiceState
             .removeDuplicates { $0 == $1 }
             .dropFirst()
@@ -264,6 +272,7 @@ final class MenuBarPanelManager: NSObject {
 
     func togglePanel(anchoredTo anchorFrame: NSRect) {
         panelAnchorFrameOverride = anchorFrame
+        activeDisplayCoordinator.selectDisplay(containing: anchorFrame)
         togglePanel()
     }
 
@@ -272,6 +281,7 @@ final class MenuBarPanelManager: NSObject {
     /// already-open panel mid-turn).
     func showPanel(anchoredTo anchorFrame: NSRect) {
         panelAnchorFrameOverride = anchorFrame
+        activeDisplayCoordinator.selectDisplay(containing: anchorFrame)
         showPanel()
     }
 
@@ -394,7 +404,7 @@ final class MenuBarPanelManager: NSObject {
         menuBarPanel.hasShadow = false
         menuBarPanel.hidesOnDeactivate = false
         menuBarPanel.isExcludedFromWindowsMenu = true
-        menuBarPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        menuBarPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .canJoinAllApplications]
         menuBarPanel.isMovableByWindowBackground = false
         menuBarPanel.titleVisibility = .hidden
         menuBarPanel.titlebarAppearsTransparent = true
@@ -476,17 +486,18 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func positionPanelBelowAnchor() {
-        guard let panel,
-            let anchorFrame = panelAnchorFrameOverride ?? defaultMenuBarAnchorFrame(),
-            let anchorScreen = NSScreen.screens.first(where: { $0.frame.intersects(anchorFrame) }) ?? NSScreen.main
-        else { return }
-        let notchGeometry = PaceLivingNotchScreenGeometryResolver.geometry(displayMode: .hover)
+        guard let panel, let targetScreen = activeDisplayCoordinator.targetScreen else { return }
+        if let anchorFrame = panelAnchorFrameOverride,
+            !targetScreen.frame.contains(CGPoint(x: anchorFrame.midX, y: anchorFrame.midY))
+        {
+            panelAnchorFrameOverride = nil
+        }
+        guard let anchorFrame = panelAnchorFrameOverride ?? defaultMenuBarAnchorFrame() else { return }
+        let notchGeometry = PaceLivingNotchScreenGeometryResolver.geometry(for: targetScreen, displayMode: .hover)
         surfaceModel.placement = PaceConversationPanelPlacement.resolve(
             notchGeometry: notchGeometry,
             anchorFrame: anchorFrame,
-            screenFrame: notchGeometry.flatMap { notchGeometry in
-                NSScreen.screens.first { $0.frame.contains(notchGeometry.physicalHousingFrame) }?.frame
-            } ?? anchorScreen.frame,
+            screenFrame: targetScreen.frame,
             contentSize: CGSize(width: panelWidth, height: panelHeight))
         if case .physicalNotch = surfaceModel.placement {
             panel.preservesPhysicalNotchAnchor = true
@@ -505,10 +516,10 @@ final class MenuBarPanelManager: NSObject {
         panel.setFrame(surfaceModel.placement.frame, display: true)
     }
 
-    private func repositionVisiblePanel() {
+    private func repositionVisiblePanel(reassertPresentation: Bool = false) {
         guard isPanelPresented else { return }
-        visibilityAnimationGeneration += 1
         positionPanelBelowAnchor()
+        if reassertPresentation { panel?.orderFrontRegardless() }
         updateNotchConversationVisibility()
     }
 
@@ -525,13 +536,13 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func defaultMenuBarAnchorFrame() -> NSRect? {
+        guard let screen = activeDisplayCoordinator.targetScreen else { return nil }
         if let livingNotchGeometry = PaceLivingNotchScreenGeometryResolver.geometry(
-            displayMode: .active
+            for: screen, displayMode: .active
         ) {
             return livingNotchGeometry.presentationFrame
         }
 
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return nil }
         let menuBarHeight = max(screen.frame.maxY - screen.visibleFrame.maxY, 1)
         return NSRect(
             x: screen.frame.midX,

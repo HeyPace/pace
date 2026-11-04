@@ -30,15 +30,7 @@ enum PaceWindowLayering {
 @MainActor
 enum PaceLivingNotchScreenGeometryResolver {
     static func targetScreen() -> NSScreen? {
-        if let mainScreen = NSScreen.main,
-            geometry(for: mainScreen, displayMode: .resting) != nil
-        {
-            return mainScreen
-        }
-
-        return NSScreen.screens.first {
-            geometry(for: $0, displayMode: .resting) != nil
-        }
+        PaceActiveDisplayCoordinator.shared.targetScreen
     }
 
     static func geometry(
@@ -144,13 +136,23 @@ final class PaceMenuBarOverlayManager {
     private var lastAppliedGeometry: PaceLivingNotchGeometry?
     private let surfaceModel = PaceLivingNotchSurfaceModel()
     private let onTap: (NSRect) -> Void
+    private let activeDisplayCoordinator: PaceActiveDisplayCoordinator
+    private var displayRouteObservation: AnyCancellable?
 
     init(
         companionManager: CompanionManager,
+        activeDisplayCoordinator: PaceActiveDisplayCoordinator = .shared,
         onTap: @escaping (NSRect) -> Void
     ) {
         self.companionManager = companionManager
         self.onTap = onTap
+        self.activeDisplayCoordinator = activeDisplayCoordinator
+        displayRouteObservation = activeDisplayCoordinator.routeChanges.sink { [weak self] _ in
+            guard let self else { return }
+            self.hoverOpenTask?.cancel()
+            self.isHovering = false
+            self.refreshPresentation(animated: false, reassertPresentation: true)
+        }
         menuBarOccupancyObserver = NotificationCenter.default.addObserver(
             forName: .paceMenuBarOccupancyChanged, object: nil, queue: .main
         ) { [weak self] _ in
@@ -261,7 +263,7 @@ final class PaceMenuBarOverlayManager {
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isExcludedFromWindowsMenu = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .canJoinAllApplications]
         panel.isMovableByWindowBackground = false
         panel.ignoresMouseEvents = false
         panel.contentView = hostingView
@@ -270,7 +272,7 @@ final class PaceMenuBarOverlayManager {
         overlayPanel = panel
     }
 
-    private func refreshPresentation(animated: Bool) {
+    private func refreshPresentation(animated: Bool, reassertPresentation: Bool = false) {
         guard isVisible, let companionManager else { return }
         if isNotchConversationVisible {
             overlayPanel?.orderOut(nil)
@@ -288,9 +290,9 @@ final class PaceMenuBarOverlayManager {
                 || companionManager.isOffDeviceTurnInFlight
         )
 
-        let geometry = PaceLivingNotchScreenGeometryResolver.geometry(
-            displayMode: displayMode
-        )
+        let geometry = activeDisplayCoordinator.targetScreen.flatMap {
+            PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: displayMode)
+        }
         let ambientHomePresentation = PaceAmbientHomePresentation.resolve(
             hasReliablePhysicalNotchGeometry: geometry != nil
         )
@@ -309,7 +311,7 @@ final class PaceMenuBarOverlayManager {
             lastAppliedDisplayMode == displayMode
             && lastAppliedGeometry == geometry
             && (geometry == nil || overlayPanel?.isVisible == true)
-        guard !presentationIsAlreadyApplied else { return }
+        guard reassertPresentation || !presentationIsAlreadyApplied else { return }
         lastAppliedDisplayMode = displayMode
         lastAppliedGeometry = geometry
 
@@ -394,7 +396,9 @@ final class PaceMenuBarOverlayManager {
             return
         }
         let buttonFrameInWindow = button.convert(button.bounds, to: nil)
-        onTap(buttonWindow.convertToScreen(buttonFrameInWindow))
+        let anchorFrame = buttonWindow.convertToScreen(buttonFrameInWindow)
+        activeDisplayCoordinator.selectDisplay(containing: anchorFrame)
+        onTap(anchorFrame)
     }
 
     private func handleTap() {
@@ -402,6 +406,7 @@ final class PaceMenuBarOverlayManager {
         let conversationAnchor =
             PaceLivingNotchScreenGeometryResolver.geometry(displayMode: .active)?.presentationFrame
             ?? overlayPanel.frame
+        activeDisplayCoordinator.selectDisplay(containing: conversationAnchor)
         onTap(conversationAnchor)
     }
 
