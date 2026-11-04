@@ -427,7 +427,7 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         {
             return scrollView
         }
-        return view.subviews.lazy.compactMap { scrollableHistory(in: $0) }.first
+        return view.subviews.lazy.compactMap { self.scrollableHistory(in: $0) }.first
     }
 
     private func waitForAccessibilityElement(label: String, in view: NSView) async throws -> any NSAccessibilityProtocol {
