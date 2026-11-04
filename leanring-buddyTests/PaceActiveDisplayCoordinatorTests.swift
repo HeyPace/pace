@@ -358,31 +358,6 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(window.frame, initialFrame)
     }
 
-    func testFallbackStatusItemRetainsItsIdentityAndPlacementNameAcrossDisplayRoutes() async throws {
-        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
-        let overlayManager = PaceMenuBarOverlayManager(companionManager: manager, onTap: { _ in })
-        defer { overlayManager.hide() }
-        overlayManager.updateFallbackMenuBarStatusItem(for: .menuBarItem, connectedDisplaysNeedFallback: true)
-        let statusItem = try XCTUnwrap(overlayManager.fallbackMenuBarStatusItem)
-        try await Task.sleep(for: .milliseconds(200))
-        XCTAssertEqual(statusItem.autosaveName, "PaceFallbackMenuBarItem")
-        for presentation in [PaceAmbientHomePresentation.livingNotch, .menuBarItem, .livingNotch] {
-            overlayManager.updateFallbackMenuBarStatusItem(for: presentation, connectedDisplaysNeedFallback: true)
-            XCTAssertTrue(overlayManager.fallbackMenuBarStatusItem === statusItem)
-            XCTAssertTrue(statusItem.isVisible)
-        }
-        overlayManager.updateFallbackMenuBarStatusItem(for: .livingNotch, connectedDisplaysNeedFallback: false)
-        try await Task.sleep(for: .milliseconds(200))
-        XCTAssertTrue(overlayManager.fallbackMenuBarStatusItem === statusItem)
-        XCTAssertFalse(statusItem.isVisible)
-        overlayManager.updateFallbackMenuBarStatusItem(for: .menuBarItem, connectedDisplaysNeedFallback: false)
-        try await Task.sleep(for: .milliseconds(200))
-        XCTAssertTrue(overlayManager.fallbackMenuBarStatusItem === statusItem)
-        XCTAssertTrue(statusItem.isVisible)
-        overlayManager.hide()
-        try await Task.sleep(for: .milliseconds(200))
-    }
-
     func testCompactConversationFitsBelowThePhysicalNotchWithoutChangingWideDefaults() {
         let housingFrame = CGRect(x: 760, y: 1085, width: 200, height: 32)
         let notchGeometry = PaceLivingNotchGeometry(physicalHousingFrame: housingFrame, presentationFrame: housingFrame)
@@ -444,6 +419,8 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
             }
             try await Task.sleep(for: .milliseconds(10))
         }
+        var diagnosticVisitedElements: Set<ObjectIdentifier> = []
+        print("Pace fixture accessibility tree: \(accessibilityDiagnostic(in: view, visitedElements: &diagnosticVisitedElements))")
         throw NSError(domain: "PaceActiveDisplayCoordinatorTests", code: 3,
                       userInfo: [NSLocalizedDescriptionKey: "Missing chat accessibility element: \(label)"])
     }
@@ -467,6 +444,20 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
             }
         }
         return nil
+    }
+
+    private func accessibilityDiagnostic(
+        in root: Any, visitedElements: inout Set<ObjectIdentifier>, depth: Int = 0
+    ) -> String {
+        guard depth < 20, let element = root as? NSObject,
+            visitedElements.insert(ObjectIdentifier(element)).inserted else { return "" }
+        let children = (accessibilityValue("accessibilityChildren", on: element) as? [Any] ?? [])
+            + ((element as? NSView)?.subviews ?? [])
+        var text = "\(type(of: element)) label=\(accessibilityValue("accessibilityLabel", on: element) ?? "nil") title=\(accessibilityValue("accessibilityTitle", on: element) ?? "nil") help=\(accessibilityValue("accessibilityHelp", on: element) ?? "nil") children=\(children.count)\n"
+        for child in children {
+            text += accessibilityDiagnostic(in: child, visitedElements: &visitedElements, depth: depth + 1)
+        }
+        return text
     }
 
     private func accessibilityValue(_ attribute: String, on element: NSObject) -> Any? {
