@@ -40,22 +40,31 @@ enum LocalTTSPlaybackError: Error, LocalizedError, Equatable {
 final class LocalTTSClient: NSObject, BuddyTTSClient {
     private let speechSynthesizer: any LocalTTSSpeechSynthesizing
     private let playbackStartTimeout: TimeInterval
+    private let playbackCompletionGraceInterval: TimeInterval
     private let auditLog: PaceAPIAuditLog
     private var pendingUtterances: [PendingUtterance] = []
-    private var playbackStartTimeoutTask: Task<Void, Never>?
+    private var playbackWatchdogTask: Task<Void, Never>?
     private var watchedUtteranceIdentifier: ObjectIdentifier?
+    private var watchedUtteranceHasStarted: Bool?
     static let defaultPlaybackStartTimeout: TimeInterval = 3
-    var onPlaybackFailure: (() -> Void)?
+    static let defaultPlaybackCompletionGraceInterval: TimeInterval = 1
 
     private final class PendingUtterance {
         let utterance: AVSpeechUtterance
         let submittedAt = Date()
-        var hasStarted = false
+        var startedAt: Date?
+        var hasStarted: Bool { startedAt != nil }
         var startupContinuation: CheckedContinuation<Void, Error>?
+        let onPlaybackFailure: (() -> Void)?
 
-        init(utterance: AVSpeechUtterance, startupContinuation: CheckedContinuation<Void, Error>?) {
+        init(
+            utterance: AVSpeechUtterance,
+            startupContinuation: CheckedContinuation<Void, Error>?,
+            onPlaybackFailure: (() -> Void)?
+        ) {
             self.utterance = utterance
             self.startupContinuation = startupContinuation
+            self.onPlaybackFailure = onPlaybackFailure
         }
     }
 
@@ -98,10 +107,12 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
     init(
         speechSynthesizer: any LocalTTSSpeechSynthesizing,
         playbackStartTimeout: TimeInterval = LocalTTSClient.defaultPlaybackStartTimeout,
+        playbackCompletionGraceInterval: TimeInterval = LocalTTSClient.defaultPlaybackCompletionGraceInterval,
         auditLog: PaceAPIAuditLog = .shared
     ) {
         self.speechSynthesizer = speechSynthesizer
         self.playbackStartTimeout = playbackStartTimeout
+        self.playbackCompletionGraceInterval = playbackCompletionGraceInterval
         self.auditLog = auditLog
         self.preferredVoiceIdentifier = AppBundleConfiguration.stringValue(forKey: "LocalTTSVoiceIdentifier")
         self.speechProsody = LocalTTSProsody.fromBundleConfiguration()
@@ -117,7 +128,12 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
     }
 
     func speakText(_ text: String) async throws {
+        try await speakText(text, onPlaybackFailure: nil)
+    }
+
+    func speakText(_ text: String, onPlaybackFailure: (() -> Void)?) async throws {
         try Task.checkCancellation()
+        reconcileNativeIdlePlayback()
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
 
@@ -145,12 +161,13 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
                     && speechSynthesizer.isSpeaking
                 let pendingUtterance = PendingUtterance(
                     utterance: utterance,
-                    startupContinuation: hasConfirmedActivePlayback ? nil : continuation
+                    startupContinuation: hasConfirmedActivePlayback ? nil : continuation,
+                    onPlaybackFailure: onPlaybackFailure
                 )
                 pendingUtterances.append(pendingUtterance)
                 recordPlaybackEvent("submit", pendingUtterance: pendingUtterance)
                 speechSynthesizer.speak(utterance)
-                schedulePlaybackStartTimeout()
+                schedulePlaybackWatchdog()
                 if hasConfirmedActivePlayback { continuation.resume() }
             }
         } onCancel: { [weak self] in
@@ -170,7 +187,7 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
         guard let pendingUtterance = pendingUtterances.first(where: { $0.utterance === utterance }) else { return }
         switch event {
         case .started:
-            pendingUtterance.hasStarted = true
+            pendingUtterance.startedAt = Date()
             recordPlaybackEvent("start", pendingUtterance: pendingUtterance)
             for queuedUtterance in pendingUtterances {
                 queuedUtterance.startupContinuation?.resume()
@@ -185,48 +202,81 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
                 ? LocalTTSPlaybackError.playbackCancelled : LocalTTSPlaybackError.playbackDidNotStart)
             pendingUtterance.startupContinuation = nil
             pendingUtterances.removeAll { $0.utterance === utterance }
-            if event == .cancelled || !pendingUtterance.hasStarted { onPlaybackFailure?() }
+            if event == .cancelled || !pendingUtterance.hasStarted { pendingUtterance.onPlaybackFailure?() }
         }
-        schedulePlaybackStartTimeout()
+        schedulePlaybackWatchdog()
     }
 
-    private func schedulePlaybackStartTimeout() {
-        guard let nextUtterance = pendingUtterances.first, !nextUtterance.hasStarted else {
-            playbackStartTimeoutTask?.cancel()
-            playbackStartTimeoutTask = nil
+    private func reconcileNativeIdlePlayback() {
+        guard !speechSynthesizer.isSpeaking else { return }
+        let now = Date()
+        // Retire only confirmed-start identities. Unstarted queued sentences
+        // retain their own startup deadline instead of disappearing with them.
+        while let pendingUtterance = pendingUtterances.first,
+              let startedAt = pendingUtterance.startedAt,
+              now.timeIntervalSince(startedAt) >= playbackCompletionGraceInterval {
+            pendingUtterances.removeFirst()
+            recordPlaybackEvent("reconciled_native_idle", pendingUtterance: pendingUtterance)
+        }
+        schedulePlaybackWatchdog()
+    }
+
+    private func schedulePlaybackWatchdog() {
+        guard let nextUtterance = pendingUtterances.first else {
+            playbackWatchdogTask?.cancel()
+            playbackWatchdogTask = nil
             watchedUtteranceIdentifier = nil
+            watchedUtteranceHasStarted = nil
             return
         }
         let utteranceIdentifier = ObjectIdentifier(nextUtterance.utterance)
-        guard watchedUtteranceIdentifier != utteranceIdentifier else { return }
-        playbackStartTimeoutTask?.cancel()
+        let hasStarted = nextUtterance.hasStarted
+        guard watchedUtteranceIdentifier != utteranceIdentifier || watchedUtteranceHasStarted != hasStarted else { return }
+        playbackWatchdogTask?.cancel()
         watchedUtteranceIdentifier = utteranceIdentifier
-        // Only the head of the native queue gets a startup deadline. Later
-        // sentences may legitimately wait through a long spoken paragraph.
-        playbackStartTimeoutTask = Task { @MainActor [weak self, playbackStartTimeout] in
-            do {
-                try await Task.sleep(for: .seconds(playbackStartTimeout))
-            } catch { return }
-            guard let self, let pendingUtterance = self.pendingUtterances.first,
-                  ObjectIdentifier(pendingUtterance.utterance) == utteranceIdentifier,
-                  !pendingUtterance.hasStarted else { return }
-            self.recordPlaybackEvent("timeout", pendingUtterance: pendingUtterance)
-            self.lastStopReason = .manualStop
-            self.cancelPendingPlayback(error: LocalTTSPlaybackError.playbackDidNotStart, reason: "startup_timeout")
-            self.onPlaybackFailure?()
+        watchedUtteranceHasStarted = hasStarted
+        let recheckInterval = hasStarted ? playbackCompletionGraceInterval : playbackStartTimeout
+        // Only the head gets a startup deadline. Once started, periodically
+        // reconcile native idle so a lost finish callback cannot strand callers,
+        // including a new submission suspended during the start grace period.
+        playbackWatchdogTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(recheckInterval))
+                } catch { return }
+                guard let self, let pendingUtterance = self.pendingUtterances.first,
+                      ObjectIdentifier(pendingUtterance.utterance) == utteranceIdentifier,
+                      pendingUtterance.hasStarted == hasStarted else { return }
+                if hasStarted {
+                    if !self.speechSynthesizer.isSpeaking {
+                        self.reconcileNativeIdlePlayback()
+                    }
+                } else {
+                    self.recordPlaybackEvent("timeout", pendingUtterance: pendingUtterance)
+                    self.lastStopReason = .manualStop
+                    self.cancelPendingPlayback(
+                        error: LocalTTSPlaybackError.playbackDidNotStart,
+                        reason: "startup_timeout",
+                        reportsFailure: true
+                    )
+                    return
+                }
+            }
         }
     }
 
-    private func cancelPendingPlayback(error: Error, reason: String) {
-        playbackStartTimeoutTask?.cancel()
-        playbackStartTimeoutTask = nil
+    private func cancelPendingPlayback(error: Error, reason: String, reportsFailure: Bool = false) {
+        playbackWatchdogTask?.cancel()
+        playbackWatchdogTask = nil
         watchedUtteranceIdentifier = nil
+        watchedUtteranceHasStarted = nil
         let cancelledUtterances = pendingUtterances
         pendingUtterances = []
         for pendingUtterance in cancelledUtterances {
             recordPlaybackEvent("cancel", pendingUtterance: pendingUtterance, detail: reason)
             pendingUtterance.startupContinuation?.resume(throwing: error)
             pendingUtterance.startupContinuation = nil
+            if reportsFailure { pendingUtterance.onPlaybackFailure?() }
         }
         speechSynthesizer.stopSpeaking(at: .immediate)
     }
@@ -258,7 +308,8 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
     }
 
     var isPlaying: Bool {
-        !pendingUtterances.isEmpty
+        reconcileNativeIdlePlayback()
+        return !pendingUtterances.isEmpty
     }
 
     func stopPlayback() {

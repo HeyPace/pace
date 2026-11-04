@@ -99,8 +99,9 @@ struct LocalTTSPlaybackStateTests {
         let synthesizer = TestSpeechSynthesizer()
         let client = LocalTTSClient(speechSynthesizer: synthesizer, auditLog: makeAuditLog())
         var failureNoticeCount = 0
-        client.onPlaybackFailure = { failureNoticeCount += 1 }
-        let submission = Task { try await client.speakText("Native cancellation before playback.") }
+        let submission = Task {
+            try await client.speakText("Native cancellation before playback.", onPlaybackFailure: { failureNoticeCount += 1 })
+        }
         try await waitForSubmission(synthesizer)
         synthesizer.cancel(try #require(synthesizer.utterances.first))
         do {
@@ -135,8 +136,9 @@ struct LocalTTSPlaybackStateTests {
         let synthesizer = TestSpeechSynthesizer()
         let client = LocalTTSClient(speechSynthesizer: synthesizer, auditLog: makeAuditLog())
         var failureNoticeCount = 0
-        client.onPlaybackFailure = { failureNoticeCount += 1 }
-        let oldSubmission = Task { try await client.speakText("Old pending sentence.") }
+        let oldSubmission = Task {
+            try await client.speakText("Old pending sentence.", onPlaybackFailure: { failureNoticeCount += 1 })
+        }
         try await waitForSubmission(synthesizer)
         let oldUtterance = try #require(synthesizer.utterances.first)
         client.stopPlayback()
@@ -165,14 +167,13 @@ struct LocalTTSPlaybackStateTests {
         let auditLog = makeAuditLog()
         let client = LocalTTSClient(speechSynthesizer: synthesizer, playbackStartTimeout: 0.03, auditLog: auditLog)
         var failureNoticeCount = 0
-        client.onPlaybackFailure = { failureNoticeCount += 1 }
         let firstSubmission = Task { try await client.speakText("The first sentence keeps speaking.") }
         defer { client.stopPlayback() }
         try await waitForSubmission(synthesizer)
         let firstUtterance = try #require(synthesizer.utterances.first)
         synthesizer.start(firstUtterance)
         try await firstSubmission.value
-        try await client.speakText("This sentence waits in the native queue.")
+        try await client.speakText("This sentence waits in the native queue.", onPlaybackFailure: { failureNoticeCount += 1 })
         try await Task.sleep(for: .milliseconds(70))
         #expect(client.isPlaying)
         #expect(synthesizer.stopCount == 0)
@@ -185,6 +186,98 @@ struct LocalTTSPlaybackStateTests {
         #expect(!client.isPlaying)
         #expect(synthesizer.stopCount == 1)
         #expect(auditLog.readAllEntries().contains { $0.operation == "apple_speech.timeout" })
+        #expect(failureNoticeCount == 1)
+    }
+
+    @Test func missingFinishReconcilesConfirmedSpeechAfterNativeBecomesIdleWithoutPolling() async throws {
+        let synthesizer = TestSpeechSynthesizer()
+        let auditLog = makeAuditLog()
+        let client = LocalTTSClient(
+            speechSynthesizer: synthesizer,
+            playbackCompletionGraceInterval: 0.05,
+            auditLog: auditLog
+        )
+        let submission = Task { try await client.speakText("A sentence with no finish callback.") }
+        defer { client.stopPlayback() }
+        try await waitForSubmission(synthesizer)
+        synthesizer.start(try #require(synthesizer.utterances.first))
+        try await submission.value
+        synthesizer.isSpeaking = false
+        try await Task.sleep(for: .milliseconds(120))
+        // Inspect the audit first: reconciliation must run without a caller
+        // polling isPlaying, which may itself reconcile the native state.
+        #expect(auditLog.readAllEntries().contains { $0.operation == "apple_speech.reconciled_native_idle" })
+        #expect(!client.isPlaying)
+        #expect(synthesizer.stopCount == 0)
+    }
+
+    @Test func confirmedNativeSpeechRemainsActiveBeyondCompletionGrace() async throws {
+        let synthesizer = TestSpeechSynthesizer()
+        let client = LocalTTSClient(
+            speechSynthesizer: synthesizer,
+            playbackCompletionGraceInterval: 0.03,
+            auditLog: makeAuditLog()
+        )
+        let submission = Task { try await client.speakText("This sentence continues speaking.") }
+        defer { client.stopPlayback() }
+        try await waitForSubmission(synthesizer)
+        synthesizer.start(try #require(synthesizer.utterances.first))
+        try await submission.value
+        try await Task.sleep(for: .milliseconds(80))
+        #expect(client.isPlaying)
+        #expect(synthesizer.stopCount == 0)
+    }
+
+    @Test func queuedSubmissionDuringNativeIdleGraceStillGetsItsOwnStartupTimeout() async throws {
+        let synthesizer = TestSpeechSynthesizer()
+        let auditLog = makeAuditLog()
+        let client = LocalTTSClient(
+            speechSynthesizer: synthesizer,
+            playbackStartTimeout: 0.03,
+            playbackCompletionGraceInterval: 0.08,
+            auditLog: auditLog
+        )
+        let firstSubmission = Task { try await client.speakText("The previous speech loses its finish callback.") }
+        defer { client.stopPlayback() }
+        try await waitForSubmission(synthesizer)
+        synthesizer.start(try #require(synthesizer.utterances.first))
+        try await firstSubmission.value
+        synthesizer.isSpeaking = false
+        var queuedSubmissionFinished = false
+        let queuedSubmission = Task {
+            defer { queuedSubmissionFinished = true }
+            try await client.speakText("The queued sentence never starts.")
+        }
+        try await waitForSubmission(synthesizer, count: 2)
+        for _ in 0..<100 {
+            if queuedSubmissionFinished { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(queuedSubmissionFinished)
+        if !queuedSubmissionFinished { client.stopPlayback() }
+        do {
+            try await queuedSubmission.value
+            Issue.record("The queued sentence must fail its startup deadline.")
+        } catch { #expect(error as? LocalTTSPlaybackError == .playbackDidNotStart) }
+        let entries = auditLog.readAllEntries()
+        #expect(entries.contains { $0.operation == "apple_speech.reconciled_native_idle" })
+        #expect(entries.contains { $0.operation == "apple_speech.timeout" })
+        #expect(!client.isPlaying)
+    }
+
+    @Test func directSpeechFailureCannotNotifyAnUnrelatedPipeline() async {
+        let synthesizer = TestSpeechSynthesizer()
+        let client = LocalTTSClient(speechSynthesizer: synthesizer, playbackStartTimeout: 0.02, auditLog: makeAuditLog())
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
+        var failureNoticeCount = 0
+        pipeline.onPlaybackFailure = { failureNoticeCount += 1 }
+        do {
+            try await client.speakText("A direct reminder with no chat answer.")
+            Issue.record("The direct utterance must fail startup.")
+        } catch { #expect(error as? LocalTTSPlaybackError == .playbackDidNotStart) }
+        #expect(failureNoticeCount == 0)
+
+        await pipeline.acceptStreamedText("This reply belongs to the pipeline.")
         #expect(failureNoticeCount == 1)
     }
 

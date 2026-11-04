@@ -114,11 +114,6 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
 
     init(ttsClient: any BuddyTTSClient) {
         self.ttsClient = ttsClient
-        // Queued Apple chunks can fail after their dispatch returned while
-        // earlier audio was active; those failures still need a visible notice.
-        if let localTTSClient = ttsClient as? LocalTTSClient {
-            localTTSClient.onPlaybackFailure = { [weak self] in self?.reportPlaybackFailureIfNeeded() }
-        }
     }
 
     /// Called when a new voice turn begins. Clears the dispatch
@@ -333,7 +328,16 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         let expectedDispatchGeneration = dispatchGeneration
         recordAudioDispatch(outcome: "submitted", characterCount: trimmedNewPortion.count)
         do {
-            try await ttsClient.speakText(trimmedNewPortion)
+            if let localTTSClient = ttsClient as? LocalTTSClient {
+                // Keep late queued-playback failures scoped to this dispatch;
+                // direct speech and newer turns must not inherit its notice.
+                try await localTTSClient.speakText(trimmedNewPortion, onPlaybackFailure: { [weak self] in
+                    guard let self, self.dispatchGeneration == expectedDispatchGeneration else { return }
+                    self.reportPlaybackFailureIfNeeded()
+                })
+            } else {
+                try await ttsClient.speakText(trimmedNewPortion)
+            }
             guard expectedDispatchGeneration == dispatchGeneration, !hasStoppedSpeechForCurrentTurn else { return }
             // Track total spoken character count so the speculative-
             // planner-race supersede decision can read "how much has
