@@ -81,16 +81,16 @@ final class PaceRuntimeSmokeTestHooks {
         observe(.paceSmokeSpeakFixedPhrase) { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
-                guard companionManager.voiceState == .idle, !companionManager.ttsClient.isPlaying else {
-                    recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "busy")
+                guard self.companionManager.voiceState == .idle, !self.companionManager.ttsClient.isPlaying else {
+                    self.recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "busy")
                     return
                 }
-                recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "requested")
+                self.recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "requested")
                 do {
-                    try await companionManager.ttsClient.speakText("Pace local speech playback is working.")
-                    recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "playback_started")
+                    try await self.companionManager.ttsClient.speakText("Pace local speech playback is working.")
+                    self.recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "playback_started")
                 } catch {
-                    recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "error")
+                    self.recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "error")
                 }
             }
         }
@@ -98,16 +98,16 @@ final class PaceRuntimeSmokeTestHooks {
         observe(.paceSmokeRequestSpokenReply) { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
-                guard companionManager.voiceState == .idle, !companionManager.ttsClient.isPlaying else {
-                    recordSpeechSmokeResult(operation: "spoken_reply", outcome: "busy")
+                guard self.companionManager.voiceState == .idle, !self.companionManager.ttsClient.isPlaying else {
+                    self.recordSpeechSmokeResult(operation: "spoken_reply", outcome: "busy")
                     return
                 }
-                companionManager.submitChatTranscriptFromDeepLink(
+                self.companionManager.submitChatTranscriptFromDeepLink(
                     "What is two plus two? Reply with one short sentence. Do not use tools or perform any actions."
                 )
                 // Submission is not proof of speech. The regular planner and
                 // speech audit events report the remainder of this turn.
-                recordSpeechSmokeResult(operation: "spoken_reply", outcome: "submitted")
+                self.recordSpeechSmokeResult(operation: "spoken_reply", outcome: "submitted")
             }
         }
 
