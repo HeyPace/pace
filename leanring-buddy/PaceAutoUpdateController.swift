@@ -19,22 +19,33 @@ import Sparkle
 
 @MainActor
 final class PaceAutoUpdateController: NSObject {
+    enum ManualUpdateCheckResult: Equatable {
+        case started
+        case alreadyInProgress
+        case disabledForLocalDevelopmentBuild
+    }
+
     static let shared = PaceAutoUpdateController()
 
     private let updaterController: SPUStandardUpdaterController?
 
-    func checkForUpdatesManually() -> Bool {
-        guard let updaterController, updaterController.updater.canCheckForUpdates else { return false }
+    func checkForUpdatesManually() -> ManualUpdateCheckResult {
+        guard let updaterController else { return .disabledForLocalDevelopmentBuild }
+        guard updaterController.updater.canCheckForUpdates else { return .alreadyInProgress }
         updaterController.checkForUpdates(nil)
-        return true
+        return .started
     }
 
     override convenience init() {
-        self.init(
-            isLocalDevelopmentBuild: Bundle.main.object(forInfoDictionaryKey: "PaceLocalDevelopmentBuild") as? Bool == true)
+        self.init(infoDictionary: Bundle.main.infoDictionary ?? [:])
     }
 
-    init(isLocalDevelopmentBuild: Bool) {
+    static func isLocalDevelopmentBuild(infoDictionary: [String: Any]) -> Bool {
+        infoDictionary["PaceLocalDevelopmentBuild"] as? Bool == true
+    }
+
+    init(infoDictionary: [String: Any]) {
+        let isLocalDevelopmentBuild = Self.isLocalDevelopmentBuild(infoDictionary: infoDictionary)
         // startingUpdater: true → automatic background check kicks off
         // as soon as the controller is constructed, with the cadence
         // Sparkle's defaults / Info.plist drive (SUEnableAutomaticChecks,

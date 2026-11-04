@@ -5,6 +5,17 @@ nonisolated enum PaceUtilityCommand: Equatable {
     case transcribeAudio(path: String)
     case checkUpdates
 
+    static func updateCheckReply(for result: PaceAutoUpdateController.ManualUpdateCheckResult) -> String {
+        switch result {
+        case .started:
+            return "Checking for Pace updates."
+        case .alreadyInProgress:
+            return "An update check is already in progress."
+        case .disabledForLocalDevelopmentBuild:
+            return "Public updates are disabled for this local development build of Pace."
+        }
+    }
+
     static func parse(_ transcript: String) -> Self? {
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = text.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".!?"))
@@ -36,10 +47,10 @@ extension CompanionManager {
 
         switch command {
         case .checkUpdates:
-            let started = PaceAutoUpdateController.shared.checkForUpdatesManually()
+            let result = PaceAutoUpdateController.shared.checkForUpdatesManually()
             await publishCommandFeedback(
                 transcript: transcript,
-                spokenText: started ? "Checking for Pace updates." : "An update check is already in progress."
+                spokenText: PaceUtilityCommand.updateCheckReply(for: result)
             )
         case .speak(let text, let useKokoro):
             responseOverlayManager.showOverlayAndBeginStreaming()

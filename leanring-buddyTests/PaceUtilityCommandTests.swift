@@ -16,6 +16,13 @@ struct PaceUtilityCommandTests {
         #expect(PaceUtilityCommand.parse("research software updates") == nil)
     }
 
+    @Test func updateCheckRepliesDescribeTheUpdaterResult() {
+        #expect(PaceUtilityCommand.updateCheckReply(for: .started) == "Checking for Pace updates.")
+        #expect(
+            PaceUtilityCommand.updateCheckReply(for: .alreadyInProgress)
+                == "An update check is already in progress.")
+    }
+
     private var speechFixtureURL: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent(
             "Fixtures/pace-command-speech.wav")
@@ -39,9 +46,20 @@ struct PaceUtilityCommandTests {
 }
 
 struct PaceAutoUpdateControllerTests {
-    @Test @MainActor func localDevelopmentBuildDeclinesManualUpdates() {
-        let autoUpdateController = PaceAutoUpdateController(isLocalDevelopmentBuild: true)
+    @Test @MainActor func onlyBooleanTrueMarksALocalDevelopmentBuild() {
+        #expect(PaceAutoUpdateController.isLocalDevelopmentBuild(infoDictionary: ["PaceLocalDevelopmentBuild": true]))
+        #expect(!PaceAutoUpdateController.isLocalDevelopmentBuild(infoDictionary: ["PaceLocalDevelopmentBuild": false]))
+        #expect(!PaceAutoUpdateController.isLocalDevelopmentBuild(infoDictionary: [:]))
+        #expect(!PaceAutoUpdateController.isLocalDevelopmentBuild(infoDictionary: ["PaceLocalDevelopmentBuild": "true"]))
+    }
 
-        #expect(!autoUpdateController.checkForUpdatesManually())
+    @Test @MainActor func localDevelopmentBuildDeclinesManualUpdates() {
+        let autoUpdateController = PaceAutoUpdateController(infoDictionary: ["PaceLocalDevelopmentBuild": true])
+        let result = autoUpdateController.checkForUpdatesManually()
+
+        #expect(result == .disabledForLocalDevelopmentBuild)
+        #expect(
+            PaceUtilityCommand.updateCheckReply(for: result)
+                == "Public updates are disabled for this local development build of Pace.")
     }
 }
