@@ -257,6 +257,7 @@ final class CompanionManager: ObservableObject {
     /// through `paceHistory` retrieval — there is no parallel chat
     /// storage layer. See `PaceChatSession.swift`.
     lazy var conversationRecorder = PaceConversationRecorder(persister: localRetriever, chatSession: chatSession)
+    let conversationPanelPresentationRequests = PassthroughSubject<PaceConversationPanelPresentationIntent, Never>()
     var activeConversationUserEvent: ConversationEvent?
     var activeConversationPlannerTranscript: String?
     var activeConversationScreenSuggestionContext: PaceScreenSuggestionRequestContext?

@@ -170,6 +170,7 @@ final class MenuBarPanelManager: NSObject {
     private var pendingOutsideDismissalGeneration: Int?
     private var dismissPanelObserver: NSObjectProtocol?
     private var showPanelObserver: NSObjectProtocol?
+    private var conversationPanelPresentationObservation: AnyCancellable?
     private var explanationVoiceStateObservation: AnyCancellable?
     private var explanationInteractionMonitor: Any?
     private var explanationAutoCloseTask: Task<Void, Never>?
@@ -219,6 +220,9 @@ final class MenuBarPanelManager: NSObject {
         super.init()
         displayRouteObservation = activeDisplayCoordinator.routeChanges.sink { [weak self] _ in
             self?.repositionVisiblePanel(reassertPresentation: true)
+        }
+        conversationPanelPresentationObservation = companionManager.conversationPanelPresentationRequests.sink { [weak self] intent in
+            self?.showPanel(intent: intent)
         }
         explanationVoiceStateObservation = companionManager.$voiceState
             .removeDuplicates { $0 == $1 }

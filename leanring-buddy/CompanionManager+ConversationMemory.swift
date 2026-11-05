@@ -55,6 +55,9 @@ extension CompanionManager {
         activeConversationAssistantEventIdentifier = UUID().uuidString
         activeConversationVisibleAssistantText = ""
         lastConversationAssistantEventIdentifier = nil
+        if activeConversationUserEvent?.origin == .voice {
+            conversationPanelPresentationRequests.send(.preview)
+        }
     }
 
     func interruptConversationRequest() {
