@@ -23,6 +23,12 @@ import SaaSMakerUI
 import SwiftUI
 
 struct PacePanelChatView: View {
+    private enum Layout {
+        static let contentInset: CGFloat = 20
+        static let messageSpacing: CGFloat = 12
+        static let historyRowInset: CGFloat = 12
+    }
+
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject private var chatSession: PaceChatSession
     @ObservedObject private var imageOverlayController: PaceImageOverlayController
@@ -156,7 +162,7 @@ struct PacePanelChatView: View {
                 .keyboardShortcut(.escape, modifiers: [])
             }
         }
-        .padding(.horizontal, 22)
+        .padding(.horizontal, Layout.contentInset)
         .frame(height: isEmbeddedInNotch ? 36 : 52)
         .overlay(alignment: .bottom) {
             Rectangle().fill(DS.Colors.borderSubtle.opacity(0.6)).frame(height: 0.5)
@@ -192,7 +198,7 @@ struct PacePanelChatView: View {
                 .pointerCursor()
             }
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, Layout.contentInset)
         .padding(.vertical, 10)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(signalPresentation.accessibilityValue)
@@ -235,41 +241,44 @@ struct PacePanelChatView: View {
                 // response is replaced or queued rows are completed; SwiftUI's
                 // lazy-layout accessibility bridge can otherwise traverse a
                 // changing ForEach from a non-main update group and trap.
-                VStack(alignment: .leading, spacing: 18) {
-                    if visibleMessages.isEmpty && liveSpeechDraft.isEmpty && inFlightStreamedText.isEmpty {
-                        emptyState.padding(.top, 24)
-                    } else {
-                        ForEach(threadItems) { item in
-                            switch item {
-                            case .message(let message):
-                                messageRow(message).id(item.id)
-                            case .tool(let actionRecord):
-                                toolChipRow(actionRecord).id(item.id)
+                VStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: Layout.messageSpacing) {
+                        if visibleMessages.isEmpty && liveSpeechDraft.isEmpty && inFlightStreamedText.isEmpty {
+                            emptyState.padding(.top, 24)
+                        } else {
+                            ForEach(threadItems) { item in
+                                switch item {
+                                case .message(let message):
+                                    messageRow(message).id(item.id)
+                                case .tool(let actionRecord):
+                                    toolChipRow(actionRecord).id(item.id)
+                                }
                             }
                         }
-                    }
-                    if selectedQuestionIdentifier == nil, let imageStatus = imageOverlayController.statusText {
-                        artifactLink(title: imageStatus, systemName: "photo", actionLabel: "Open image") {
-                            imageOverlayController.show()
+                        if selectedQuestionIdentifier == nil, let imageStatus = imageOverlayController.statusText {
+                            artifactLink(title: imageStatus, systemName: "photo", actionLabel: "Open image") {
+                                imageOverlayController.show()
+                            }
+                        }
+                        if selectedQuestionIdentifier == nil, let document = diagramOverlayController.document {
+                            artifactLink(
+                                title: document.title,
+                                systemName: document.figure == nil ? "point.3.connected.trianglepath.dotted" : "cube",
+                                actionLabel: "Open diagram"
+                            ) {
+                                NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+                            }
+                        }
+                        if selectedQuestionIdentifier == nil {
+                            liveUserBubbleRow
+                            streamingReplyRow
                         }
                     }
-                    if selectedQuestionIdentifier == nil, let document = diagramOverlayController.document {
-                        artifactLink(
-                            title: document.title,
-                            systemName: document.figure == nil ? "point.3.connected.trianglepath.dotted" : "cube",
-                            actionLabel: "Open diagram"
-                        ) {
-                            NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
-                        }
-                    }
-                    if selectedQuestionIdentifier == nil {
-                        liveUserBubbleRow
-                        streamingReplyRow
-                    }
+                    // The scroll target must not add another message gap after the last reply.
                     Color.clear.frame(height: 0).id(Self.streamingAnchorID)
                 }
-                .padding(.horizontal, 26)
-                .padding(.vertical, 24)
+                .padding(.horizontal, Layout.contentInset)
+                .padding(.vertical, 16)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .top) {
@@ -329,16 +338,17 @@ struct PacePanelChatView: View {
                                 .foregroundStyle(DS.Colors.textTertiary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
+                        .padding(Layout.historyRowInset)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .paceControlHoverHighlight(cornerRadius: 7)
                     .pointerCursor()
-                    Divider().overlay(DS.Colors.borderSubtle).padding(.horizontal, 12)
+                    Divider().overlay(DS.Colors.borderSubtle).padding(.horizontal, Layout.historyRowInset)
                 }
             }
-            .padding(14)
+            .padding(.horizontal, Layout.contentInset - Layout.historyRowInset)
+            .padding(.vertical, Layout.historyRowInset)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -550,7 +560,7 @@ struct PacePanelChatView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, isFromUser && message.id != visibleMessages.first?.id ? 16 : 0)
+        .padding(.top, isFromUser && message.id != visibleMessages.first?.id ? Layout.messageSpacing : 0)
     }
 
     private func readableMessage(_ text: String) -> AttributedString {
@@ -567,8 +577,6 @@ struct PacePanelChatView: View {
                 .foregroundStyle(DS.Colors.textPrimary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
-        } else {
-            Color.clear.frame(height: 0)
         }
     }
 
@@ -676,7 +684,6 @@ struct PacePanelChatView: View {
             }
             .font(.system(size: 10))
             .foregroundStyle(DS.Colors.textTertiary)
-            .padding(.horizontal, 3)
 
             if companionManager.queuedChatTurnCount > 0 {
                 HStack(spacing: 8) {
@@ -691,10 +698,9 @@ struct PacePanelChatView: View {
                 }
                 .font(.system(size: 11))
                 .foregroundStyle(DS.Colors.textSecondary)
-                .padding(.horizontal, 4)
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Layout.contentInset)
         .padding(.top, 6)
         .padding(.bottom, 16)
     }
