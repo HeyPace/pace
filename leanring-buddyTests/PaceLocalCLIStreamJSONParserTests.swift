@@ -139,6 +139,28 @@ struct PaceLocalCLIStreamJSONParserTests {
         }
     }
 
+    @Test func recoveredErrorNoticeDoesNotRejectACompletedTurn() throws {
+        var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
+        #expect(delivery.consume(chunk: "", fromLine:
+            #"{"type":"error","message":"Reconnecting... 1/5 (rate limit reached; HTTP 429)"}"#) == nil)
+        #expect(delivery.consume(chunk: "Paris.", fromLine:
+            #"{"type":"item.completed","item":{"type":"agent_message","text":"Paris."}}"#) == nil)
+        #expect(delivery.consume(chunk: "", fromLine: #"{"type":"turn.completed"}"#) == "Paris.")
+        #expect(delivery.rejectionCategory == nil)
+        #expect(try delivery.finishedOutput() == "Paris.")
+    }
+
+    @Test func unrecoveredAccountErrorNoticeStillPreventsFallback() {
+        var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
+        #expect(delivery.consume(chunk: "", fromLine:
+            #"{"type":"error","message":"HTTP 429: rate limit reached"}"#) == nil)
+        #expect(throws: PaceLocalCLIPlannerError.self) { try delivery.finishedOutput() }
+        if case PaceLocalCLIPlannerError.rejected(.quota) = delivery.failurePreservingRejection(
+            PaceCLIProcessError.timedOut) {} else {
+            Issue.record("An unrecovered quota rejection must survive cleanup timeout")
+        }
+    }
+
     @Test func completedTurnDeliveryHoldsItemsAndPublishesAggregateOnce() throws {
         var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
         for line in [
@@ -193,7 +215,6 @@ struct PaceLocalCLIStreamJSONParserTests {
         for (line, category) in fixtures {
             var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
             #expect(delivery.consume(chunk: "", fromLine: line) == nil)
-            #expect(delivery.rejectionCategory == category)
             // An exit-zero CLI must still fail with the structured account category.
             do {
                 _ = try delivery.finishedOutput()

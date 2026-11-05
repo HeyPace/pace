@@ -27,6 +27,7 @@ enum PaceTextAnswerPurpose: Equatable {
         ]
         let contextualWords: Set<String> = [
             "it", "its", "this", "that", "these", "those", "they", "them",
+            "he", "she", "him", "her", "his", "hers", "there", "same",
             "previous", "earlier", "above", "again", "my", "mine", "our", "ours",
         ]
         return followUpPrefixes.contains { normalizedTranscript.hasPrefix($0) }

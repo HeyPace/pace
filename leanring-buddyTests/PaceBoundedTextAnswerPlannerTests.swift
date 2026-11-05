@@ -57,7 +57,7 @@ struct PaceBoundedTextAnswerPlannerTests {
     @Test
     func suggestionsVisualContextAndHistoryDependentQuestionsKeepSelectedPlanner() {
         let prediction = PaceIntentPrediction(intent: .pureKnowledge, confidence: 1)
-        for transcript in ["What is that?", "What about France?", "Tell me more", "Why did they do it?", "What did I ask earlier?", "What is my name?", "What is our project?"] {
+        for transcript in ["What is that?", "What about France?", "Tell me more", "Why did they do it?", "What did I ask earlier?", "What is my name?", "What is our project?", "How old is he?", "Who is she?", "Is the weather warm there?"] {
             #expect(PaceTextAnswerPurpose.classifiedAnswer(
                 prediction: prediction, transcript: transcript,
                 hasScreenSuggestion: false, hasActiveVisualContext: false) == .selectedPlanner)

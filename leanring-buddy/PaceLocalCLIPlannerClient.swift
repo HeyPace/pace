@@ -214,6 +214,7 @@ nonisolated struct PaceCLITextDeliveryState {
     private(set) var assembledOutput = ""
     private var hasCompletedTurn = false
     private var hasInvalidTurn = false
+    private var pendingRejectionCategory: PaceCLIRejectionCategory?
     private(set) var rejectionCategory: PaceCLIRejectionCategory?
 
     mutating func consume(chunk: String, fromLine line: String) -> String? {
@@ -229,9 +230,16 @@ nonisolated struct PaceCLITextDeliveryState {
             hasInvalidTurn = true
             return nil
         }
-        if eventType == "turn.failed" || eventType == "error" || payload["error"] != nil {
+        if eventType == "error" {
+            // A successful completed turn supersedes interim retry notices.
+            pendingRejectionCategory = PaceCLIRejectionCategory.classify(errorPayload: payload)
+                ?? pendingRejectionCategory
+            return nil
+        }
+        if eventType == "turn.failed" || payload["error"] != nil {
             hasInvalidTurn = true
-            rejectionCategory = rejectionCategory ?? PaceCLIRejectionCategory.classify(errorPayload: payload)
+            rejectionCategory = PaceCLIRejectionCategory.classify(errorPayload: payload)
+                ?? pendingRejectionCategory
         }
         guard !hasInvalidTurn else { return nil }
         guard !hasCompletedTurn else {
@@ -242,6 +250,7 @@ nonisolated struct PaceCLITextDeliveryState {
         assembledOutput += chunk
         guard eventType == "turn.completed" else { return nil }
         hasCompletedTurn = true
+        pendingRejectionCategory = nil
         return assembledOutput.isEmpty ? nil : assembledOutput
     }
 
@@ -249,6 +258,9 @@ nonisolated struct PaceCLITextDeliveryState {
         if processError is CancellationError { return processError }
         if let rejectionCategory {
             return PaceLocalCLIPlannerError.rejected(rejectionCategory)
+        }
+        if !hasCompletedTurn, let pendingRejectionCategory {
+            return PaceLocalCLIPlannerError.rejected(pendingRejectionCategory)
         }
         if case PaceCLIProcessError.failed(_, let stderrExcerpt) = processError,
             let category = PaceCLIRejectionCategory.classify(stderrExcerpt) {
@@ -259,6 +271,9 @@ nonisolated struct PaceCLITextDeliveryState {
 
     func finishedOutput() throws -> String {
         if let rejectionCategory { throw PaceLocalCLIPlannerError.rejected(rejectionCategory) }
+        if !hasCompletedTurn, let pendingRejectionCategory {
+            throw PaceLocalCLIPlannerError.rejected(pendingRejectionCategory)
+        }
         if codexTextDelivery == .completedTurn && (!hasCompletedTurn || hasInvalidTurn) {
             throw PaceLocalCLIPlannerError.incompleteCodexTurn
         }
@@ -267,6 +282,11 @@ nonisolated struct PaceCLITextDeliveryState {
         }
         return assembledOutput
     }
+}
+
+@MainActor
+private final class PaceCLIOutputDelivery {
+    var characterCount: Int?
 }
 
 /// BuddyPlannerClient conformer that spawns the local CLI per turn.
@@ -347,6 +367,7 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         onTextChunk: @MainActor @Sendable (String) -> Void
     ) async throws -> (text: String, duration: TimeInterval) {
         let startedAt = Date()
+        let outputDelivery = PaceCLIOutputDelivery()
         // Off-device egress size: the CLI ships the system prompt (first
         // step), the accumulated history, and the new user prompt off the
         // Mac via its provider. This is the byte count the privacy
@@ -366,7 +387,10 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
                     systemPrompt: systemPrompt,
                     conversationHistory: conversationHistory,
                     userPrompt: userPrompt,
-                    onTextChunk: onTextChunk
+                    onTextChunk: { text in
+                        outputDelivery.characterCount = text.count
+                        onTextChunk(text)
+                    }
                 )
             case .codex:
                 assembledText = try await spawnCodex(
@@ -374,7 +398,10 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
                     systemPrompt: systemPrompt,
                     conversationHistory: conversationHistory,
                     userPrompt: userPrompt,
-                    onTextChunk: onTextChunk
+                    onTextChunk: { text in
+                        outputDelivery.characterCount = text.count
+                        onTextChunk(text)
+                    }
                 )
             }
             let duration = Date().timeIntervalSince(startedAt)
@@ -389,11 +416,13 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
             // Fail-loud path still logs the off-device attempt: bytes left
             // the Mac (or tried to) even on error, and the dashboard must
             // reflect that. Failure metadata remains content-free.
+            let deliveredCompletedTurn = codexTextDelivery == .completedTurn
+                && (outputDelivery.characterCount ?? 0) > 0
             recordAuditEntry(
                 durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1000),
-                outcome: "error",
+                outcome: deliveredCompletedTurn ? "late-error-after-delivery" : "error",
                 inputCharacterCount: estimatedInputCharacterCount,
-                outputCharacterCount: nil
+                outputCharacterCount: outputDelivery.characterCount
             )
             throw error
         }
