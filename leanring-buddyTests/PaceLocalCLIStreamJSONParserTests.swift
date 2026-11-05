@@ -176,6 +176,90 @@ struct PaceLocalCLIStreamJSONParserTests {
         }
     }
 
+    @Test func structuredAccountRejectionsSurviveSuccessfulOrNonzeroProcessExit() {
+        let fixtures: [(String, PaceCLIRejectionCategory)] = [
+            (#"{"type":"turn.failed","error":{"code":"insufficient_quota","message":"Synthetic limit"}}"#, .quota),
+            (#"{"type":"error","message":"You have exceeded your usage limit"}"#, .quota),
+            (#"{"type":"error","error":{"code":"invalid_api_key","message":"Synthetic credentials"}}"#, .authentication),
+            (#"{"type":"turn.failed","error":{"message":"Please log in to Codex"}}"#, .authentication),
+            (#"{"type":"error","error":{"code":"unauthorized"}}"#, .authentication),
+            (#"{"type":"error","error":{"code":"unauthenticated"}}"#, .authentication),
+            (#"{"type":"error","message":"Not authenticated"}"#, .authentication),
+            (#"{"type":"error","error":{"status":401}}"#, .authentication),
+            (#"{"type":"error","error":{"status_code":"429"}}"#, .quota),
+            (#"{"type":"error","error":{"type":"rate_limit_error"}}"#, .quota),
+            (#"{"type":"error","error":{"code":"too_many_requests"}}"#, .quota),
+        ]
+        for (line, category) in fixtures {
+            var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
+            #expect(delivery.consume(chunk: "", fromLine: line) == nil)
+            #expect(delivery.rejectionCategory == category)
+            // An exit-zero CLI must still fail with the structured account category.
+            do {
+                _ = try delivery.finishedOutput()
+                Issue.record("Expected structured account rejection")
+            } catch PaceLocalCLIPlannerError.rejected(let actualCategory) {
+                #expect(actualCategory == category)
+            } catch { Issue.record("Unexpected error: \(error)") }
+            // Stderr can be empty on nonzero exit; preserve the stdout category.
+            for processError in [PaceCLIProcessError.failed(1, ""), .timedOut, .emptyResponse] {
+                let failure = delivery.failurePreservingRejection(processError)
+                if case PaceLocalCLIPlannerError.rejected(let actualCategory) = failure {
+                    #expect(actualCategory == category)
+                } else { Issue.record("Lost structured account rejection") }
+            }
+            #expect(delivery.failurePreservingRejection(CancellationError()) is CancellationError)
+        }
+    }
+
+    @Test func capturedUnsupportedModelStreamRejectsTheTurnWithoutClassifyingAnAccountFailure() {
+        // Codex 0.165.0 invalid-model probe, with synthetic identifiers; the metadata warning alone is nonfatal.
+        let lines = [
+            #"{"type":"thread.started","thread_id":"synthetic"}"#,
+            #"{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `synthetic-unavailable-model` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}"#,
+            #"{"type":"turn.started"}"#,
+            #"{"type":"error","message":"The 'synthetic-unavailable-model' model is not supported when using Codex with a ChatGPT account."}"#,
+            #"{"type":"turn.failed","error":{"message":"The 'synthetic-unavailable-model' model is not supported when using Codex with a ChatGPT account."}}"#,
+        ]
+        var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
+        for line in lines {
+            #expect(delivery.consume(
+                chunk: PaceLocalCLIStreamJSONParser.extractCodexChunk(fromLine: line), fromLine: line) == nil)
+        }
+        #expect(delivery.rejectionCategory == nil)
+        #expect(throws: PaceLocalCLIPlannerError.self) { try delivery.finishedOutput() }
+        var warningOnly = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
+        #expect(warningOnly.consume(chunk: "", fromLine: lines[1]) == nil)
+        #expect(warningOnly.consume(chunk: "Valid answer.", fromLine: #"{"type":"item.completed"}"#) == nil)
+        #expect(warningOnly.consume(chunk: "", fromLine: #"{"type":"turn.completed"}"#) == "Valid answer.")
+    }
+
+    @Test func modelAndConfigurationFailuresRemainEligibleForSelectedPlannerFallback() {
+        for line in [
+            #"{"type":"turn.failed","error":{"code":"model_not_found","message":"Model unavailable"}}"#,
+            #"{"type":"error","message":"Unsupported reasoning effort: low"}"#,
+            "malformed stdout",
+        ] {
+            var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
+            #expect(delivery.consume(chunk: "", fromLine: line) == nil)
+            #expect(delivery.rejectionCategory == nil)
+            #expect(throws: PaceLocalCLIPlannerError.self) { try delivery.finishedOutput() }
+            if case PaceCLIProcessError.failed = delivery.failurePreservingRejection(PaceCLIProcessError.failed(1, "")) {
+            } else { Issue.record("Unknown failures must remain eligible for one fallback") }
+        }
+        #expect(PaceCLIRejectionCategory.classify("Model unavailable for this account") == nil)
+        #expect(PaceCLIRejectionCategory.classify("Please log in to Codex") == .authentication)
+        #expect(PaceCLIRejectionCategory.classify("You have exceeded your usage limit") == .quota)
+        let delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
+        for (stderr, category) in [("HTTP 401: Unauthorized", PaceCLIRejectionCategory.authentication),
+            ("HTTP 429: Too many requests", .quota)] {
+            if case PaceLocalCLIPlannerError.rejected(let actualCategory) = delivery.failurePreservingRejection(
+                PaceCLIProcessError.failed(1, stderr)) {
+                #expect(actualCategory == category)
+            } else { Issue.record("Lost stderr account rejection") }
+        }
+    }
+
     @Test func completedTurnCannotBeChangedByLaterMessageItems() {
         var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
         #expect(delivery.consume(chunk: "Accepted.", fromLine: #"{"type":"item.completed"}"#) == nil)

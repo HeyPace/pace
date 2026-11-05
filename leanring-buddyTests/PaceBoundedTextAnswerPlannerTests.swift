@@ -14,6 +14,7 @@ private final class BoundedAnswerFixturePlanner: BuddyPlannerClient {
     var calls = 0
     var receivedSystemPrompt = ""
     var receivedHistoryCount = 0
+    var receivedHistory: [(userPlaceholder: String, assistantResponse: String)] = []
 
     func generateResponseStreaming(
         images: [(data: Data, label: String)],
@@ -25,6 +26,7 @@ private final class BoundedAnswerFixturePlanner: BuddyPlannerClient {
         calls += 1
         receivedSystemPrompt = systemPrompt
         receivedHistoryCount = conversationHistory.count
+        receivedHistory = conversationHistory
         for chunk in provisionalChunks { onTextChunk(chunk) }
         if let beforeReturning { await beforeReturning() }
         if let failure { throw failure }
@@ -82,7 +84,7 @@ struct PaceBoundedTextAnswerPlannerTests {
         ) -> any BuddyPlannerClient {
             BuddyPlannerClientFactory.makeTextAnswerPlanner(
                 purpose: purpose, selectedPlanner: selectedPlanner ?? automaticCodex, tier: tier, upstream: upstream,
-                hasAcceptedDirectSpawnConsent: consent, canRunDirectSpawnTurn: available)
+                hasAcceptedDirectSpawnConsent: consent, canRunDirectSpawnTurn: available, everydaySystemPrompt: "Trusted short prompt")
         }
         #expect(select() is PaceBoundedTextAnswerPlanner)
         #expect(select(purpose: .selectedPlanner) === automaticCodex)
@@ -127,7 +129,8 @@ struct PaceBoundedTextAnswerPlannerTests {
             everyday.provisionalChunks = ["provisional text"]
             let selected = BoundedAnswerFixturePlanner()
             let planner = PaceBoundedTextAnswerPlanner(
-                everydayPlanner: everyday, selectedPlanner: selected, recordDecision: { _ in })
+                everydayPlanner: everyday, selectedPlanner: selected,
+                everydaySystemPrompt: "Trusted base voice and privacy rules", recordDecision: { _ in })
             var chunks: [String] = []
             everyday.beforeReturning = { #expect(chunks.isEmpty) }
             let result = try await planner.generateResponseStreaming(
@@ -136,7 +139,7 @@ struct PaceBoundedTextAnswerPlannerTests {
             #expect(result.text == answer)
             #expect(chunks == [answer])
             #expect(selected.calls == 0)
-            #expect(everyday.receivedSystemPrompt.contains("Trusted base voice and privacy rules"))
+            #expect(everyday.receivedSystemPrompt == "Trusted base voice and privacy rules\n\n" + PaceBoundedTextAnswerPlanner.answerInstructions)
             #expect(everyday.receivedSystemPrompt.contains(PaceBoundedTextAnswerPlanner.escalationMarker))
         }
     }
@@ -156,7 +159,8 @@ struct PaceBoundedTextAnswerPlannerTests {
             selected.response = "Stronger answer."
             selected.provisionalChunks = ["Stronger", "Stronger answer."]
             let planner = PaceBoundedTextAnswerPlanner(
-                everydayPlanner: everyday, selectedPlanner: selected, recordDecision: { _ in })
+                everydayPlanner: everyday, selectedPlanner: selected,
+                everydaySystemPrompt: "Trusted base voice and privacy rules", recordDecision: { _ in })
             var chunks: [String] = []
             let result = try await planner.generateResponseStreaming(
                 images: [], systemPrompt: "Original trusted prompt",
@@ -169,34 +173,100 @@ struct PaceBoundedTextAnswerPlannerTests {
             #expect(selected.calls == 1)
             #expect(selected.receivedHistoryCount == 1)
             #expect(selected.receivedSystemPrompt == "Original trusted prompt")
+            #expect(everyday.receivedSystemPrompt == "Trusted base voice and privacy rules\n\n" + PaceBoundedTextAnswerPlanner.answerInstructions)
+            #expect(everyday.receivedHistory.first?.userPlaceholder == "Synthetic previous question")
+            #expect(selected.receivedHistory.first?.assistantResponse == "Synthetic previous answer")
+            #expect(planner.lastAnswerSource == .selected)
         }
         #expect(PaceBoundedTextAnswerPlanner.escalationReason(
             for: "The marker PACE_USE_SELECTED_PLANNER is not an answer.") == .unexpectedOutput)
     }
 
     @Test @MainActor
-    func onlyEmptyResponseErrorsAndTimeoutsEscalate() async throws {
-        for failure in [PaceCLIProcessError.emptyResponse, .timedOut, .failed(1, "Synthetic auth or quota failure")] {
+    func escalationUsesFullDiagramPromptWithTheSameTrustedContextAndHistory() async throws {
+        let threadContext = "Synthetic shared thread summary"
+        let ambientContext = "Synthetic shared ambient context"
+        let shortPrompt = CompanionSystemPrompt.buildTextOnly(
+            threadSummaryInjection: threadContext, ambientContextInjection: ambientContext,
+            includeInteractiveDiagrams: false)
+        let fullPrompt = CompanionSystemPrompt.buildTextOnly(
+            threadSummaryInjection: threadContext, ambientContextInjection: ambientContext,
+            includeInteractiveDiagrams: true)
+        let history: [(userPlaceholder: String, assistantResponse: String)] = [("Prior question", "Prior answer")]
+        let everyday = BoundedAnswerFixturePlanner()
+        everyday.response = PaceBoundedTextAnswerPlanner.escalationMarker
+        let selected = BoundedAnswerFixturePlanner()
+        let planner = PaceBoundedTextAnswerPlanner(
+            everydayPlanner: everyday, selectedPlanner: selected,
+            everydaySystemPrompt: shortPrompt, recordDecision: { _ in })
+        _ = try await planner.generateResponseStreaming(
+            images: [], systemPrompt: fullPrompt, conversationHistory: history,
+            userPrompt: "Synthetic question", onTextChunk: { _ in })
+        #expect(fullPrompt != shortPrompt)
+        #expect(everyday.receivedSystemPrompt == shortPrompt + "\n\n" + PaceBoundedTextAnswerPlanner.answerInstructions)
+        #expect(selected.receivedSystemPrompt == fullPrompt)
+        for prompt in [everyday.receivedSystemPrompt, selected.receivedSystemPrompt] {
+            #expect(prompt.contains(threadContext))
+            #expect(prompt.contains(ambientContext))
+        }
+        #expect(everyday.receivedHistory.first?.userPlaceholder == history.first?.userPlaceholder)
+        #expect(selected.receivedHistory.first?.assistantResponse == history.first?.assistantResponse)
+        #expect(planner.lastAnswerSource == .selected)
+    }
+
+    @Test @MainActor
+    func unavailableAndInvalidTurnsEscalateOnceBeforeAcceptance() async throws {
+        let failures: [any Error] = [
+            PaceCLIProcessError.emptyResponse, PaceCLIProcessError.timedOut,
+            PaceCLIProcessError.failed(1, "Model gpt-6-luna not found"),
+            PaceCLIProcessError.failed(1, "Unsupported reasoning effort: low"),
+            PaceLocalCLIPlannerError.incompleteCodexTurn,
+        ]
+        for failure in failures {
             let everyday = BoundedAnswerFixturePlanner()
             everyday.failure = failure
             let selected = BoundedAnswerFixturePlanner()
             let planner = PaceBoundedTextAnswerPlanner(
-                everydayPlanner: everyday, selectedPlanner: selected, recordDecision: { _ in })
+                everydayPlanner: everyday, selectedPlanner: selected,
+                everydaySystemPrompt: "Trusted short prompt", recordDecision: { _ in })
+            let response = try await planner.generateResponseStreaming(
+                images: [], systemPrompt: "Full trusted prompt", conversationHistory: [],
+                userPrompt: "Synthetic question", onTextChunk: { _ in })
+            #expect(response.text == selected.response)
+            #expect(everyday.calls == 1)
+            #expect(selected.calls == 1)
+        }
+    }
+
+    @Test @MainActor
+    func accountAndSpawnFailuresPropagateWithoutFallback() async {
+        let failures: [any Error] = [
+            PaceCLIProcessError.failed(1, "Please log in to Codex"),
+            PaceCLIProcessError.failed(1, "You have exceeded your usage limit"),
+            PaceCLIProcessError.failed(1, "HTTP 401: Unauthorized"),
+            PaceCLIProcessError.failed(1, "HTTP 429: Too many requests"),
+            PaceLocalCLIPlannerError.rejected(.authentication),
+            PaceLocalCLIPlannerError.rejected(.quota),
+            PaceLocalCLIPlannerError.spawnFailed(executable: "codex", underlying: "not found"),
+            CancellationError(),
+        ]
+        for failure in failures {
+            let everyday = BoundedAnswerFixturePlanner()
+            everyday.failure = failure
+            let selected = BoundedAnswerFixturePlanner()
+            let planner = PaceBoundedTextAnswerPlanner(
+                everydayPlanner: everyday, selectedPlanner: selected,
+                everydaySystemPrompt: "Trusted short prompt", recordDecision: { _ in })
             do {
                 _ = try await planner.generateResponseStreaming(
-                    images: [], systemPrompt: "", conversationHistory: [], userPrompt: "Synthetic question",
-                    onTextChunk: { _ in })
-                switch failure {
-                case .emptyResponse, .timedOut: #expect(selected.calls == 1)
-                case .failed: Issue.record("CLI failures must propagate")
-                }
+                    images: [], systemPrompt: "", conversationHistory: [],
+                    userPrompt: "Synthetic question", onTextChunk: { _ in })
+                Issue.record("Expected account, spawn, or cancellation failure")
             } catch {
-                switch failure {
-                case .emptyResponse, .timedOut: Issue.record("Empty output and timeouts should escalate")
-                case .failed: break
-                }
-                #expect(selected.calls == 0)
+                #expect(String(describing: error) == String(describing: failure))
             }
+            #expect(everyday.calls == 1)
+            #expect(selected.calls == 0)
         }
     }
 
@@ -208,7 +278,8 @@ struct PaceBoundedTextAnswerPlannerTests {
         let selected = BoundedAnswerFixturePlanner()
         var decisions: [String] = []
         let planner = PaceBoundedTextAnswerPlanner(
-            everydayPlanner: everyday, selectedPlanner: selected, textDelivery: .trustedCompletedTurn,
+            everydayPlanner: everyday, selectedPlanner: selected,
+            everydaySystemPrompt: "Trusted base voice and privacy rules", textDelivery: .trustedCompletedTurn,
             recordDecision: { decisions.append($0) })
         var chunks: [String] = []
         everyday.beforeReturning = {
@@ -237,7 +308,8 @@ struct PaceBoundedTextAnswerPlannerTests {
             selected.response = "Selected answer."
             selected.provisionalChunks = ["Selected answer."]
             let planner = PaceBoundedTextAnswerPlanner(
-                everydayPlanner: everyday, selectedPlanner: selected, textDelivery: .trustedCompletedTurn,
+                everydayPlanner: everyday, selectedPlanner: selected,
+                everydaySystemPrompt: "Trusted base voice and privacy rules", textDelivery: .trustedCompletedTurn,
                 recordDecision: { _ in })
             var chunks: [String] = []
             everyday.beforeReturning = {
@@ -262,7 +334,8 @@ struct PaceBoundedTextAnswerPlannerTests {
         selected.response = "Selected answer."
         var decisions: [String] = []
         let planner = PaceBoundedTextAnswerPlanner(
-            everydayPlanner: everyday, selectedPlanner: selected, textDelivery: .trustedCompletedTurn,
+            everydayPlanner: everyday, selectedPlanner: selected,
+            everydaySystemPrompt: "Trusted base voice and privacy rules", textDelivery: .trustedCompletedTurn,
             recordDecision: { decisions.append($0) })
         var chunks: [String] = []
         let result = try await planner.generateResponseStreaming(
@@ -276,30 +349,103 @@ struct PaceBoundedTextAnswerPlannerTests {
     }
 
     @Test @MainActor
-    func errorsAfterEarlyAcceptedAnswerPropagateWithoutFallback() async {
+    func lateProcessErrorsKeepAcceptedAnswerWithoutDuplicateOrFallback() async throws {
         let failures: [any Error] = [
-            CancellationError(), PaceCLIProcessError.timedOut, PaceCLIProcessError.emptyResponse,
+            PaceCLIProcessError.timedOut, PaceCLIProcessError.emptyResponse,
             PaceCLIProcessError.failed(1, "Synthetic failure"), PaceLocalCLIPlannerError.incompleteCodexTurn,
+            PaceLocalCLIPlannerError.rejected(.authentication), PaceLocalCLIPlannerError.rejected(.quota),
         ]
         for failure in failures {
             let everyday = BoundedAnswerFixturePlanner()
             everyday.provisionalChunks = ["Accepted answer."]
             everyday.failure = failure
             let selected = BoundedAnswerFixturePlanner()
+            var decisions: [String] = []
             let planner = PaceBoundedTextAnswerPlanner(
-                everydayPlanner: everyday, selectedPlanner: selected, textDelivery: .trustedCompletedTurn,
-                recordDecision: { _ in })
+                everydayPlanner: everyday, selectedPlanner: selected,
+                everydaySystemPrompt: "Trusted short prompt", textDelivery: .trustedCompletedTurn,
+                recordDecision: { decisions.append($0) })
             var chunks: [String] = []
-            do {
-                _ = try await planner.generateResponseStreaming(
-                    images: [], systemPrompt: "", conversationHistory: [], userPrompt: "Synthetic question",
-                    onTextChunk: { chunks.append($0) })
-                Issue.record("Expected the post-completion failure to propagate")
-            } catch {
-                #expect(String(describing: error) == String(describing: failure))
-            }
+            let result = try await planner.generateResponseStreaming(
+                images: [], systemPrompt: "", conversationHistory: [], userPrompt: "Synthetic question",
+                onTextChunk: { chunks.append($0) })
+            #expect(result.text == "Accepted answer.")
             #expect(chunks == ["Accepted answer."])
             #expect(everyday.calls == 1)
+            #expect(selected.calls == 0)
+            #expect(planner.lastAnswerSource == .everyday)
+            #expect(decisions == ["attemptEverydayAnswer", "acceptedEverydayAnswer", "lateProcessErrorAfterAcceptedAnswer"])
+        }
+    }
+
+    @Test @MainActor
+    func textOnlyCallerKeepsAcceptedAnswerInCanonicalHistoryAndVisibleChatAfterCleanupFailure() async throws {
+        let (manager, persister, ttsClient) = PaceConversationRecorderTests().makeDismissalFixture()
+        manager.localRetriever = PaceLocalRetriever(
+            store: PaceInMemoryRetrievalStore(), appliesPersistedSourcePreferences: false)
+        // Exercise the manager's state/history boundary without constructing a native overlay window.
+        manager.responseOverlayManager.setAnnotationsEnabled(false)
+        manager.isWalkingAvatarEnabled = false
+        manager.activePlannerTier = .cliDirect
+        manager.activePlannerTierCLIDirectUpstream = .codex
+        let everyday = BoundedAnswerFixturePlanner()
+        everyday.provisionalChunks = ["Accepted answer."]
+        everyday.failure = PaceCLIProcessError.timedOut
+        let selected = BoundedAnswerFixturePlanner()
+        let wrapper = PaceBoundedTextAnswerPlanner(
+            everydayPlanner: everyday, selectedPlanner: selected,
+            everydaySystemPrompt: "Trusted short prompt", textDelivery: .trustedCompletedTurn,
+            recordDecision: { _ in })
+        manager.plannerClient = wrapper
+        manager.textOnlyPlannerClient = wrapper
+        let transcript = "What is two plus two?"
+        #expect(!PaceRetrievalContextPolicy.shouldQueryLocalContext(forTranscript: transcript, route: .answerDirectly))
+        manager.beginConversationRequest(transcript)
+        _ = manager.turnLeaseRegistry.beginTurn()
+        manager.handleTextOnlyPlannerFastPath(transcript: transcript)
+        await manager.currentResponseTask?.value
+        for _ in 0..<10 { await Task.yield() }
+
+        let completedAnswers = persister.events.values.filter { $0.role == .pace && $0.deliveryState == .completed }
+        #expect(completedAnswers.count == 1)
+        #expect(completedAnswers.first?.text == "Accepted answer.")
+        #expect(manager.chatSession.messages.contains { $0.body == "Accepted answer." })
+        #expect(!manager.chatSession.messages.contains { $0.body.contains("Planner failed") })
+        #expect(manager.currentTurnHUDState == .done("answered"))
+        #expect(manager.recentToolCallDebugRecords.first?.spokenText == "Accepted answer.")
+        #expect(selected.calls == 0)
+        #expect(ttsClient.spokenTexts.joined() == "Accepted answer.")
+        #expect(manager.conversationHistory.isEmpty)
+        #expect(manager.memoryIndex.allEntries().isEmpty)
+    }
+
+    @Test @MainActor
+    func cancellationAfterAcceptanceStillPropagatesWithoutFallback() async {
+        for cancelTask in [false, true] {
+            let everyday = BoundedAnswerFixturePlanner()
+            everyday.provisionalChunks = ["Accepted answer."]
+            if cancelTask {
+                everyday.failure = PaceCLIProcessError.timedOut
+                everyday.beforeReturning = { withUnsafeCurrentTask { $0?.cancel() } }
+            } else {
+                everyday.failure = CancellationError()
+            }
+            let selected = BoundedAnswerFixturePlanner()
+            let planner = PaceBoundedTextAnswerPlanner(
+                everydayPlanner: everyday, selectedPlanner: selected,
+                everydaySystemPrompt: "Trusted short prompt", textDelivery: .trustedCompletedTurn,
+                recordDecision: { _ in })
+            let task = Task { @MainActor in
+                var chunks: [String] = []
+                do {
+                    _ = try await planner.generateResponseStreaming(
+                        images: [], systemPrompt: "", conversationHistory: [], userPrompt: "Synthetic question",
+                        onTextChunk: { chunks.append($0) })
+                    Issue.record("Expected cancellation")
+                } catch is CancellationError {} catch { Issue.record("Expected cancellation, got \(error)") }
+                #expect(chunks == ["Accepted answer."])
+            }
+            await task.value
             #expect(selected.calls == 0)
         }
     }
@@ -312,7 +458,8 @@ struct PaceBoundedTextAnswerPlannerTests {
         everyday.beforeReturning = { withUnsafeCurrentTask { $0?.cancel() } }
         let selected = BoundedAnswerFixturePlanner()
         let planner = PaceBoundedTextAnswerPlanner(
-            everydayPlanner: everyday, selectedPlanner: selected, recordDecision: { _ in })
+            everydayPlanner: everyday, selectedPlanner: selected,
+            everydaySystemPrompt: "Trusted base voice and privacy rules", recordDecision: { _ in })
         let task = Task { @MainActor in
             var chunks: [String] = []
             do {
@@ -336,7 +483,8 @@ struct PaceBoundedTextAnswerPlannerTests {
             let selected = BoundedAnswerFixturePlanner()
             selected.failure = PaceCLIProcessError.failed(1, "Synthetic selected-planner failure")
             let planner = PaceBoundedTextAnswerPlanner(
-                everydayPlanner: everyday, selectedPlanner: selected, recordDecision: { _ in })
+                everydayPlanner: everyday, selectedPlanner: selected,
+                everydaySystemPrompt: "Trusted base voice and privacy rules", recordDecision: { _ in })
             do {
                 _ = try await planner.generateResponseStreaming(
                     images: [], systemPrompt: "", conversationHistory: [], userPrompt: "Synthetic question",

@@ -251,6 +251,7 @@ extension CompanionManager {
             updatedDebugRecords.removeLast(updatedDebugRecords.count - maximumRetainedDebugRecords)
         }
         recentToolCallDebugRecords = updatedDebugRecords
+        guard persistsDebugTraces else { return }
         // Persist to the JSONL trace file so the history survives restarts
         // and can be inspected outside the app (off the main actor).
         PaceToolCallDebugTrace.append(record)

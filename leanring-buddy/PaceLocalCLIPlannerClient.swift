@@ -51,6 +51,7 @@ enum PaceLocalCLIPlannerError: LocalizedError {
     case nonZeroExit(executable: String, status: Int32, stderrExcerpt: String)
     case stdinWriteFailed(executable: String, underlying: String)
     case incompleteCodexTurn
+    case rejected(PaceCLIRejectionCategory)
 
     var errorDescription: String? {
         switch self {
@@ -62,9 +63,57 @@ enum PaceLocalCLIPlannerError: LocalizedError {
             return "`\(executable)` exited with status \(status). \(stderrExcerpt)"
         case .stdinWriteFailed(let executable, let underlying):
             return "Couldn't write to `\(executable)` stdin: \(underlying)"
+        case .rejected(let category):
+            return category == .authentication
+                ? "The planner requires sign-in. Check the CLI authentication and try again."
+                : "The planner reached its usage limit. Check the CLI quota and try again."
         case .incompleteCodexTurn:
             return "Codex did not complete a valid answer turn. Try again or cancel the turn."
         }
+    }
+}
+
+/// Only recognized account failures block the everyday planner's selected-model fallback.
+/// Keep provider text out of routing metadata and avoid treating model access errors as sign-in failures.
+nonisolated enum PaceCLIRejectionCategory: String {
+    case authentication
+    case quota
+
+    static func classify(_ text: String) -> Self? {
+        let normalizedText = text.lowercased()
+        let authenticationSignals = [
+            "invalid_api_key", "authentication_error", "auth_required", "token_expired",
+            "unauthorized", "unauthenticated", "not authenticated", "http 401",
+            "not logged in", "please log in", "please login", "authentication failed",
+            "invalid api key", "api key is invalid", "refresh token", "401 unauthorized",
+        ]
+        if authenticationSignals.contains(where: normalizedText.contains) { return .authentication }
+        let quotaSignals = [
+            "insufficient_quota", "quota_exceeded", "usage_limit_reached", "rate_limit_exceeded",
+            "rate_limit_error", "too_many_requests", "too many requests", "http 429",
+            "usage limit", "exceeded your current quota", "quota exceeded", "insufficient quota",
+            "credit balance is too low", "rate limit reached",
+        ]
+        if quotaSignals.contains(where: normalizedText.contains) { return .quota }
+        return nil
+    }
+
+    static func classify(errorPayload: [String: Any]) -> Self? {
+        // Inspect only failure fields, never agent-message text or arbitrary serialized payloads.
+        for key in ["status", "status_code", "http_status", "code"] {
+            let statusCode = (errorPayload[key] as? Int)
+                ?? (errorPayload[key] as? String).flatMap(Int.init)
+            if statusCode == 401 { return .authentication }
+            if statusCode == 429 { return .quota }
+        }
+        for key in ["code", "message", "type"] {
+            if let field = errorPayload[key] as? String, let category = classify(field) { return category }
+        }
+        if let nestedError = errorPayload["error"] as? [String: Any] {
+            return classify(errorPayload: nestedError)
+        }
+        if let errorText = errorPayload["error"] as? String { return classify(errorText) }
+        return nil
     }
 }
 
@@ -165,6 +214,7 @@ nonisolated struct PaceCLITextDeliveryState {
     private(set) var assembledOutput = ""
     private var hasCompletedTurn = false
     private var hasInvalidTurn = false
+    private(set) var rejectionCategory: PaceCLIRejectionCategory?
 
     mutating func consume(chunk: String, fromLine line: String) -> String? {
         guard codexTextDelivery == .completedTurn else {
@@ -181,6 +231,7 @@ nonisolated struct PaceCLITextDeliveryState {
         }
         if eventType == "turn.failed" || eventType == "error" || payload["error"] != nil {
             hasInvalidTurn = true
+            rejectionCategory = rejectionCategory ?? PaceCLIRejectionCategory.classify(errorPayload: payload)
         }
         guard !hasInvalidTurn else { return nil }
         guard !hasCompletedTurn else {
@@ -194,7 +245,20 @@ nonisolated struct PaceCLITextDeliveryState {
         return assembledOutput.isEmpty ? nil : assembledOutput
     }
 
+    func failurePreservingRejection(_ processError: any Error) -> any Error {
+        if processError is CancellationError { return processError }
+        if let rejectionCategory {
+            return PaceLocalCLIPlannerError.rejected(rejectionCategory)
+        }
+        if case PaceCLIProcessError.failed(_, let stderrExcerpt) = processError,
+            let category = PaceCLIRejectionCategory.classify(stderrExcerpt) {
+            return PaceLocalCLIPlannerError.rejected(category)
+        }
+        return processError
+    }
+
     func finishedOutput() throws -> String {
+        if let rejectionCategory { throw PaceLocalCLIPlannerError.rejected(rejectionCategory) }
         if codexTextDelivery == .completedTurn && (!hasCompletedTurn || hasInvalidTurn) {
             throw PaceLocalCLIPlannerError.incompleteCodexTurn
         }
@@ -513,12 +577,17 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
             environment: environment,
             timeout: requestTimeout ?? (isResearchTurn ? 300 : 120)
         )
-        for try await line in lines {
-            try Task.checkCancellation()
-            if let deliveredText = textDeliveryState.consume(chunk: captureChunk(line), fromLine: line) {
-                onTextChunk(deliveredText)
+        do {
+            for try await line in lines {
+                try Task.checkCancellation()
+                if let deliveredText = textDeliveryState.consume(chunk: captureChunk(line), fromLine: line) {
+                    onTextChunk(deliveredText)
+                }
+                if capturedSessionId == nil { capturedSessionId = captureSessionIdFromLine(line) }
             }
-            if capturedSessionId == nil { capturedSessionId = captureSessionIdFromLine(line) }
+        } catch {
+            try Task.checkCancellation()
+            throw textDeliveryState.failurePreservingRejection(error)
         }
         try Task.checkCancellation()
         return (try textDeliveryState.finishedOutput(), capturedSessionId)

@@ -577,15 +577,6 @@ extension CompanionManager {
                     screenSuggestionContext == nil && diagramOverlayController.document == nil
                         && imageOverlayController.lastSuccessfulArtifact == nil
                     ? purpose : .selectedPlanner
-                let plannerForTextOnlyTurn = BuddyPlannerClientFactory.makeTextAnswerPlanner(
-                    purpose: effectivePurpose, selectedPlanner: selectedTextPlanner,
-                    tier: activePlannerTier, upstream: activePlannerTierCLIDirectUpstream,
-                    hasAcceptedDirectSpawnConsent: PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
-                    canRunDirectSpawnTurn: PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date()))
-                let usesBoundedEverydayPlanner = plannerForTextOnlyTurn is PaceBoundedTextAnswerPlanner
-                plannerForTextOnlyTurn.resetForNewTurn()
-                print("🧠 Text-only planner: using \(plannerForTextOnlyTurn.displayName)")
-
                 let historyForPlanner = conversationHistory.map { entry in
                     (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
                 }
@@ -602,17 +593,30 @@ extension CompanionManager {
                 guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
 
                 let threadSummaryInjectionForTurn = threadMemory.injectionPrefix()
+                let ambientContextInjectionForTurn = PaceAmbientContextStore.shared.ambientPromptFragment
+                let selectedSystemPromptForTurn = CompanionSystemPrompt.buildTextOnly(
+                    threadSummaryInjection: threadSummaryInjectionForTurn,
+                    ambientContextInjection: ambientContextInjectionForTurn,
+                    includeInteractiveDiagrams: true)
+                let everydaySystemPromptForTurn = CompanionSystemPrompt.buildTextOnly(
+                    threadSummaryInjection: threadSummaryInjectionForTurn,
+                    ambientContextInjection: ambientContextInjectionForTurn,
+                    includeInteractiveDiagrams: false)
+                let plannerForTextOnlyTurn = BuddyPlannerClientFactory.makeTextAnswerPlanner(
+                    purpose: effectivePurpose, selectedPlanner: selectedTextPlanner,
+                    tier: activePlannerTier, upstream: activePlannerTierCLIDirectUpstream,
+                    hasAcceptedDirectSpawnConsent: PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
+                    canRunDirectSpawnTurn: PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date()),
+                    everydaySystemPrompt: everydaySystemPromptForTurn)
+                plannerForTextOnlyTurn.resetForNewTurn()
+                print("🧠 Text-only planner: using \(plannerForTextOnlyTurn.displayName)")
 
                 let plannerStartedAt = Date()
                 PaceLatencyBudget.shared.mark(.plannerStart)
 
                 let (fullResponseText, _) = try await plannerForTextOnlyTurn.generateResponseStreaming(
                     images: [],
-                    systemPrompt: CompanionSystemPrompt.buildTextOnly(
-                        threadSummaryInjection: threadSummaryInjectionForTurn,
-                        ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment,
-                        includeInteractiveDiagrams: !usesBoundedEverydayPlanner
-                    ),
+                    systemPrompt: selectedSystemPromptForTurn,
                     conversationHistory: historyForPlanner,
                     userPrompt: userPromptForPlanner,
                     onTextChunk: { [weak self] accumulatedPlannerText in
@@ -690,11 +694,7 @@ extension CompanionManager {
                             guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
                             let (reRoutedResponseText, _) = try await preferredReRoutePlanner.generateResponseStreaming(
                                 images: [],
-                                systemPrompt: CompanionSystemPrompt.buildTextOnly(
-                                    threadSummaryInjection: threadSummaryInjectionForTurn,
-                                    ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment,
-                                    includeInteractiveDiagrams: true
-                                ),
+                                systemPrompt: selectedSystemPromptForTurn,
                                 conversationHistory: historyForPlanner,
                                 userPrompt: userPromptForPlanner,
                                 onTextChunk: { [weak self] accumulatedText in
@@ -743,6 +743,16 @@ extension CompanionManager {
                 }
                 actionParseResult = finalizedParseResult
 
+                let completedAnswerSystemPrompt: String
+                if !qualityReRouted,
+                    let boundedPlanner = plannerForTextOnlyTurn as? PaceBoundedTextAnswerPlanner,
+                    boundedPlanner.lastAnswerSource == .everyday {
+                    completedAnswerSystemPrompt = boundedPlanner.everydaySystemPrompt
+                        + "\n\n" + PaceBoundedTextAnswerPlanner.answerInstructions
+                } else {
+                    completedAnswerSystemPrompt = selectedSystemPromptForTurn
+                }
+
                 // Settings → Debug capture: pure-knowledge turns never run a
                 // screenshot/VLM and never execute actions here — surfaced so
                 // a misrouted action command (answered instead of acted) is
@@ -769,10 +779,7 @@ extension CompanionManager {
                         totalTurnLatencyMs: Int(Date().timeIntervalSince(plannerStartedAt) * 1000),
                         userPrompt: userPromptForPlanner
                     ),
-                    systemPromptForExport: CompanionSystemPrompt.buildTextOnly(
-                        threadSummaryInjection: threadSummaryInjectionForTurn,
-                        includeInteractiveDiagrams: true
-                    ))
+                    systemPromptForExport: completedAnswerSystemPrompt)
 
                 recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
 

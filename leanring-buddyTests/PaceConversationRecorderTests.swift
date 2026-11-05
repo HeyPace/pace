@@ -60,7 +60,7 @@ struct PaceConversationRecorderTests {
     func makeDismissalFixture() -> (CompanionManager, FixturePersister, DismissalTTSClient) {
         let (persister, session, recorder) = makeFixture()
         let preferences = UserDefaults(suiteName: "PaceExplanationDismissalTests." + UUID().uuidString)!
-        let manager = CompanionManager(watchModeDefaults: preferences, recordsDerivedConversationMemory: false)
+        let manager = CompanionManager(watchModeDefaults: preferences, recordsDerivedConversationMemory: false, persistsDebugTraces: false)
         let client = DismissalTTSClient()
         manager.ttsClient = client
         manager.chatSession = session

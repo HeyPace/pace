@@ -43,7 +43,8 @@ extension BuddyPlannerClientFactory {
         tier: PacePlannerTier,
         upstream: PaceLocalCLIUpstream,
         hasAcceptedDirectSpawnConsent: Bool,
-        canRunDirectSpawnTurn: Bool
+        canRunDirectSpawnTurn: Bool,
+        everydaySystemPrompt: String
     ) -> any BuddyPlannerClient {
         guard purpose == .boundedEverydayAnswer,
             tier == .cliDirect, upstream == .codex,
@@ -59,7 +60,7 @@ extension BuddyPlannerClientFactory {
             codexTextDelivery: .completedTurn, requestTimeout: 10)
         return PaceBoundedTextAnswerPlanner(
             everydayPlanner: everydayPlanner, selectedPlanner: selectedPlanner,
-            textDelivery: .trustedCompletedTurn)
+            everydaySystemPrompt: everydaySystemPrompt, textDelivery: .trustedCompletedTurn)
     }
 }
 
@@ -77,11 +78,20 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
         var acceptedText: String?
     }
 
+    enum AnswerSource: Equatable {
+        case everyday
+        case selected
+    }
+
+    private(set) var lastAnswerSource: AnswerSource?
+    let everydaySystemPrompt: String
+
     enum EscalationReason: String {
         case requestedStrongerPlanner
         case emptyAnswer
         case unexpectedOutput
         case timedOut
+        case unavailable
     }
 
     static let escalationMarker = "PACE_USE_SELECTED_PLANNER"
@@ -100,6 +110,7 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
     init(
         everydayPlanner: any BuddyPlannerClient,
         selectedPlanner: any BuddyPlannerClient,
+        everydaySystemPrompt: String,
         textDelivery: TextDelivery = .bufferedUntilReturn,
         recordDecision: @escaping (String) -> Void = { reason in
             PaceAPIAuditLog.shared.record(
@@ -110,6 +121,7 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
     ) {
         self.everydayPlanner = everydayPlanner
         self.selectedPlanner = selectedPlanner
+        self.everydaySystemPrompt = everydaySystemPrompt
         self.textDelivery = textDelivery
         self.recordDecision = recordDecision
     }
@@ -128,6 +140,7 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
     ) async throws -> (text: String, duration: TimeInterval) {
         try Task.checkCancellation()
         let startedAt = Date()
+        lastAnswerSource = nil
         recordDecision("attemptEverydayAnswer")
         let completedTurnAnswer = CompletedTurnAnswer()
         let everydayResponseText: String
@@ -135,7 +148,7 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
         do {
             // Only the factory's completed-turn client may deliver before process exit.
             let response = try await everydayPlanner.generateResponseStreaming(
-                images: [], systemPrompt: systemPrompt + "\n\n" + Self.answerInstructions,
+                images: [], systemPrompt: everydaySystemPrompt + "\n\n" + Self.answerInstructions,
                 conversationHistory: conversationHistory, userPrompt: userPrompt,
                 onTextChunk: { completeTurnText in
                     guard self.textDelivery == .trustedCompletedTurn,
@@ -144,24 +157,29 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
                     completedTurnAnswer.receivedText = completeTurnText
                     guard Self.escalationReason(for: completeTurnText) == nil else { return }
                     completedTurnAnswer.acceptedText = completeTurnText
+                    self.lastAnswerSource = .everyday
                     self.recordDecision("acceptedEverydayAnswer")
                     onTextChunk(completeTurnText)
                 })
             everydayResponseText = completedTurnAnswer.receivedText ?? response.text
-        } catch PaceCLIProcessError.emptyResponse {
-            // Once speech starts, even an empty-response failure must propagate.
-            if completedTurnAnswer.acceptedText != nil { throw PaceCLIProcessError.emptyResponse }
+        } catch {
+            try Task.checkCancellation()
+            if error is CancellationError { throw error }
+            if let acceptedText = completedTurnAnswer.acceptedText {
+                // Speech and canonical history share this sealed completed-turn answer even if CLI cleanup fails.
+                recordDecision("lateProcessErrorAfterAcceptedAnswer")
+                return (acceptedText, Date().timeIntervalSince(startedAt))
+            }
+            guard let reason = Self.escalationReason(forFailure: error) else { throw error }
             everydayResponseText = ""
-        } catch PaceCLIProcessError.timedOut {
-            if completedTurnAnswer.acceptedText != nil { throw PaceCLIProcessError.timedOut }
-            everydayResponseText = ""
-            failureEscalationReason = .timedOut
+            failureEscalationReason = reason
         }
         try Task.checkCancellation()
         if let acceptedText = completedTurnAnswer.acceptedText {
             return (acceptedText, Date().timeIntervalSince(startedAt))
         }
         guard let reason = failureEscalationReason ?? Self.escalationReason(for: everydayResponseText) else {
+            lastAnswerSource = .everyday
             recordDecision("acceptedEverydayAnswer")
             onTextChunk(everydayResponseText)
             return (everydayResponseText, Date().timeIntervalSince(startedAt))
@@ -172,7 +190,21 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
             images: [], systemPrompt: systemPrompt, conversationHistory: conversationHistory,
             userPrompt: userPrompt, onTextChunk: onTextChunk)
         try Task.checkCancellation()
+        lastAnswerSource = .selected
         return (response.text, Date().timeIntervalSince(startedAt))
+    }
+
+    private static func escalationReason(forFailure error: any Error) -> EscalationReason? {
+        switch error {
+        case PaceCLIProcessError.emptyResponse: return .emptyAnswer
+        case PaceCLIProcessError.timedOut: return .timedOut
+        case PaceCLIProcessError.failed(_, let stderrExcerpt):
+            return PaceCLIRejectionCategory.classify(stderrExcerpt) == nil ? .unavailable : nil
+        case PaceLocalCLIPlannerError.incompleteCodexTurn: return .unexpectedOutput
+        case PaceLocalCLIPlannerError.nonZeroExit(_, _, let stderrExcerpt):
+            return PaceCLIRejectionCategory.classify(stderrExcerpt) == nil ? .unavailable : nil
+        default: return nil
+        }
     }
 
     static func escalationReason(for response: String) -> EscalationReason? {

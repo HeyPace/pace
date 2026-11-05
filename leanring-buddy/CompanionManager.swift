@@ -259,6 +259,7 @@ final class CompanionManager: ObservableObject {
     lazy var conversationRecorder = PaceConversationRecorder(persister: localRetriever, chatSession: chatSession)
     let conversationPanelPresentationRequests = PassthroughSubject<PaceConversationPanelPresentationIntent, Never>()
     let recordsDerivedConversationMemory: Bool
+    let persistsDebugTraces: Bool
     var lastPresentedVoiceConversationEventIdentifier: String?
     var activeConversationUserEvent: ConversationEvent?
     var activeConversationPlannerTranscript: String?
@@ -1278,7 +1279,12 @@ final class CompanionManager: ObservableObject {
     )
     @Published var latestPostureStatus: String?
 
-    init(watchModeDefaults: UserDefaults = .standard, recordsDerivedConversationMemory: Bool = true) {
+    init(
+        watchModeDefaults: UserDefaults = .standard,
+        recordsDerivedConversationMemory: Bool = true,
+        persistsDebugTraces: Bool = true
+    ) {
+        self.persistsDebugTraces = persistsDebugTraces
         self.recordsDerivedConversationMemory = recordsDerivedConversationMemory
         self.watchModeDefaults = watchModeDefaults
         self.isWatchModeEnabled = PaceUserPreferencesStore.bool(
