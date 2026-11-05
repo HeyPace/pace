@@ -150,6 +150,16 @@ struct PaceLocalCLIStreamJSONParserTests {
         #expect(try delivery.finishedOutput() == "Paris.")
     }
 
+    @Test func retryNoticeDoesNotTurnTheLunaDeadlineIntoAnAccountRejection() {
+        var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
+        #expect(delivery.consume(chunk: "", fromLine:
+            #"{"type":"error","message":"Reconnecting... 1/5 (rate limit reached; HTTP 429)"}"#) == nil)
+        if case PaceCLIProcessError.timedOut = delivery.failurePreservingRejection(
+            PaceCLIProcessError.timedOut) {} else {
+            Issue.record("A reconnect notice must not prevent the bounded timeout fallback")
+        }
+    }
+
     @Test func unrecoveredAccountErrorNoticeStillPreventsFallback() {
         var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
         #expect(delivery.consume(chunk: "", fromLine:
@@ -158,6 +168,11 @@ struct PaceLocalCLIStreamJSONParserTests {
         if case PaceLocalCLIPlannerError.rejected(.quota) = delivery.failurePreservingRejection(
             PaceCLIProcessError.timedOut) {} else {
             Issue.record("An unrecovered quota rejection must survive cleanup timeout")
+        }
+        #expect(delivery.consume(chunk: "", fromLine: #"{"type":"turn.completed"}"#) == nil)
+        if case PaceLocalCLIPlannerError.rejected(.quota) = delivery.failurePreservingRejection(
+            PaceCLIProcessError.emptyResponse) {} else {
+            Issue.record("An empty completion must not erase an unrecovered account rejection")
         }
     }
 

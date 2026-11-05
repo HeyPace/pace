@@ -68,6 +68,9 @@ struct PaceBoundedTextAnswerPlannerTests {
         #expect(PaceTextAnswerPurpose.classifiedAnswer(
             prediction: prediction, transcript: "Who invented the telephone?",
             hasScreenSuggestion: false, hasActiveVisualContext: true) == .selectedPlanner)
+        #expect(PaceTextAnswerPurpose.classifiedAnswer(
+            prediction: prediction, transcript: "How many planets are there?",
+            hasScreenSuggestion: false, hasActiveVisualContext: false) == .selectedPlanner)
     }
 
     @Test @MainActor

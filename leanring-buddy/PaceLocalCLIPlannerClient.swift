@@ -232,13 +232,18 @@ nonisolated struct PaceCLITextDeliveryState {
         }
         if eventType == "error" {
             // A successful completed turn supersedes interim retry notices.
-            pendingRejectionCategory = PaceCLIRejectionCategory.classify(errorPayload: payload)
-                ?? pendingRejectionCategory
+            let message = (payload["message"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let isRetryNotice = message.hasPrefix("reconnecting") || message.hasPrefix("retrying")
+            if !isRetryNotice {
+                pendingRejectionCategory = PaceCLIRejectionCategory.classify(errorPayload: payload)
+                    ?? pendingRejectionCategory
+            }
             return nil
         }
         if eventType == "turn.failed" || payload["error"] != nil {
             hasInvalidTurn = true
-            rejectionCategory = PaceCLIRejectionCategory.classify(errorPayload: payload)
+            rejectionCategory = rejectionCategory ?? PaceCLIRejectionCategory.classify(errorPayload: payload)
                 ?? pendingRejectionCategory
         }
         guard !hasInvalidTurn else { return nil }
@@ -250,7 +255,9 @@ nonisolated struct PaceCLITextDeliveryState {
         assembledOutput += chunk
         guard eventType == "turn.completed" else { return nil }
         hasCompletedTurn = true
-        pendingRejectionCategory = nil
+        if !assembledOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            pendingRejectionCategory = nil
+        }
         return assembledOutput.isEmpty ? nil : assembledOutput
     }
 
@@ -259,7 +266,8 @@ nonisolated struct PaceCLITextDeliveryState {
         if let rejectionCategory {
             return PaceLocalCLIPlannerError.rejected(rejectionCategory)
         }
-        if !hasCompletedTurn, let pendingRejectionCategory {
+        if !hasCompletedTurn || assembledOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            let pendingRejectionCategory {
             return PaceLocalCLIPlannerError.rejected(pendingRejectionCategory)
         }
         if case PaceCLIProcessError.failed(_, let stderrExcerpt) = processError,
@@ -271,7 +279,8 @@ nonisolated struct PaceCLITextDeliveryState {
 
     func finishedOutput() throws -> String {
         if let rejectionCategory { throw PaceLocalCLIPlannerError.rejected(rejectionCategory) }
-        if !hasCompletedTurn, let pendingRejectionCategory {
+        if !hasCompletedTurn || assembledOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            let pendingRejectionCategory {
             throw PaceLocalCLIPlannerError.rejected(pendingRejectionCategory)
         }
         if codexTextDelivery == .completedTurn && (!hasCompletedTurn || hasInvalidTurn) {
@@ -420,7 +429,7 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
                 && (outputDelivery.characterCount ?? 0) > 0
             recordAuditEntry(
                 durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1000),
-                outcome: deliveredCompletedTurn ? "late-error-after-delivery" : "error",
+                outcome: deliveredCompletedTurn ? "late-error-after-completed-turn" : "error",
                 inputCharacterCount: estimatedInputCharacterCount,
                 outputCharacterCount: outputDelivery.characterCount
             )
