@@ -274,11 +274,11 @@ struct PacePanelChatView: View {
                             streamingReplyRow
                         }
                     }
+                    .padding(.vertical, 16)
                     // The scroll target must not add another message gap after the last reply.
                     Color.clear.frame(height: 0).id(Self.streamingAnchorID)
                 }
                 .padding(.horizontal, Layout.contentInset)
-                .padding(.vertical, 16)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .top) {
