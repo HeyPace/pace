@@ -121,6 +121,7 @@ extension CompanionManager {
         parseResult: PaceDeterministicAnswerParseResult
     ) {
         let turnStartedAt = Date()
+        presentVoiceConversationPreviewIfCurrentTurn(turnLeaseRegistry.currentLease)
         let spokenText = parseResult.spokenText
         currentTurnHUDState = .understanding("calculating on this Mac")
         responseOverlayManager.showOverlayAndBeginStreaming()
@@ -549,6 +550,8 @@ extension CompanionManager {
         currentResponseTask = Task { [weak self] in
             guard let self,
                   self.validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
+            // This route never sends desktop input, so the reply can stay interactive while it streams.
+            presentVoiceConversationPreviewIfCurrentTurn(turnLease)
             voiceState = .processing
             let usesOffDeviceTextPlanner = activePlannerTierIsOffDevice
             foregroundOffDeviceTurnInFlight = usesOffDeviceTextPlanner

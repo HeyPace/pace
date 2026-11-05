@@ -60,7 +60,7 @@ struct PaceConversationRecorderTests {
     func makeDismissalFixture() -> (CompanionManager, FixturePersister, DismissalTTSClient) {
         let (persister, session, recorder) = makeFixture()
         let preferences = UserDefaults(suiteName: "PaceExplanationDismissalTests." + UUID().uuidString)!
-        let manager = CompanionManager(watchModeDefaults: preferences)
+        let manager = CompanionManager(watchModeDefaults: preferences, recordsDerivedConversationMemory: false)
         let client = DismissalTTSClient()
         manager.ttsClient = client
         manager.chatSession = session
@@ -182,8 +182,10 @@ struct PaceConversationRecorderTests {
             waitForExplanationAutoClose: { await gate.wait($0) })
         defer {
             panelManager.handleExplanationVoiceStateChange(.processing)
+            panelManager.hidePanelForSmokeTest()
             gate.resumeAll()
         }
+        panelManager.showPanelForSmokeTest()
         panelManager.handleExplanationVoiceStateChange(.idle)
         try await waitForAutoCloseSleeps(1, gate: gate)
         manager.chatSession.draftMessageText = "Explain the next part"

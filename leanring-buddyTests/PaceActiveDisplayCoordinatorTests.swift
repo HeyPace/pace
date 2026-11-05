@@ -12,6 +12,20 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
     private let upperDisplay = PaceDisplayGeometry(
         displayID: PaceDisplayID(rawValue: 3), frame: CGRect(x: 0, y: 1117, width: 2560, height: 1440))
 
+    private final class MicrophoneCheckPlanner: BuddyPlannerClient {
+        let displayName = "Microphone check test planner"
+        let supportsImageInput = false
+        var callCount = 0
+
+        func generateResponseStreaming(images: [(data: Data, label: String)], systemPrompt: String,
+            conversationHistory: [(userPlaceholder: String, assistantResponse: String)], userPrompt: String,
+            onTextChunk: @MainActor @Sendable (String) -> Void) async throws -> (text: String, duration: TimeInterval) {
+            callCount += 1
+            onTextChunk("yes, i can hear you.")
+            return ("yes, i can hear you.", 0)
+        }
+    }
+
     func testQuartzBoundsConvertAcrossNegativeAndUpperDisplayOrigins() {
         XCTAssertEqual(
             PaceDisplayGeometry.appKitFrame(
@@ -206,7 +220,7 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         withExtendedLifetime(subscription) {}
     }
 
-    func testAcceptedVoiceRequestPresentsItsConversationWithoutTakingKeyboardFocus() async throws {
+    func testTextOnlyVoiceReplyPresentsItsConversationWithoutTakingKeyboardFocus() async throws {
         let fixture = try makeTwoPlacementFixture()
         let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
         let panelManager = MenuBarPanelManager(
@@ -215,14 +229,18 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         defer { panelManager.hidePanelForSmokeTest() }
         manager.chatSession.draftMessageText = "Keep this unfinished typed question"
         manager.chatSession.isChatTTSMuted = true
+        let planner = MicrophoneCheckPlanner()
+        manager.plannerClient = planner
+        manager.textOnlyPlannerClient = planner
         let originalKeyWindow = NSApp.keyWindow
         let originalApplicationActivity = NSApp.isActive
 
         manager.beginConversationRequest("Can you hear me?")
+        _ = manager.turnLeaseRegistry.beginTurn()
         let acceptedEvent = try XCTUnwrap(manager.activeConversationUserEvent)
-        manager.conversationRecorder.record(ConversationEvent(
-            turnID: acceptedEvent.eventID, role: .pace, origin: .assistant,
-            text: "yes, i can hear you."))
+        XCTAssertEqual(panelManager.presentation, .hidden)
+        manager.handleTextOnlyPlannerFastPath(transcript: "Can you hear me?")
+        await manager.currentResponseTask?.value
         await drainTasks()
 
         let window = try XCTUnwrap(NSApp.windows.first {
@@ -236,9 +254,12 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(NSApp.isActive, originalApplicationActivity)
         XCTAssertEqual(manager.chatSession.draftMessageText, "Keep this unfinished typed question")
         XCTAssertTrue(manager.chatSession.messages.contains { $0.body == "yes, i can hear you." })
+        XCTAssertEqual(planner.callCount, 1)
+        XCTAssertTrue(manager.conversationHistory.isEmpty)
+        XCTAssertTrue(manager.memoryIndex.allEntries().isEmpty)
     }
 
-    func testTypedAndPacePadRequestsDoNotOpenTheMacConversationPanel() async throws {
+    func testTypedAndPacePadEntryDoNotOpenTheMacConversationPanel() async throws {
         for isPacePadRequest in [false, true] {
             let fixture = try makeTwoPlacementFixture()
             let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
@@ -247,16 +268,26 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
                 panelPlacementResolver: fixture.placement, shouldReducePanelMotion: { true })
             defer { panelManager.hidePanelForSmokeTest() }
             let transcript = "Can you hear me?"
-            manager.activePacePadTurnIdentifier = isPacePadRequest ? "ipad-turn" : nil
-            manager.pendingTypedConversationEventIdentifier = manager.acceptConversationRequest(
-                transcript, origin: .typed).eventID
+            let planner = MicrophoneCheckPlanner()
+            manager.plannerClient = planner
+            manager.textOnlyPlannerClient = planner
             let originalKeyWindow = NSApp.keyWindow
             let originalApplicationActivity = NSApp.isActive
 
-            manager.beginConversationRequest(transcript)
-            await drainTasks()
+            if isPacePadRequest {
+                XCTAssertTrue(manager.submitPacePadTranscript(
+                    transcript, turnIdentifier: "ipad-turn", physicalSceneContext: nil))
+            } else {
+                manager.submitChatTranscriptFromDeepLink(transcript)
+            }
+            let acceptedOrigin = manager.activeConversationUserEvent?.origin
+            manager.currentTurnDispatchTask?.cancel()
+            manager.handleTextOnlyPlannerFastPath(transcript: transcript)
+            await manager.currentResponseTask?.value
+            manager.cancelActiveTurnTasks()
 
-            XCTAssertEqual(manager.activeConversationUserEvent?.origin, .typed)
+            XCTAssertEqual(acceptedOrigin, .typed)
+            XCTAssertEqual(planner.callCount, 1)
             XCTAssertEqual(panelManager.presentation, .hidden)
             XCTAssertTrue(NSApp.keyWindow === originalKeyWindow)
             XCTAssertEqual(NSApp.isActive, originalApplicationActivity)
@@ -279,6 +310,8 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         }
 
         manager.beginConversationRequest("Can you hear me?")
+        let turnLease = manager.turnLeaseRegistry.beginTurn()
+        manager.presentVoiceConversationPreviewIfCurrentTurn(turnLease)
         XCTAssertEqual(panelManager.presentation, .preview)
         XCTAssertEqual(otherPanelManager.presentation, .hidden)
         manager.voiceState = .responding
@@ -289,9 +322,135 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
 
         manager.updateAssistantStreamingText("A delayed response chunk.")
         manager.voiceState = .idle
+        manager.presentVoiceConversationPreviewIfCurrentTurn(turnLease)
         await drainTasks()
         XCTAssertEqual(panelManager.presentation, .hidden)
         XCTAssertEqual(otherPanelManager.presentation, .hidden)
+    }
+
+    func testAcceptedVoiceRequestAndIdlePointingStateDoNotOpenTheConversation() async throws {
+        let fixture = try makeTwoPlacementFixture()
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let panelManager = MenuBarPanelManager(
+            companionManager: manager, activeDisplayCoordinator: fixture.coordinator,
+            panelPlacementResolver: fixture.placement, shouldReducePanelMotion: { true })
+        defer { panelManager.hidePanelForSmokeTest() }
+
+        manager.beginConversationRequest("Click the top button")
+        _ = manager.turnLeaseRegistry.beginTurn()
+        manager.voiceState = .processing
+        manager.updateAssistantStreamingText("Clicking the top button.")
+        manager.voiceState = .idle
+        await drainTasks()
+
+        XCTAssertEqual(panelManager.presentation, .hidden)
+    }
+
+    func testDeterministicVoiceAnswerPresentsTheConversation() async throws {
+        let fixture = try makeTwoPlacementFixture()
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let panelManager = MenuBarPanelManager(
+            companionManager: manager, activeDisplayCoordinator: fixture.coordinator,
+            panelPlacementResolver: fixture.placement, shouldReducePanelMotion: { true })
+        defer { panelManager.hidePanelForSmokeTest() }
+        let transcript = "What is 17 + 25? Reply with only the number."
+        manager.beginConversationRequest(transcript)
+        _ = manager.turnLeaseRegistry.beginTurn()
+
+        manager.handleDeterministicAnswerPath(
+            transcript: transcript,
+            parseResult: try XCTUnwrap(PaceDeterministicAnswerParser.parse(transcript: transcript)))
+        await manager.currentResponseTask?.value
+
+        XCTAssertEqual(panelManager.presentation, .preview)
+        XCTAssertTrue(manager.chatSession.messages.contains { $0.body == "42" })
+    }
+
+    func testVoicePreviewDoesNotReopenWithinTheSameTurnAfterAutomaticDismissal() throws {
+        let fixture = try makeTwoPlacementFixture()
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let panelManager = MenuBarPanelManager(
+            companionManager: manager, activeDisplayCoordinator: fixture.coordinator,
+            panelPlacementResolver: fixture.placement, shouldReducePanelMotion: { true })
+        defer { panelManager.hidePanelForSmokeTest() }
+        manager.beginConversationRequest("Can you hear me?")
+        let turnLease = manager.turnLeaseRegistry.beginTurn()
+        manager.presentVoiceConversationPreviewIfCurrentTurn(turnLease)
+        XCTAssertEqual(panelManager.presentation, .preview)
+
+        panelManager.hidePanelForSmokeTest()
+        manager.presentVoiceConversationPreviewIfCurrentTurn(turnLease)
+
+        XCTAssertEqual(panelManager.presentation, .hidden)
+    }
+
+    func testUnfocusedVoicePreviewAutoClosesWhilePreservingAnOlderDraft() async throws {
+        let fixture = try makeTwoPlacementFixture()
+        let recorderFixture = PaceConversationRecorderTests()
+        let (manager, _, _) = recorderFixture.makeDismissalFixture()
+        let sleepGate = PaceConversationRecorderTests.ExplanationAutoCloseSleepGate()
+        let panelManager = MenuBarPanelManager(
+            companionManager: manager, activeDisplayCoordinator: fixture.coordinator,
+            panelPlacementResolver: fixture.placement, shouldReducePanelMotion: { true },
+            waitForExplanationAutoClose: { await sleepGate.wait($0) })
+        defer {
+            panelManager.handleExplanationVoiceStateChange(.processing)
+            panelManager.hidePanelForSmokeTest()
+            sleepGate.resumeAll()
+        }
+        manager.chatSession.draftMessageText = "Keep this unfinished question"
+        manager.beginConversationRequest("Can you hear me?")
+        let turnLease = manager.turnLeaseRegistry.beginTurn()
+        manager.presentVoiceConversationPreviewIfCurrentTurn(turnLease)
+        let window = try XCTUnwrap(NSApp.windows.first {
+            $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible
+        })
+        XCTAssertFalse(window.isKeyWindow)
+        panelManager.handleExplanationVoiceStateChange(.idle)
+        try await recorderFixture.waitForAutoCloseSleeps(1, gate: sleepGate)
+
+        sleepGate.resumeNext()
+        await drainTasks()
+
+        XCTAssertEqual(panelManager.presentation, .hidden)
+        XCTAssertFalse(window.isVisible)
+        XCTAssertEqual(manager.chatSession.draftMessageText, "Keep this unfinished question")
+        XCTAssertEqual(sleepGate.requestedDurations, [.seconds(30)])
+    }
+
+    func testVoicePreviewKeepsAnUnsentDraftWhileItsWindowOwnsKeyboardFocus() async throws {
+        let fixture = try makeTwoPlacementFixture()
+        let recorderFixture = PaceConversationRecorderTests()
+        let (manager, _, _) = recorderFixture.makeDismissalFixture()
+        let sleepGate = PaceConversationRecorderTests.ExplanationAutoCloseSleepGate()
+        let panelManager = MenuBarPanelManager(
+            companionManager: manager, activeDisplayCoordinator: fixture.coordinator,
+            panelPlacementResolver: fixture.placement, shouldReducePanelMotion: { true },
+            waitForExplanationAutoClose: { await sleepGate.wait($0) })
+        defer {
+            panelManager.handleExplanationVoiceStateChange(.processing)
+            panelManager.hidePanelForSmokeTest()
+            sleepGate.resumeAll()
+        }
+        manager.beginConversationRequest("Can you hear me?")
+        let turnLease = manager.turnLeaseRegistry.beginTurn()
+        manager.presentVoiceConversationPreviewIfCurrentTurn(turnLease)
+        let window = try XCTUnwrap(NSApp.windows.first {
+            $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible
+        })
+        window.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(window.isKeyWindow)
+        manager.chatSession.draftMessageText = "Explain the next part"
+        panelManager.handleExplanationVoiceStateChange(.idle)
+        try await recorderFixture.waitForAutoCloseSleeps(1, gate: sleepGate)
+
+        sleepGate.resumeNext()
+        try await recorderFixture.waitForAutoCloseSleeps(2, gate: sleepGate)
+
+        XCTAssertEqual(panelManager.presentation, .preview)
+        XCTAssertTrue(window.isVisible)
+        XCTAssertEqual(manager.chatSession.draftMessageText, "Explain the next part")
+        XCTAssertEqual(sleepGate.requestedDurations, [.seconds(30), .seconds(30)])
     }
 
     func testRoutingRetainsVisibleConversationDraftFocusRequestAndExplanationCountdown() async throws {

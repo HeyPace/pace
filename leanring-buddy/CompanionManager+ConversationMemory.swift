@@ -56,9 +56,14 @@ extension CompanionManager {
         activeConversationAssistantEventIdentifier = UUID().uuidString
         activeConversationVisibleAssistantText = ""
         lastConversationAssistantEventIdentifier = nil
-        if activeConversationUserEvent?.origin == .voice {
-            conversationPanelPresentationRequests.send(.preview)
-        }
+    }
+
+    func presentVoiceConversationPreviewIfCurrentTurn(_ turnLease: PaceTurnLease) {
+        guard isActiveTurn(turnLease), let userEvent = activeConversationUserEvent,
+              userEvent.origin == .voice,
+              lastPresentedVoiceConversationEventIdentifier != userEvent.eventID else { return }
+        lastPresentedVoiceConversationEventIdentifier = userEvent.eventID
+        conversationPanelPresentationRequests.send(.preview)
     }
 
     func interruptConversationRequest() {
@@ -111,7 +116,7 @@ extension CompanionManager {
             role: .pace, origin: origin, text: text, createdAt: recordedAt)
         let isNewEvent = conversationRecorder.event(withIdentifier: eventIdentifier) == nil
         conversationRecorder.record(event)
-        if isNewEvent && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if recordsDerivedConversationMemory, isNewEvent && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let displacedTurnPair = threadMemory.record(userTurn: plannerContext, assistantTurn: text,
                 turnId: eventIdentifier, now: recordedAt)
             persistThreadMemorySnapshot()
@@ -179,6 +184,7 @@ extension CompanionManager {
             activeConversationAssistantEventIdentifier = UUID().uuidString
         }
 
+        guard recordsDerivedConversationMemory else { return }
         let displacedTurnPair = threadMemory.record(
             userTurn: shouldExtractUserFacts ? userTranscriptForMemory : "",
             assistantTurn: assistantResponse, turnId: assistantEventIdentifier, now: recordedAt)

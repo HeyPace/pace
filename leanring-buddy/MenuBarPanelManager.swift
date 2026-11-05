@@ -488,8 +488,11 @@ final class MenuBarPanelManager: NSObject {
                     generation == explanationAutoCloseGeneration,
                     companionManager.voiceState == .idle
                 else { return }
+                let isEditingConversation = presentation.composerFocusRequestID != nil || panel?.isKeyWindow == true
+                let hasProtectedDraft = isEditingConversation
+                    && !companionManager.chatSession.draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 if companionManager.ttsClient.isPlaying
-                    || !companionManager.chatSession.draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || hasProtectedDraft
                     || NSApp.modalWindow != nil
                 {
                     resetExplanationAutoCloseAfterInteraction()
