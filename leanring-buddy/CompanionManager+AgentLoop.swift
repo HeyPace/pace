@@ -80,8 +80,13 @@ extension CompanionManager {
             return "escalating to large model"
         }
     }
-    func handleChitchatFastPath(transcript: String, screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil) {
-        handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
+    func handleChitchatFastPath(
+        transcript: String,
+        screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil,
+        purpose: PaceTextAnswerPurpose = .selectedPlanner
+    ) {
+        handleTextOnlyPlannerFastPath(
+            transcript: transcript, screenSuggestionContext: screenSuggestionContext, purpose: purpose)
     }
 
     func prewarmTextOnlyPlannerInBackgroundIfNeeded() {
@@ -540,7 +545,11 @@ extension CompanionManager {
     /// AX, OCR, VLM, and agent-mode tool docs. Uses the dedicated
     /// text-only planner so answers keep the configured local model's
     /// reliability while action/screen turns retain their richer prompt.
-    func handleTextOnlyPlannerFastPath(transcript: String, screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil) {
+    func handleTextOnlyPlannerFastPath(
+        transcript: String,
+        screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil,
+        purpose: PaceTextAnswerPurpose = .selectedPlanner
+    ) {
         let turnLease = turnLeaseRegistry.currentLease
         currentTurnHUDState = .understanding("answering without screen")
         responseOverlayManager.showOverlayAndBeginStreaming()
@@ -563,7 +572,17 @@ extension CompanionManager {
                     await textOnlyPlannerWarmupTask.value
                     guard !Task.isCancelled else { return }
                 }
-                let plannerForTextOnlyTurn = usesOffDeviceTextPlanner ? plannerClient : textOnlyPlannerClient
+                let selectedTextPlanner = usesOffDeviceTextPlanner ? plannerClient : textOnlyPlannerClient
+                let effectivePurpose: PaceTextAnswerPurpose =
+                    screenSuggestionContext == nil && diagramOverlayController.document == nil
+                        && imageOverlayController.lastSuccessfulArtifact == nil
+                    ? purpose : .selectedPlanner
+                let plannerForTextOnlyTurn = BuddyPlannerClientFactory.makeTextAnswerPlanner(
+                    purpose: effectivePurpose, selectedPlanner: selectedTextPlanner,
+                    tier: activePlannerTier, upstream: activePlannerTierCLIDirectUpstream,
+                    hasAcceptedDirectSpawnConsent: PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
+                    canRunDirectSpawnTurn: PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date()))
+                let usesBoundedEverydayPlanner = plannerForTextOnlyTurn is PaceBoundedTextAnswerPlanner
                 plannerForTextOnlyTurn.resetForNewTurn()
                 print("🧠 Text-only planner: using \(plannerForTextOnlyTurn.displayName)")
 
@@ -592,7 +611,7 @@ extension CompanionManager {
                     systemPrompt: CompanionSystemPrompt.buildTextOnly(
                         threadSummaryInjection: threadSummaryInjectionForTurn,
                         ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment,
-                        includeInteractiveDiagrams: true
+                        includeInteractiveDiagrams: !usesBoundedEverydayPlanner
                     ),
                     conversationHistory: historyForPlanner,
                     userPrompt: userPromptForPlanner,
@@ -1748,6 +1767,10 @@ extension CompanionManager {
             handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
             return
         }
+        let classifiedTextAnswerPurpose = PaceTextAnswerPurpose.classifiedAnswer(
+            prediction: mutableIntentPrediction, transcript: transcript,
+            hasScreenSuggestion: screenSuggestionContext != nil,
+            hasActiveVisualContext: hasActiveDiagram || hasActiveImage)
         // Fast paths use .route (not .intent) so a low-confidence
         // prediction whose intent happens to be .chitchat but whose
         // route is .escalateToLargeModel does NOT bypass escalation.
@@ -1756,14 +1779,18 @@ extension CompanionManager {
             print(
                 "🎯 Intent: chitchat (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — fast-path"
             )
-            handleChitchatFastPath(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
+            handleChitchatFastPath(
+                transcript: transcript, screenSuggestionContext: screenSuggestionContext,
+                purpose: classifiedTextAnswerPurpose)
             return
         }
         if !requestsInteractiveDiagram && !requestsGeneratedImage && mutableIntentPrediction.route == .answerDirectly {
             print(
                 "🎯 Intent: pureKnowledge (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — text-only planner"
             )
-            handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
+            handleTextOnlyPlannerFastPath(
+                transcript: transcript, screenSuggestionContext: screenSuggestionContext,
+                purpose: classifiedTextAnswerPurpose)
             return
         }
         // Fast local-action path is skipped for research turns —

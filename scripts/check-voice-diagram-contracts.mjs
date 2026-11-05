@@ -13,6 +13,8 @@ const result = spawnSync('bash', [runnerPath,
   'PaceActiveDisplayCoordinatorTests',
   'PaceDiagramTests',
   'PaceActionApprovalTests',
+  'PaceBoundedTextAnswerPlannerTests',
+  'PaceLocalCLIStreamJSONParserTests',
   'CompanionSystemPromptPlanThenExecuteTests',
   'PaceAutoUpdateControllerTests',
 ], { cwd: repositoryRoot, stdio: 'inherit', env: process.env });

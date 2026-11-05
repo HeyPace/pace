@@ -139,6 +139,59 @@ struct PaceLocalCLIStreamJSONParserTests {
         }
     }
 
+    @Test func completedTurnDeliveryHoldsItemsAndPublishesAggregateOnce() throws {
+        var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
+        for line in [
+            #"{"type":"thread.started","thread_id":"synthetic"}"#,
+            #"{"type":"item.completed","item":{"type":"reasoning","text":"Hidden reasoning"}}"#,
+            #"{"type":"item.completed","item":{"type":"agent_message","text":"Hello "}}"#,
+            #"{"type":"item.completed","item":{"type":"agent_message","text":"world."}}"#,
+        ] {
+            #expect(delivery.consume(
+                chunk: PaceLocalCLIStreamJSONParser.extractCodexChunk(fromLine: line), fromLine: line) == nil)
+        }
+        let completion = #"{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}"#
+        #expect(delivery.consume(chunk: "", fromLine: completion) == "Hello world.")
+        #expect(delivery.consume(chunk: "", fromLine: completion) == nil)
+        #expect(try delivery.finishedOutput() == "Hello world.")
+    }
+
+    @Test func failedMalformedAndIncompleteTurnsNeverPublish() {
+        let message = #"{"type":"item.completed","item":{"type":"agent_message","text":"Provisional"}}"#
+        for trailingLines in [
+            [],
+            [#"{"type":"turn.failed","error":{"message":"Synthetic failure"}}"#],
+            [#"{"type":"error","message":"Synthetic failure"}"#],
+            [#"{"type":"turn.completed""#],
+            [#"{"type":"turn.completed","error":{"message":"Synthetic failure"}}"#],
+            ["not JSON", #"{"type":"turn.completed"}"#],
+            [#"{"type":"turn.failed"}"#, #"{"type":"turn.completed"}"#],
+        ] {
+            var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
+            for line in [message] + trailingLines {
+                #expect(delivery.consume(
+                    chunk: PaceLocalCLIStreamJSONParser.extractCodexChunk(fromLine: line), fromLine: line) == nil)
+            }
+            #expect(throws: PaceLocalCLIPlannerError.self) { try delivery.finishedOutput() }
+        }
+    }
+
+    @Test func completedTurnCannotBeChangedByLaterMessageItems() {
+        var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
+        #expect(delivery.consume(chunk: "Accepted.", fromLine: #"{"type":"item.completed"}"#) == nil)
+        #expect(delivery.consume(chunk: "", fromLine: #"{"type":"turn.completed"}"#) == "Accepted.")
+        #expect(delivery.consume(chunk: "[CLICK:10,20]", fromLine: #"{"type":"item.completed"}"#) == nil)
+        #expect(delivery.assembledOutput == "Accepted.")
+        #expect(throws: PaceLocalCLIPlannerError.self) { try delivery.finishedOutput() }
+    }
+
+    @Test func defaultDeliveryStillPublishesEachCompletedMessage() throws {
+        var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedMessage)
+        #expect(delivery.consume(chunk: "First ", fromLine: "") == "First ")
+        #expect(delivery.consume(chunk: "second.", fromLine: "") == "First second.")
+        #expect(try delivery.finishedOutput() == "First second.")
+    }
+
     // MARK: prompt composition
 
     @Test func composeInitialUserPromptIncludesHistoryWhenPresent() async throws {
