@@ -64,7 +64,8 @@ LM_STUDIO_URL = os.environ.get(
 FM_RUNNER_SCRIPT = SCRIPT_DIR / "eval-fm.sh"
 
 # ---------------------------------------------------------------------------
-# System prompt mirrors Powers/Text/PaceTextPower.swift and Powers/Voice/PaceVoicePower.swift.
+# System prompt mirrors Powers/Text/PaceTextPower.swift, Powers/Voice/PaceVoicePower.swift,
+# and Powers/Teaching/PaceTeachingPower.swift (pointingRules).
 # We duplicate it here (same as eval-fm.sh does) so the comparison reflects
 # what Pace actually sends. Drift is OK for diagnostic runs but will skew
 # real comparisons — re-sync any time the Swift prompt changes.

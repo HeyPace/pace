@@ -79,6 +79,9 @@ struct PacePowerCatalogTests {
         }
         #expect(!PaceImagesPower.imageRules.contains("For a physical object"))
         #expect(!PaceImagesPower.imageRules.contains("Never speak JSON"))
+        let readOnlyPrompt = CompanionSystemPrompt.build(includeAgentMode: false, includeInteractiveDiagrams: true)
+        #expect(readOnlyPrompt.contains("generate_image remains available when desktop actions and screen reading are off"))
+        #expect(readOnlyPrompt.contains("the existing Codex consent requirement still applies"))
         let combinedPrompt = CompanionSystemPrompt.build(includeAgentMode: true, includeInteractiveDiagrams: true)
         #expect(combinedPrompt.components(separatedBy: "Never speak JSON or claim a figure is visible").count == 2)
     }

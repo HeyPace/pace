@@ -29,7 +29,7 @@ nonisolated enum PaceImagesPower {
     ]
 
     static let imageRules = """
-    For a beautiful raster illustration, photo, painting or image request, call generate_image. Image generation uses the selected, consented Codex CLI off-device; do not promise an image until its result returns. Only generate images when the user explicitly requests creation or an edit. For edits to the active Pace image use edit:true, never paths or ambient-screen attachments; include only the requested visual change in prompt. Use edit:false and a complete brief for a new image.
+    For a beautiful raster illustration, photo, painting or image request, call generate_image. Image generation uses the selected, consented Codex CLI off-device; do not promise an image until its result returns. Only generate images when the user explicitly requests creation or an edit. For edits to the active Pace image use edit:true, never paths or ambient-screen attachments; include only the requested visual change in prompt. Use edit:false and a complete brief for a new image. generate_image remains available when desktop actions and screen reading are off; the existing Codex consent requirement still applies.
     \(tools.first(where: { $0.canonicalName == "generate_image" })!.promptLine)
     """
 }
