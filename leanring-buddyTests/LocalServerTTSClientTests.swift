@@ -18,7 +18,7 @@ struct PersistedVoiceSettingsTests {
         try test(preferences)
     }
 
-    @Test func explicitKokoroSelectionSurvivesReloadingPreferences() {
+    @Test func anotherPreferencesInstanceReadsTheKokoroOverride() {
         let suiteName = "pace-voice-reload-tests-\(UUID().uuidString)"
         let preferences = UserDefaults(suiteName: suiteName)!
         defer { preferences.removePersistentDomain(forName: suiteName) }
@@ -71,6 +71,13 @@ struct PersistedVoiceSettingsTests {
         let summary = PaceTTSVoiceSummary.localServerSummary(voiceIdentifier: "Ryan", modelIdentifier: "local-Qwen3-TTS")
         #expect(summary.displayText == "Ryan · Local model")
         #expect(summary.recommendationText == "Speech runs locally on this Mac.")
+    }
+
+    @Test func voiceSummaryAndFactoryShareTheSameProviderPrecedence() {
+        #expect(BuddyTTSClientFactory.selectedProvider(configuredProvider: "localServer", useBundledQwen3: true) == .bundledQwen3)
+        #expect(BuddyTTSClientFactory.selectedProvider(configuredProvider: "apple", useBundledQwen3: true) == .bundledQwen3)
+        #expect(BuddyTTSClientFactory.selectedProvider(configuredProvider: "localServer", useBundledQwen3: false) == .localServer)
+        #expect(BuddyTTSClientFactory.selectedProvider(configuredProvider: " APPLE ", useBundledQwen3: false) == .apple)
     }
 }
 

@@ -53,25 +53,36 @@ protocol BuddyTTSClient: AnyObject {
     func recordExpectedStopReason(_ reason: PaceTTSStopReason)
 }
 
+nonisolated enum PaceSpeechProvider {
+    case apple
+    case localServer
+    case bundledQwen3
+}
+
 enum BuddyTTSClientFactory {
+    nonisolated static func selectedProvider(configuredProvider: String?, useBundledQwen3: Bool) -> PaceSpeechProvider {
+        if useBundledQwen3 { return .bundledQwen3 }
+        return configuredProvider?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "apple"
+            ? .apple : .localServer
+    }
+
     @MainActor
     static func makeDefault() -> any BuddyTTSClient {
         // Bundled Qwen3 TTS trumps the configured Kokoro-sidecar
         // path when the user has opted in AND TTSKit is linked. This
         // drops the Python sidecar dependency from the setup story.
-        if PaceBundledModelsSettings.isUsingQwen3TTSInProcess() {
+        let selectedProvider = selectedProvider(
+            configuredProvider: AppBundleConfiguration.stringValue(forKey: "TTSProvider"),
+            useBundledQwen3: PaceBundledModelsSettings.isUsingQwen3TTSInProcess()
+        )
+        if selectedProvider == .bundledQwen3 {
             print("🔊 TTS: using bundled Qwen3 TTS (TTSKit in-process)")
             return PaceQwen3TTSClient()
         }
 
-        let configuredProvider = AppBundleConfiguration
-            .stringValue(forKey: "TTSProvider")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
         // Apple speech is the dependable zero-setup default. Kokoro remains
         // available when `TTSProvider=localServer` is chosen explicitly.
-        if configuredProvider == "apple" {
+        if selectedProvider == .apple {
             print("🔊 TTS: using local AVSpeechSynthesizer")
             return LocalTTSClient()
         }

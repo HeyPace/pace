@@ -51,9 +51,11 @@ loopback-only; it never uses the selected cloud conversational tier. See
 | `PrewarmMailForDrafts` | `false` | Shipped default. Set to any value other than `false`/`0`/`no` (or remove the key) to non-activating-launch Mail at Pace startup, avoiding Mail's cold-launch tax for the streaming draft path. |
 | `LocalRetrievalFileRootPaths` | empty | Optional comma/newline-separated explicit roots for file retrieval. With no roots, File retrieval records a skipped status and does not crawl the Mac. |
 
-Local voice selections persist in the `com.pace.app` preferences domain and take
-precedence over these bundled defaults after relaunch: `pace.voice.provider`
+Manual voice overrides can be set with `defaults write` in the app's bundle-ID
+preferences domain (`com.pace.app` for Release, `com.pace.app.debug` for Debug).
+They take precedence over these bundled defaults after relaunch: `pace.voice.provider`
 (`apple` or `localServer`), `pace.voice.kokoro.voice` (for example `af_heart`),
 and `pace.voice.kokoro.speed` (strictly between 0.25 and 4.0). No other bundle
 configuration, endpoint, consent or permission can be overridden through this
-voice preference namespace.
+voice preference namespace. These are manual configuration keys; the current
+Voice settings page reports the selection and does not provide a pack installer.

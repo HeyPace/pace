@@ -19,7 +19,7 @@ struct PaceVoiceSettingsTab: View {
             paceSettingsInfoRow(title: "Transcription", value: companionManager.buddyDictationManager.transcriptionProviderDisplayName)
             paceSettingsInfoRow(
                 title: "Transcription model", value: companionManager.isTranscriptionModelReady ? "ready" : "loading")
-            paceSettingsInfoRow(title: "Active voice", value: companionManager.activeTTSVoiceSummary.displayText)
+            paceSettingsInfoRow(title: "Selected voice", value: companionManager.activeTTSVoiceSummary.displayText)
             if companionManager.activeTTSVoiceSummary.needsUpgrade {
                 Text(companionManager.activeTTSVoiceSummary.recommendationText)
                     .font(.system(size: 12))

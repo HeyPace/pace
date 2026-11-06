@@ -68,13 +68,23 @@ struct PaceTTSVoiceSummary: Equatable {
         if qualityName == "Local model" {
             return "Speech runs locally on this Mac."
         }
+        if qualityName == "Bundled" {
+            return "Qwen3 speech runs locally on this Mac."
+        }
         return needsUpgrade
             ? "Install an Enhanced or Premium Apple voice for better playback."
             : "High-quality local Apple voice active."
     }
 
     static func current() -> PaceTTSVoiceSummary {
-        if AppBundleConfiguration.stringValue(forKey: "TTSProvider")?.lowercased() == "localserver" {
+        let selectedProvider = BuddyTTSClientFactory.selectedProvider(
+            configuredProvider: AppBundleConfiguration.stringValue(forKey: "TTSProvider"),
+            useBundledQwen3: PaceBundledModelsSettings.isUsingQwen3TTSInProcess()
+        )
+        if selectedProvider == .bundledQwen3 {
+            return PaceTTSVoiceSummary(voiceName: "Qwen3 TTS", qualityName: "Bundled", needsUpgrade: false)
+        }
+        if selectedProvider == .localServer {
             let configuration = LocalServerTTSConfiguration.fromBundle()
             return localServerSummary(voiceIdentifier: configuration.voiceIdentifier, modelIdentifier: configuration.modelIdentifier)
         }
