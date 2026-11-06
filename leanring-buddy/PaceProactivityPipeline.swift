@@ -45,6 +45,7 @@ final class PaceProactivityPipeline {
     /// while a voice turn is mid-flight.
     private let currentVoiceStateProvider: () -> CompanionVoiceState
     private let isInUserFocusModeProvider: () -> Bool
+    private let frontmostApplicationBundleIdentifierProvider: () -> String?
 
     /// Speaks a proactive utterance through the manager's TTS client.
     /// Kept as a closure (vs holding the BuddyTTSClient directly) so
@@ -72,7 +73,7 @@ final class PaceProactivityPipeline {
 
     // MARK: - Owned state
 
-    /// Shared FIFO of deferred speech. Advisory nudges are capped at three;
+    /// Shared queue of deferred speech. Advisory nudges are capped at three;
     /// calendar entries require live deadlines and expire instead of being evicted.
     private(set) var proactiveUtteranceQueue: [PaceProactiveUtterance] = []
 
@@ -161,6 +162,9 @@ final class PaceProactivityPipeline {
         proactivityProfileProvider: @escaping () -> PaceProactivityProfile,
         currentVoiceStateProvider: @escaping () -> CompanionVoiceState,
         isInUserFocusModeProvider: @escaping () -> Bool,
+        frontmostApplicationBundleIdentifierProvider: @escaping () -> String? = {
+            NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        },
         speakUtterance: @escaping (PaceProactiveUtterance) -> Void,
         journalProactiveNudge: @escaping (PaceProactiveUtterance) -> Void,
         cachedScreenDescriptionProvider: @escaping (String) -> String?,
@@ -173,6 +177,7 @@ final class PaceProactivityPipeline {
         self.proactivityProfileProvider = proactivityProfileProvider
         self.currentVoiceStateProvider = currentVoiceStateProvider
         self.isInUserFocusModeProvider = isInUserFocusModeProvider
+        self.frontmostApplicationBundleIdentifierProvider = frontmostApplicationBundleIdentifierProvider
         self.speakUtterance = speakUtterance
         self.journalProactiveNudge = journalProactiveNudge
         self.cachedScreenDescriptionProvider = cachedScreenDescriptionProvider
@@ -267,7 +272,7 @@ final class PaceProactivityPipeline {
         proactiveUtteranceQueue.removeAll { $0.source == source }
     }
 
-    /// Re-gates the oldest queued nudge against every live restraint before
+    /// Re-gates the earliest calendar deadline, otherwise the oldest advisory, before
     /// delivery. Busy decisions stay queued; expired or permanently quiet
     /// decisions are discarded; allowed output uses the normal emit path so
     /// journaling and cooldown state cannot be bypassed.
@@ -276,7 +281,14 @@ final class PaceProactivityPipeline {
         guard proactiveUtteranceQueue.isEmpty == false else { return }
         guard currentVoiceStateProvider() == .idle else { return }
 
-        let nextUtterance = proactiveUtteranceQueue.removeFirst()
+        let nextCalendarIndex = proactiveUtteranceQueue.indices
+            .filter { proactiveUtteranceQueue[$0].source == .calendarEvent }
+            .min {
+                (proactiveUtteranceQueue[$0].relevanceWindowExpiresAt ?? .distantFuture)
+                    < (proactiveUtteranceQueue[$1].relevanceWindowExpiresAt ?? .distantFuture)
+            }
+        let nextIndex = nextCalendarIndex ?? proactiveUtteranceQueue.startIndex
+        let nextUtterance = proactiveUtteranceQueue.remove(at: nextIndex)
         if let expiresAt = nextUtterance.relevanceWindowExpiresAt, expiresAt <= now {
             return
         }
@@ -288,7 +300,7 @@ final class PaceProactivityPipeline {
         case .speak:
             emitProactiveUtterance(nextUtterance)
         case .queueUntilIdle:
-            proactiveUtteranceQueue.insert(nextUtterance, at: 0)
+            proactiveUtteranceQueue.insert(nextUtterance, at: nextIndex)
         case .stayQuiet:
             break
         }
@@ -344,7 +356,7 @@ final class PaceProactivityPipeline {
         intent: PaceIntent = .pureKnowledge,
         now: Date = Date()
     ) -> PaceRestraintContext {
-        let frontmostBundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let frontmostBundleIdentifier = frontmostApplicationBundleIdentifierProvider()
         return PaceRestraintContext(
             now: now,
             lastProactiveUtteranceAt: lastProactiveUtteranceAt,

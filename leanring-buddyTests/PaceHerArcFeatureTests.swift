@@ -268,6 +268,7 @@ final class PaceProactiveQueueDrainTests: XCTestCase {
             proactivityProfileProvider: { .balanced },
             currentVoiceStateProvider: { .idle },
             isInUserFocusModeProvider: { false },
+            frontmostApplicationBundleIdentifierProvider: { "com.apple.Notes" },
             speakUtterance: { spoken.append($0.spokenText) },
             journalProactiveNudge: { _ in },
             cachedScreenDescriptionProvider: { _ in nil },
@@ -277,14 +278,14 @@ final class PaceProactiveQueueDrainTests: XCTestCase {
         )
         for index in 0..<4 {
             pipeline.enqueueProactiveUtterance(PaceProactiveUtterance(
-                spokenText: "Calendar \(index)", source: .calendarEvent, confidence: 0.9,
-                relevanceWindowExpiresAt: now.addingTimeInterval(180)
+                spokenText: "Suggestion \(index)", source: .watchNudge, confidence: 0.9,
+                relevanceWindowExpiresAt: nil
             ))
         }
         for index in 0..<4 {
             pipeline.enqueueProactiveUtterance(PaceProactiveUtterance(
-                spokenText: "Suggestion \(index)", source: .watchNudge, confidence: 0.9,
-                relevanceWindowExpiresAt: nil
+                spokenText: "Calendar \(index)", source: .calendarEvent, confidence: 0.9,
+                relevanceWindowExpiresAt: now.addingTimeInterval(180)
             ))
         }
         for expiry in [Optional<Date>.none, now.addingTimeInterval(-1)] {
