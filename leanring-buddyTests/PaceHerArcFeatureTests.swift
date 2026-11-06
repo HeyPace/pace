@@ -514,18 +514,37 @@ final class PaceProactiveNudgeDecisionTests: XCTestCase {
         XCTAssertTrue(utterance?.spokenText.contains("Figma") == true)
     }
 
-    func testCalendarNudgeFiltersByKeywordAndLeadTime() {
+    func testCalendarNudgeAnnouncesOrdinaryEventsWithinLeadTime() {
         let now = Date()
-        XCTAssertNil(PaceCalendarPreMeetingNudgeDecision.utterance(
-            eventTitle: "Take dog out",
+        let utterance = PaceCalendarPreMeetingNudgeDecision.utterance(
+            eventTitle: "Dentist",
             startsInSeconds: 300,
             now: now
-        ))
+        )
 
-        XCTAssertNotNil(PaceCalendarPreMeetingNudgeDecision.utterance(
-            eventTitle: "Design review",
-            startsInSeconds: 300,
-            now: now
+        XCTAssertEqual(utterance?.spokenText, "Dentist is in 5 minutes.")
+        XCTAssertEqual(utterance?.relevanceWindowExpiresAt, now.addingTimeInterval(300))
+    }
+
+    func testCalendarNudgeRejectsStartedOutOfWindowAndInvalidLeadTimes() {
+        for startsInSeconds in [-60.0, 0, 301, .infinity, -.infinity, .nan] {
+            XCTAssertNil(PaceCalendarPreMeetingNudgeDecision.utterance(
+                eventTitle: "Dentist",
+                startsInSeconds: startsInSeconds,
+                now: Date()
+            ), "Must stay quiet for lead time \(startsInSeconds)")
+        }
+    }
+
+    func testCalendarNudgeTrimsTitleAndUsesSingularMinute() {
+        let utterance = PaceCalendarPreMeetingNudgeDecision.utterance(
+            eventTitle: "  Flight \n",
+            startsInSeconds: 30,
+            now: Date()
+        )
+        XCTAssertEqual(utterance?.spokenText, "Flight is in 1 minute.")
+        XCTAssertNil(PaceCalendarPreMeetingNudgeDecision.utterance(
+            eventTitle: " \n ", startsInSeconds: 60, now: Date()
         ))
     }
 

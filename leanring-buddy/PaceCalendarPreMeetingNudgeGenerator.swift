@@ -2,8 +2,7 @@
 //  PaceCalendarPreMeetingNudgeGenerator.swift
 //  leanring-buddy
 //
-//  Subscribes to `Timer.publish(every: 60)` (cheap, OS-supplied timer
-//  source) and asks the existing `PaceCalendarRetrievalConnector` for
+//  Uses a 60-second timer and asks the existing `PaceCalendarRetrievalConnector` for
 //  events starting within the next five minutes. Each event runs
 //  through `PaceCalendarPreMeetingNudgeDecision.evaluate(...)` which
 //  folds the restraint gate inline. The generator never speaks
@@ -31,17 +30,21 @@ final class PaceCalendarPreMeetingNudgeGenerator: PaceProactiveNudgeGenerator {
     static let leadTimeLookaheadSeconds: TimeInterval = 5 * 60
 
     /// Bound on the dedup set's age. After 12 hours we drop entries
-    /// so a long uptime can't grow the set forever. Calendar event
-    /// identifiers are stable across the lifetime of an event, so
-    /// 12 hours is plenty to cover the same meeting starting once.
+    /// so a long uptime can't grow the set forever. Each occurrence
+    /// is keyed separately because recurring events can share an identifier.
     static let dedupSetMaximumAgeSeconds: TimeInterval = 12 * 60 * 60
 
     private let restraintContextProvider: () -> PaceRestraintContext
     private let upcomingEventSnapshotsProvider: (TimeInterval) -> [PaceCalendarRetrievalEventSnapshot]
     private let nowProvider: () -> Date
 
+    private nonisolated struct EventOccurrence: Hashable {
+        let stableIdentifier: String
+        let startDate: Date
+    }
+
     private var evaluationTimer: Timer?
-    private var alreadyNudgedByEventIdentifier: [String: Date] = [:]
+    private var alreadyNudgedByOccurrence: [EventOccurrence: Date] = [:]
 
     init(
         restraintContextProvider: @escaping () -> PaceRestraintContext,
@@ -93,7 +96,7 @@ final class PaceCalendarPreMeetingNudgeGenerator: PaceProactiveNudgeGenerator {
     func stop() {
         evaluationTimer?.invalidate()
         evaluationTimer = nil
-        alreadyNudgedByEventIdentifier.removeAll()
+        alreadyNudgedByOccurrence.removeAll()
     }
 
     /// Test seam: drives one evaluation pass synchronously. Used
@@ -106,31 +109,35 @@ final class PaceCalendarPreMeetingNudgeGenerator: PaceProactiveNudgeGenerator {
         pruneStaleDedupEntries(now: now)
 
         let upcomingEvents = upcomingEventSnapshotsProvider(Self.leadTimeLookaheadSeconds)
-        guard let nextEventSnapshot = upcomingEvents.first(where: { eventSnapshot in
-            alreadyNudgedByEventIdentifier[eventSnapshot.stableIdentifier] == nil
-        }) else { return }
+        for eventSnapshot in upcomingEvents {
+            guard !eventSnapshot.isAllDay,
+                  eventSnapshot.endDate > eventSnapshot.startDate else { continue }
+            let occurrence = EventOccurrence(
+                stableIdentifier: eventSnapshot.stableIdentifier,
+                startDate: eventSnapshot.startDate
+            )
+            guard alreadyNudgedByOccurrence[occurrence] == nil else { continue }
 
-        let startsInSeconds = nextEventSnapshot.startDate.timeIntervalSince(now)
-        let restraintContext = restraintContextProvider()
-        let evaluation = PaceCalendarPreMeetingNudgeDecision.evaluate(
-            eventTitle: nextEventSnapshot.title,
-            startsInSeconds: startsInSeconds,
-            restraintContext: restraintContext
-        )
-
-        guard evaluation.utterance != nil else { return }
-        alreadyNudgedByEventIdentifier[nextEventSnapshot.stableIdentifier] = now
-        PaceProactiveNudgeFrameworkRouting.route(
-            evaluation: evaluation,
-            emit: emit,
-            queueForLater: queueForLater
-        )
+            let evaluation = PaceCalendarPreMeetingNudgeDecision.evaluate(
+                eventTitle: eventSnapshot.title,
+                startsInSeconds: eventSnapshot.startDate.timeIntervalSince(now),
+                restraintContext: restraintContextProvider()
+            )
+            guard evaluation.utterance != nil else { continue }
+            alreadyNudgedByOccurrence[occurrence] = now
+            PaceProactiveNudgeFrameworkRouting.route(
+                evaluation: evaluation,
+                emit: emit,
+                queueForLater: queueForLater
+            )
+            return
+        }
     }
 
     private func pruneStaleDedupEntries(now: Date) {
-        guard !alreadyNudgedByEventIdentifier.isEmpty else { return }
+        guard !alreadyNudgedByOccurrence.isEmpty else { return }
         let cutoffDate = now.addingTimeInterval(-Self.dedupSetMaximumAgeSeconds)
-        alreadyNudgedByEventIdentifier = alreadyNudgedByEventIdentifier.filter { _, recordedAt in
+        alreadyNudgedByOccurrence = alreadyNudgedByOccurrence.filter { _, recordedAt in
             recordedAt >= cutoffDate
         }
     }

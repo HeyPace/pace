@@ -9,6 +9,26 @@ import XCTest
 @testable import Pace
 
 final class PaceNativeInterfaceModelTests: XCTestCase {
+    @MainActor
+    func testNativeMenuBarEntryStaysVisibleWhenNotchBecomesAvailableAgain() {
+        let companionManager = CompanionManager()
+        let overlayManager = PaceMenuBarOverlayManager(companionManager: companionManager) { _ in }
+        overlayManager.updateFallbackMenuBarStatusItem(for: .menuBarItem, connectedDisplaysNeedFallback: false)
+        let statusItem = overlayManager.fallbackMenuBarStatusItem
+        XCTAssertNotNil(statusItem)
+        XCTAssertEqual(statusItem?.isVisible, true)
+
+        overlayManager.updateFallbackMenuBarStatusItem(for: .livingNotch, connectedDisplaysNeedFallback: false)
+
+        XCTAssertTrue(statusItem === overlayManager.fallbackMenuBarStatusItem)
+        XCTAssertEqual(statusItem?.isVisible, true)
+        XCTAssertEqual(statusItem?.button?.image?.isTemplate, true)
+        XCTAssertNil(statusItem?.button?.contentTintColor, "macOS must choose idle contrast for its own menu bar.")
+
+        overlayManager.hide()
+        XCTAssertEqual(statusItem?.isVisible, false)
+    }
+
     func testCrowdedMenusYieldOnlyWhenTheirBoundsReachTheNotchControls() {
         let housing = CGRect(x: 770, y: 1085, width: 185, height: 32)
         let controls = CGRect(x: 726, y: 1085, width: 273, height: 32)

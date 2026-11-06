@@ -360,11 +360,14 @@ final class PaceMenuBarOverlayManager {
         let needsFallbackOnConnectedDisplay = connectedDisplaysNeedFallback ?? NSScreen.screens.contains {
             PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: .resting) == nil
         }
-        let shouldShowStatusItem = needsFallbackOnConnectedDisplay || ambientHomePresentation == .menuBarItem
+        // Keep the native entry point stable once needed; changing apps, Spaces,
+        // or opening chat must not repeatedly remove and reinsert its icon.
+        let shouldShowStatusItem = fallbackMenuBarStatusItem != nil
+            || needsFallbackOnConnectedDisplay || ambientHomePresentation == .menuBarItem
         if shouldShowStatusItem { createFallbackMenuBarStatusItemIfNeeded() }
         fallbackMenuBarStatusItem?.isVisible = shouldShowStatusItem
         fallbackMenuBarStatusItem?.button?.contentTintColor =
-            companionManager?.isOffDeviceTurnInFlight == true ? .systemOrange : .labelColor
+            companionManager?.isOffDeviceTurnInFlight == true ? .systemOrange : nil
         fallbackMenuBarStatusItem?.button?.toolTip =
             companionManager?.isOffDeviceTurnInFlight == true
             ? "Pace — off-device request in progress" : "Open Pace conversations"

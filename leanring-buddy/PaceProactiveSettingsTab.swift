@@ -109,13 +109,13 @@ struct PaceProactiveSettingsTab: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 Toggle(
-                    "Calendar pre-meeting nudges",
+                    "Calendar announcements",
                     isOn: Binding(
                         get: { companionManager.areCalendarNudgesEnabled },
                         set: { companionManager.setCalendarNudgesEnabled($0) }
                     )
                 )
-                Text("Five-minute heads-up before meetings on your calendar.")
+                Text("Spoken heads-up before timed events, usually within five minutes. All-day events stay quiet.")
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

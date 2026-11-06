@@ -72,15 +72,12 @@ nonisolated enum PaceFocusFatigueNudgeDecision {
 }
 
 nonisolated enum PaceCalendarPreMeetingNudgeDecision {
-    private static let meetingKeywords = ["meeting", "call", "sync", "review", "1:1", "one on one"]
-
     static func utterance(eventTitle: String, startsInSeconds: TimeInterval, now: Date) -> PaceProactiveUtterance? {
-        let normalizedTitle = eventTitle.lowercased()
-        guard meetingKeywords.contains(where: normalizedTitle.contains) else { return nil }
-        guard startsInSeconds >= 0, startsInSeconds <= 5 * 60 else { return nil }
+        let trimmedTitle = eventTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty, startsInSeconds > 0, startsInSeconds <= 5 * 60 else { return nil }
         let minutes = max(1, Int((startsInSeconds / 60).rounded()))
         return PaceProactiveUtterance(
-            spokenText: "\(eventTitle) is in \(minutes) minute\(minutes == 1 ? "" : "s").",
+            spokenText: "\(trimmedTitle) is in \(minutes) minute\(minutes == 1 ? "" : "s").",
             source: .backgroundReminder,
             confidence: 0.86,
             relevanceWindowExpiresAt: now.addingTimeInterval(startsInSeconds)
