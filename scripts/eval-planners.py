@@ -64,7 +64,7 @@ LM_STUDIO_URL = os.environ.get(
 FM_RUNNER_SCRIPT = SCRIPT_DIR / "eval-fm.sh"
 
 # ---------------------------------------------------------------------------
-# System prompt — MUST stay in sync with CompanionSystemPrompt.swift.
+# System prompt mirrors Powers/Text/PaceTextPower.swift and Powers/Voice/PaceVoicePower.swift.
 # We duplicate it here (same as eval-fm.sh does) so the comparison reflects
 # what Pace actually sends. Drift is OK for diagnostic runs but will skew
 # real comparisons — re-sync any time the Swift prompt changes.
@@ -101,7 +101,7 @@ C. user named a target that is NOT in the element list: pointAtElementId = -1, c
 
 case C is critical. picking a wrong but nearby element from the list is FORBIDDEN. picking arbitrary IDs is FORBIDDEN. the only acceptable response when the target is missing is to refuse cleanly with both IDs set to -1."""
 
-# Agent-mode rules — synced from CompanionSystemPrompt.swift. Included
+# Agent-mode rules mirror Powers/ComputerUse/PaceComputerUsePower.swift. Included
 # unconditionally in the eval system prompt because production Pace runs
 # with EnableActions=true today. For the typed-JSON fixtures the response
 # schema constrains output to {spokenText, pointAtElementId, clickElementId}

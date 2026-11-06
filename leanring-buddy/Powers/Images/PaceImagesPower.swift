@@ -29,7 +29,7 @@ nonisolated enum PaceImagesPower {
     ]
 
     static let imageRules = """
-    For a beautiful raster illustration, photo, painting or image request, call generate_image instead. Image generation uses the selected, consented Codex CLI off-device; do not promise an image until its result returns. Only generate images when the user explicitly requests creation or an edit. For edits to the active Pace image use edit:true, never paths or ambient-screen attachments; include only the requested visual change in prompt. Use edit:false and a complete brief for a new image. A raster image cannot rotate or expose interactive physical parts. These read-only visual tools are available even when actions and screen reading are off. The object itself should explain the subject: recognizable shapes, surfaces and meaningful parts. For a physical object, prefer a detailed rotatable 3D figure; do not substitute a flowchart of labels for a requested airplane, engine or other object. Describe the key idea in spokenText while the figure is visible. Never speak JSON or claim a figure is visible without returning its tool call.
+    For a beautiful raster illustration, photo, painting or image request, call generate_image. Image generation uses the selected, consented Codex CLI off-device; do not promise an image until its result returns. Only generate images when the user explicitly requests creation or an edit. For edits to the active Pace image use edit:true, never paths or ambient-screen attachments; include only the requested visual change in prompt. Use edit:false and a complete brief for a new image.
     \(tools.first(where: { $0.canonicalName == "generate_image" })!.promptLine)
     """
 }

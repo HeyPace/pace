@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import Pace
@@ -66,6 +67,20 @@ struct PacePowerCatalogTests {
         #expect(prompt.contains("- {\"tool\":\"click\""))
         #expect(!prompt.contains("generate_image"))
         #expect(!prompt.contains("Image generation uses the selected"))
+    }
+
+    @MainActor @Test func physicalTeachingGuidanceDoesNotDependOnTheImagesPower() {
+        let catalog = PacePowerCatalog(powers: [PaceTeachingPower.definition])
+        for turnKind in [PacePowerTurnKind.screen, .textOnly, .research] {
+            let prompt = catalog.prompt(for: .init(turnKind: turnKind, includeInteractiveDiagrams: true))
+            #expect(prompt.contains("For a physical object, prefer a detailed rotatable 3D figure"))
+            #expect(prompt.contains("do not substitute a flowchart of labels for a requested airplane"))
+            #expect(!prompt.contains("generate_image"))
+        }
+        #expect(!PaceImagesPower.imageRules.contains("For a physical object"))
+        #expect(!PaceImagesPower.imageRules.contains("Never speak JSON"))
+        let combinedPrompt = CompanionSystemPrompt.build(includeAgentMode: true, includeInteractiveDiagrams: true)
+        #expect(combinedPrompt.components(separatedBy: "Never speak JSON or claim a figure is visible").count == 2)
     }
 
     @Test func duplicatePowerAndToolOwnershipAreRejectedAtStartup() {
