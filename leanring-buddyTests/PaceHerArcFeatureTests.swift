@@ -3,6 +3,8 @@
 //  leanring-buddyTests
 //
 
+import Combine
+import EventKit
 import XCTest
 @testable import Pace
 
@@ -257,6 +259,58 @@ final class PaceRestraintGateTests: XCTestCase {
 
 @MainActor
 final class PaceProactiveQueueDrainTests: XCTestCase {
+    func testQueuedCalendarEventsSurviveAdvisoryOverflowAndDrainDuringCooldown() {
+        let now = Date()
+        var spoken: [String] = []
+        let pipeline = PaceProactivityPipeline(
+            userInputActivityMonitor: PaceUserInputActivityMonitor(),
+            activeCallDetector: PaceActiveCallDetector(),
+            proactivityProfileProvider: { .balanced },
+            currentVoiceStateProvider: { .idle },
+            isInUserFocusModeProvider: { false },
+            speakUtterance: { spoken.append($0.spokenText) },
+            journalProactiveNudge: { _ in },
+            cachedScreenDescriptionProvider: { _ in nil },
+            watchModeEventPublisher: Empty<PaceScreenWatchEvent, Never>().eraseToAnyPublisher(),
+            calendarRetrievalConnector: PaceCalendarRetrievalConnector(eventStore: EKEventStore()),
+            initiallyEnabledGeneratorIdentifiers: []
+        )
+        for index in 0..<4 {
+            pipeline.enqueueProactiveUtterance(PaceProactiveUtterance(
+                spokenText: "Calendar \(index)", source: .calendarEvent, confidence: 0.9,
+                relevanceWindowExpiresAt: now.addingTimeInterval(180)
+            ))
+        }
+        for index in 0..<4 {
+            pipeline.enqueueProactiveUtterance(PaceProactiveUtterance(
+                spokenText: "Suggestion \(index)", source: .watchNudge, confidence: 0.9,
+                relevanceWindowExpiresAt: nil
+            ))
+        }
+        for expiry in [Optional<Date>.none, now.addingTimeInterval(-1)] {
+            pipeline.enqueueProactiveUtterance(PaceProactiveUtterance(
+                spokenText: "Invalid calendar reminder", source: .calendarEvent, confidence: 0.9,
+                relevanceWindowExpiresAt: expiry
+            ))
+        }
+        XCTAssertEqual(pipeline.proactiveUtteranceQueueSnapshot().filter { $0.source == .calendarEvent }.count, 4)
+        XCTAssertEqual(pipeline.proactiveUtteranceQueueSnapshot().filter { $0.source == .watchNudge }.count, 3)
+
+        pipeline.recordExternalProactiveDelivery(at: now.addingTimeInterval(-30))
+        for _ in 0..<4 { pipeline.drainProactiveQueueIfIdle(now: now) }
+
+        XCTAssertEqual(spoken, ["Calendar 0", "Calendar 1", "Calendar 2", "Calendar 3"])
+        XCTAssertEqual(pipeline.proactiveUtteranceQueueSnapshot().map(\.spokenText), ["Suggestion 1", "Suggestion 2", "Suggestion 3"])
+
+        pipeline.enqueueProactiveUtterance(PaceProactiveUtterance(
+            spokenText: "Soon expired", source: .calendarEvent, confidence: 0.9,
+            relevanceWindowExpiresAt: now.addingTimeInterval(60)
+        ))
+        pipeline.drainProactiveQueueIfIdle(now: now.addingTimeInterval(61))
+        XCTAssertFalse(pipeline.proactiveUtteranceQueueSnapshot().contains { $0.source == .calendarEvent })
+        XCTAssertEqual(spoken.count, 4)
+    }
+
     func testCalendarOptOutClearsOnlyQueuedCalendarAnnouncements() {
         let preferenceKey = PaceUserPreferenceKey.areCalendarNudgesEnabled.rawValue
         let previousValue = UserDefaults.standard.object(forKey: preferenceKey)
@@ -268,7 +322,7 @@ final class PaceProactiveQueueDrainTests: XCTestCase {
         for source in [PaceProactiveSource.calendarEvent, .backgroundReminder, .timerFire] {
             companionManager.enqueueProactiveUtterance(PaceProactiveUtterance(
                 spokenText: source.rawValue, source: source, confidence: 0.9,
-                relevanceWindowExpiresAt: nil
+                relevanceWindowExpiresAt: source == .calendarEvent ? Date().addingTimeInterval(180) : nil
             ))
         }
 

@@ -1141,7 +1141,7 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Proactive pipeline (Wave 7a extraction) — pipeline + forwarders split; forwarders in CompanionManager+ProactivePipeline.swift
     //
-    // The ≤3 ring buffer, 10s drain timer, three nudge generators,
+    // The deferred speech queue, 10s drain timer, three nudge generators,
     // orchestrator wiring, and live restraint-context construction
     // all live in `PaceProactivityPipeline`. CompanionManager keeps
     // tiny forwarders so the test surface
@@ -1170,6 +1170,9 @@ final class CompanionManager: ObservableObject {
             },
             currentVoiceStateProvider: { [weak self] in
                 return self?.voiceState ?? .idle
+            },
+            isInUserFocusModeProvider: { [weak self] in
+                self?.focusModeMonitor.isCurrentlyInUserFocus ?? true
             },
             speakUtterance: { [weak self] utterance in
                 // Mirrors the pre-extraction `speakProactiveNudge`

@@ -15,6 +15,28 @@ struct PaceRestraintGateFocusModeTests {
 
     private let referenceDate = Date(timeIntervalSince1970: 1_750_000_000)
 
+    @Test func calendarBypassesSuggestionCooldownButStillDefersDuringCallsAndFocus() {
+        for (isOnActiveCall, isInUserFocusMode) in [(false, false), (true, false), (false, true)] {
+            let context = PaceRestraintContext(
+                now: referenceDate,
+                lastProactiveUtteranceAt: referenceDate.addingTimeInterval(-30),
+                lastEpisodicRecallAt: nil, lastUserInputAt: nil,
+                frontmostAppBundleIdentifier: "com.apple.Notes",
+                isOnActiveCall: isOnActiveCall, wakeWordConfidence: nil,
+                intent: .pureKnowledge, proactiveSource: .calendarEvent,
+                profile: .balanced, isInUserFocusMode: isInUserFocusMode
+            )
+            if isOnActiveCall || isInUserFocusMode {
+                guard case .queueUntilIdle = PaceRestraintGate.decide(context) else {
+                    Issue.record("Calendar must still defer for calls or Focus.")
+                    continue
+                }
+            } else {
+                #expect(PaceRestraintGate.decide(context) == .speak)
+            }
+        }
+    }
+
     @Test func morningTriageStaysQueuedWhenUserIsInFocusMode() async throws {
         let context = PaceRestraintContext(
             now: referenceDate,

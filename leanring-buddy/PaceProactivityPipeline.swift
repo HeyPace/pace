@@ -72,14 +72,11 @@ final class PaceProactivityPipeline {
 
     // MARK: - Owned state
 
-    /// Capped FIFO of nudges waiting for the user to pause. Cap is 3
-    /// — the oldest entry gets dropped on overflow. Mutations only
-    /// happen on the main actor; no separate lock needed.
+    /// Shared FIFO of deferred speech. Advisory nudges are capped at three;
+    /// calendar entries require live deadlines and expire instead of being evicted.
     private(set) var proactiveUtteranceQueue: [PaceProactiveUtterance] = []
 
-    /// Maximum entries kept in the queue. Above this the oldest is
-    /// dropped so a busy hour doesn't produce a five-utterance burst.
-    private static let proactiveUtteranceQueueMaximumCapacity: Int = 3
+    private static let maximumQueuedAdvisoryCount: Int = 3
 
     /// Backs the 10-second drain loop. Started in `start()`, torn
     /// down in `stop()`. Each tick attempts at most one utterance —
@@ -163,7 +160,7 @@ final class PaceProactivityPipeline {
         activeCallDetector: PaceActiveCallDetector,
         proactivityProfileProvider: @escaping () -> PaceProactivityProfile,
         currentVoiceStateProvider: @escaping () -> CompanionVoiceState,
-        isInUserFocusModeProvider: @escaping () -> Bool = { false },
+        isInUserFocusModeProvider: @escaping () -> Bool,
         speakUtterance: @escaping (PaceProactiveUtterance) -> Void,
         journalProactiveNudge: @escaping (PaceProactiveUtterance) -> Void,
         cachedScreenDescriptionProvider: @escaping (String) -> String?,
@@ -203,17 +200,28 @@ final class PaceProactivityPipeline {
 
     // MARK: - Public surface used by CompanionManager forwarders
 
-    /// Adds an utterance to the proactive queue, dropping the oldest
-    /// entry once the cap is exceeded. Exposed for nudge generators
+    /// Adds an utterance to the shared queue, keeping the advisory cap and
+    /// calendar deadlines. Exposed for nudge generators
     /// and the morning-triage scheduler — both should call this when
     /// the gate returns `.queueUntilIdle` instead of speaking
     /// directly.
     func enqueueProactiveUtterance(_ utterance: PaceProactiveUtterance) {
+        let now = Date()
+        if utterance.source == .calendarEvent {
+            guard let expiresAt = utterance.relevanceWindowExpiresAt, expiresAt > now else { return }
+        }
+        discardExpiredCalendarAnnouncements(now: now)
         proactiveUtteranceQueue.append(utterance)
-        if proactiveUtteranceQueue.count > Self.proactiveUtteranceQueueMaximumCapacity {
-            proactiveUtteranceQueue.removeFirst(
-                proactiveUtteranceQueue.count - Self.proactiveUtteranceQueueMaximumCapacity
-            )
+        // Calendar reminders have short, mandatory deadlines. The advisory cap
+        // must not evict them just because several appointments overlap.
+        var excessAdvisoryCount = proactiveUtteranceQueue.filter { $0.source != .calendarEvent }.count
+            - Self.maximumQueuedAdvisoryCount
+        if excessAdvisoryCount > 0 {
+            proactiveUtteranceQueue.removeAll { queuedUtterance in
+                guard excessAdvisoryCount > 0, queuedUtterance.source != .calendarEvent else { return false }
+                excessAdvisoryCount -= 1
+                return true
+            }
         }
     }
 
@@ -264,6 +272,7 @@ final class PaceProactivityPipeline {
     /// decisions are discarded; allowed output uses the normal emit path so
     /// journaling and cooldown state cannot be bypassed.
     func drainProactiveQueueIfIdle(now: Date = Date()) {
+        discardExpiredCalendarAnnouncements(now: now)
         guard proactiveUtteranceQueue.isEmpty == false else { return }
         guard currentVoiceStateProvider() == .idle else { return }
 
@@ -318,6 +327,13 @@ final class PaceProactivityPipeline {
     }
 
     // MARK: - Internal helpers
+
+    private func discardExpiredCalendarAnnouncements(now: Date) {
+        proactiveUtteranceQueue.removeAll { queuedUtterance in
+            queuedUtterance.source == .calendarEvent
+                && queuedUtterance.relevanceWindowExpiresAt.map { $0 <= now } == true
+        }
+    }
 
     /// Built by every nudge generator on every gate decision. Reads
     /// the live `userInputActivityMonitor` / `activeCallDetector` /
