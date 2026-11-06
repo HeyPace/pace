@@ -16,6 +16,7 @@ nonisolated enum PaceProactiveSource: String, Codable, Equatable, CaseIterable {
     case episodicRecall
     case timerFire
     case backgroundReminder
+    case calendarEvent
     /// The daily morning brief fired by `PaceMorningTriageScheduler`.
     /// Goes through the full gate (active-call check, proactive
     /// cooldown, intent confidence) so it stays silent during Zoom
@@ -143,7 +144,7 @@ nonisolated enum PaceRestraintGate {
         switch context.proactiveSource {
         case .userPushToTalk, .timerFire:
             return .speak
-        case .wakeWord, .watchNudge, .episodicRecall, .backgroundReminder, .morningTriage, .meetingNotesSynthesis, .companionEvent:
+        case .wakeWord, .watchNudge, .episodicRecall, .backgroundReminder, .calendarEvent, .morningTriage, .meetingNotesSynthesis, .companionEvent:
             break
         }
 

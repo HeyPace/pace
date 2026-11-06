@@ -78,7 +78,7 @@ nonisolated enum PaceCalendarPreMeetingNudgeDecision {
         let minutes = max(1, Int((startsInSeconds / 60).rounded()))
         return PaceProactiveUtterance(
             spokenText: "\(trimmedTitle) is in \(minutes) minute\(minutes == 1 ? "" : "s").",
-            source: .backgroundReminder,
+            source: .calendarEvent,
             confidence: 0.86,
             relevanceWindowExpiresAt: now.addingTimeInterval(startsInSeconds)
         )

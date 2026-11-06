@@ -123,8 +123,8 @@ final class PaceProactivityPipeline {
     private lazy var calendarPreMeetingNudgeGenerator: PaceCalendarPreMeetingNudgeGenerator = {
         return PaceCalendarPreMeetingNudgeGenerator(
             restraintContextProvider: { [weak self] in
-                self?.buildProactiveRestraintContext(proactiveSource: .backgroundReminder) ?? PaceProactivityPipeline
-                    .defaultRestraintContext(proactiveSource: .backgroundReminder)
+                self?.buildProactiveRestraintContext(proactiveSource: .calendarEvent) ?? PaceProactivityPipeline
+                    .defaultRestraintContext(proactiveSource: .calendarEvent)
             },
             calendarConnector: calendarRetrievalConnector
         )

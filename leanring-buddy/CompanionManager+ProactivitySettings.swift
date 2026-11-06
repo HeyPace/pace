@@ -32,6 +32,9 @@ extension CompanionManager {
             identifier: proactivityPipeline.calendarPreMeetingNudgeGeneratorIdentifier,
             enabled: enabled
         )
+        if !enabled {
+            proactivityPipeline.removeQueuedProactiveUtterances(from: .calendarEvent)
+        }
     }
     func setWatchObservationNudgesEnabled(_ enabled: Bool) {
         areWatchObservationNudgesEnabled = enabled

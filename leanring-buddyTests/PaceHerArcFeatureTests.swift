@@ -257,6 +257,27 @@ final class PaceRestraintGateTests: XCTestCase {
 
 @MainActor
 final class PaceProactiveQueueDrainTests: XCTestCase {
+    func testCalendarOptOutClearsOnlyQueuedCalendarAnnouncements() {
+        let preferenceKey = PaceUserPreferenceKey.areCalendarNudgesEnabled.rawValue
+        let previousValue = UserDefaults.standard.object(forKey: preferenceKey)
+        defer {
+            if let previousValue { UserDefaults.standard.set(previousValue, forKey: preferenceKey) }
+            else { UserDefaults.standard.removeObject(forKey: preferenceKey) }
+        }
+        let companionManager = CompanionManager()
+        for source in [PaceProactiveSource.calendarEvent, .backgroundReminder, .timerFire] {
+            companionManager.enqueueProactiveUtterance(PaceProactiveUtterance(
+                spokenText: source.rawValue, source: source, confidence: 0.9,
+                relevanceWindowExpiresAt: nil
+            ))
+        }
+
+        companionManager.setCalendarNudgesEnabled(false)
+
+        XCTAssertFalse(companionManager.areCalendarNudgesEnabled)
+        XCTAssertEqual(companionManager.proactiveUtteranceQueueSnapshot().map(\.source), [.backgroundReminder, .timerFire])
+    }
+
     func testExpiredQueuedUtteranceIsDiscardedWithoutBlockingNextEntry() {
         let companionManager = CompanionManager()
         let now = Date()
@@ -609,7 +630,7 @@ final class PaceProactiveNudgeDecisionTests: XCTestCase {
             isOnActiveCall: false,
             wakeWordConfidence: nil,
             intent: .pureKnowledge,
-            proactiveSource: .backgroundReminder,
+            proactiveSource: .calendarEvent,
             profile: .balanced
         )
 
@@ -620,7 +641,7 @@ final class PaceProactiveNudgeDecisionTests: XCTestCase {
         )
 
         XCTAssertEqual(evaluation.decision, .queueUntilIdle(reason: "recent user input"))
-        XCTAssertEqual(evaluation.utterance?.source, .backgroundReminder)
+        XCTAssertEqual(evaluation.utterance?.source, .calendarEvent)
     }
 
     /// Wave 1b: under `.reserved` the same recent-input context
@@ -636,7 +657,7 @@ final class PaceProactiveNudgeDecisionTests: XCTestCase {
             isOnActiveCall: false,
             wakeWordConfidence: nil,
             intent: .pureKnowledge,
-            proactiveSource: .backgroundReminder,
+            proactiveSource: .calendarEvent,
             profile: .reserved
         )
 

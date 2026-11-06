@@ -229,7 +229,7 @@ final class PaceCalendarPreMeetingNudgeGeneratorTests: XCTestCase {
             isOnActiveCall: false,
             wakeWordConfidence: nil,
             intent: .pureKnowledge,
-            proactiveSource: .backgroundReminder,
+            proactiveSource: .calendarEvent,
             profile: .balanced
         )
         let generator = PaceCalendarPreMeetingNudgeGenerator(
@@ -245,7 +245,7 @@ final class PaceCalendarPreMeetingNudgeGeneratorTests: XCTestCase {
             queueForLater: { queuedUtterances.append($0) }
         )
 
-        XCTAssertEqual(emittedUtterances.first?.source, .backgroundReminder)
+        XCTAssertEqual(emittedUtterances.first?.source, .calendarEvent)
         XCTAssertTrue(emittedUtterances.first?.spokenText.contains("Design review") == true)
         XCTAssertTrue(queuedUtterances.isEmpty)
     }
@@ -267,7 +267,7 @@ final class PaceCalendarPreMeetingNudgeGeneratorTests: XCTestCase {
             isOnActiveCall: false,
             wakeWordConfidence: nil,
             intent: .pureKnowledge,
-            proactiveSource: .backgroundReminder,
+            proactiveSource: .calendarEvent,
             profile: .balanced
         )
         let generator = PaceCalendarPreMeetingNudgeGenerator(
@@ -304,7 +304,7 @@ final class PaceCalendarPreMeetingNudgeGeneratorTests: XCTestCase {
             isOnActiveCall: false,
             wakeWordConfidence: nil,
             intent: .pureKnowledge,
-            proactiveSource: .backgroundReminder,
+            proactiveSource: .calendarEvent,
             profile: .balanced
         )
         let generator = PaceCalendarPreMeetingNudgeGenerator(
@@ -382,6 +382,26 @@ final class PaceCalendarPreMeetingNudgeGeneratorTests: XCTestCase {
         XCTAssertTrue(utterances.isEmpty)
     }
 
+    func testZeroDurationAndUntitledTimedEventsStillAnnounce() {
+        let now = Date()
+        let startDate = now.addingTimeInterval(180)
+        for title in ["Medication", "   "] {
+            let event = PaceCalendarRetrievalEventSnapshot(
+                stableIdentifier: "event", title: title,
+                startDate: startDate, endDate: startDate
+            )
+            let generator = PaceCalendarPreMeetingNudgeGenerator(
+                restraintContextProvider: { self.calendarRestraintContext(now: now) },
+                upcomingEventSnapshotsProvider: { _ in [event] },
+                nowProvider: { now }
+            )
+            var emitted: [PaceProactiveUtterance] = []
+            generator.evaluateNow(emit: { emitted.append($0) }, queueForLater: { _ in XCTFail("Idle event should announce.") })
+            let expectedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled event" : title
+            XCTAssertEqual(emitted.map(\.spokenText), ["\(expectedTitle) is in 3 minutes."])
+        }
+    }
+
     func testRecurringOccurrencesWithSameIdentifierEachAnnounceOnce() {
         var now = Date()
         var event = PaceCalendarRetrievalEventSnapshot(
@@ -438,7 +458,7 @@ final class PaceCalendarPreMeetingNudgeGeneratorTests: XCTestCase {
             isOnActiveCall: isOnActiveCall,
             wakeWordConfidence: nil,
             intent: .pureKnowledge,
-            proactiveSource: .backgroundReminder,
+            proactiveSource: .calendarEvent,
             profile: .balanced
         )
     }

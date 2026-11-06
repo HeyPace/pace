@@ -26,7 +26,7 @@ it is not re-explained here.
 - Source: internal — no external spec.
 
 ## Calendar announcements
-- What: Checks upcoming EventKit calendar events once a minute and offers a spoken heads-up within five minutes before any timed event starts. All-day events stay quiet; event titles do not need meeting keywords. Each occurrence is announced at most once per running generator session, including recurring events that share an EventKit identifier. Calendar full access and the Calendar announcements toggle are required. Delivery uses the shared restraint gate and local voice; no planner request is needed.
+- What: Checks upcoming EventKit calendar events once a minute and offers a spoken heads-up within five minutes before any timed event starts. All-day events stay quiet; event titles do not need meeting keywords. Each occurrence is announced at most once per running generator session, including recurring events that share an EventKit identifier. Calendar full access and the Calendar announcements toggle are required. Turning announcements off clears only queued calendar speech. Delivery uses the shared restraint gate and local voice; no planner request is needed.
 - Why here: Turns Pace's existing calendar read access into a proactive surface instead of a purely on-demand one.
 - Where: `PaceCalendarPreMeetingNudgeGenerator.swift` — `PaceCalendarPreMeetingNudgeGenerator` (gated by preference key `areCalendarNudgesEnabled`); decision logic in `PaceProactiveNudges.swift` — `PaceCalendarPreMeetingNudgeDecision`.
 - Source: https://developer.apple.com/documentation/eventkit

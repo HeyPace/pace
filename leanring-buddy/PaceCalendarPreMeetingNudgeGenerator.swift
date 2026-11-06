@@ -111,7 +111,7 @@ final class PaceCalendarPreMeetingNudgeGenerator: PaceProactiveNudgeGenerator {
         let upcomingEvents = upcomingEventSnapshotsProvider(Self.leadTimeLookaheadSeconds)
         for eventSnapshot in upcomingEvents {
             guard !eventSnapshot.isAllDay,
-                  eventSnapshot.endDate > eventSnapshot.startDate else { continue }
+                  eventSnapshot.endDate >= eventSnapshot.startDate else { continue }
             let occurrence = EventOccurrence(
                 stableIdentifier: eventSnapshot.stableIdentifier,
                 startDate: eventSnapshot.startDate
