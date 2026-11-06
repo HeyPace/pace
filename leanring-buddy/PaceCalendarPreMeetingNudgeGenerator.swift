@@ -109,6 +109,8 @@ final class PaceCalendarPreMeetingNudgeGenerator: PaceProactiveNudgeGenerator {
         pruneStaleDedupEntries(now: now)
 
         let upcomingEvents = upcomingEventSnapshotsProvider(Self.leadTimeLookaheadSeconds)
+        let restraintContext = restraintContextProvider()
+        var announcements: [(occurrence: EventOccurrence, utterance: PaceProactiveUtterance, decision: PaceRestraintDecision)] = []
         for eventSnapshot in upcomingEvents {
             guard !eventSnapshot.isAllDay,
                   eventSnapshot.endDate >= eventSnapshot.startDate else { continue }
@@ -121,16 +123,36 @@ final class PaceCalendarPreMeetingNudgeGenerator: PaceProactiveNudgeGenerator {
             let evaluation = PaceCalendarPreMeetingNudgeDecision.evaluate(
                 eventTitle: eventSnapshot.title,
                 startsInSeconds: eventSnapshot.startDate.timeIntervalSince(now),
-                restraintContext: restraintContextProvider()
+                restraintContext: restraintContext
             )
-            guard evaluation.utterance != nil else { continue }
-            alreadyNudgedByOccurrence[occurrence] = now
+            guard let utterance = evaluation.utterance else { continue }
+            announcements.append((occurrence, utterance, evaluation.decision))
+        }
+
+        guard let firstAnnouncement = announcements.first else { return }
+        for announcement in announcements {
+            alreadyNudgedByOccurrence[announcement.occurrence] = now
+        }
+        if firstAnnouncement.decision == .speak {
+            let combinedUtterance = PaceProactiveUtterance(
+                spokenText: announcements.map { $0.utterance.spokenText }.joined(separator: " "),
+                source: .calendarEvent,
+                confidence: firstAnnouncement.utterance.confidence,
+                relevanceWindowExpiresAt: announcements.compactMap { $0.utterance.relevanceWindowExpiresAt }.min()
+            )
             PaceProactiveNudgeFrameworkRouting.route(
-                evaluation: evaluation,
+                evaluation: (.speak, combinedUtterance), emit: emit, queueForLater: queueForLater
+            )
+            return
+        }
+        // Deferred events keep separate deadlines so an earlier meeting expiring
+        // during a call does not discard another appointment that is still ahead.
+        for announcement in announcements {
+            PaceProactiveNudgeFrameworkRouting.route(
+                evaluation: (announcement.decision, announcement.utterance),
                 emit: emit,
                 queueForLater: queueForLater
             )
-            return
         }
     }
 

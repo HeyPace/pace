@@ -97,10 +97,19 @@ nonisolated enum PaceCalendarPreMeetingNudgeDecision {
         ) else {
             return (.stayQuiet(reason: "calendar nudge filters did not match"), nil)
         }
-        return resolveDecision(
+        let evaluation = resolveDecision(
             for: candidateUtterance,
             restraintContext: restraintContext
         )
+        guard case .queueUntilIdle = evaluation.decision else { return evaluation }
+        // The queue may wait several minutes; a frozen countdown would be wrong
+        // when delivery resumes. Its event-start deadline still prevents late speech.
+        return (evaluation.decision, PaceProactiveUtterance(
+            spokenText: "\(eventTitle.trimmingCharacters(in: .whitespacesAndNewlines)) is coming up.",
+            source: candidateUtterance.source,
+            confidence: candidateUtterance.confidence,
+            relevanceWindowExpiresAt: candidateUtterance.relevanceWindowExpiresAt
+        ))
     }
 }
 

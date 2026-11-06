@@ -445,13 +445,56 @@ final class PaceCalendarPreMeetingNudgeGeneratorTests: XCTestCase {
         generator.evaluateNow(emit: { emitted.append($0) }, queueForLater: { queued.append($0) })
 
         XCTAssertTrue(emitted.isEmpty)
-        XCTAssertEqual(queued.map(\.spokenText), ["Dentist is in 3 minutes."])
+        XCTAssertEqual(queued.map(\.spokenText), ["Dentist is coming up."])
     }
 
-    private func calendarRestraintContext(now: Date, isOnActiveCall: Bool = false) -> PaceRestraintContext {
+    func testSimultaneousEventsAnnounceTogetherDespiteRecentProactiveSpeech() {
+        let now = Date()
+        let events = ["Dentist", "Flight"].map { title in
+            PaceCalendarRetrievalEventSnapshot(
+                stableIdentifier: title, title: title,
+                startDate: now.addingTimeInterval(50), endDate: now.addingTimeInterval(1800)
+            )
+        }
+        let generator = PaceCalendarPreMeetingNudgeGenerator(
+            restraintContextProvider: { self.calendarRestraintContext(now: now, lastProactiveUtteranceAt: now.addingTimeInterval(-30)) },
+            upcomingEventSnapshotsProvider: { _ in events }, nowProvider: { now }
+        )
+        var emitted: [PaceProactiveUtterance] = []
+        var queued: [PaceProactiveUtterance] = []
+        for _ in 0..<2 {
+            generator.evaluateNow(emit: { emitted.append($0) }, queueForLater: { queued.append($0) })
+        }
+
+        XCTAssertEqual(emitted.map(\.spokenText), ["Dentist is in 1 minute. Flight is in 1 minute."])
+        XCTAssertTrue(queued.isEmpty)
+    }
+
+    func testDeferredCalendarEventsKeepSeparateExpiryDeadlines() {
+        let now = Date()
+        let events = [50.0, 180.0].enumerated().map { index, leadTime in
+            PaceCalendarRetrievalEventSnapshot(
+                stableIdentifier: "event-\(index)", title: "Appointment \(index)",
+                startDate: now.addingTimeInterval(leadTime), endDate: now.addingTimeInterval(1800)
+            )
+        }
+        let generator = PaceCalendarPreMeetingNudgeGenerator(
+            restraintContextProvider: { self.calendarRestraintContext(now: now, isOnActiveCall: true) },
+            upcomingEventSnapshotsProvider: { _ in events }, nowProvider: { now }
+        )
+        var queued: [PaceProactiveUtterance] = []
+        generator.evaluateNow(emit: { _ in XCTFail("Never speak over a call.") }, queueForLater: { queued.append($0) })
+
+        XCTAssertEqual(queued.map(\.relevanceWindowExpiresAt), events.map { Optional($0.startDate) })
+        XCTAssertEqual(queued.map(\.spokenText), ["Appointment 0 is coming up.", "Appointment 1 is coming up."])
+    }
+
+    private func calendarRestraintContext(
+        now: Date, isOnActiveCall: Bool = false, lastProactiveUtteranceAt: Date? = nil
+    ) -> PaceRestraintContext {
         PaceRestraintContext(
             now: now,
-            lastProactiveUtteranceAt: nil,
+            lastProactiveUtteranceAt: lastProactiveUtteranceAt,
             lastEpisodicRecallAt: nil,
             lastUserInputAt: nil,
             frontmostAppBundleIdentifier: nil,

@@ -642,6 +642,7 @@ final class PaceProactiveNudgeDecisionTests: XCTestCase {
 
         XCTAssertEqual(evaluation.decision, .queueUntilIdle(reason: "recent user input"))
         XCTAssertEqual(evaluation.utterance?.source, .calendarEvent)
+        XCTAssertEqual(evaluation.utterance?.spokenText, "Design review is coming up.")
     }
 
     /// Wave 1b: under `.reserved` the same recent-input context

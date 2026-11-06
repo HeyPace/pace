@@ -199,6 +199,7 @@ nonisolated enum PaceRestraintGate {
         }
 
         if context.proactiveSource != .episodicRecall,
+           context.proactiveSource != .calendarEvent,
            let lastProactiveUtteranceAt = context.lastProactiveUtteranceAt,
            context.now.timeIntervalSince(lastProactiveUtteranceAt) < cooldownSeconds(
                forProfile: context.profile,
