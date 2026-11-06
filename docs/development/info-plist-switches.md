@@ -50,3 +50,10 @@ loopback-only; it never uses the selected cloud conversational tier. See
 | `TranscriptionProvider` | `whisperKit` | Shipped default. Resolves to WhisperKit when the runtime is linked and its model is on disk, otherwise falls back to Apple Speech (`appleSpeech` / `apple` forces Apple Speech). When the key is unset the factory auto-prefers WhisperKit if the model is already installed. |
 | `PrewarmMailForDrafts` | `false` | Shipped default. Set to any value other than `false`/`0`/`no` (or remove the key) to non-activating-launch Mail at Pace startup, avoiding Mail's cold-launch tax for the streaming draft path. |
 | `LocalRetrievalFileRootPaths` | empty | Optional comma/newline-separated explicit roots for file retrieval. With no roots, File retrieval records a skipped status and does not crawl the Mac. |
+
+Local voice selections persist in the `com.pace.app` preferences domain and take
+precedence over these bundled defaults after relaunch: `pace.voice.provider`
+(`apple` or `localServer`), `pace.voice.kokoro.voice` (for example `af_heart`),
+and `pace.voice.kokoro.speed` (strictly between 0.25 and 4.0). No other bundle
+configuration, endpoint, consent or permission can be overridden through this
+voice preference namespace.

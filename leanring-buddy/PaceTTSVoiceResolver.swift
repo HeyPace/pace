@@ -62,12 +62,22 @@ struct PaceTTSVoiceSummary: Equatable {
     }
 
     var recommendationText: String {
-        needsUpgrade
+        if qualityName == "Kokoro" {
+            return "Kokoro speech runs locally on this Mac."
+        }
+        if qualityName == "Local model" {
+            return "Speech runs locally on this Mac."
+        }
+        return needsUpgrade
             ? "Install an Enhanced or Premium Apple voice for better playback."
             : "High-quality local Apple voice active."
     }
 
     static func current() -> PaceTTSVoiceSummary {
+        if AppBundleConfiguration.stringValue(forKey: "TTSProvider")?.lowercased() == "localserver" {
+            let configuration = LocalServerTTSConfiguration.fromBundle()
+            return localServerSummary(voiceIdentifier: configuration.voiceIdentifier, modelIdentifier: configuration.modelIdentifier)
+        }
         let preferredVoiceIdentifier = AppBundleConfiguration.stringValue(forKey: "LocalTTSVoiceIdentifier")
         guard let voice = PaceTTSVoiceResolver.bestAvailableVoice(
             preferredVoiceIdentifier: preferredVoiceIdentifier
@@ -87,5 +97,17 @@ struct PaceTTSVoiceSummary: Equatable {
         default:
             return PaceTTSVoiceSummary(voiceName: voice.name, qualityName: "Compact", needsUpgrade: true)
         }
+    }
+
+    static func localServerSummary(
+        voiceIdentifier: String,
+        modelIdentifier: String = LocalServerTTSConfiguration.defaultModelIdentifier
+    ) -> PaceTTSVoiceSummary {
+        let isKokoro = modelIdentifier.lowercased().contains("kokoro")
+        return PaceTTSVoiceSummary(
+            voiceName: isKokoro && voiceIdentifier == "af_heart" ? "Heart" : voiceIdentifier,
+            qualityName: isKokoro ? "Kokoro" : "Local model",
+            needsUpgrade: false
+        )
     }
 }

@@ -10,6 +10,71 @@ import Testing
 @testable import Pace
 
 @MainActor
+struct PersistedVoiceSettingsTests {
+    private func withPreferences(_ test: (UserDefaults) throws -> Void) rethrows {
+        let suiteName = "pace-voice-settings-tests-\(UUID().uuidString)"
+        let preferences = UserDefaults(suiteName: suiteName)!
+        defer { preferences.removePersistentDomain(forName: suiteName) }
+        try test(preferences)
+    }
+
+    @Test func explicitKokoroSelectionSurvivesReloadingPreferences() {
+        let suiteName = "pace-voice-reload-tests-\(UUID().uuidString)"
+        let preferences = UserDefaults(suiteName: suiteName)!
+        defer { preferences.removePersistentDomain(forName: suiteName) }
+        preferences.set(" localServer ", forKey: "pace.voice.provider")
+        let reloadedPreferences = UserDefaults(suiteName: suiteName)!
+        #expect(AppBundleConfiguration.stringValue(forKey: "TTSProvider", preferences: reloadedPreferences) == "localserver")
+    }
+
+    @Test func invalidProviderCannotReplaceTheConfiguredFallback() {
+        withPreferences { preferences in
+            for invalidProvider in ["", " ", "remote", "unsupported"] {
+                preferences.set(invalidProvider, forKey: "pace.voice.provider")
+                #expect(AppBundleConfiguration.persistedVoiceSetting(forKey: "TTSProvider", preferences: preferences) == nil)
+            }
+            preferences.set("apple", forKey: "pace.voice.provider")
+            #expect(AppBundleConfiguration.persistedVoiceSetting(forKey: "TTSProvider", preferences: preferences) == "apple")
+        }
+    }
+
+    @Test func voiceOverridesAreTrimmedAndSpeedIsValidated() {
+        withPreferences { preferences in
+            preferences.set(" af_heart ", forKey: "pace.voice.kokoro.voice")
+            #expect(AppBundleConfiguration.persistedVoiceSetting(forKey: "LocalTTSServerVoice", preferences: preferences) == "af_heart")
+            for invalidSpeed in ["0", "0.25", "4", "nan", "infinity", "bad"] {
+                preferences.set(invalidSpeed, forKey: "pace.voice.kokoro.speed")
+                #expect(AppBundleConfiguration.persistedVoiceSetting(forKey: "LocalTTSServerSpeed", preferences: preferences) == nil)
+            }
+            preferences.set("1.0", forKey: "pace.voice.kokoro.speed")
+            #expect(AppBundleConfiguration.persistedVoiceSetting(forKey: "LocalTTSServerSpeed", preferences: preferences) == "1.0")
+        }
+    }
+
+    @Test func voicePreferencesCannotOverridePrivacyOrProviderEndpoints() {
+        withPreferences { preferences in
+            for key in ["ReadMyScreen", "EnableActions", "PlannerProvider", "LocalTTSServerBaseURL"] {
+                preferences.set("true", forKey: "pace.voice.\(key)")
+                #expect(AppBundleConfiguration.persistedVoiceSetting(forKey: key, preferences: preferences) == nil)
+            }
+        }
+    }
+
+    @Test func kokoroSummaryDoesNotClaimAnAppleVoiceIsActive() {
+        let summary = PaceTTSVoiceSummary.localServerSummary(voiceIdentifier: "af_heart")
+        #expect(summary.displayText == "Heart · Kokoro")
+        #expect(!summary.needsUpgrade)
+        #expect(summary.recommendationText == "Kokoro speech runs locally on this Mac.")
+    }
+
+    @Test func anotherLocalModelIsNotMislabeledAsKokoro() {
+        let summary = PaceTTSVoiceSummary.localServerSummary(voiceIdentifier: "Ryan", modelIdentifier: "local-Qwen3-TTS")
+        #expect(summary.displayText == "Ryan · Local model")
+        #expect(summary.recommendationText == "Speech runs locally on this Mac.")
+    }
+}
+
+@MainActor
 private final class TestSpeechSynthesizer: LocalTTSSpeechSynthesizing {
     var delegate: (any AVSpeechSynthesizerDelegate)?
     var isSpeaking = false
