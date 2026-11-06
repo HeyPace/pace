@@ -35,7 +35,7 @@ mirror of a Swift source of truth (kept in sync per the repo's existing
 Keep in sync with:
   - leanring-buddy/LocalPlannerClient.swift  (v10ResponseFormat)
   - leanring-buddy/CompanionSystemPrompt.swift  (prose blocks)
-  - leanring-buddy/PaceToolRegistry.swift  (tool list — auto-derived)
+  - leanring-buddy/Powers/*/*Power.swift  (tool list — auto-derived)
   - leanring-buddy/PaceActionTagParser.swift  (decoder)
 """
 
@@ -44,8 +44,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from pace_tool_source import read_tool_definitions
+
 PROJECT_DIR = Path(__file__).resolve().parent.parent
-REGISTRY_SWIFT = PROJECT_DIR / "leanring-buddy" / "PaceToolRegistry.swift"
 
 # ---------------------------------------------------------------------------
 # 1. v10 response_format — mirror of LocalPlannerClient.v10ResponseFormat
@@ -261,21 +262,14 @@ legacy per-step loop (screen-dependent steps only) — emit THIS step's tool_cal
 
 
 def _render_tool_list() -> str:
-    """Auto-derive the `available tools:` block from PaceToolRegistry.swift
+    """Auto-derive the `available tools:` block from the power providers
     so the tool docs the model sees in the eval match production exactly
     (mirrors PaceLocalToolDefinition.promptLine = "- <schemaExample> <description>").
     """
-    source = REGISTRY_SWIFT.read_text()
-    pairs = re.findall(
-        r'schemaExample:\s*#"(.*?)"#,\s*\n\s*description:\s*"(.*?)"',
-        source,
-        re.DOTALL,
+    return "\n".join(
+        f"- {schema} {description}"
+        for _, schema, description in read_tool_definitions(PROJECT_DIR)
     )
-    if not pairs:
-        raise RuntimeError(
-            "pace_v10: could not parse tool definitions from PaceToolRegistry.swift"
-        )
-    return "\n".join(f"- {schema} {description}" for schema, description in pairs)
 
 
 def build_agent_mode_system_prompt() -> str:
