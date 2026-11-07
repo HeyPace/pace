@@ -30,7 +30,7 @@ struct PaceImageGenerationTests {
         for hasActiveDiagram in [false, true] {
             for transcript in screenRequests {
                 #expect(PaceDiagramDocument.requiresScreenContext(transcript, hasActiveDiagram: hasActiveDiagram))
-                // Existing images own references to themselves; explicit screen references still override them.
+                // This matrix excludes the separate active-image "this image" editing carve-out.
                 if transcript != "diagram this image" {
                     #expect(
                         PaceImageGenerationRequest.requiresScreenContext(transcript, hasActiveImage: hasActiveDiagram))
