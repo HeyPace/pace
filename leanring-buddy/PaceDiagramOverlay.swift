@@ -138,7 +138,8 @@ final class PaceDiagramOverlayManager {
     #if DEBUG
         func focusFigureForSmokeTest() {
             NSApp.activate(ignoringOtherApps: true)
-            figurePanel?.makeKeyAndOrderFront(nil)
+            let panel = figurePanel ?? nodePanels.sorted { $0.key < $1.key }.first?.value
+            panel?.makeKeyAndOrderFront(nil)
         }
     #endif
 

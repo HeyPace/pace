@@ -209,11 +209,21 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
     static func requiresScreenContext(_ transcript: String, hasActiveDiagram: Bool) -> Bool {
         let normalized = transcript.lowercased()
         let screenReferences = [
-            "my screen", "on the screen", "this screen", "this page", "this webpage",
-            "this code", "this chart", "this image", "this window", "my window", "what i see",
+            "on the screen", "this screen", "this page", "this webpage",
+            "this code", "this chart", "this image", "this window",
             "looking at", "this article", "this document", "selected text",
         ]
         if screenReferences.contains(where: normalized.contains) { return true }
+        let explicitScreenPatterns = [
+            #"\bmy screen\b(?!\s+time\b)"#,
+            #"\bmy window\b"#,
+            #"\bwhat i see(?:[.!?]*$|\s+(?:here\b|on\b))"#,
+        ]
+        if explicitScreenPatterns.contains(where: {
+            normalized.range(of: $0, options: .regularExpression) != nil
+        }) {
+            return true
+        }
         return !hasActiveDiagram
             && [
                 "this diagram", "that diagram", "this figure", "that figure", "explain this", "explain that",

@@ -70,18 +70,24 @@ final class PaceImageOverlayController: ObservableObject {
     }
 
     #if DEBUG
-        func presentImageForSmokeTest(at fileURL: URL) throws {
-            guard PaceRuntimeSmokeTestHooks.isVisualAcceptanceEnabled(),
+        func presentImageForSmokeTest(
+            at fileURL: URL, environment: [String: String] = ProcessInfo.processInfo.environment
+        ) throws {
+            guard PaceRuntimeSmokeTestHooks.isVisualAcceptanceEnabled(environment: environment),
                 fileURL.deletingLastPathComponent().standardizedFileURL
                     == PaceGeneratedImageStore.defaultDirectory.standardizedFileURL,
                 let identifier = UUID(uuidString: fileURL.deletingPathExtension().lastPathComponent)
             else { return }
             let validated = try PaceGeneratedImageStore.validatedImageData(at: fileURL)
+            // The source may be an explicit user save, including the already visible artifact.
+            explicitlySavedWorkingArtifactIdentifiers.insert(identifier)
             hideForDiagramReplacement()
+            onWillGenerate?()
             let artifact = PaceGeneratedImageArtifact(
                 id: identifier, fileURL: fileURL, width: validated.width, height: validated.height,
                 request: .init(prompt: "A blue ceramic mug", title: "Blue mug acceptance fixture"))
             lastSuccessfulArtifact = artifact
+            explicitlySavedWorkingArtifactIdentifiers.insert(identifier)
             state = .ready(artifact)
             show()
         }

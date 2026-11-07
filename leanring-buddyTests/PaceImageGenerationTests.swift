@@ -14,6 +14,36 @@ struct PaceImageGenerationTests {
         }
     }
 
+    @Test func screenFreeCreativeBriefsDoNotRequireScreenCapture() {
+        for transcript in [
+            "make a chart of my screen time", "an image of my screensaver idea",
+            "draw what I see when I close my eyes",
+        ] {
+            #expect(!PaceImageGenerationRequest.requiresScreenContext(transcript, hasActiveImage: false))
+        }
+    }
+
+    @Test @MainActor func visualImageFixtureNeverDeletesItsSourceAndReplacesTheDiagram() throws {
+        let identifier = UUID()
+        let source = PaceGeneratedImageStore.defaultDirectory.appendingPathComponent(identifier.uuidString)
+            .appendingPathExtension("png")
+        try FileManager.default.createDirectory(
+            at: PaceGeneratedImageStore.defaultDirectory, withIntermediateDirectories: true)
+        try Self.writePNG(to: source)
+        defer { try? FileManager.default.removeItem(at: source) }
+        let controller = PaceImageOverlayController(showsWindows: false)
+        var diagramReplacementCount = 0
+        controller.onWillGenerate = { diagramReplacementCount += 1 }
+        try controller.presentImageForSmokeTest(
+            at: source, environment: ["PACE_ENABLE_SMOKE_HOOKS": "1", "PACE_VISUAL_ACCEPTANCE_FIXTURE": "1"])
+        #expect(controller.lastSuccessfulArtifact?.id == identifier)
+        #expect(diagramReplacementCount == 1)
+        try controller.presentImageForSmokeTest(
+            at: source, environment: ["PACE_ENABLE_SMOKE_HOOKS": "1", "PACE_VISUAL_ACCEPTANCE_FIXTURE": "1"])
+        controller.dismiss()
+        #expect(FileManager.default.fileExists(atPath: source.path))
+    }
+
     private static let request = PaceImageGenerationRequest(prompt: "A blue ceramic mug on white", title: "Blue mug")
 
     private static func directory() throws -> URL {
