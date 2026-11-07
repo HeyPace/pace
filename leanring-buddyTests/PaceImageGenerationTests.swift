@@ -7,19 +7,44 @@ import UniformTypeIdentifiers
 @testable import Pace
 
 struct PaceImageGenerationTests {
-    @Test func explicitScreenReferencesNeverUseTheImageOnlyPath() {
-        for transcript in ["generate an image of my screen", "draw my window", "make an image of what I see"] {
-            #expect(PaceImageGenerationRequest.requiresScreenContext(transcript, hasActiveImage: false))
-            #expect(PaceImageGenerationRequest.requiresScreenContext(transcript, hasActiveImage: true))
-        }
-    }
-
-    @Test func screenFreeCreativeBriefsDoNotRequireScreenCapture() {
-        for transcript in [
+    @Test func screenContextIntentMatrix() {
+        let screenRequests = [
+            "diagram what is on the screen", "diagram this screen", "diagram this page",
+            "diagram this webpage", "diagram this code", "diagram this chart", "diagram this image",
+            "diagram this window", "diagram what I am looking at", "diagram this article",
+            "diagram this document", "diagram the selected text",
+            "generate an image of my screen", "draw my screens", "draw my screenshot",
+            "draw my screenshots", "draw my window", "draw my windows",
+            "make an image of what I see", "draw what I see here", "draw what I see on my laptop",
+            "draw what I see right now", "make a diagram of what I see in Safari",
+            "draw what I see at the moment", "draw what I see when I use Safari",
+        ]
+        let creativeBriefs = [
             "make a chart of my screen time", "an image of my screensaver idea",
-            "draw what I see when I close my eyes",
-        ] {
-            #expect(!PaceImageGenerationRequest.requiresScreenContext(transcript, hasActiveImage: false))
+            "draw my windowpane design", "draw a blue mug",
+            "draw what I see when I close my eyes", "draw what I see with my eyes closed",
+            "draw what I see in my mind", "draw what I see in my head",
+            "draw what I see in my dream", "draw what I see in my dreams",
+            "draw what I see in my imagination",
+        ]
+        for hasActiveDiagram in [false, true] {
+            for transcript in screenRequests {
+                #expect(PaceDiagramDocument.requiresScreenContext(transcript, hasActiveDiagram: hasActiveDiagram))
+                // Existing images own references to themselves; explicit screen references still override them.
+                if transcript != "diagram this image" {
+                    #expect(
+                        PaceImageGenerationRequest.requiresScreenContext(transcript, hasActiveImage: hasActiveDiagram))
+                }
+            }
+            for transcript in creativeBriefs {
+                #expect(!PaceDiagramDocument.requiresScreenContext(transcript, hasActiveDiagram: hasActiveDiagram))
+                #expect(!PaceImageGenerationRequest.requiresScreenContext(transcript, hasActiveImage: hasActiveDiagram))
+            }
+            for transcript in ["explain this", "draw this diagram", "simplify this figure"] {
+                #expect(
+                    PaceDiagramDocument.requiresScreenContext(transcript, hasActiveDiagram: hasActiveDiagram)
+                        == !hasActiveDiagram)
+            }
         }
     }
 
