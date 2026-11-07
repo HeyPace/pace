@@ -68,12 +68,14 @@ private struct PaceConversationPanelSurface: View {
                     .accessibilityValue(headerAccessibilityValue)
                     PacePanelChatView(
                         companionManager: companionManager, isEmbeddedInNotch: true,
-                        composerFocusRequestID: surfaceModel.presentation.composerFocusRequestID)
-                        .frame(width: PaceQuickPanelMetrics.width, height: PaceQuickPanelMetrics.seamlessContentHeight)
+                        composerFocusRequestID: surfaceModel.presentation.composerFocusRequestID
+                    )
+                    .frame(width: PaceQuickPanelMetrics.width, height: PaceQuickPanelMetrics.seamlessContentHeight)
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
                 .background(Color.black)
-                .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 24, bottomTrailingRadius: 24, style: .continuous))
+                .clipShape(
+                    UnevenRoundedRectangle(bottomLeadingRadius: 24, bottomTrailingRadius: 24, style: .continuous))
             case .anchored:
                 if usesChatPanelAsPrimarySurface {
                     PaceChatPanelView(

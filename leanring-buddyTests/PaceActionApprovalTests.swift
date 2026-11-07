@@ -10,12 +10,13 @@ import Testing
 
 struct PaceActionApprovalTests {
     @Test func repeatedPartialInspectionKeepsBothExactRequestsAndReadEvidence() {
-        let request = #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","name":"see","arguments":{"app_target":"Safari","window_id":84,"ocr":true}}}}"#
+        let request =
+            #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","name":"see","arguments":{"app_target":"Safari","window_id":84,"ocr":true}}}}"#
         let partialEvidence = """
-        Warning: AX tree incomplete. Retry once with the same exact app_target and window_id.
-        Save at (1245, 340) size 39×13 [not actionable]
-        Engine temperature 81°C. Fuel remaining 37%.
-        """
+            Warning: AX tree incomplete. Retry once with the same exact app_target and window_id.
+            Save at (1245, 340) size 39×13 [not actionable]
+            Engine temperature 81°C. Fuel remaining 37%.
+            """
         let observation = PaceActionExecutionObservation(toolName: "mcp.peekaboo.see", summary: partialEvidence)
         var inspectionHistory = PaceAgentInspectionHistory()
         inspectionHistory.append(plannerRequest: request, observations: [observation])
@@ -39,7 +40,9 @@ struct PaceActionApprovalTests {
         let click = PaceActionTagParser.parseActions(from: "[CLICK:1264,347]")
         #expect(!PaceActionApprovalPolicy.permitsObservationOnly(click.executionPlan))
         let mcpClick = PaceActionTagParser.parseActions(
-            from: #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","name":"click","arguments":{"coords":"1264,347","foreground":true}}}}"#)
+            from:
+                #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","name":"click","arguments":{"coords":"1264,347","foreground":true}}}}"#
+        )
         #expect(!PaceActionApprovalPolicy.permitsObservationOnly(mcpClick.executionPlan))
     }
 

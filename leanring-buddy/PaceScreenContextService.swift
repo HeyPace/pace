@@ -177,7 +177,9 @@ final class PaceScreenContextService {
                         return nil
                     }
                     guard cached.identity == cacheIdentity else {
-                        print("👁️  Prewarm cache MISS for \(cursorScreenCapture.label) — analyzer, capabilities, or display changed")
+                        print(
+                            "👁️  Prewarm cache MISS for \(cursorScreenCapture.label) — analyzer, capabilities, or display changed"
+                        )
                         return nil
                     }
                     if cached.pixelHash == pixelHash {
@@ -495,11 +497,13 @@ final class PaceScreenContextService {
                             screenshotImageData: capture.imageData,
                             userIntent: transcript
                         )
-                        async let ocrBoxesFuture = allowsNativeOCR ? visionOCRClientForGroup.recognizeText(
+                        async let ocrBoxesFuture =
+                            allowsNativeOCR
+                            ? visionOCRClientForGroup.recognizeText(
                             in: capture.imageData,
                             screenshotWidthInPixels: capture.screenshotWidthInPixels,
                             screenshotHeightInPixels: capture.screenshotHeightInPixels
-                        ) : []
+                            ) : []
                         do {
                             let vlmAnalysis = try await vlmAnalysisFuture
                             let ocrBoxes = (try? await ocrBoxesFuture) ?? []
@@ -515,7 +519,8 @@ final class PaceScreenContextService {
                                 return (captureIndex, capture.label, nil, pixelHash)
                             }
                             let ocrOnlyAnalysis = PaceScreenContextMerger.enrich(
-                                vlmAnalysis: LocalVLMScreenAnalysis(elements: [], description: "VLM failed; OCR text only."),
+                                vlmAnalysis: LocalVLMScreenAnalysis(
+                                    elements: [], description: "VLM failed; OCR text only."),
                                 with: ocrBoxes
                             )
                             return (captureIndex, capture.label, ocrOnlyAnalysis, pixelHash)

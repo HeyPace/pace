@@ -652,7 +652,8 @@ struct PaceImageGenerationTests {
         Self.wireVisualReplacement(
             diagramOverlayController: diagramOverlayController, imageOverlayController: imageOverlayController)
         let diagram = Self.diagram("Water cycle")
-        let actions: [PaceParsedAction] = imageFirst
+        let actions: [PaceParsedAction] =
+            imageFirst
             ? [.generateImage(Self.request), .showDiagram(diagram)]
             : [.showDiagram(diagram), .generateImage(Self.request)]
         let parsed = PaceActionTagParseResult(

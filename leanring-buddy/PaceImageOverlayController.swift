@@ -194,13 +194,15 @@ enum PaceVisualActionDrainer {
         for step in parseResult.executionPlan.steps {
             var remainingActions: [PaceParsedAction] = []
             for action in step.actions {
-                let permitsVisualOutput = !Task.isCancelled
+                let permitsVisualOutput =
+                    !Task.isCancelled
                     && expectedDiagramDismissalGeneration == diagramOverlayController.dismissalGeneration
                     && expectedImageDismissalGeneration == imageOverlayController.dismissalGeneration
                 switch action {
                 case .showDiagram, .dismissDiagram:
                     guard permitsVisualOutput else {
-                        spokenText = diagramOverlayController.document == nil
+                        spokenText =
+                            diagramOverlayController.document == nil
                             ? "I kept the diagram closed." : "I kept the current diagram unchanged."
                         continue
                     }
@@ -244,7 +246,8 @@ enum PaceVisualActionDrainer {
         return .init(
             spokenText: imageMessages.isEmpty
                 ? spokenText
-                : ((remainingActions.isEmpty && !includesDiagram ? [] : [spokenText]) + imageMessages).joined(separator: " "),
+                : ((remainingActions.isEmpty && !includesDiagram ? [] : [spokenText]) + imageMessages).joined(
+                    separator: " "),
             actions: remainingActions,
             executionPlan: .init(steps: remainingSteps),
             firstClickVisualisationLocation: parseResult.firstClickVisualisationLocation)

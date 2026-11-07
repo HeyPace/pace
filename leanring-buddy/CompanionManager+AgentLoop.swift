@@ -2605,7 +2605,8 @@ extension CompanionManager {
                     if needsInspectionAnswer {
                         inspectionHistory.append(plannerRequest: fullResponseText, observations: toolObservations)
                     }
-                    let inspectionHistoryPromptText = needsInspectionAnswer
+                    let inspectionHistoryPromptText =
+                        needsInspectionAnswer
                         ? inspectionHistory.formattedForPlanner : toolObservationPromptText
                     if toolObservationPromptText.isEmpty {
                         currentTurnUserPrompt =

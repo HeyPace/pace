@@ -13,8 +13,10 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         let housing = CGRect(x: 770, y: 1085, width: 185, height: 32)
         let controls = CGRect(x: 726, y: 1085, width: 273, height: 32)
         var occupancy = PaceMenuBarOccupancy(
-            itemFrames: [CGRect(x: 0, y: 1085, width: 700, height: 32),
-                         CGRect(x: 1020, y: 1085, width: 700, height: 32)],
+            itemFrames: [
+                CGRect(x: 0, y: 1085, width: 700, height: 32),
+                CGRect(x: 1020, y: 1085, width: 700, height: 32),
+            ],
             isReliable: true)
         XCTAssertFalse(occupancy.overlaps(controls, housingFrame: housing))
         occupancy.itemFrames.append(CGRect(x: 710, y: 1085, width: 35, height: 32))
@@ -321,10 +323,11 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
                 let leftArea = CGRect(x: menuRow.minX, y: menuRow.minY, width: 751.5, height: menuHeight)
                 let rightArea = CGRect(x: menuRow.minX + 976.5, y: menuRow.minY, width: 751.5, height: menuHeight)
                 for displayMode in [PaceLivingNotchDisplayMode.resting, .hover, .active] {
-                    let geometry = try XCTUnwrap(PaceLivingNotchGeometry.resolve(
-                        screenFrame: screenFrame, safeAreaTopInset: menuHeight,
-                        auxiliaryTopLeftArea: leftArea, auxiliaryTopRightArea: rightArea,
-                        displayMode: displayMode))
+                    let geometry = try XCTUnwrap(
+                        PaceLivingNotchGeometry.resolve(
+                            screenFrame: screenFrame, safeAreaTopInset: menuHeight,
+                            auxiliaryTopLeftArea: leftArea, auxiliaryTopRightArea: rightArea,
+                            displayMode: displayMode))
                     XCTAssertEqual(geometry.presentationFrame.maxY, screenFrame.maxY)
                     XCTAssertTrue(geometry.presentationFrame.contains(geometry.physicalHousingFrame))
 

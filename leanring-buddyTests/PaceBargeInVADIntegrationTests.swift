@@ -233,9 +233,10 @@ struct PaceBargeInVADIntegrationTests {
         }
         await currentChunk.value
 
-        #expect(recordingClient.spokenTexts == [
-            "This sentence belongs to the old reply.", "This is the user's new reply."
-        ])
+        #expect(
+            recordingClient.spokenTexts == [
+                "This sentence belongs to the old reply.", "This is the user's new reply.",
+            ])
     }
 
     @Test
@@ -252,10 +253,12 @@ struct PaceBargeInVADIntegrationTests {
         detector.setTTSPlaybackActive(true, at: playbackStartedAt)
         var nextSampleDate = playbackStartedAt.addingTimeInterval(0.4)
         var didDetectInterruption = false
-        let subscription = pushToTalkLevels
+        let subscription =
+            pushToTalkLevels
             .merge(with: wakeSpotter.audioLevelPublisher)
             .sink { level in
-                didDetectInterruption = detector.observe(normalizedLevel: level, at: nextSampleDate)
+                didDetectInterruption =
+                    detector.observe(normalizedLevel: level, at: nextSampleDate)
                     || didDetectInterruption
                 nextSampleDate = nextSampleDate.addingTimeInterval(0.2)
             }

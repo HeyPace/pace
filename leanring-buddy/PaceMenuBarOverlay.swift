@@ -294,8 +294,9 @@ final class PaceMenuBarOverlayManager {
         let ambientHomePresentation = PaceAmbientHomePresentation.resolve(
             hasReliablePhysicalNotchGeometry: geometry != nil
         )
-        if let geometry, PaceMenuBarOccupancyMonitor.shared.occupancy.overlaps(
-            geometry.presentationFrame, housingFrame: geometry.physicalHousingFrame)
+        if let geometry,
+            PaceMenuBarOccupancyMonitor.shared.occupancy.overlaps(
+                geometry.presentationFrame, housingFrame: geometry.physicalHousingFrame)
         {
             hoverOpenTask?.cancel()
             isHovering = false

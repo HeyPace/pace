@@ -49,8 +49,8 @@ struct PaceSeamNotchSurface: View {
                                 ProgressView().controlSize(.mini).tint(DS.Colors.localSignal)
                             }
                         }
-                            .frame(width: 13, height: 13)
-                            .accessibilityHidden(true)
+                        .frame(width: 13, height: 13)
+                        .accessibilityHidden(true)
                     } else {
                         PaceSignalView(
                             state: signalState,
@@ -74,7 +74,10 @@ struct PaceSeamNotchSurface: View {
         .background(Color.black)
         .overlay {
             UnevenRoundedRectangle(bottomLeadingRadius: 16, bottomTrailingRadius: 16, style: .continuous)
-                .stroke(Color.white.opacity(displayMode == .hover ? 0.18 : displayMode == .active ? 0.07 : 0), lineWidth: 0.5)
+                .stroke(
+                    Color.white.opacity(displayMode == .hover ? 0.18 : displayMode == .active ? 0.07 : 0),
+                    lineWidth: 0.5
+                )
                 .animation(.easeOut(duration: DS.Motion.micro), value: displayMode)
                 .allowsHitTesting(false)
         }
@@ -149,7 +152,9 @@ struct PaceSeamNotchHeader: View {
                 Color.clear.frame(width: physicalHousingWidth)
                 wingButton(
                     label: isExpanded ? "Close conversation" : "Open conversation",
-                    shortcutHint: isExpanded ? "Close conversation · Esc" : "Open chat · \(PaceNotchChatShortcut.currentShortcutOption.notchDisplayLabel)",
+                    shortcutHint: isExpanded
+                        ? "Close conversation · Esc"
+                        : "Open chat · \(PaceNotchChatShortcut.currentShortcutOption.notchDisplayLabel)",
                     action: onChatTap
                 ) {
                     Group {
@@ -232,8 +237,8 @@ private struct PaceNotchButtonStyle: ButtonStyle {
     }
 }
 
-private extension BuddyPushToTalkShortcut.ShortcutOption {
-    var notchDisplayLabel: String {
+extension BuddyPushToTalkShortcut.ShortcutOption {
+    fileprivate var notchDisplayLabel: String {
         switch self {
         case .shiftFunction: return "⇧fn"
         case .controlOption: return "⌃⌥"
@@ -244,8 +249,8 @@ private extension BuddyPushToTalkShortcut.ShortcutOption {
     }
 }
 
-private extension PaceNotchChatShortcut.ShortcutOption {
-    var notchDisplayLabel: String {
+extension PaceNotchChatShortcut.ShortcutOption {
+    fileprivate var notchDisplayLabel: String {
         switch self {
         case .commandShiftP: return "⌘⇧P"
         case .commandShiftK: return "⌘⇧K"

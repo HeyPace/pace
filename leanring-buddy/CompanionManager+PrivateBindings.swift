@@ -156,8 +156,9 @@ extension CompanionManager {
     /// through the same capture pipeline as wake-word input.
     func handleBargeInDetected() {
         guard voiceState == .responding, isAlwaysListeningEnabled,
-              !buddyDictationManager.isDictationInProgress,
-              !globalPushToTalkShortcutMonitor.isShortcutCurrentlyPressed else { return }
+            !buddyDictationManager.isDictationInProgress,
+            !globalPushToTalkShortcutMonitor.isShortcutCurrentlyPressed
+        else { return }
         let lastSpokenPrefix = streamingSentenceTTSPipeline.inFlightStreamedText
             .trimmingCharacters(in: .whitespacesAndNewlines)
         cancelActiveTurnTasks()

@@ -165,10 +165,10 @@ struct PaceFigureView: View {
                 value: Binding(get: { controller.controlDeflection }, set: controller.setControlDeflection),
                 in: -1...1
             )
-                .frame(width: 80)
-                .accessibilityLabel("Control surface deflection")
-                .help("Move the airplane's ailerons, elevators, rudder and flaps")
-                .onHover { hovering in if hovering { NSCursor.pointingHand.set() } }
+            .frame(width: 80)
+            .accessibilityLabel("Control surface deflection")
+            .help("Move the airplane's ailerons, elevators, rudder and flaps")
+            .onHover { hovering in if hovering { NSCursor.pointingHand.set() } }
         }
     }
 

@@ -22,15 +22,16 @@ nonisolated struct PaceAgentInspectionHistory {
     mutating func append(plannerRequest: String, observations: [PaceActionExecutionObservation]) {
         completedStepCount += 1
         let stepText = """
-        Completed inspection step \(completedStepCount)
-        Request:
-        \(plannerRequest)
-        Result:
-        \(PaceActionExecutionObservation.formatForPlanner(observations))
-        """
+            Completed inspection step \(completedStepCount)
+            Request:
+            \(plannerRequest)
+            Result:
+            \(PaceActionExecutionObservation.formatForPlanner(observations))
+            """
         let truncationMarker = "\n[inspection result truncated to fit the prompt budget]"
         let maximumStepCharacterCount = (Self.maximumCharacterCount - 2) / 2
-        let boundedStepText = stepText.count > maximumStepCharacterCount
+        let boundedStepText =
+            stepText.count > maximumStepCharacterCount
             ? String(stepText.prefix(maximumStepCharacterCount - truncationMarker.count)) + truncationMarker
             : stepText
         completedSteps.append(boundedStepText)
