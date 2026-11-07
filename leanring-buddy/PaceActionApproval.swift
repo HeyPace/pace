@@ -77,6 +77,8 @@ nonisolated enum PaceActionApprovalPolicy {
         configuredServers: [String: PaceMCPServerConfiguration] = PaceMCPServerRegistry.loadConfiguredServers()
     ) -> Bool {
         actionExecutionPlan.flattenedActions.allSatisfy { action in
+            // Creating a file is not observation, even when the tool needs no action-approval dialog.
+            if case .generateImage = action { return false }
             if case .mcp(let toolCall) = action {
                 switch toolCall.serverName {
                 case "peekaboo":

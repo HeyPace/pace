@@ -7,6 +7,7 @@ final class PaceImageOverlayController: ObservableObject {
     @Published private(set) var state: PaceImageGenerationState = .idle
     @Published private(set) var lastSuccessfulArtifact: PaceGeneratedImageArtifact?
     private(set) var dismissalGeneration = 0
+    private(set) var lastUserInteractionAt: Date?
     var authorizationCheck: () -> Bool = { false }
     var onWillGenerate: (() -> Void)?
     var onGenerationProgress: ((String) -> Void)?
@@ -53,6 +54,7 @@ final class PaceImageOverlayController: ObservableObject {
     // Ordered visual replacement does not revoke later image actions in the
     // same plan. The job identity still fences any earlier in-flight result.
     func hideForDiagramReplacement() {
+        lastUserInteractionAt = nil
         generationIdentifier = nil
         generationTask?.cancel()
         generationTask = nil
@@ -61,6 +63,29 @@ final class PaceImageOverlayController: ObservableObject {
         state = .idle
         overlay?.hide()
     }
+
+    func recordUserInteraction(at now: Date = Date()) {
+        guard lastSuccessfulArtifact != nil else { return }
+        lastUserInteractionAt = now
+    }
+
+    #if DEBUG
+        func presentImageForSmokeTest(at fileURL: URL) throws {
+            guard PaceRuntimeSmokeTestHooks.isVisualAcceptanceEnabled(),
+                fileURL.deletingLastPathComponent().standardizedFileURL
+                    == PaceGeneratedImageStore.defaultDirectory.standardizedFileURL,
+                let identifier = UUID(uuidString: fileURL.deletingPathExtension().lastPathComponent)
+            else { return }
+            let validated = try PaceGeneratedImageStore.validatedImageData(at: fileURL)
+            hideForDiagramReplacement()
+            let artifact = PaceGeneratedImageArtifact(
+                id: identifier, fileURL: fileURL, width: validated.width, height: validated.height,
+                request: .init(prompt: "A blue ceramic mug", title: "Blue mug acceptance fixture"))
+            lastSuccessfulArtifact = artifact
+            state = .ready(artifact)
+            show()
+        }
+    #endif
 
     func preserveExplicitlySavedArtifact(_ artifact: PaceGeneratedImageArtifact, at destination: URL) {
         if destination.resolvingSymlinksInPath().standardizedFileURL

@@ -95,6 +95,13 @@ final class PaceDiagramOverlayController: ObservableObject {
         hideForImageReplacement()
     }
 
+    #if DEBUG
+        func focusFigureForSmokeTest() {
+            guard PaceRuntimeSmokeTestHooks.isEnabled else { return }
+            overlayManager?.focusFigureForSmokeTest()
+        }
+    #endif
+
     // Replacing a visual within the same plan must not revoke later diagram actions.
     func hideForImageReplacement() {
         lastUserInteractionAt = nil

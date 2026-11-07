@@ -11,6 +11,9 @@ import Foundation
 
 extension Notification.Name {
     static let paceSmokeShowDiagram = Notification.Name("com.pace.smoke.showDiagram")
+    static let paceSmokeFocusFigure = Notification.Name("com.pace.smoke.focusFigure")
+    static let paceSmokeShowFixtureImage = Notification.Name("com.pace.smoke.showFixtureImage")
+    static let paceSmokeShowFlowchart = Notification.Name("com.pace.smoke.showFlowchart")
     static let paceSmokeSelectDiagramPart = Notification.Name("com.pace.smoke.selectDiagramPart")
     static let paceSmokeDismissDiagram = Notification.Name("com.pace.smoke.dismissDiagram")
     static let paceSmokeShowPanel = Notification.Name("com.pace.smoke.showPanel")
@@ -22,8 +25,10 @@ extension Notification.Name {
     static let paceSmokeShowClarification = Notification.Name("com.pace.smoke.showClarification")
     static let paceSmokeResolveClarification = Notification.Name("com.pace.smoke.resolveClarification")
     static let paceSmokeShowClickTargetClarification = Notification.Name("com.pace.smoke.showClickTargetClarification")
-    static let paceSmokeResolveClickTargetClarification = Notification.Name("com.pace.smoke.resolveClickTargetClarification")
-    static let paceSmokeSimulateClickAllFailObservation = Notification.Name("com.pace.smoke.simulateClickAllFailObservation")
+    static let paceSmokeResolveClickTargetClarification = Notification.Name(
+        "com.pace.smoke.resolveClickTargetClarification")
+    static let paceSmokeSimulateClickAllFailObservation = Notification.Name(
+        "com.pace.smoke.simulateClickAllFailObservation")
 }
 
 @MainActor
@@ -52,6 +57,24 @@ final class PaceRuntimeSmokeTestHooks {
 
     private func installObservers() {
         #if DEBUG
+            observe(.paceSmokeShowFixtureImage) { [weak self] in
+                guard Self.isVisualAcceptanceEnabled(),
+                    let imagePath = ProcessInfo.processInfo.environment["PACE_VISUAL_ACCEPTANCE_IMAGE"]
+                else { return }
+                try? self?.companionManager.imageOverlayController.presentImageForSmokeTest(
+                    at: URL(fileURLWithPath: imagePath))
+            }
+            observe(.paceSmokeShowFlowchart) { [weak self] in
+                guard Self.isVisualAcceptanceEnabled() else { return }
+                let fixture =
+                    #"{"tool":"show_diagram","title":"A bounded local request","summary":"Task-owned flowchart fixture.","nodes":[{"id":"request","label":"Request","detail":"The user supplies a bounded request.","x":90,"y":220,"width":300,"height":140},{"id":"result","label":"Result","detail":"Pace returns the requested result.","x":610,"y":220,"width":300,"height":140}],"connections":[{"source":"request","target":"result","label":"respond"}]}"#
+                guard case .showDiagram(let document) = PaceActionTagParser.parseActions(from: fixture).actions.first
+                else { return }
+                self?.companionManager.diagramOverlayController.present(document)
+            }
+            observe(.paceSmokeFocusFigure) { [weak self] in
+                self?.companionManager.diagramOverlayController.focusFigureForSmokeTest()
+            }
             observe(.paceSmokeShowDiagram) { [weak self] in
                 guard let self,
                     let example = PaceToolRegistry.definition(forToolName: "show_diagram")?.schemaExample,
@@ -165,3 +188,46 @@ final class PaceRuntimeSmokeTestHooks {
         observers.append(observer)
     }
 }
+
+#if DEBUG
+    extension PaceRuntimeSmokeTestHooks {
+        static func isVisualAcceptanceEnabled(
+            environment: [String: String] = ProcessInfo.processInfo.environment
+        ) -> Bool {
+            environment["PACE_ENABLE_SMOKE_HOOKS"] == "1" && environment["PACE_VISUAL_ACCEPTANCE_FIXTURE"] == "1"
+        }
+
+        static func makeVisualAcceptanceSessionIfEnabled(
+            environment: [String: String] = ProcessInfo.processInfo.environment
+        ) -> PaceChatSession? {
+            guard isVisualAcceptanceEnabled(environment: environment) else { return nil }
+            // A visual test must never load owner history or dispatch a typed fixture to a planner.
+            let fixture = PaceVisualAcceptanceChatFixture()
+            let session = PaceChatSession(historySource: fixture, transcriptSubmitter: fixture)
+            fixture.session = session
+            session.isChatTTSMuted = true
+            return session
+        }
+    }
+
+    @MainActor
+    private final class PaceVisualAcceptanceChatFixture: PaceChatHistorySource, PaceChatTranscriptSubmitting {
+        weak var session: PaceChatSession?
+
+        func loadPastTurnsOldestFirst() -> [PaceChatHistoryTurn] {
+            [
+                .init(
+                    id: "pace-visual-acceptance", userText: "Explain how an airplane wing produces lift.",
+                    paceText:
+                        "The wing redirects airflow downward. The pressure difference around its curved surface produces lift. Select a part of the interactive aircraft to explore it.",
+                    recordedAt: Date(timeIntervalSince1970: 1_700_000_000))
+            ]
+        }
+
+        func submitChatTranscript(_ transcript: String, optimisticMessageIdentifier: String) {
+            session?.appendCompletedTurn(
+                userTranscript: transcript,
+                assistantResponse: "This is a local visual acceptance fixture. No planner or saved history was used.")
+        }
+    }
+#endif

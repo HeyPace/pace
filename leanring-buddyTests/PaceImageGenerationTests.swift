@@ -7,6 +7,13 @@ import UniformTypeIdentifiers
 @testable import Pace
 
 struct PaceImageGenerationTests {
+    @Test func explicitScreenReferencesNeverUseTheImageOnlyPath() {
+        for transcript in ["generate an image of my screen", "draw my window", "make an image of what I see"] {
+            #expect(PaceImageGenerationRequest.requiresScreenContext(transcript, hasActiveImage: false))
+            #expect(PaceImageGenerationRequest.requiresScreenContext(transcript, hasActiveImage: true))
+        }
+    }
+
     private static let request = PaceImageGenerationRequest(prompt: "A blue ceramic mug on white", title: "Blue mug")
 
     private static func directory() throws -> URL {
@@ -151,6 +158,57 @@ struct PaceImageGenerationTests {
         let permissions =
             try FileManager.default.attributesOfItem(atPath: artifact.fileURL.path)[.posixPermissions] as? Int
         #expect(permissions == 0o600)
+    }
+
+    @Test func configuredHomeSymlinkResolvesWithoutAllowingLinkedThreadArtifacts() throws {
+        let root = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let actualHome = root.appendingPathComponent("actual-home", isDirectory: true)
+        try FileManager.default.createDirectory(at: actualHome, withIntermediateDirectories: true)
+        let linkedHome = root.appendingPathComponent("configured-home", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: linkedHome, withDestinationURL: actualHome)
+        let generatedImages = PaceCodexImageGenerationClient.generatedImagesDirectory(codexHome: linkedHome)
+        #expect(generatedImages == actualHome.appendingPathComponent("generated_images", isDirectory: true))
+        let threadID = UUID().uuidString.lowercased()
+        let thread = generatedImages.appendingPathComponent(threadID, isDirectory: true)
+        try FileManager.default.createDirectory(at: thread, withIntermediateDirectories: true)
+        try Self.writePNG(to: thread.appendingPathComponent("result.png"))
+        let imported = try PaceGeneratedImageStore.importArtifact(
+            threadID: threadID, generatedImagesDirectory: generatedImages, request: Self.request,
+            destinationDirectory: root.appendingPathComponent("owned", isDirectory: true))
+        #expect(imported.width == 2)
+        let linkedThreadID = UUID().uuidString.lowercased()
+        try FileManager.default.createSymbolicLink(
+            at: generatedImages.appendingPathComponent(linkedThreadID), withDestinationURL: thread)
+        #expect(throws: (any Error).self) {
+            try PaceGeneratedImageStore.importArtifact(
+                threadID: linkedThreadID, generatedImagesDirectory: generatedImages, request: Self.request,
+                destinationDirectory: root.appendingPathComponent("owned", isDirectory: true))
+        }
+    }
+
+    @Test @MainActor func imageInteractionExtendsIdleLifetimeAndDismissalClearsActivity() async {
+        let artifact = Self.artifact()
+        let controller = PaceImageOverlayController(
+            showsWindows: false, discardArtifact: { _ in }, generateImage: { _, _ in artifact })
+        controller.authorizationCheck = { true }
+        let start = Date(timeIntervalSince1970: 10_000)
+        controller.recordUserInteraction(at: start)
+        #expect(controller.lastUserInteractionAt == nil)
+        _ = await controller.generate(Self.request, expectedDismissalGeneration: 0)
+        controller.recordUserInteraction(at: start.addingTimeInterval(19 * 60))
+        let memory = PaceThreadMemory(configuration: .default)
+        _ = memory.record(userTurn: "Draw a mug", assistantTurn: "Ready", turnId: "fixture", now: start)
+        #expect(
+            memory.sessionDidIdle(
+                now: start.addingTimeInterval(21 * 60),
+                lastUserInteractionAt: controller.lastUserInteractionAt) == nil)
+        #expect(
+            memory.sessionDidIdle(
+                now: start.addingTimeInterval(40 * 60),
+                lastUserInteractionAt: controller.lastUserInteractionAt) == .idleTimeout)
+        controller.dismiss()
+        #expect(controller.lastUserInteractionAt == nil)
     }
 
     @Test func workingCopyDiscardRequiresTheExactOwnedArtifactAndPreservesSavedCopies() throws {

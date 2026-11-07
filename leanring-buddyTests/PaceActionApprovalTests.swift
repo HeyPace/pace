@@ -9,6 +9,13 @@ import Testing
 @testable import Pace
 
 struct PaceActionApprovalTests {
+    @Test func observationOnlyRejectsGeneratedFilesEvenWhenTheToolNeedsNoApproval() {
+        let plan = PaceActionTagParser.parseActions(
+            from: #"{"tool":"generate_image","prompt":"A blue mug","title":"Blue mug"}"#)
+        #expect(!plan.actions.isEmpty)
+        #expect(!PaceActionApprovalPolicy.permitsObservationOnly(plan.executionPlan))
+    }
+
     @Test func repeatedPartialInspectionKeepsBothExactRequestsAndReadEvidence() {
         let request =
             #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","name":"see","arguments":{"app_target":"Safari","window_id":84,"ocr":true}}}}"#

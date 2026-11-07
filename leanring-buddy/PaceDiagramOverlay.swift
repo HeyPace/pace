@@ -135,6 +135,13 @@ final class PaceDiagramOverlayManager {
         globalKeyMonitor = nil
     }
 
+    #if DEBUG
+        func focusFigureForSmokeTest() {
+            NSApp.activate(ignoringOtherApps: true)
+            figurePanel?.makeKeyAndOrderFront(nil)
+        }
+    #endif
+
     private func targetScreen() -> NSScreen? {
         if let displayIdentifier,
             let screen = NSScreen.screens.first(where: {

@@ -209,8 +209,8 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
     static func requiresScreenContext(_ transcript: String, hasActiveDiagram: Bool) -> Bool {
         let normalized = transcript.lowercased()
         let screenReferences = [
-            "on my screen", "on the screen", "this screen", "this page", "this webpage",
-            "this code", "this chart", "this image", "this window",
+            "my screen", "on the screen", "this screen", "this page", "this webpage",
+            "this code", "this chart", "this image", "this window", "my window", "what i see",
             "looking at", "this article", "this document", "selected text",
         ]
         if screenReferences.contains(where: normalized.contains) { return true }

@@ -283,7 +283,10 @@ extension CompanionManager {
     func evaluateThreadIdleAndResetIfNeeded(now: Date) {
         guard
             let sessionEndCause = threadMemory.sessionDidIdle(
-                now: now, lastUserInteractionAt: diagramOverlayController.lastUserInteractionAt
+                now: now,
+                lastUserInteractionAt: [
+                    diagramOverlayController.lastUserInteractionAt, imageOverlayController.lastUserInteractionAt,
+                ].compactMap { $0 }.max()
             )
         else {
             return

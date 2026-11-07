@@ -78,6 +78,9 @@ private struct PaceImageOverlayView: View {
                             .frame(width: geometry.size.width * zoom, height: geometry.size.height * zoom)
                             .accessibilityLabel(artifact.request.title)
                     }
+                    .onScrollPhaseChange { _, phase in
+                        if phase != .idle { controller.recordUserInteraction() }
+                    }
                 } else {
                     VStack(spacing: 16) {
                         if case .generating = controller.state { ProgressView().controlSize(.large).tint(.white) }
@@ -104,6 +107,9 @@ private struct PaceImageOverlayView: View {
         }
         .foregroundStyle(.white.opacity(0.9))
         .background(Color.clear)
+        .onContinuousHover { phase in
+            if case .active = phase { controller.recordUserInteraction() }
+        }
         .onChange(of: controller.lastSuccessfulArtifact?.id) { _, _ in
             zoom = 1
             saveError = nil
@@ -118,7 +124,10 @@ private struct PaceImageOverlayView: View {
     }
 
     private func button(_ label: String, symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button {
+            controller.recordUserInteraction()
+            action()
+        } label: {
             Image(systemName: symbol).font(.system(size: 13)).frame(width: 28, height: 28).contentShape(Rectangle())
         }
         .buttonStyle(PaceImageButtonStyle()).help(label).accessibilityLabel(label)

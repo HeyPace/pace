@@ -250,6 +250,11 @@ final class CompanionManager: ObservableObject {
     /// through `paceHistory` retrieval — there is no parallel chat
     /// storage layer. See `PaceChatSession.swift`.
     lazy var chatSession: PaceChatSession = {
+        #if DEBUG
+            if let fixtureSession = PaceRuntimeSmokeTestHooks.makeVisualAcceptanceSessionIfEnabled() {
+                return fixtureSession
+            }
+        #endif
         return PaceChatSession(
             historySource: PaceLocalChatHistoryReader(),
             transcriptSubmitter: companionManagerChatSubmitterAdapter

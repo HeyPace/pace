@@ -301,6 +301,12 @@ final class PaceCodexImageGenerationClient {
         return identifier
     }
 
+    nonisolated static func generatedImagesDirectory(codexHome: URL) -> URL {
+        // The configured home is trusted; thread directories and files below it remain symlink-rejected.
+        codexHome.resolvingSymlinksInPath().standardizedFileURL
+            .appendingPathComponent("generated_images", isDirectory: true)
+    }
+
     nonisolated static func authoringPrompt(request: PaceImageGenerationRequest, previous: PaceGeneratedImageArtifact?)
         -> String
     {
@@ -374,7 +380,7 @@ final class PaceCodexImageGenerationClient {
             try Task.checkCancellation()
             let artifact = try PaceGeneratedImageStore.importArtifact(
                 threadID: capturedThreadID,
-                generatedImagesDirectory: codexHome.appendingPathComponent("generated_images", isDirectory: true),
+                generatedImagesDirectory: Self.generatedImagesDirectory(codexHome: codexHome),
                 request: request)
             record(startedAt: startedAt, outcome: "ok", inputBytes: inputBytes)
             return artifact
