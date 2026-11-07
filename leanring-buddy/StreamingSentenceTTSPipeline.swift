@@ -231,6 +231,17 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         await dispatchDeltaIfReady(speakableSafePrefix: speakableSafePrefix)
     }
 
+    /// Queued stream callbacks must still belong to the active turn before
+    /// they can repopulate the pipeline after the next capture resets it.
+    func acceptStreamedText(
+        _ accumulatedPlannerText: String,
+        expectedTurnLease: PaceTurnLease,
+        currentTurnLease: PaceTurnLease
+    ) async {
+        guard expectedTurnLease == currentTurnLease else { return }
+        await acceptStreamedText(accumulatedPlannerText)
+    }
+
     /// Called when the planner stream completes. The "final" text is
     /// the fully-stripped spoken text from `parsePointingCoordinates`.
     /// Speaks any tail beyond what's already been queued.

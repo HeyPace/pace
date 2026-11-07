@@ -43,6 +43,28 @@ struct PaceChatTranscriptModelTests {
         )
     }
 
+    @Test func quickPanelKeepsRecentQuestionsWithTheirAnswersAndHistoryRemainsSelectable() {
+        let messages = (1...5).flatMap { turn in
+            [
+                makeChatMessage(id: "\(turn):user", body: "Question \(turn)"),
+                makeChatMessage(id: "\(turn):pace", role: .pace, body: "Answer \(turn)"),
+            ]
+        }
+        let recent = PaceChatTranscriptModel.quickPanelMessages(messages, selectedQuestionIdentifier: nil)
+        #expect(recent.map(\.id) == ["3:user", "3:pace", "4:user", "4:pace", "5:user", "5:pace"])
+        let selected = PaceChatTranscriptModel.quickPanelMessages(messages, selectedQuestionIdentifier: "2:user")
+        #expect(selected.map(\.id) == ["2:user", "2:pace"])
+        #expect(messages.count == 10)
+        #expect(PaceChatTranscriptModel.quickPanelMessages(messages, selectedQuestionIdentifier: "missing") == recent)
+    }
+
+    @Test func quickPanelHandlesEmptyHistoryAndAnUnansweredQuestion() {
+        #expect(PaceChatTranscriptModel.quickPanelMessages([], selectedQuestionIdentifier: nil).isEmpty)
+        let pending = makeChatMessage(id: "pending:user", body: "Still thinking")
+        #expect(
+            PaceChatTranscriptModel.quickPanelMessages([pending], selectedQuestionIdentifier: pending.id) == [pending])
+    }
+
     // MARK: - Conversation turns → message rows
 
     @Test func userChatMessageMapsToTrailingAccentTintedRow() {
@@ -76,6 +98,41 @@ struct PaceChatTranscriptModelTests {
 
         #expect(messageRowModels.map(\.bodyText) == ["first", "second", "third"])
         #expect(messageRowModels.map(\.id) == ["message-a", "message-b", "message-c"])
+    }
+
+    @Test func historicalVisualToolPayloadRendersAsNeutralRequestWithoutChangingSavedBody() {
+        let body =
+            #"{"tool":"generate_image","prompt":"Brushed titanium turbofan with blue leader lines","title":"Labeled turbofan engine cutaway","edit":false}"#
+        let message = makeChatMessage(role: .pace, body: body)
+        let row = PaceChatTranscriptModel.messageRowModel(fromChatMessage: message)
+        #expect(row.bodyText == "Image request · Labeled turbofan engine cutaway")
+        #expect(!row.bodyText.contains("prompt"))
+        #expect(!row.bodyText.contains("ready"))
+        #expect(message.body == body)
+    }
+
+    @Test func visualPayloadProjectionPreservesUserMessagesCodeExamplesAndOtherJSON() {
+        let payload = #"{"tool":"generate_image","prompt":"A plane","title":"Plane","edit":false}"#
+        #expect(PaceChatTranscriptModel.displayedBodyText(forChatMessage: makeChatMessage(body: payload)) == payload)
+        for body in [
+            "```json\n\(payload)\n```", #"{"engine":"turbofan","stages":4}"#,
+            #"{"tool":"my_custom_example","title":"Example"}"#,
+            #"{"tool":"generate_image","explanation":"This is a schema example"}"#, "Here is an example: \(payload)",
+            #"{"tool":"generate_image","prompt":"unfinished""#,
+        ] {
+            #expect(
+                PaceChatTranscriptModel.displayedBodyText(
+                    forChatMessage: makeChatMessage(role: .pace, body: body)) == body)
+        }
+    }
+
+    @Test func visualPayloadProjectionHasBoundedTitlesAndDoesNotClaimAnOutcome() throws {
+        let title = "Fan\n[CLICK:20,20]"
+        let data = try JSONSerialization.data(withJSONObject: ["tool": "show_diagram", "title": title, "nodes": []])
+        let message = makeChatMessage(role: .pace, body: String(decoding: data, as: UTF8.self))
+        #expect(PaceChatTranscriptModel.displayedBodyText(forChatMessage: message) == "Diagram request · Fan")
+        let close = makeChatMessage(role: .pace, body: #"{"tool":"dismiss_diagram"}"#)
+        #expect(PaceChatTranscriptModel.displayedBodyText(forChatMessage: close) == "Close diagram request")
     }
 
     // MARK: - Tool display name

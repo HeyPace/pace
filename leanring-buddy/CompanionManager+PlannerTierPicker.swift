@@ -14,11 +14,16 @@ extension CompanionManager {
     // MARK: - Planner tier picker state
 
     func setActivePlannerTier(_ newTier: PacePlannerTier) {
+        if newTier != activePlannerTier {
+            diagramOverlayController.dismiss()
+            imageOverlayController.dismiss()
+        }
         activePlannerTier = newTier
         PacePlannerTierStore.saveTier(newTier)
         // Rebuild planner so the next turn uses the freshly-picked tier
         // without requiring an app restart.
         plannerClient = BuddyPlannerClientFactory.makeDefault()
+        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
 
     /// Selects a planner tier from any picker surface, running the SAME
@@ -75,37 +80,50 @@ extension CompanionManager {
     /// planner so the next turn spawns the freshly-picked CLI without an
     /// app restart.
     func setCLIDirectUpstream(_ newUpstream: PaceLocalCLIUpstream) {
+        if newUpstream != activePlannerTierCLIDirectUpstream {
+            diagramOverlayController.dismiss()
+            imageOverlayController.dismiss()
+        }
         activePlannerTierCLIDirectUpstream = newUpstream
         PacePlannerTierStore.saveCLIDirectUpstream(newUpstream)
         plannerClient = BuddyPlannerClientFactory.makeDefault()
+        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
 
     func setDirectAPIProvider(_ newProvider: PaceDirectAPIProvider) {
+        if newProvider != directAPIProvider {
+            diagramOverlayController.dismiss()
+            imageOverlayController.dismiss()
+        }
         directAPIProvider = newProvider
         PacePlannerTierStore.saveDirectAPIProvider(newProvider)
         // When the provider changes, also seed the model field with that
         // provider's default — the user can immediately overwrite it but
         // most users want a sensible starting model identifier.
         let savedModelForProvider = PacePlannerTierStore.loadConfiguration().directAPIModelIdentifier
-        let modelIdentifierLooksEmptyOrStale = savedModelForProvider
+        let modelIdentifierLooksEmptyOrStale =
+            savedModelForProvider
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty
         if modelIdentifierLooksEmptyOrStale {
             setDirectAPIModelIdentifier(newProvider.defaultModelIdentifier)
         }
         plannerClient = BuddyPlannerClientFactory.makeDefault()
+        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
 
     func setDirectAPIModelIdentifier(_ newModelIdentifier: String) {
         directAPIModelIdentifier = newModelIdentifier
         PacePlannerTierStore.saveDirectAPIModelIdentifier(newModelIdentifier)
         plannerClient = BuddyPlannerClientFactory.makeDefault()
+        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
 
     func setDirectAPICustomEndpointURLString(_ newCustomEndpointURLString: String) {
         directAPICustomEndpointURLString = newCustomEndpointURLString
         PacePlannerTierStore.saveDirectAPICustomEndpointURL(newCustomEndpointURLString)
         plannerClient = BuddyPlannerClientFactory.makeDefault()
+        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
 
     func setDirectAPIFallsBackToLocalOnCloudFailure(_ enabled: Bool) {
@@ -187,6 +205,7 @@ extension CompanionManager {
         let didStore = PaceKeychainStore.storeAPIKey(apiKey, for: provider)
         if didStore {
             plannerClient = BuddyPlannerClientFactory.makeDefault()
+            PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
         }
         return didStore
     }
@@ -199,6 +218,7 @@ extension CompanionManager {
         let didDelete = PaceKeychainStore.deleteAPIKey(for: provider)
         if didDelete {
             plannerClient = BuddyPlannerClientFactory.makeDefault()
+            PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
         }
         return didDelete
     }

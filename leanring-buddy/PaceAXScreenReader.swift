@@ -36,6 +36,21 @@ import Foundation
 
 @MainActor
 final class PaceAXScreenReader {
+    private let readAXPointElements: (() -> [LocalVLMScreenElement])?
+    private let primaryScreenHeight: () -> CGFloat
+
+    init(
+        readAXPointElements: (() -> [LocalVLMScreenElement])? = nil,
+        primaryScreenHeight: (() -> CGFloat)? = nil
+    ) {
+        self.readAXPointElements = readAXPointElements
+        self.primaryScreenHeight =
+            primaryScreenHeight ?? {
+                NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height
+                    ?? NSScreen.main?.frame.height ?? 0
+            }
+    }
+
     /// Soft cap on how long we'll spend walking the AX tree before
     /// returning whatever we have. Voice latency budget is the whole
     /// point; better to ship partial AX than to stall.
@@ -89,12 +104,10 @@ final class PaceAXScreenReader {
         kAXSliderRole as String: "other"
     ]
 
-    /// Legacy entry point — kept so older call sites compile, but the
-    /// `scalingToScreenshot:` variant is what callers should use.
-    /// Without a screenshot to scale against, this falls back to the
-    /// frontmost-screen's Retina factor, which is wrong whenever the
-    /// real screenshot is downsampled (which it always is in Pace).
+    /// The AX walk emits unscaled global points. Only the screenshot-aware
+    /// entry point converts them into capture pixels.
     func readFocusedWindow() -> [LocalVLMScreenElement] {
+        if let readAXPointElements { return readAXPointElements() }
         let walkDeadline = Date(timeIntervalSinceNow: walkDeadlineSeconds)
         var collectedElements: [LocalVLMScreenElement] = []
 
@@ -105,34 +118,15 @@ final class PaceAXScreenReader {
         return collectedElements
     }
 
-    /// Preferred entry point. Returns AX elements scaled to the given
-    /// screenshot's pixel space, with elements on OTHER screens
-    /// filtered out (the executor only has geometry for this one
-    /// capture). Fixes the field bug where AX coords were scaled by
-    /// Retina factor (2.0) but the actual screenshot is downsampled
-    /// to 1280-wide — caused every click past the screen midpoint to
-    /// land at the right edge. Repro + math locked in by
-    /// `PaceScreenContextScalerTests`.
+    /// Scale the raw AX-global point geometry exactly once using the actual
+    /// capture dimensions, independent of either display's Retina factor.
     func readFocusedWindow(scalingToScreenshot screenCapture: CompanionScreenCapture) -> [LocalVLMScreenElement] {
         let rawAXPointElements = readFocusedWindow()
         let screenOriginInAXPoints = axOriginForScreenCapture(screenCapture)
 
         return rawAXPointElements.compactMap { rawElement -> LocalVLMScreenElement? in
             guard rawElement.bbox.count == 4 else { return nil }
-            // The legacy reader multiplied by Retina scale. Undo that
-            // multiply here before re-scaling with the correct
-            // screenshot:display ratio. Keeps the existing AX walk
-            // intact and isolates the fix to the scale step.
-            let legacyPixelScaleFactor = pixelScaleFactorForScreen(containingPointAt: CGPoint(
-                x: CGFloat(rawElement.bbox[0]) / 2.0,
-                y: CGFloat(rawElement.bbox[1]) / 2.0
-            ))
-            let axPointBoundingBox = [
-                Int(Double(rawElement.bbox[0]) / Double(legacyPixelScaleFactor)),
-                Int(Double(rawElement.bbox[1]) / Double(legacyPixelScaleFactor)),
-                Int(Double(rawElement.bbox[2]) / Double(legacyPixelScaleFactor)),
-                Int(Double(rawElement.bbox[3]) / Double(legacyPixelScaleFactor))
-            ]
+            let axPointBoundingBox = rawElement.bbox
 
             // Filter cross-screen elements — clicks for them would
             // land on the wrong screen because the executor only has
@@ -172,37 +166,12 @@ final class PaceAXScreenReader {
     /// `displayFrame` is in AppKit (bottom-left) coords, so we flip Y
     /// against the primary screen's height.
     private func axOriginForScreenCapture(_ screenCapture: CompanionScreenCapture) -> CGPoint {
-        guard let primaryScreen = NSScreen.screens.first(where: { $0.frame.origin == .zero }) else {
-            return .zero
-        }
-        return CGPoint(
+        CGPoint(
             x: screenCapture.displayFrame.origin.x,
-            y: primaryScreen.frame.height
+            y: primaryScreenHeight()
                 - screenCapture.displayFrame.origin.y
                 - screenCapture.displayFrame.height
         )
-    }
-
-    /// Retina factor of whichever screen contains the given AX-point.
-    /// Used to undo the legacy reader's multiply before re-scaling
-    /// with the correct screenshot ratio.
-    private func pixelScaleFactorForScreen(containingPointAt point: CGPoint) -> CGFloat {
-        guard let primaryScreen = NSScreen.screens.first(where: { $0.frame.origin == .zero }) else {
-            return NSScreen.main?.backingScaleFactor ?? 2.0
-        }
-        let primaryHeight = primaryScreen.frame.height
-        for candidateScreen in NSScreen.screens {
-            let flippedScreenFrame = CGRect(
-                x: candidateScreen.frame.origin.x,
-                y: primaryHeight - candidateScreen.frame.origin.y - candidateScreen.frame.height,
-                width: candidateScreen.frame.width,
-                height: candidateScreen.frame.height
-            )
-            if flippedScreenFrame.contains(point) {
-                return candidateScreen.backingScaleFactor
-            }
-        }
-        return NSScreen.main?.backingScaleFactor ?? 2.0
     }
 
     /// Walk the frontmost app's focused window. Same behavior as the
@@ -230,13 +199,9 @@ final class PaceAXScreenReader {
         }
         let focusedWindow = focusedWindowObject as! AXUIElement
 
-        // AX coords are in POINTS; rest of stack works in PIXELS.
-        let pixelScaleFactor = pixelScaleFactorForScreen(containing: focusedWindow)
-
         walkSubtree(
             of: focusedWindow,
             collectingInto: &collectedElements,
-            pixelScaleFactor: pixelScaleFactor,
             deadline: deadline
         )
     }
@@ -258,11 +223,9 @@ final class PaceAXScreenReader {
 
         // Dock items are children of the first AXList in the Dock's
         // single window. Walking the whole Dock subtree picks them up.
-        let pixelScaleFactor = NSScreen.main?.backingScaleFactor ?? 2.0
         walkSubtree(
             of: dockElement,
             collectingInto: &collectedElements,
-            pixelScaleFactor: pixelScaleFactor,
             deadline: deadline
         )
     }
@@ -292,7 +255,6 @@ final class PaceAXScreenReader {
         }
         let menuBar = menuBarObject as! AXUIElement
 
-        let pixelScaleFactor = NSScreen.main?.backingScaleFactor ?? 2.0
         // Top-level menu bar items (File, Edit, View, …) — not the
         // whole expanded menu tree, which would be hundreds of items
         // and the user can't see them until they open the menu.
@@ -311,8 +273,7 @@ final class PaceAXScreenReader {
             if let role = stringAttribute(kAXRoleAttribute as String, of: menuBarItem),
                let element = makeScreenElement(
                    from: menuBarItem,
-                   role: role,
-                   pixelScaleFactor: pixelScaleFactor
+                    role: role
                ) {
                 collectedElements.append(element)
             }
@@ -328,19 +289,17 @@ final class PaceAXScreenReader {
     private func walkSubtree(
         of element: AXUIElement,
         collectingInto collectedElements: inout [LocalVLMScreenElement],
-        pixelScaleFactor: CGFloat,
         deadline: Date
     ) {
         guard Date() < deadline else { return }
 
         if let role = stringAttribute(kAXRoleAttribute as String, of: element),
            Self.interestingAXRoles.contains(role),
-           let elementInPixels = makeScreenElement(
+            let elementInPoints = makeScreenElement(
                from: element,
-               role: role,
-               pixelScaleFactor: pixelScaleFactor
+                role: role
            ) {
-            collectedElements.append(elementInPixels)
+            collectedElements.append(elementInPoints)
         }
 
         var childrenValue: CFTypeRef?
@@ -359,7 +318,6 @@ final class PaceAXScreenReader {
             walkSubtree(
                 of: childElement,
                 collectingInto: &collectedElements,
-                pixelScaleFactor: pixelScaleFactor,
                 deadline: deadline
             )
         }
@@ -370,8 +328,7 @@ final class PaceAXScreenReader {
     /// elements with no frame (off-screen, hidden) or no useful label.
     private func makeScreenElement(
         from element: AXUIElement,
-        role: String,
-        pixelScaleFactor: CGFloat
+        role: String
     ) -> LocalVLMScreenElement? {
         guard let pointFrame = frameAttribute(of: element),
               pointFrame.width > 1,
@@ -379,15 +336,7 @@ final class PaceAXScreenReader {
             return nil
         }
 
-        // AX coords are in points (top-left origin on the screen the
-        // element lives on). Convert to screenshot pixels so the
-        // planner prompt's coordinate space matches every other source.
-        let pixelBoundingBox = [
-            Int(pointFrame.origin.x * pixelScaleFactor),
-            Int(pointFrame.origin.y * pixelScaleFactor),
-            Int(pointFrame.size.width * pixelScaleFactor),
-            Int(pointFrame.size.height * pixelScaleFactor)
-        ]
+        let pointBoundingBox = Self.axPointBoundingBox(for: pointFrame)
 
         let shortLabel = labelFor(element: element, role: role)
         let verbatimText = verbatimTextFor(element: element, role: role)
@@ -401,7 +350,7 @@ final class PaceAXScreenReader {
         return LocalVLMScreenElement(
             label: shortLabel ?? translatedRole,
             role: translatedRole,
-            bbox: pixelBoundingBox,
+            bbox: pointBoundingBox,
             text: verbatimText
         )
     }
@@ -500,30 +449,7 @@ final class PaceAXScreenReader {
         return CGRect(origin: pointOrigin, size: pointSize)
     }
 
-    /// Pixel scale (Retina factor) of the NSScreen the focused window
-    /// is on. Falls back to the main screen if we can't resolve.
-    private func pixelScaleFactorForScreen(containing focusedWindow: AXUIElement) -> CGFloat {
-        guard let windowFrame = frameAttribute(of: focusedWindow) else {
-            return NSScreen.main?.backingScaleFactor ?? 2.0
-        }
-        let windowCenter = CGPoint(x: windowFrame.midX, y: windowFrame.midY)
-        // NSScreen frames are in BOTTOM-LEFT origin Cocoa coords on
-        // the primary screen; we flip Y to compare with AX's top-left
-        // origin. Use the primary-screen height for the flip.
-        let primaryScreen = NSScreen.screens.first { $0.frame.origin == .zero }
-        let primaryHeight = primaryScreen?.frame.height ?? 0
-        for candidateScreen in NSScreen.screens {
-            // Convert NSScreen.frame to top-left-origin to match AX.
-            let flippedScreenFrame = CGRect(
-                x: candidateScreen.frame.origin.x,
-                y: primaryHeight - candidateScreen.frame.origin.y - candidateScreen.frame.height,
-                width: candidateScreen.frame.width,
-                height: candidateScreen.frame.height
-            )
-            if flippedScreenFrame.contains(windowCenter) {
-                return candidateScreen.backingScaleFactor
-            }
-        }
-        return NSScreen.main?.backingScaleFactor ?? 2.0
+    nonisolated static func axPointBoundingBox(for pointFrame: CGRect) -> [Int] {
+        [Int(pointFrame.origin.x), Int(pointFrame.origin.y), Int(pointFrame.width), Int(pointFrame.height)]
     }
 }

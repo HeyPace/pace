@@ -170,6 +170,8 @@ final class CompanionManager: ObservableObject {
     /// `clear_annotations` (tool or voice command), and on the 30 s
     /// timer. See PRD tuition-mode annotations.
     let annotationOverlayController = PaceAnnotationOverlayController()
+    let diagramOverlayController = PaceDiagramOverlayController()
+    let imageOverlayController = PaceImageOverlayController()
 
     let buddyDictationManager = PacePushToTalkManager()
     /// Wave 2b — always-listening wake-word spotter (Apple Speech,
@@ -248,6 +250,11 @@ final class CompanionManager: ObservableObject {
     /// through `paceHistory` retrieval — there is no parallel chat
     /// storage layer. See `PaceChatSession.swift`.
     lazy var chatSession: PaceChatSession = {
+        #if DEBUG
+            if let fixtureSession = PaceRuntimeSmokeTestHooks.makeVisualAcceptanceSessionIfEnabled() {
+                return fixtureSession
+            }
+        #endif
         return PaceChatSession(
             historySource: PaceLocalChatHistoryReader(),
             transcriptSubmitter: companionManagerChatSubmitterAdapter
@@ -496,6 +503,14 @@ final class CompanionManager: ObservableObject {
     /// `UseLocalVLMForScreenContext`. Wired to a Switch in CompanionPanelView.
     @Published var useLocalVLMForScreenContext: Bool = PaceUserPreferencesStore
         .boolWithInfoPlistSeed(.useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext")
+    {
+        didSet {
+            if oldValue && !useLocalVLMForScreenContext {
+                diagramOverlayController.dismiss()
+                imageOverlayController.dismiss()
+            }
+        }
+    }
 
     func setUseLocalVLMForScreenContext(_ enabled: Bool) {
         useLocalVLMForScreenContext = enabled
@@ -787,7 +802,13 @@ final class CompanionManager: ObservableObject {
     /// cursor (so it visually rides with the Codex arrow); `.avatar`
     /// anchors it next to the walking character. Cleared back to
     /// `.keyboard` when the turn ends.
-    enum DictationTrigger { case keyboard, avatar, wakeWord }
+    enum DictationTrigger {
+        case keyboard, microphoneButton, avatar, wakeWord, bargeIn
+
+        var captureMode: PaceDictationCaptureMode {
+            self == .keyboard ? .pushToTalk : .handsFree
+        }
+    }
     var currentDictationTrigger: DictationTrigger = .keyboard
 
     /// Auto-releases the synthetic PTT press created after a wake-word

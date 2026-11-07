@@ -25,6 +25,8 @@ nonisolated struct RecognizedTextBox: Hashable, Sendable {
 }
 
 final class PaceVisionOCRClient {
+    private let recognizeTextOperation: (@Sendable (Data, Int, Int) async throws -> [RecognizedTextBox])?
+
     /// `accurate` runs the Vision OCR's heavier neural model — slower
     /// (~150-250 ms on a busy screenshot) but markedly better at small
     /// text and code. `fast` (~30-70 ms) misses small text and is too
@@ -41,7 +43,14 @@ final class PaceVisionOCRClient {
     /// every request.
     private let resolvedRecognitionLanguages: [String]
 
-    init() {
+    init(
+        recognizeTextOperation: (@Sendable (Data, Int, Int) async throws -> [RecognizedTextBox])? = nil
+    ) {
+        self.recognizeTextOperation = recognizeTextOperation
+        if recognizeTextOperation != nil {
+            self.resolvedRecognitionLanguages = []
+            return
+        }
         let supportedTagsFromVision: [String]
         do {
             // Default revision picks the current OS's best model. We
@@ -69,7 +78,12 @@ final class PaceVisionOCRClient {
         screenshotWidthInPixels: Int,
         screenshotHeightInPixels: Int
     ) async throws -> [RecognizedTextBox] {
-        try await Task.detached(priority: .userInitiated) { [recognitionLevel, resolvedRecognitionLanguages] in
+        if let recognizeTextOperation {
+            return try await recognizeTextOperation(
+                screenshotImageData, screenshotWidthInPixels, screenshotHeightInPixels
+            )
+        }
+        return try await Task.detached(priority: .userInitiated) { [recognitionLevel, resolvedRecognitionLanguages] in
             try await withCheckedThrowingContinuation { continuation in
                 // Vision's synchronous perform call must not occupy the UI actor.
                 let request = VNRecognizeTextRequest { request, error in

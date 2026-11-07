@@ -54,7 +54,7 @@ responsibilities live in [`../development/key-files.md`](../development/key-file
 - **Text-to-Speech**: two on-device conformers of `BuddyTTSClient`. The dependable default is **`LocalTTSClient`** (`AVSpeechSynthesizer`, Premium > Enhanced > compact `LocalTTSVoiceIdentifier`) because it has no sidecar or model-readiness dependency. `TTSProvider=localServer` opts into **`LocalServerTTSClient`**, backed by a loopback Kokoro-82M `/v1/audio/speech` service with per-utterance Apple fallback and a 30-second outage memo. Cloud TTS has been removed.
 - **Local Vision-Language Model (optional)**: LM Studio at `http://127.0.0.1:1234/v1` (OpenAI-compatible). The default `qwen/qwen3.5-4b` model is shared with the local planner, so only one model stays resident. Accessibility and native OCR run first; the VLM is the fallback for screens those native paths cannot expose. Planner/VLM HTTP roots are loopback-only. Pure-Q&A typed turns do not prewarm or call the VLM.
 - **Screen Capture**: ScreenCaptureKit (macOS 14.2+), multi-monitor support
-- **Voice Input**: Push-to-talk via `AVAudioEngine` + pluggable transcription-provider layer. System-wide keyboard shortcut via listen-only CGEvent tap.
+- **Voice Input**: Push-to-talk via `AVAudioEngine` + pluggable transcription-provider layer. System-wide keyboard shortcut via listen-only CGEvent tap. Physical hold-to-talk ends on key release; button, avatar and wake-word captures release through the same shortcut pipeline after approximately one second of local speech silence, with an eight-second no-speech timeout and a 45-second ceiling. Endpointing uses raw RMS from the existing tap; transcription and audio remain local. With always-listening explicitly enabled, barge-in shares raw RMS from its existing wake-word tap, cancels and drains the interrupted reply once, and starts the same bounded hands-free capture without displacing active push-to-talk. Turn leases reject queued speech from a cancelled reply even after the next capture resets the speech pipeline.
 - **Voice Input UI**: `PaceNativeInterfaceModel` maps ready, listening, understanding, approval, acting, speaking, completed, blocked, and failed into one semantic state language. `PaceSignalView` renders that language across onboarding, the real notch, and the quick panel; off-device planner activity overrides the active signal to amber. Timeline rendering exists only for active states, and Reduce Motion uses static or short crossfade presentations.
 - **Cursor**: Codex-style arrow (`CodexArrowShape`) with linear-gradient fill, white highlight stroke, dual shadow.
 - **Element Pointing**: the planner embeds `[POINT:x,y:label:screenN]` tags in its response. The overlay parses these, maps coordinates to the correct monitor, and animates the cursor along a bezier arc to the target.
@@ -90,11 +90,97 @@ responsibilities live in [`../development/key-files.md`](../development/key-file
 
 ## Key architecture decisions
 
-**Native Surface Pattern**: `PaceOnboardingWindowManager` hosts a versioned, resumable first-run state machine that migrates the legacy Boolean completion flag, consolidates live permission setup, and reaches one typed or spoken request through `submitChatTranscriptFromDeepLink`. A truthful response or completed action contracts the in-window signal toward a notch-shaped anchor before the window closes; failure and blocked outcomes do not play success. `PaceMenuBarOverlayManager` derives the closed Living Notch frame from `NSScreen.safeAreaInsets` and the two auxiliary top areas and matches the physical housing exactly at idle. Hover and active states add compact horizontal wings at menu-bar height, with state left of the reserved housing width and signal right of it. A deliberate click resizes that same clipped `NSPanel` equally left, right, and downward, embedding `PacePanelChatView` inside the surface instead of opening a visually joined second window. `MenuBarPanelManager` routes show, hide, shortcut, deep-link, and smoke-test requests into the integrated notch only while reliable physical-notch geometry exists. On notchless or external-only display setups, `PaceMenuBarOverlayManager` creates a standard `NSStatusItem`, and the same requests open the standalone panel anchored below it. The geometry and fallback choice recalculate after wake and display changes; Pace never draws a synthetic housing. `PaceWindowLayering` keeps the optional screen-edge activity glow below both the system menu bar and Living Notch while deliberate teaching annotations remain topmost; the glow defaults off and is transparent while idle. Delayed onboarding transitions are cancellable and generation-guarded so stale work cannot advance a newer scene.
+**Native Surface Pattern**: `PaceOnboardingWindowManager` hosts a versioned, resumable first-run state machine that migrates the legacy Boolean completion flag, consolidates live permission setup, and reaches one typed or spoken request through `submitChatTranscriptFromDeepLink`. A truthful response or completed action contracts the in-window signal toward a notch-shaped anchor before the window closes; failure and blocked outcomes do not play success. `PaceMenuBarOverlayManager` derives the closed Living Notch frame from `NSScreen.safeAreaInsets` and the two auxiliary top areas and reserves the physical camera housing between two always-visible, rounded icon caps at menu-bar height: microphone on the left and the Pace mark on the right. A 200 ms hover dwell opens the existing conversation; leaving the notch cancels a pending opening, and closing while the pointer remains over the notch requires a fresh exit and re-entry. Both icons also retain click-to-open. A bounded background geometry monitor yields the ambient controls to a native status item when app menus or status extras overlap, or their bounds are unavailable. It reads top-level bounds only, refreshes on app activation and a tolerant two-second timer, and leaves input untouched. The conversation stays camera-aligned but drops below native menu-bar layering while crowded. Active requests retain a lower activity row and amber selected-planner/capture disclosure. A deliberate click expands one black, nonactivating `MenuBarPanelManager` surface directly from that same top-aligned housing. `PaceConversationPanelPlacement` owns the physical-notch versus conventional-anchor frames; the ambient panel is hidden while the connected conversation is visible and restored after collapse. The existing `PacePanelChatView` renders unframed inside the expanded surface at a fixed content width while the outer window reveals it by clipping, preserving crisp text during resize. Its compact context bar keeps history and settings reachable. The panel retains the question-heading conversation hierarchy, readable 14-point responses, a bounded recent exchange, persisted history and always-available typed composer. Show, hide, shortcut, deep-link and smoke-test requests share this lifecycle; interrupted collapse and delayed outside-click dismissal are generation-guarded. On notchless or external-only display setups, `PaceMenuBarOverlayManager` creates a standard `NSStatusItem`, and the same requests open the panel anchored below it. The ambient and open conversation geometry and fallback choice recalculate after wake and display changes; Pace never draws a synthetic housing. `PaceWindowLayering` keeps the optional screen-edge activity glow below both the system menu bar and Living Notch while deliberate teaching annotations remain topmost; the glow defaults off and is transparent while idle. Delayed onboarding transitions are cancellable and generation-guarded so stale work cannot advance a newer scene.
 
 **Command Center Pattern**: `PaceMainWindowManager` owns one normal resizable `NSWindow` for every durable management surface. `PaceCommandCenterRouter` groups primary destinations under Use Pace, Activity & Privacy, Customize, and Help, while optional integrations and developer controls use one searchable Advanced disclosure. It honors exact requested routes and restores the last valid selection. `PaceSettingsWindowManager` is a compatibility facade into the same window rather than a second host. The notch panel remains a present-turn surface; its gear routes to Customize → General. Pace still runs as `LSUIElement=true`, and the Command Center explicitly activates the app only when opened.
 
-**Cursor Overlay**: A full-screen transparent `NSPanel` hosts the blue cursor companion. It's non-activating, joins all Spaces, and never steals focus. Cursor flight, response text placement, and pointing animations render in this overlay via SwiftUI through `NSHostingView`; listening/thinking animation lives in the notch bar.
+**Cursor Overlay**: A full-screen transparent `NSPanel` hosts the blue cursor companion. It's non-activating, joins all Spaces, and never steals focus. Cursor flight, response text placement, and pointing animations render in this overlay via SwiftUI through `NSHostingView`; listening/thinking animation lives in the notch bar. During explicit pointing, a static click-through reticle marks the exact target independently of the decorative buddy's offset or edge clamp; clearing the target or starting the next turn removes it. AX screen context enters as unscaled global points and converts once using the actual capture dimensions and display origin, including mixed-density displays.
+
+**Interactive visual explanations**: `PaceDiagramDocument` contains up to twelve
+semantic explanation parts and either a 1000×600 flowchart or a typed 3D figure.
+`PaceFigureScene` accepts an authored aircraft template or at most 96 generated
+solid parts, with bounded transforms, triangle indices and custom vertices.
+The aircraft uses lofted/airfoil meshes and real control-surface hinge entities;
+custom scenes compose boxes, ellipsoids, cylinders, cones and triangle meshes.
+Native RealityKit owns lighting, projection, depth and collision-based selection.
+Optional figure presentation commands combine a stable `focusNodeID`, a named
+`viewpoint` (`three_quarter`, `side`, `top`, `front`, `rear`, `underside`) and
+aircraft `controlDeflection` from -1 to 1. A nonzero deflection requires an explicit
+aileron, elevator, rudder or flap focus. The controller owns the current slider
+value; planner context reports this live value and omits old presentation commands
+from its document copy so ordinary updates preserve manual orbit.
+The renderer reuses geometry for focus, view and control updates, applies an
+explicit viewpoint once per document revision, and preserves later manual orbit.
+The selected part's reticle follows its projected physical anchor without moving
+the system cursor. These controls illustrate conceptual mechanisms, not simulated
+flight dynamics.
+The
+`show_diagram` and `dismiss_diagram` read-only tools are available independently
+of `EnableActions`. Both the text-only and full planner paths drain these tools
+before the action executor. `PaceDiagramOverlayController` owns the persistent
+figure and selection; a complete replacement keeps surviving part selection unless
+the planner explicitly changes the figure's requested focus. Its bounded document and selected part are included in later
+planner context because spoken conversation history does not retain tool payloads.
+A per-turn dismissal generation prevents an in-flight reply from reopening a
+closed figure while allowing the turn’s own ordered close-and-replace actions.
+Planner changes, Read My Screen revocation and thread reset clear the scene
+and its cached prompt context.
+`PaceDiagramOverlayManager` renders connectors in a click-through panel and each
+interactive node, heading and detail card in separate nonactivating native panels.
+3D objects use a bounded transparent RealityKit `ARView` hosted in SwiftUI, with an
+explicit perspective camera, projected part callouts, native orbit, zoom,
+part selection and control-surface input. Mouse interaction inside that object's
+panel belongs to Pace; the desktop remains available outside it. Flowchart gaps
+remain click-through. Clicking a part reveals
+local detail without a model call; the deliberate “Explore this part” button enters
+`submitChatTranscriptFromDeepLink`, preserving the normal queue, consent, audit,
+cancellation and action policy. Presentation collapses the quick panel, and
+shutdown/dismissal closes every diagram panel. Screen-referential diagram requests
+use the existing screen-enabled planner path; self-contained subjects use the
+text-only path. Diagram instructions are enabled only for interactive planner
+callers. Part follow-ups use neutral intent text; generated labels remain context
+rather than becoming commands. Escape dismissal applies only to a focused diagram panel or while the pointer
+is over a visible diagram part or control. No generated code, external resources or web renderer execute.
+
+**Generated images**: Interactive planners can emit the typed read-only
+`generate_image` request (prompt, title, optional edit). Both planner paths await
+`PaceImageOverlayController` before final conversation feedback; ordinary actions
+in the same plan remain available to the executor. Creation requires the selected
+Codex direct CLI tier and its existing off-device consent. The capsule is amber
+while generation runs, and every attempted CLI generation writes a sizes-only
+`planner.cliDirect` audit event. Selecting another planner produces an explicit
+unsupported message rather than choosing a hidden provider.
+`PaceCodexImageGenerationClient` invokes the authenticated installed Codex CLI
+with an isolated temporary working directory, ignored user rules/configuration,
+no project docs, and shell, apps, browser, MCP/plugin discovery, skills and
+multi-agent capabilities disabled. Native image generation and its code-mode
+host remain enabled. Prompts arrive over stdin. The only supported reference is
+an explicitly requested edit of the current Pace-owned image, copied to a private
+per-job attachment and passed with `--image`; ambient screenshots and arbitrary
+model-authored paths never become image inputs. A brief may still be derived
+from a screen the user explicitly asked Pace to read through the normal planner
+consent path; the image audit does not claim that such a brief has no screen context.
+Codex can finish with no final text or typed image event. Pace reads only the
+validated `thread.started` UUID directory under Codex's generated-images store,
+checks containment and nonsymlink regular PNG/JPEG bytes through ImageIO, and
+requires one image within32MiB and32million pixels. File-descriptor traversal
+rejects symlink parents; validated bytes are copied to a private Pace-owned store
+before job cleanup. Output prose is never interpreted as a path or a command.
+The cancellable300-second job presents progress immediately in a native floating
+panel with transparent artwork and quiet graphite controls. Zoom and Save use
+native UI. Save snapshots the validated bytes before its chooser opens, so
+replacement or dismissal cannot invalidate a pending save. A failed edit retains
+the previous successful image; explicit close,
+thread reset, planner/provider change, consent loss, Read My Screen revocation or
+shutdown invalidates in-flight results and clears active context. New diagrams
+and images replace one another. Later turns receive only the active image's
+bounded title and prompt as description data, never a file path. Raster images
+have no orbit or physical-part interaction. Only the controller's exact tracked
+unsaved Pace working copies are discarded on successful replacement, dismissal,
+reset or a late cancelled result; a failed edit keeps the previous working copy.
+Saved user destinations (including an explicit save at the working-copy URL)
+and the shared Codex generated-images directory are never removed by Pace. Resetting thread memory clears Pace's thread snapshot and active
+image context, not Codex-managed artifacts or the separate conversation history.
 
 **Global Push-To-Talk Shortcut**: Background push-to-talk uses a listen-only `CGEvent` tap instead of an AppKit global monitor so modifier-based shortcuts like `ctrl + option` are detected more reliably while the app is running in the background.
 
@@ -147,7 +233,7 @@ Playwright MCP 0.0.83 supplies browser navigation, snapshots, and element action
 
 Local speech uses WhisperKit base.en from Application Support, provisioned with `python3 scripts/setup-whisperkit.py`; pinned model and tokenizer assets avoid recognition-time downloads. This small default model recognises English. Bundled Silero v6 CoreML rejects silence before streaming/file decoding. Explicit `read aloud using Kokoro ...` starts the existing mlx-audio sidecar on demand and uses `mlx-community/Kokoro-82M-bf16`; ordinary voice selection stays configurable. `transcribe audio <path>` and `check for updates` reach the existing transcription and Sparkle components through the shared text/voice router. Meeting capture requests microphone access asynchronously before opening the audio engine to keep the permission prompt off the blocking device-binding path.
 
-Native Vision OCR performs synchronous work on a detached task rather than the UI actor. CLI image planners receive screenshots plus AX context directly, so their screen turns do not wait for the local OCR/VLM path. A stop-meeting text command bypasses the turn queue while capture startup is awaiting permission.
+Native Vision OCR performs synchronous work on a detached task rather than the UI actor. CLI image planners receive screenshots plus AX context directly, so their screen turns do not wait for the local OCR/VLM path. Text-only CLI turns retain native OCR without invoking the local VLM. Screen-analysis cache reuse requires identical image bytes, analyzer identity, display geometry, and VLM/OCR capabilities; small image changes trigger a fresh read. Successful OCR remains available when VLM analysis fails. A stop-meeting text command bypasses the turn queue while capture startup is awaiting permission.
 
 ### Durable read-only work and recurring assistance
 

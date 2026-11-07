@@ -20,18 +20,21 @@ extension CompanionManager {
         // Rebuild the planner so the new mode takes effect on the next turn
         // without requiring an app restart.
         plannerClient = BuddyPlannerClientFactory.makeDefault()
+        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
 
     func setCloudBridgeUpstream(_ upstream: PaceCloudBridgeUpstream) {
         cloudBridgeUpstream = upstream
         PaceCloudBridgeConsent.saveUpstream(upstream)
         plannerClient = BuddyPlannerClientFactory.makeDefault()
+        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
 
     func setCloudBridgeModel(_ model: String) {
         cloudBridgeModel = model
         PaceCloudBridgeConsent.saveModel(model)
         plannerClient = BuddyPlannerClientFactory.makeDefault()
+        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
 
     /// Shows the one-time cloud-bridge consent NSAlert.

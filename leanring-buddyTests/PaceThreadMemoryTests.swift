@@ -209,6 +209,25 @@ struct PaceThreadMemoryTests {
         #expect(threadMemory.sessionDidIdle(now: makeFixedDate(99_999)) == nil)
     }
 
+    @Test func localInteractionExtendsTheIdleWindowWithoutAddingConversationContent() {
+        let threadMemory = PaceThreadMemory(configuration: defaultConfiguration())
+        let firstTurnDate = makeFixedDate(10_000)
+        _ = threadMemory.record(userTurn: "hi", assistantTurn: "hey", turnId: "turn-0", now: firstTurnDate)
+        let interactionDate = firstTurnDate.addingTimeInterval(19 * 60)
+        #expect(
+            threadMemory.sessionDidIdle(
+                now: firstTurnDate.addingTimeInterval(21 * 60), lastUserInteractionAt: interactionDate) == nil)
+        #expect(
+            threadMemory.sessionDidIdle(
+                now: interactionDate.addingTimeInterval(21 * 60), lastUserInteractionAt: interactionDate)
+                == .idleTimeout)
+        #expect(
+            threadMemory.sessionDidIdle(
+                now: firstTurnDate.addingTimeInterval(21 * 60),
+                lastUserInteractionAt: firstTurnDate.addingTimeInterval(-60))
+                == .idleTimeout)
+    }
+
     // MARK: - Reset
 
     @Test func resetSessionDropsSummaryWindowAndBumpsSessionId() async throws {

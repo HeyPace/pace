@@ -22,6 +22,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     /// Published so the overlay can hide immediately on key release without
     /// waiting for the async dictation state pipeline to catch up.
     @Published private(set) var isShortcutCurrentlyPressed = false
+    private(set) var isSimulatedPressActive = false
 
     deinit {
         stop()
@@ -35,6 +36,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     func simulateShortcutPressed() {
         guard !isShortcutCurrentlyPressed else { return }
         isShortcutCurrentlyPressed = true
+        isSimulatedPressActive = true
         shortcutTransitionPublisher.send(.pressed)
     }
 
@@ -43,7 +45,14 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     func simulateShortcutReleased() {
         guard isShortcutCurrentlyPressed else { return }
         isShortcutCurrentlyPressed = false
+        isSimulatedPressActive = false
         shortcutTransitionPublisher.send(.released)
+    }
+
+    func discardSimulatedPress() {
+        guard isSimulatedPressActive else { return }
+        isSimulatedPressActive = false
+        isShortcutCurrentlyPressed = false
     }
 
     func start() {
@@ -104,6 +113,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
 
     func stop() {
         isShortcutCurrentlyPressed = false
+        isSimulatedPressActive = false
 
         if let globalEventTapRunLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), globalEventTapRunLoopSource, .commonModes)
@@ -140,9 +150,11 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
             break
         case .pressed:
             isShortcutCurrentlyPressed = true
+            isSimulatedPressActive = false
             shortcutTransitionPublisher.send(.pressed)
         case .released:
             isShortcutCurrentlyPressed = false
+            isSimulatedPressActive = false
             shortcutTransitionPublisher.send(.released)
         }
 

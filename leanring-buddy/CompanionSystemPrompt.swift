@@ -62,9 +62,11 @@ enum CompanionSystemPrompt {
         isTuitionModeEnabled: Bool = false,
         threadSummaryInjection: String? = nil,
         ambientContextInjection: String? = nil,
-        usesIterativeComputerUse: Bool = false
+        usesIterativeComputerUse: Bool = false,
+        includeInteractiveDiagrams: Bool = false
     ) -> String {
         var assembledPrompt = baseVoiceRules + "\n\n" + pointingRules
+        if includeInteractiveDiagrams { assembledPrompt += "\n\n" + diagramRules }
         if includeAgentMode {
             assembledPrompt += "\n\n" + agentModeRules
             // Tuition mode is a per-user preference, so the prompt
@@ -80,6 +82,8 @@ enum CompanionSystemPrompt {
             assembledPrompt += """
 
                 Computer-use loop for this planner: Pace WILL call you again after executing your tools, with fresh screen context and tool observations. This overrides the single-envelope rule above for tasks that depend on changing UI. Emit only the next grounded action or independent action group, then inspect the next observation before choosing a dependent click or key. Once the requested result is verified, answer briefly without actions. Do not replay completed actions. Direct app/URL launches may be grouped when independent. Respect Tuition Mode if enabled.
+
+                Read-only inspection and pointing: a Peekaboo see result with an incomplete AX tree can still contain valid screenshot/OCR evidence. "not actionable" denies mutation authority; it does not forbid reading visible text or showing Pace's own pointer/annotation overlay. If a warning asks you to retry once, inspect the completed requests/results and retry the same target at most once. After persistent AX failure, answer from the supplied screenshot/OCR when sufficient instead of repeating see or inventing inspection arguments. For a point-only request, use [POINT:x,y:label:desktop] inside spokenText with the center of the freshly observed global desktop bounds. Draw.annotation is also overlay-only, but its geometry must use the supplied Pace screenshot pixels. Neither overlay grants permission to click, type, focus, or mutate the inspected app. Never use an input action to simulate highlighting. If the evidence is insufficient, say what could not be read or located.
                 """
         }
         // Ambient context (frontmost app, window title, time of day)
@@ -106,9 +110,11 @@ enum CompanionSystemPrompt {
     ///   threadSummaryInjection:)`.
     static func buildTextOnly(
         threadSummaryInjection: String? = nil,
-        ambientContextInjection: String? = nil
+        ambientContextInjection: String? = nil,
+        includeInteractiveDiagrams: Bool = false
     ) -> String {
         var prompt = baseVoiceRules
+        if includeInteractiveDiagrams { prompt += "\n\n" + diagramRules }
         if let ambient = ambientContextInjection, !ambient.isEmpty {
             prompt += "\n\n" + ambient
         }
@@ -141,9 +147,11 @@ enum CompanionSystemPrompt {
     /// - Parameter threadSummaryInjection: see `build(includeAgentMode:
     ///   threadSummaryInjection:)`.
     static func buildForResearchTurn(
-        threadSummaryInjection: String? = nil
+        threadSummaryInjection: String? = nil,
+        includeInteractiveDiagrams: Bool = false
     ) -> String {
-        let assembledPrompt = baseVoiceRules + "\n\n" + researchTurnRules
+        var assembledPrompt = baseVoiceRules + "\n\n" + researchTurnRules
+        if includeInteractiveDiagrams { assembledPrompt += "\n\n" + diagramRules }
         return prependingThreadSummaryInjection(
             threadSummaryInjection,
             to: assembledPrompt
@@ -220,6 +228,19 @@ enum CompanionSystemPrompt {
         }
         return threadSummaryInjection + "\n\n" + assembledPrompt
     }
+
+    static let diagramRules = """
+        INTERACTIVE VISUAL EXPLANATIONS
+        When asked for a diagram, interactive 3D model or visual explanation, create it with show_diagram. For a beautiful raster illustration, photo, painting or image request, call generate_image instead. Image generation uses the selected, consented Codex CLI off-device; do not promise an image until its result returns. Only generate images when the user explicitly requests creation or an edit. For edits to the active Pace image use edit:true, never paths or ambient-screen attachments; include only the requested visual change in prompt. Use edit:false and a complete brief for a new image. A raster image cannot rotate or expose interactive physical parts. These read-only visual tools are available even when actions and screen reading are off. The object itself should explain the subject: recognizable shapes, surfaces and meaningful parts. For a physical object, prefer a detailed rotatable 3D figure; do not substitute a flowchart of labels for a requested airplane, engine or other object. Describe the key idea in spokenText while the figure is visible. Never speak JSON or claim a figure is visible without returning its tool call.
+        For a generic passenger airplane, use figure:{"template":"airplane","focusNodeID":"wings","viewpoint":"three_quarter"}, connections:[], and eight explanation nodes with exactly these IDs: fuselage,cockpit,wings,engines,ailerons,elevators,rudder,flaps. Use normal sentence case for visible diagram titles, labels and subtitles, preserving technical acronyms; the lowercase speech rule applies only to spokenText. Each node needs id,label,detail and may have a short subtitle stating its role; 2D bounds are unnecessary for 3D figures. Pace supplies a detailed native twin-engine passenger aircraft with orbit, zoom, anchored labels, selectable physical surfaces and working control-surface hinges. Label it as a conceptual aircraft, not a flight simulator or a specific certified model. For a different aircraft or mechanism, such as a hovering F-35B with a lift fan, author the actual relevant structure with custom figure parts instead of relabelling this passenger aircraft. Match every explanation to the displayed physical part. Preserve an appropriate figure for follow-up questions.
+        Teach with the figure itself: set focusNodeID to highlight the part being explained and its precise anchor. Optional viewpoint rotates the object to three_quarter,side,top,front,rear,underside; omit it to preserve the user's current orbit. On the airplane only, optional controlDeflection is a normalized illustrative hinge position from -1 to 1, not degrees or flight dynamics. Nonzero values require an explicit focusNodeID of ailerons,elevators,rudder or flaps to move that assembly; use 0 to return controls to rest. For example, figure:{"template":"airplane","focusNodeID":"flaps","viewpoint":"top","controlDeflection":0.6} shows the flaps from above at sixty percent of their illustrative range. Include the complete existing explanation nodes and connections:[] in every update. Keep spokenText brief and explain the motion currently shown; the user can keep rotating, selecting and moving the controls afterward. Do not claim a requested rotation or movement happened without returning its show_diagram call.
+        For other objects, author figure:{"parts":[...],"focusNodeID":"..."}. A solid part has id,nodeID,geometry,position:[x,y,z],size:[width,height,depth], optional rotation:[xDegrees,yDegrees,zDegrees],finish. Geometry is box,ellipsoid,cylinder,cone,mesh. Finish is shell,metal,glass,accent,dark. Coordinates use Y up and +X as the intended front for named viewpoints; position components -12...12, size 0.005...12, rotation -360...360. Build recognizable objects with purposeful detail; use tapered mesh geometry where boxes would flatten the subject. Meshes additionally require vertices:[[x,y,z],...] in -1...1 (3–256 points) and triangles:[index,index,index,...] (at most1536 indices). Every triangle must have nonzero area. Maximum96 solids and4096 custom vertices. Each solid references one explanation node; every node must have a solid. Use at most twelve explanation nodes, group small details under their physical assembly, and keep connections:[]. No scripts, shaders, file paths or remote assets.
+        Use a 2D flowchart only when explicitly requested or when the subject is a relationship/process that has no useful physical representation. Place nonoverlapping nodes deliberately in a1000 by600 canvas (x,y,width,height). Each connection uses source and target stable node IDs, with optional label. Use three to eight parts when possible, concise labels, and a useful local explanation in each detail field.
+        Return one JSON object, without a code fence: {"spokenText":"short spoken explanation","intent":"action","payload":{"name":"show_diagram","args":{"title":"...","summary":"...","nodes":[...],"connections":[...]}}}. For follow-up edits, return a complete replacement using unchanged stable part IDs. Answers about an active figure may be plain speech if it does not need changing. Do not execute code, create files, or open a browser to draw a diagram; Pace renders the typed document natively.
+        \(PaceToolRegistry.definition(forToolName: "generate_image")!.promptLine)
+        \(PaceToolRegistry.definition(forToolName: "show_diagram")!.promptLine)
+        \(PaceToolRegistry.definition(forToolName: "dismiss_diagram")!.promptLine)
+        """
 
     // MARK: - Block 1: always-present voice rules
 

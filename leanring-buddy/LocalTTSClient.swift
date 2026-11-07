@@ -195,7 +195,7 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
         case .premium, .enhanced:
             print("🔊 Local TTS voice: \(pickedVoice.name) (\(pickedVoice.quality == .premium ? "Premium" : "Enhanced"))")
         default:
-            print("🔊 Local TTS voice: \(pickedVoice.name) (Compact, softened with Pace prosody)")
+            print("🔊 Local TTS voice: \(pickedVoice.name) (Compact)")
             print("    → For a bigger quality jump, open System Settings → Accessibility → Spoken Content")
             print("      → System Voice → Manage Voices → English (US) and download either:")
             print("        - \"Samantha\" at Enhanced quality (~150 MB, quick stopgap), OR")
@@ -214,19 +214,17 @@ private struct LocalTTSProsody {
     let postUtteranceDelay: TimeInterval
 
     static func fromBundleConfiguration() -> LocalTTSProsody {
-        // The defaults are tuned for the compact macOS voices this machine
-        // currently has installed: a touch slower, lower pitched, and less
-        // piercing than AVSpeechUtterance's stock conversational setting.
+        // Let high-quality Apple voices use their natural pitch and conversational rate.
         return LocalTTSProsody(
             rate: configuredFloat(
                 forKey: "LocalTTSSpeechRate",
-                defaultValue: 0.48,
+                defaultValue: AVSpeechUtteranceDefaultSpeechRate,
                 minimumValue: 0.35,
                 maximumValue: 0.58
             ),
             pitchMultiplier: configuredFloat(
                 forKey: "LocalTTSPitchMultiplier",
-                defaultValue: 0.94,
+                defaultValue: 1.0,
                 minimumValue: 0.75,
                 maximumValue: 1.15
             ),

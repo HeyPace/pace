@@ -12,6 +12,7 @@
 //  applies in production too.
 //
 
+import AVFoundation
 import Combine
 import Foundation
 import Testing
@@ -19,6 +20,44 @@ import Testing
 
 @MainActor
 struct PaceAppleSpeechWakeWordSpotterTests {
+
+    @Test
+    func existingWakeTapPublishesRawRMSWithoutStartingAnEngine() throws {
+        let spotter = PaceAppleSpeechWakeWordSpotter(speechRecognizer: nil)
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4))
+        buffer.frameLength = 4
+        let samples = try #require(buffer.floatChannelData)[0]
+        for sampleIndex in 0..<4 {
+            samples[sampleIndex] = sampleIndex.isMultiple(of: 2) ? 0.1 : -0.1
+        }
+        var receivedLevels: [Float] = []
+        let subscription = spotter.audioLevelPublisher.sink { receivedLevels.append($0) }
+        defer { subscription.cancel() }
+
+        PaceAppleSpeechWakeWordSpotter.publishAudioLevel(from: buffer, to: spotter.audioLevelPublisher)
+
+        #expect(receivedLevels.count == 1)
+        let receivedLevel = try #require(receivedLevels.first)
+        #expect(abs(receivedLevel - 0.1) < 0.00001)
+        #expect(!spotter.isRunning)
+        #expect(spotter.currentAudioBufferForTesting == nil)
+    }
+
+    @Test
+    func emptyWakeBufferDoesNotPublishAnAudioLevel() throws {
+        let spotter = PaceAppleSpeechWakeWordSpotter(speechRecognizer: nil)
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4))
+        var receivedLevels: [Float] = []
+        let subscription = spotter.audioLevelPublisher.sink { receivedLevels.append($0) }
+        defer { subscription.cancel() }
+
+        PaceAppleSpeechWakeWordSpotter.publishAudioLevel(from: buffer, to: spotter.audioLevelPublisher)
+
+        #expect(receivedLevels.isEmpty)
+        #expect(!spotter.isRunning)
+    }
 
     // MARK: - Confidence gate
 

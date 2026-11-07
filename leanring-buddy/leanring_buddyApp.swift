@@ -43,7 +43,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     /// weak ref). nil when running the legacy notch-capsule surface.
     private var avatarOverlayManager: PaceAvatarOverlayManager?
     private var runtimeSmokeTestHooks: PaceRuntimeSmokeTestHooks?
-    private let companionManager = CompanionManager()
+    private let isRunningAsUnitTestHost =
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    private lazy var companionManager = CompanionManager()
 
     // A cold launch via URL delivers application(_:open:) before
     // applicationDidFinishLaunching has built the managers — buffer the
@@ -52,6 +54,13 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     private var hasFinishedLaunching = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        PaceToolRegistry.validateForAppStartup()
+        // The unit-test host is only a harness. Do not create services, model
+        // loads, migrations or windows beside the user's running Pace instance.
+        guard !isRunningAsUnitTestHost else {
+            print("🧪 Pace: unit-test host; live bootstrap disabled")
+            return
+        }
         print("🎯 Pace: Starting...")
         print("🎯 Pace: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
 
@@ -70,7 +79,6 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         terminateOtherRunningPaceInstances()
         #endif
 
-        PaceToolRegistry.validateForAppStartup()
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 0])
         // One-shot migration of the prototype-era UserDefaults flow
         // snapshot into the on-disk JSON store. No-op on a fresh
@@ -83,7 +91,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         // talk. Detached + fire-and-forget; bails silently when Apple
         // Intelligence is unavailable. No new model RAM — FM is
         // in-process and bundled with macOS.
-        if #available(macOS 26.0, *) {
+        if companionManager.activePlannerTier == .appleFoundationModels, #available(macOS 26.0, *) {
             Task.detached(priority: .utility) {
                 await AppleFoundationModelsPlannerClient.warmUp()
             }
@@ -101,22 +109,14 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         // PaceAutoUpdateController.shared.checkForUpdatesManually().
         _ = PaceAutoUpdateController.shared
 
-        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync()
+        PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: companionManager.plannerClient)
         companionManager.prewarmTextOnlyPlannerInBackgroundIfNeeded()
         // Start Kokoro only when the user explicitly selected the sidecar
         // provider. The default Apple voice has no helper process to manage.
         PaceTTSSidecarLauncher.startIfNotRunning()
         prewarmMailForFastDraftsIfNeeded()
 
-        let menuBarPanelManager = MenuBarPanelManager(
-            companionManager: companionManager,
-            onVisibilityChanged: { [weak self] isVisible in
-                guard self?.menuBarOverlayManager?.canPresentLivingNotch == true else {
-                    return
-                }
-                self?.menuBarOverlayManager?.setQuickPanelPresented(isVisible)
-            }
-        )
+        let menuBarPanelManager = MenuBarPanelManager(companionManager: companionManager)
         self.menuBarPanelManager = menuBarPanelManager
 
         // The notch is Pace's primary ambient surface. Keep the former
@@ -130,20 +130,6 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             }
         )
         self.menuBarOverlayManager = menuBarOverlayManager
-        menuBarPanelManager.useIntegratedLivingNotchPresentation(
-            isAvailable: { [weak menuBarOverlayManager] in
-                menuBarOverlayManager?.canPresentLivingNotch == true
-            },
-            isPresented: { [weak menuBarOverlayManager] in
-                menuBarOverlayManager?.isQuickPanelOpen == true
-            },
-            show: { [weak menuBarOverlayManager] in
-                menuBarOverlayManager?.setQuickPanelPresented(true)
-            },
-            hide: { [weak menuBarOverlayManager] in
-                menuBarOverlayManager?.setQuickPanelPresented(false)
-            }
-        )
         if useRightCornerMascot {
             let mascot = PaceAvatarOverlayManager()
             mascot.attach(to: companionManager)
@@ -159,18 +145,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         } else {
             menuBarOverlayManager.show()
         }
-        // Unit tests run inside this app as their test host. Skip the full
-        // companion startup there: start() ignites live subsystems (Apple FM
-        // thread-summarizer rehydration, ambient polling, meeting-recording
-        // sweep, permission refreshes) that would run concurrently with
-        // every test — and an intermittent FoundationModels framework trap
-        // in that background activity takes the whole test process, and
-        // every in-flight test in it, down as 0.000s bystander failures.
-        let isRunningAsUnitTestHost =
-            ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-        if !isRunningAsUnitTestHost {
-            companionManager.start()
-        }
+        companionManager.start()
         if useRightCornerMascot {
             // Mascot is the only surface — silence the cursor-level overlays
             // so nothing renders near the mouse pointer.
@@ -201,6 +176,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
+        guard !isRunningAsUnitTestHost else { return }
         for url in urls {
             guard let deepLinkCommand = PaceDeepLinkParser.parse(url) else {
                 print("🔗 Pace: ignoring unrecognized deeplink \(url.absoluteString)")
@@ -222,6 +198,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     /// completes will be queued and drained the same way a cold-launch
     /// deeplink is.
     func executePaceExternalCommand(_ command: PaceDeepLinkCommand) {
+        guard !isRunningAsUnitTestHost else { return }
         if hasFinishedLaunching {
             executeDeepLinkCommand(command)
         } else {
@@ -232,6 +209,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     /// Routes the standard macOS Settings command into Pace's real management
     /// surface instead of SwiftUI's placeholder Settings scene.
     func showCommandCenter() {
+        guard !isRunningAsUnitTestHost else { return }
         PaceSettingsWindowManager.shared.show(
             companionManager: companionManager,
             destination: .general
@@ -239,6 +217,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func executeDeepLinkCommand(_ command: PaceDeepLinkCommand) {
+        guard !isRunningAsUnitTestHost else { return }
         switch command {
         case .showPanel:
             menuBarPanelManager?.showPanelFromDeepLink()
@@ -252,6 +231,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        guard !isRunningAsUnitTestHost else { return }
         // Tear down every visible surface and background task. LM Studio owns
         // its model lifetime; unloading here races a quick Pace restart and
         // can pull the model out from under the newly launched process.

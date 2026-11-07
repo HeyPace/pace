@@ -71,6 +71,7 @@ nonisolated struct PaceWakeWordConfiguration: Equatable {
 @MainActor
 protocol PaceWakeWordSpotterProtocol: AnyObject {
     var wakeWordDetectedPublisher: PassthroughSubject<PaceWakeWordDetection, Never> { get }
+    var audioLevelPublisher: PassthroughSubject<Float, Never> { get }
     var isRunning: Bool { get }
     func start()
     func stop()
@@ -86,6 +87,7 @@ protocol PaceWakeWordSpotterProtocol: AnyObject {
 @MainActor
 final class PaceAppleSpeechWakeWordSpotter: NSObject, PaceWakeWordSpotterProtocol {
     let wakeWordDetectedPublisher = PassthroughSubject<PaceWakeWordDetection, Never>()
+    let audioLevelPublisher = PassthroughSubject<Float, Never>()
 
     private let configuration: PaceWakeWordConfiguration
     private let phraseMatcher: PaceWakeWordSpotter
@@ -279,6 +281,7 @@ final class PaceAppleSpeechWakeWordSpotter: NSObject, PaceWakeWordSpotterProtoco
         let audioEngine = AVAudioEngine()
         let inputNode = audioEngine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
+        let audioLevelPublisher = self.audioLevelPublisher
         inputNode.removeTap(onBus: 0)
         inputNode.installTap(
             onBus: 0,
@@ -291,6 +294,7 @@ final class PaceAppleSpeechWakeWordSpotter: NSObject, PaceWakeWordSpotterProtoco
             // the buffer past this callback so ARC frees the underlying
             // AudioBufferList immediately.
             self?.recognitionRequest?.append(buffer)
+            Self.publishAudioLevel(from: buffer, to: audioLevelPublisher)
         }
 
         audioEngine.prepare()
@@ -307,6 +311,24 @@ final class PaceAppleSpeechWakeWordSpotter: NSObject, PaceWakeWordSpotterProtoco
         self.audioEngine = audioEngine
         isRecognitionLive = true
         print("🎙️ PaceAppleSpeechWakeWordSpotter: recognition session live")
+    }
+
+    /// Shares only raw RMS from the existing consented wake tap. No audio is
+    /// retained, and a paused or stopped engine produces no levels.
+    nonisolated static func publishAudioLevel(
+        from audioBuffer: AVAudioPCMBuffer,
+        to audioLevelPublisher: PassthroughSubject<Float, Never>
+    ) {
+        guard let channelData = audioBuffer.floatChannelData else { return }
+        let frameCount = Int(audioBuffer.frameLength)
+        guard frameCount > 0 else { return }
+        let channelSamples = channelData[0]
+        var summedSquares: Float = 0
+        for sampleIndex in 0..<frameCount {
+            let sample = channelSamples[sampleIndex]
+            summedSquares += sample * sample
+        }
+        audioLevelPublisher.send(sqrt(summedSquares / Float(frameCount)))
     }
 
     private func tearDownRecognitionSession() {

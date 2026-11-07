@@ -184,3 +184,24 @@ preferences.
 - **Don't** replace product evidence with generic AI dashboards or stock art.
 - **Don't** fabricate customer names, quantified claims, or measured accuracy.
 - **Don't** hide off-device exceptions behind an absolute privacy claim.
+
+## Native quiet graphite
+
+The native app uses quiet graphite, selected on 29 October 2026. Conversations
+use unboxed assistant text, subtle inset user turns, a compact state row, and an
+integrated composer. Serif type is reserved for scene titles and empty states;
+working controls keep the existing Geist and system typography. Settings use
+quiet navigation rows and readable content measures. Blue marks active controls;
+amber continues to disclose off-device work.
+
+Generated diagrams float directly over the desktop as separate interactive
+parts with click-through space between them. Selecting a part reveals its local
+explanation. A deliberate follow-up uses the normal planner path. There is no
+opaque full-screen diagram window.
+
+The ambient notch uses **Seam**, selected on 30 October 2026: hardware-exact and
+invisible at rest, with a compact lower row during voice/tool work. The shared
+identity is an open-loop P, rendered as a monochrome native vector at small
+sizes and used in the app icon and web marks. Hover expansion is brief; voice
+feedback is immediate. The housing stays clear, amber identifies off-device
+work, and capture indicators remain visible while sources are active.

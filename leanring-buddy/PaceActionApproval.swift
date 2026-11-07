@@ -77,6 +77,8 @@ nonisolated enum PaceActionApprovalPolicy {
         configuredServers: [String: PaceMCPServerConfiguration] = PaceMCPServerRegistry.loadConfiguredServers()
     ) -> Bool {
         actionExecutionPlan.flattenedActions.allSatisfy { action in
+            // Creating a file is not observation, even when the tool needs no action-approval dialog.
+            if case .generateImage = action { return false }
             if case .mcp(let toolCall) = action {
                 switch toolCall.serverName {
                 case "peekaboo":
@@ -165,7 +167,7 @@ nonisolated enum PaceActionApprovalPolicy {
             .screenCapture, .meeting, .codexSession,
              .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
-             .drawAnnotation, .clearAnnotations:
+            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
             return false
         }
     }
@@ -197,7 +199,7 @@ nonisolated enum PaceActionApprovalPolicy {
             .openApplication, .openBrowser, .screenCapture, .meeting, .codexSession, .openURL, .controlMusic,
             .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
-             .drawAnnotation, .clearAnnotations:
+            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
             return false
         }
     }
@@ -251,7 +253,7 @@ nonisolated enum PaceActionApprovalPolicy {
             .screenCapture, .meeting, .codexSession,
              .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
-             .clearAnnotations:
+            .dismissDiagram, .clearAnnotations:
             // clearAnnotations: pure overlay cleanup, no speech needed.
             return true
         case .openMessages(let messageRequest):
@@ -259,7 +261,7 @@ nonisolated enum PaceActionApprovalPolicy {
         case .createCalendarEvent, .createReminder, .createNote, .appendNote,
              .composeMail, .createThingsToDo, .runShortcut, .downloadFile,
              .recordFlow, .runFlow, .mcp,
-             .drawAnnotation:
+            .generateImage, .showDiagram, .drawAnnotation:
             // drawAnnotation: the spoken narration IS the teaching
             // value — the drawing alone isn't sufficient feedback. So
             // do NOT suppress initial spoken feedback for this action,

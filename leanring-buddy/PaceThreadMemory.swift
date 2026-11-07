@@ -265,9 +265,10 @@ final class PaceThreadMemory {
     /// turn start AND from a low-frequency timer so the menu-bar
     /// surface can drop "session live" indicators without needing a
     /// new turn.
-    func sessionDidIdle(now: Date) -> PaceThreadSessionEndCause? {
+    func sessionDidIdle(now: Date, lastUserInteractionAt: Date? = nil) -> PaceThreadSessionEndCause? {
         guard let lastTurnRecordedAt else { return nil }
-        let secondsSinceLastTurn = now.timeIntervalSince(lastTurnRecordedAt)
+        let lastActivityAt = max(lastTurnRecordedAt, lastUserInteractionAt ?? lastTurnRecordedAt)
+        let secondsSinceLastTurn = now.timeIntervalSince(lastActivityAt)
         guard secondsSinceLastTurn >= configuration.sessionIdleThreshold else {
             return nil
         }

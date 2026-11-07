@@ -17,6 +17,39 @@ import Testing
 @MainActor
 struct PaceChatSessionTests {
 
+    @Test func visualAcceptanceRequiresBothExplicitDebugFlags() {
+        for environment in [[:], ["PACE_ENABLE_SMOKE_HOOKS": "1"], ["PACE_VISUAL_ACCEPTANCE_FIXTURE": "1"]] {
+            #expect(!PaceRuntimeSmokeTestHooks.isVisualAcceptanceEnabled(environment: environment))
+            #expect(PaceRuntimeSmokeTestHooks.makeVisualAcceptanceSessionIfEnabled(environment: environment) == nil)
+        }
+    }
+
+    @Test func visualAcceptanceGateRejectsNonOptInValues() {
+        #expect(
+            !PaceRuntimeSmokeTestHooks.isVisualAcceptanceEnabled(
+                environment: ["PACE_ENABLE_SMOKE_HOOKS": "1", "PACE_VISUAL_ACCEPTANCE_FIXTURE": "0"]))
+        #expect(
+            PaceRuntimeSmokeTestHooks.isVisualAcceptanceEnabled(
+                environment: ["PACE_ENABLE_SMOKE_HOOKS": "1", "PACE_VISUAL_ACCEPTANCE_FIXTURE": "1"]))
+    }
+
+    @Test func visualAcceptanceKeepsReloadAndTypedRepliesInsideFixture() throws {
+        let session = try #require(
+            PaceRuntimeSmokeTestHooks.makeVisualAcceptanceSessionIfEnabled(
+                environment: ["PACE_ENABLE_SMOKE_HOOKS": "1", "PACE_VISUAL_ACCEPTANCE_FIXTURE": "1"]))
+        session.loadHistoryWithoutBlockingInterface()
+        #expect(session.messages.count == 2)
+        #expect(session.messages.allSatisfy { $0.id.hasPrefix("pace-visual-acceptance:") })
+        session.submitUserMessage("Explain this fixture.")
+        #expect(
+            session.messages.last?.body
+                == "This is a local visual acceptance fixture. No planner or saved history was used.")
+        #expect(session.isChatTTSMuted)
+        session.loadHistoryWithoutBlockingInterface()
+        #expect(session.messages.count == 2)
+        #expect(session.messages.allSatisfy { $0.id.hasPrefix("pace-visual-acceptance:") })
+    }
+
     // MARK: - Test doubles
 
     final class FakeHistorySource: PaceChatHistorySource {

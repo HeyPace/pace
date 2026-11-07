@@ -98,6 +98,10 @@ final class HybridPlannerClient: BuddyPlannerClient {
     /// The bridge always discards images regardless.
     var supportsImageInput: Bool { localPlannerClient.supportsImageInput }
 
+    var requiresLMStudioPlannerWarmup: Bool {
+        BuddyPlannerClientFactory.requiresLMStudioPlannerWarmup(for: localPlannerClient)
+    }
+
     /// Mirror the wrapped local planner — the bridge path is free-form.
     var usesStructuredActionOutput: Bool { localPlannerClient.usesStructuredActionOutput }
 
@@ -163,6 +167,14 @@ final class HybridPlannerClient: BuddyPlannerClient {
 // MARK: - BuddyPlannerClientFactory
 
 enum BuddyPlannerClientFactory {
+    @MainActor
+    static func requiresLMStudioPlannerWarmup(for plannerClient: any BuddyPlannerClient) -> Bool {
+        if let hybridPlanner = plannerClient as? HybridPlannerClient {
+            return hybridPlanner.requiresLMStudioPlannerWarmup
+        }
+        return plannerClient is LocalPlannerClient
+    }
+
     private enum PlannerProvider: String {
         /// macOS 26 built-in 3B model via FoundationModels framework.
         /// Stateful session, KV cache persists across turns.

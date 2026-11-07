@@ -571,7 +571,9 @@ struct PaceBundledModelsSettingsTab: View {
                     Text("in-process Qwen3 TTS")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(DS.Colors.textPrimary)
-                    Text("Run text-to-speech via WhisperKit's TTSKit instead of the Kokoro Python sidecar. Drops the start-tts-server.sh dependency. ANE-accelerated, sub-200 ms first-audio-out.")
+                    Text(
+                        "Experimental on-device speech through WhisperKit’s TTSKit. Requires additional model assets; startup time and memory use depend on the model and your Mac."
+                    )
                         .font(.system(size: 12))
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -581,7 +583,9 @@ struct PaceBundledModelsSettingsTab: View {
             .onChange(of: isUsingQwen3TTS) { _, newValue in
                 PaceBundledModelsSettings.setUsingQwen3TTSInProcess(newValue)
             }
-            Text("~300 MB download on first use. Voice + language are auto-resolved by TTSKit's defaults; per-voice configuration UI is a follow-up.")
+            Text(
+                "Model assets can exceed 1 GB. Voice and language use TTSKit’s defaults. Apple speech remains the lightweight default when this option is off."
+            )
                 .font(.system(size: 11))
                 .foregroundColor(DS.Colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
