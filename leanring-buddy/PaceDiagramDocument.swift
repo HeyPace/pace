@@ -216,7 +216,7 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
         if screenReferences.contains(where: normalized.contains) { return true }
         let explicitScreenPatterns = [
             #"\bmy (?:screens?|screenshots?)\b(?!\s+time\b)"#,
-            #"\bmy windows?\b"#,
+            #"\bmy windows?\b(?!\s+(?:pc|computer|laptop|machine|os|operating\s+system|partition)\b)"#,
             #"\bwhat i see\b(?!\s+(?:when i close my eyes|with my eyes closed|in my (?:mind|head|dreams?|imagination))\b)"#,
         ]
         if explicitScreenPatterns.contains(where: {

@@ -96,6 +96,14 @@ final class PaceDiagramOverlayController: ObservableObject {
     }
 
     #if DEBUG
+        func pointingTargetForSmokeTest() -> (location: CGPoint, displayFrame: CGRect)? {
+            guard PaceRuntimeSmokeTestHooks.isVisualAcceptanceEnabled(),
+                document?.title == "A bounded local request",
+                Set(document?.nodes.map(\.id) ?? []) == Set(["request", "result"])
+            else { return nil }
+            return overlayManager?.pointingTargetForSmokeTest()
+        }
+
         func focusFigureForSmokeTest() {
             guard PaceRuntimeSmokeTestHooks.isEnabled else { return }
             overlayManager?.focusFigureForSmokeTest()

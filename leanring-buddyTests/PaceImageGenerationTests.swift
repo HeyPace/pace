@@ -14,7 +14,7 @@ struct PaceImageGenerationTests {
             "diagram this window", "diagram what I am looking at", "diagram this article",
             "diagram this document", "diagram the selected text",
             "generate an image of my screen", "draw my screens", "draw my screenshot",
-            "draw my screenshots", "draw my window", "draw my windows",
+            "draw my screenshots", "draw my window", "draw my windows", "draw my windows side by side",
             "make an image of what I see", "draw what I see here", "draw what I see on my laptop",
             "draw what I see right now", "make a diagram of what I see in Safari",
             "draw what I see at the moment", "draw what I see when I use Safari",
@@ -22,6 +22,9 @@ struct PaceImageGenerationTests {
         let creativeBriefs = [
             "make a chart of my screen time", "an image of my screensaver idea",
             "draw my windowpane design", "draw a blue mug",
+            "draw my Windows PC setup", "diagram my Windows computer", "draw my Windows laptop",
+            "diagram my Windows machine", "diagram my Windows OS", "diagram my Windows operating system",
+            "diagram my Windows partition layout",
             "draw what I see when I close my eyes", "draw what I see with my eyes closed",
             "draw what I see in my mind", "draw what I see in my head",
             "draw what I see in my dream", "draw what I see in my dreams",

@@ -136,6 +136,11 @@ final class PaceDiagramOverlayManager {
     }
 
     #if DEBUG
+        func pointingTargetForSmokeTest() -> (location: CGPoint, displayFrame: CGRect)? {
+            guard let panel = nodePanels["request"], panel.isVisible, let screen = panel.screen else { return nil }
+            return (CGPoint(x: panel.frame.midX, y: panel.frame.midY), screen.frame)
+        }
+
         func focusFigureForSmokeTest() {
             NSApp.activate(ignoringOtherApps: true)
             let panel = figurePanel ?? nodePanels.sorted { $0.key < $1.key }.first?.value

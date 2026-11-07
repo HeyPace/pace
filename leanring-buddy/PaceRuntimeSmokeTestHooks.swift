@@ -7,12 +7,14 @@
 //  launched with PACE_ENABLE_SMOKE_HOOKS=1.
 //
 
+import AppKit
 import Foundation
 
 extension Notification.Name {
     static let paceSmokeShowDiagram = Notification.Name("com.pace.smoke.showDiagram")
     static let paceSmokeFocusFigure = Notification.Name("com.pace.smoke.focusFigure")
     static let paceSmokeShowFixtureImage = Notification.Name("com.pace.smoke.showFixtureImage")
+    static let paceSmokePointAtFixture = Notification.Name("com.pace.smoke.pointAtFixture")
     static let paceSmokeShowFlowchart = Notification.Name("com.pace.smoke.showFlowchart")
     static let paceSmokeSelectDiagramPart = Notification.Name("com.pace.smoke.selectDiagramPart")
     static let paceSmokeDismissDiagram = Notification.Name("com.pace.smoke.dismissDiagram")
@@ -57,6 +59,17 @@ final class PaceRuntimeSmokeTestHooks {
 
     private func installObservers() {
         #if DEBUG
+            observe(.paceSmokePointAtFixture) { [weak self] in
+                guard Self.isVisualAcceptanceEnabled(), let self,
+                    let target = companionManager.diagramOverlayController.pointingTargetForSmokeTest()
+                else { return }
+                let cursorBefore = NSEvent.mouseLocation
+                companionManager.presentDetectedElement(
+                    screenLocation: target.location, displayFrame: target.displayFrame)
+                print(
+                    "PACE_FIXTURE_POINT target=\(target.location) cursorBefore=\(cursorBefore) cursorAfter=\(NSEvent.mouseLocation)"
+                )
+            }
             observe(.paceSmokeShowFixtureImage) { [weak self] in
                 guard Self.isVisualAcceptanceEnabled(),
                     let imagePath = ProcessInfo.processInfo.environment["PACE_VISUAL_ACCEPTANCE_IMAGE"]

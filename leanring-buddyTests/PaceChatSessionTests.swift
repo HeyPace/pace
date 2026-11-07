@@ -19,8 +19,18 @@ struct PaceChatSessionTests {
 
     @Test func visualAcceptanceRequiresBothExplicitDebugFlags() {
         for environment in [[:], ["PACE_ENABLE_SMOKE_HOOKS": "1"], ["PACE_VISUAL_ACCEPTANCE_FIXTURE": "1"]] {
+            #expect(!PaceRuntimeSmokeTestHooks.isVisualAcceptanceEnabled(environment: environment))
             #expect(PaceRuntimeSmokeTestHooks.makeVisualAcceptanceSessionIfEnabled(environment: environment) == nil)
         }
+    }
+
+    @Test func visualAcceptanceGateRejectsNonOptInValues() {
+        #expect(
+            !PaceRuntimeSmokeTestHooks.isVisualAcceptanceEnabled(
+                environment: ["PACE_ENABLE_SMOKE_HOOKS": "1", "PACE_VISUAL_ACCEPTANCE_FIXTURE": "0"]))
+        #expect(
+            PaceRuntimeSmokeTestHooks.isVisualAcceptanceEnabled(
+                environment: ["PACE_ENABLE_SMOKE_HOOKS": "1", "PACE_VISUAL_ACCEPTANCE_FIXTURE": "1"]))
     }
 
     @Test func visualAcceptanceKeepsReloadAndTypedRepliesInsideFixture() throws {
