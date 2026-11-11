@@ -18,13 +18,14 @@ test("Pace isolated testing power passes its native checks", { timeout: 900000 }
     }
   };
   t.signal.addEventListener("abort", stop, { once: true });
-  process.once("SIGTERM", stop);
+  const signals = ["SIGTERM", "SIGINT", "SIGHUP"];
+  for (const signal of signals) process.once(signal, stop);
   try {
     const [status, signal] = await once(child, "exit");
     assert.equal(signal, null, "Native checks were interrupted");
     assert.equal(status, 0, "Native checks failed; inspect xcresult and last-build.log");
   } finally {
-    process.removeListener("SIGTERM", stop);
+    for (const signal of signals) process.removeListener(signal, stop);
     stop();
   }
 });

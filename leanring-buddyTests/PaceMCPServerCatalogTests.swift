@@ -45,7 +45,7 @@ struct PaceMCPServerCatalogTests {
         // `supersededBySlug` so the Settings tab can hint at the
         // migration when a legacy entry is still installed.
         let expectedSlugs: Set<String> = [
-            "filesystem", "fetch", "applescript", "composio", "peekaboo", "playwright", "linear", "cua",
+            "filesystem", "fetch", "applescript", "composio", "peekaboo", "playwright", "linear", "pace-isolated-testing",
         ]
         #expect(bundledSlugs == expectedSlugs)
     }
@@ -67,7 +67,7 @@ struct PaceMCPServerCatalogTests {
     }
 
     @Test func isolatedTestingUsesManagedGuardWithItsOwnOwnerNamespace() throws {
-        let entry = try #require(PaceMCPServerCatalog.entry(forSlug: "cua"))
+        let entry = try #require(PaceMCPServerCatalog.entry(forSlug: "pace-isolated-testing"))
         #expect(entry.command.hasSuffix("/.agents/skills/isolated-computer-use/scripts/cua-mcp"))
         #expect(entry.arguments == ["mcp"])
         #expect(entry.environment == ["FLEET_CUA_OWNER": "pace-isolated-testing"])

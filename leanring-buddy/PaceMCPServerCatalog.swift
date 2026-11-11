@@ -56,7 +56,7 @@ struct PaceMCPServerCatalogEntry: Equatable, Identifiable {
 enum PaceMCPServerCatalog {
     static let bundledCatalog: [PaceMCPServerCatalogEntry] = [
         PaceMCPServerCatalogEntry(
-            slug: "cua",
+            slug: "pace-isolated-testing",
             displayName: "Isolated app testing",
             description: "Cua virtual Macs for builds, test jobs, and guest app control.",
             setupNote:
