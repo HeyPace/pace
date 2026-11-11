@@ -14,7 +14,7 @@ import Testing
 struct PaceSkillLoaderTests {
 
     @Test
-    func bundledIsolatedTestingPowerLoadsIntoTheInvocationCatalog() throws {
+    func bundledIsolatedComputerPowerLoadsIntoTheInvocationCatalog() throws {
         let skillURL = try #require(
             Bundle.main.url(
                 forResource: "isolated-testing", withExtension: "skill.md", subdirectory: "skills"
@@ -27,7 +27,7 @@ struct PaceSkillLoaderTests {
         )
         let entry = try #require(catalog.entries.first)
 
-        #expect(entry.reference == .skill(slug: "isolated-testing", name: "Isolated Testing"))
+        #expect(entry.reference == .skill(slug: "isolated-testing", name: "Isolated Computer"))
         #expect(entry.executionMode == .plannerGrounded)
         #expect(entry.invocationPhrases.contains(trigger))
         #expect(!skill.steps.isEmpty)
@@ -48,12 +48,12 @@ struct PaceSkillLoaderTests {
         let markdown = try String(contentsOf: url, encoding: .utf8)
         try markdown.write(
             to: bundled.appendingPathComponent("isolated-testing.skill.md"), atomically: true, encoding: .utf8)
-        let customized = markdown.replacingOccurrences(of: "Isolated Testing", with: "My Testing")
+        let customized = markdown.replacingOccurrences(of: "Isolated Computer", with: "My Computer")
         try customized.write(
             to: user.appendingPathComponent("isolated-testing.skill.md"), atomically: true, encoding: .utf8)
         let skills = PaceSkillLoader.loadAllSkills(bundledDirectory: bundled, userDirectory: user)
         #expect(skills.count == 1)
-        #expect(skills.first?.name == "My Testing")
+        #expect(skills.first?.name == "My Computer")
     }
 
     // MARK: - Parsing
