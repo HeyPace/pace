@@ -15,9 +15,10 @@ struct PaceSkillLoaderTests {
 
     @Test
     func bundledIsolatedTestingPowerLoadsIntoTheInvocationCatalog() throws {
-        let skillURL = try #require(Bundle.main.url(
-            forResource: "isolated-testing", withExtension: "skill.md", subdirectory: "skills"
-        ))
+        let skillURL = try #require(
+            Bundle.main.url(
+                forResource: "isolated-testing", withExtension: "skill.md", subdirectory: "skills"
+            ))
         let markdown = try String(contentsOf: skillURL, encoding: .utf8)
         let skill = try #require(PaceSkillLoader.parse(skillMarkdown: markdown))
         let trigger = try #require(skill.trigger)
@@ -41,12 +42,15 @@ struct PaceSkillLoaderTests {
         let user = root.appendingPathComponent("user")
         try FileManager.default.createDirectory(at: bundled, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: user, withIntermediateDirectories: true)
-        let url = try #require(Bundle.main.url(
-            forResource: "isolated-testing", withExtension: "skill.md", subdirectory: "skills"))
+        let url = try #require(
+            Bundle.main.url(
+                forResource: "isolated-testing", withExtension: "skill.md", subdirectory: "skills"))
         let markdown = try String(contentsOf: url, encoding: .utf8)
-        try markdown.write(to: bundled.appendingPathComponent("isolated-testing.skill.md"), atomically: true, encoding: .utf8)
+        try markdown.write(
+            to: bundled.appendingPathComponent("isolated-testing.skill.md"), atomically: true, encoding: .utf8)
         let customized = markdown.replacingOccurrences(of: "Isolated Testing", with: "My Testing")
-        try customized.write(to: user.appendingPathComponent("isolated-testing.skill.md"), atomically: true, encoding: .utf8)
+        try customized.write(
+            to: user.appendingPathComponent("isolated-testing.skill.md"), atomically: true, encoding: .utf8)
         let skills = PaceSkillLoader.loadAllSkills(bundledDirectory: bundled, userDirectory: user)
         #expect(skills.count == 1)
         #expect(skills.first?.name == "My Testing")

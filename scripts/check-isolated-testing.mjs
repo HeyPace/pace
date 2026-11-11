@@ -13,7 +13,10 @@ test("Pace isolated testing power passes its native checks", { timeout: 900000 }
   const stop = () => {
     if (child.exitCode === null && child.pid) {
       try { process.kill(-child.pid, "SIGTERM"); } catch (error) {
-        if (error.code !== "ESRCH") throw error;
+        if (error.code !== "ESRCH") {
+          console.error("Could not stop native test process group:", error.message);
+          process.exitCode = 1;
+        }
       }
     }
   };

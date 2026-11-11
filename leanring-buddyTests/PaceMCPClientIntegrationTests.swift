@@ -48,32 +48,44 @@ private enum PaceMCPFixture {
 
 @Suite(.serialized)
 struct PaceMCPClientIntegrationTests {
-    @Test(.enabled(if: FileManager.default.isExecutableFile(atPath:
-        NSString(string: "~/.agents/skills/isolated-computer-use/scripts/cua-mcp").expandingTildeInPath)
-        && FileManager.default.isExecutableFile(atPath:
-            NSString(string: "~/.local/bin/cua").expandingTildeInPath)))
+    @Test(
+        .enabled(
+            if: FileManager.default.isExecutableFile(
+                atPath:
+                    NSString(string: "~/.agents/skills/isolated-computer-use/scripts/cua-mcp").expandingTildeInPath)
+                && FileManager.default.isExecutableFile(
+                    atPath:
+                        NSString(string: "~/.local/bin/cua").expandingTildeInPath)
+        ))
     func installedIsolatedTestingPowerDiscoversJobsAndRefusesHostTargets() async throws {
         let entry = try #require(PaceMCPServerCatalog.entry(forSlug: "pace-isolated-testing"))
         let client = PaceMCPStdioClient(serverConfigurations: [
             "pace-isolated-testing": .init(command: entry.command, args: entry.arguments, env: entry.environment)
         ])
         let catalog = try await client.toolCatalog(serverName: "pace-isolated-testing")
-        for name in ["create_space", "space_job", "call_tool", "download"] {
+        for name in [
+            "create_space", "list_spaces", "space_job", "space_bash", "space_write",
+            "send_file", "download", "list_tools", "call_tool", "delete_space",
+        ] {
             #expect(catalog.contains("\"name\":\"" + name + "\""))
         }
         #expect(!catalog.contains("\"name\":\"add_space\""))
         do {
-            _ = try await client.callTool(.init(
-                serverName: "pace-isolated-testing", toolName: "call_tool",
-                arguments: ["space": .string("direct:127.0.0.1:1"), "tool": .string("click")]))
+            _ = try await client.callTool(
+                .init(
+                    serverName: "pace-isolated-testing", toolName: "call_tool",
+                    arguments: ["space": .string("direct:127.0.0.1:1"), "tool": .string("click")]))
             Issue.record("The isolated testing power must reject a host address")
         } catch PaceMCPClientError.rpcError(let message) {
             #expect(message.contains("host targets are refused"))
         }
         do {
-            _ = try await client.callTool(.init(
-                serverName: "pace-isolated-testing", toolName: "space_job", arguments: [
-                    "space": .string("local:pace-missing-" + UUID().uuidString), "action": .string("list")]))
+            _ = try await client.callTool(
+                .init(
+                    serverName: "pace-isolated-testing", toolName: "space_job",
+                    arguments: [
+                        "space": .string("local:pace-missing-" + UUID().uuidString), "action": .string("list"),
+                    ]))
             Issue.record("An absent guest must fail without using a default desktop")
         } catch PaceMCPClientError.rpcError(let message) {
             #expect(message.contains("did not create that worker"))

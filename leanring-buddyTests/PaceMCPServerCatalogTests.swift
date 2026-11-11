@@ -45,7 +45,8 @@ struct PaceMCPServerCatalogTests {
         // `supersededBySlug` so the Settings tab can hint at the
         // migration when a legacy entry is still installed.
         let expectedSlugs: Set<String> = [
-            "filesystem", "fetch", "applescript", "composio", "peekaboo", "playwright", "linear", "pace-isolated-testing",
+            "filesystem", "fetch", "applescript", "composio", "peekaboo", "playwright", "linear",
+            "pace-isolated-testing",
         ]
         #expect(bundledSlugs == expectedSlugs)
     }
