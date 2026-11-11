@@ -64,7 +64,7 @@ enum PaceMCPServerCatalog {
             setupDocsURL: URL(string: "https://cua.ai/docs/spaces/quickstart"),
             command: NSString(string: "~/.agents/skills/isolated-computer-use/scripts/cua-mcp").expandingTildeInPath,
             arguments: ["mcp"],
-            environment: [:]
+            environment: ["FLEET_CUA_OWNER": "pace-isolated-testing"]
         ),
         PaceMCPServerCatalogEntry(
             slug: "playwright",

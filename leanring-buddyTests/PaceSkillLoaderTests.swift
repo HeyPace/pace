@@ -33,6 +33,25 @@ struct PaceSkillLoaderTests {
         #expect(skill.steps.allSatisfy { $0.toolCall == nil })
     }
 
+    @Test
+    func userSkillShadowsBundledDefaultWithoutDuplicateInvocation() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundled = root.appendingPathComponent("bundled")
+        let user = root.appendingPathComponent("user")
+        try FileManager.default.createDirectory(at: bundled, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: user, withIntermediateDirectories: true)
+        let url = try #require(Bundle.main.url(
+            forResource: "isolated-testing", withExtension: "skill.md", subdirectory: "skills"))
+        let markdown = try String(contentsOf: url, encoding: .utf8)
+        try markdown.write(to: bundled.appendingPathComponent("isolated-testing.skill.md"), atomically: true, encoding: .utf8)
+        let customized = markdown.replacingOccurrences(of: "Isolated Testing", with: "My Testing")
+        try customized.write(to: user.appendingPathComponent("isolated-testing.skill.md"), atomically: true, encoding: .utf8)
+        let skills = PaceSkillLoader.loadAllSkills(bundledDirectory: bundled, userDirectory: user)
+        #expect(skills.count == 1)
+        #expect(skills.first?.name == "My Testing")
+    }
+
     // MARK: - Parsing
 
     /// A complete .skill.md file with frontmatter and steps parses

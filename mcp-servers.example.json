@@ -74,7 +74,10 @@
       "command": "/Users/yourname/.agents/skills/isolated-computer-use/scripts/cua-mcp",
       "args": [
         "mcp"
-      ]
+      ],
+      "env": {
+        "FLEET_CUA_OWNER": "pace-isolated-testing"
+      }
     }
   }
 }

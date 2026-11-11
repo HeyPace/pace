@@ -53,20 +53,14 @@ struct PaceSkillStep: Codable, Equatable {
 enum PaceSkillLoader {
 
     /// Load all .skill.md files from bundled and user directories.
-    static func loadAllSkills() -> [PaceSkillFile] {
-        var skills: [PaceSkillFile] = []
-
-        // Bundled skills (Resources/skills/*.skill.md)
-        if let bundledSkills = loadSkillsFromDirectory(bundledSkillsDirectory()) {
-            skills.append(contentsOf: bundledSkills)
-        }
-
-        // User skills (~/Library/Application Support/Pace/skills/*.skill.md)
-        if let userSkills = loadSkillsFromDirectory(userSkillsDirectory()) {
-            skills.append(contentsOf: userSkills)
-        }
-
-        return skills
+    static func loadAllSkills(
+        bundledDirectory: URL? = nil, userDirectory: URL? = nil
+    ) -> [PaceSkillFile] {
+        let userSkills = loadSkillsFromDirectory(userDirectory ?? userSkillsDirectory()) ?? []
+        let userSlugs = Set(userSkills.map(\.slug))
+        let bundledSkills = loadSkillsFromDirectory(bundledDirectory ?? bundledSkillsDirectory()) ?? []
+        // User-taught versions shadow bundled defaults in both the UI and voice catalog.
+        return userSkills + bundledSkills.filter { !userSlugs.contains($0.slug) }
     }
 
     /// Parse a single .skill.md file from its raw content.

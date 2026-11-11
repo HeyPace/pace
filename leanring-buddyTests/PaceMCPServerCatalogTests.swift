@@ -66,11 +66,11 @@ struct PaceMCPServerCatalogTests {
         #expect(entry.environment.isEmpty)
     }
 
-    @Test func isolatedTestingHasNoInheritedDesktopTargetOrHostManagementTools() throws {
+    @Test func isolatedTestingUsesManagedGuardWithItsOwnOwnerNamespace() throws {
         let entry = try #require(PaceMCPServerCatalog.entry(forSlug: "cua"))
         #expect(entry.command.hasSuffix("/.agents/skills/isolated-computer-use/scripts/cua-mcp"))
         #expect(entry.arguments == ["mcp"])
-        #expect(entry.environment.isEmpty)
+        #expect(entry.environment == ["FLEET_CUA_OWNER": "pace-isolated-testing"])
     }
 
     @Test func composioEntryUsesEmptyKeySentinelForKeychainSubstitution() {

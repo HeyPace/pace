@@ -38,7 +38,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		C1A000022FD0000100000002 /* skills */ = {isa = PBXFileReference; lastKnownFileType = folder; name = skills; path = resources/skills; sourceTree = SOURCE_ROOT; };
+		C1A000022FD0000100000002 /* skills */ = {isa = PBXFileReference; lastKnownFileType = folder; name = skills; path = resources/bundled/skills; sourceTree = SOURCE_ROOT; };
 		28F22CBF2F56440300A0FC59 /* Pace.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pace.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		28F22CCC2F56440300A0FC59 /* leanring-buddyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "leanring-buddyTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		28F22CD62F56440300A0FC59 /* leanring-buddyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "leanring-buddyUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };

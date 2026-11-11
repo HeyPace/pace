@@ -76,7 +76,7 @@ struct PaceMCPClientIntegrationTests {
                     "space": .string("local:pace-missing-" + UUID().uuidString), "action": .string("list")]))
             Issue.record("An absent guest must fail without using a default desktop")
         } catch PaceMCPClientError.rpcError(let message) {
-            #expect(message.contains("not registered"))
+            #expect(message.contains("did not create that worker"))
         }
     }
 
