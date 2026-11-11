@@ -56,6 +56,17 @@ struct PaceMCPServerCatalogEntry: Equatable, Identifiable {
 enum PaceMCPServerCatalog {
     static let bundledCatalog: [PaceMCPServerCatalogEntry] = [
         PaceMCPServerCatalogEntry(
+            slug: "cua",
+            displayName: "Isolated app testing",
+            description: "Cua virtual Macs for builds, test jobs, and guest app control.",
+            setupNote:
+                "Requires the managed isolated-computer-use skill, Python 3, the Cua CLI at ~/.local/bin/cua, and an Apple silicon Mac. The first macOS image download needs substantial disk space. Use the Isolated Testing skill; workers have their own desktop and permissions.",
+            setupDocsURL: URL(string: "https://cua.ai/docs/spaces/quickstart"),
+            command: NSString(string: "~/.agents/skills/isolated-computer-use/scripts/cua-mcp").expandingTildeInPath,
+            arguments: ["mcp"],
+            environment: [:]
+        ),
+        PaceMCPServerCatalogEntry(
             slug: "playwright",
             displayName: "Playwright browser",
             description: "Open-source browser navigation, page reading, and form control.",

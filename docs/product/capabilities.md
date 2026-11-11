@@ -27,6 +27,16 @@ Multi-action commands use the v10 envelope’s `payload.calls`. Codex computer-u
 
 ## Capability classes (beyond tools)
 
+**Isolated app testing** — install Cua in Connected apps and tools, then ask
+“test this app in isolation.” The bundled skill uses a task-owned local virtual
+Mac for builds, durable test jobs, and guest accessibility checks. It collects
+logs and selected artifacts and reports failures, skips, and unavailable checks.
+The managed `isolated-computer-use` skill, Python 3, Cua CLI, and a macOS image
+are required. Its MCP guard rejects host and remote targets. Jobs can be resumed by their
+worker and job IDs; automatic completion announcements are not yet integrated.
+The generic MCP path carries text and structured results, so image-only output
+does not qualify visual review. Existing action approvals still apply.
+
 **Native interaction surfaces** — first launch opens a skippable three-scene
 journey: Pace's local signal, three live macOS permissions, then one editable
 typed or spoken request sent through the same real request and approval path as

@@ -48,6 +48,38 @@ private enum PaceMCPFixture {
 
 @Suite(.serialized)
 struct PaceMCPClientIntegrationTests {
+    @Test(.enabled(if: FileManager.default.isExecutableFile(atPath:
+        NSString(string: "~/.agents/skills/isolated-computer-use/scripts/cua-mcp").expandingTildeInPath)
+        && FileManager.default.isExecutableFile(atPath:
+            NSString(string: "~/.local/bin/cua").expandingTildeInPath)))
+    func installedIsolatedTestingPowerDiscoversJobsAndRefusesHostTargets() async throws {
+        let entry = try #require(PaceMCPServerCatalog.entry(forSlug: "cua"))
+        let client = PaceMCPStdioClient(serverConfigurations: [
+            "cua": .init(command: entry.command, args: entry.arguments, env: entry.environment)
+        ])
+        let catalog = try await client.toolCatalog(serverName: "cua")
+        for name in ["create_space", "space_job", "call_tool", "download"] {
+            #expect(catalog.contains("\"name\":\"" + name + "\""))
+        }
+        #expect(!catalog.contains("\"name\":\"add_space\""))
+        do {
+            _ = try await client.callTool(.init(
+                serverName: "cua", toolName: "call_tool",
+                arguments: ["space": .string("direct:127.0.0.1:1"), "tool": .string("click")]))
+            Issue.record("The isolated testing power must reject a host address")
+        } catch PaceMCPClientError.rpcError(let message) {
+            #expect(message.contains("host targets are refused"))
+        }
+        do {
+            _ = try await client.callTool(.init(
+                serverName: "cua", toolName: "space_job", arguments: [
+                    "space": .string("local:pace-missing-" + UUID().uuidString), "action": .string("list")]))
+            Issue.record("An absent guest must fail without using a default desktop")
+        } catch PaceMCPClientError.rpcError(let message) {
+            #expect(message.contains("not registered"))
+        }
+    }
+
     @Test
     func missingExecutableReportsActionableLocalizedFailure() async {
         let missingCommand = "/tmp/pace-missing-server-\(UUID())"

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C1A000012FD0000100000001 /* skills in Resources */ = {isa = PBXBuildFile; fileRef = C1A000022FD0000100000002 /* skills */; };
 		DD00AA000000000000000003 /* SaaSMakerUI in Frameworks */ = {isa = PBXBuildFile; productRef = DD00AA000000000000000002 /* SaaSMakerUI */; };
 		2DD12CCA2FC82FE8009F8723 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB082F6500080039DA55 /* WhisperKit */; };
 		AA00BB032F6500030039DA55 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB022F6500020039DA55 /* Sparkle */; };
@@ -37,6 +38,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		C1A000022FD0000100000002 /* skills */ = {isa = PBXFileReference; lastKnownFileType = folder; name = skills; path = resources/skills; sourceTree = SOURCE_ROOT; };
 		28F22CBF2F56440300A0FC59 /* Pace.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pace.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		28F22CCC2F56440300A0FC59 /* leanring-buddyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "leanring-buddyTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		28F22CD62F56440300A0FC59 /* leanring-buddyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "leanring-buddyUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -144,6 +146,7 @@
 				C0A000012FD0000100000001 /* PaceShared */,
 				28F22CCF2F56440300A0FC59 /* leanring-buddyTests */,
 				28F22CD92F56440300A0FC59 /* leanring-buddyUITests */,
+				C1A000022FD0000100000002 /* skills */,
 				28F22CC02F56440300A0FC59 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -325,6 +328,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C1A000012FD0000100000001 /* skills in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -69,6 +69,12 @@
         "mcp-remote@0.14.3",
         "https://mcp.linear.app/mcp/readonly"
       ]
+    },
+    "cua": {
+      "command": "/Users/yourname/.agents/skills/isolated-computer-use/scripts/cua-mcp",
+      "args": [
+        "mcp"
+      ]
     }
   }
 }

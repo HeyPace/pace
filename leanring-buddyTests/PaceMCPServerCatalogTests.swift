@@ -45,7 +45,7 @@ struct PaceMCPServerCatalogTests {
         // `supersededBySlug` so the Settings tab can hint at the
         // migration when a legacy entry is still installed.
         let expectedSlugs: Set<String> = [
-            "filesystem", "fetch", "applescript", "composio", "peekaboo", "playwright", "linear",
+            "filesystem", "fetch", "applescript", "composio", "peekaboo", "playwright", "linear", "cua",
         ]
         #expect(bundledSlugs == expectedSlugs)
     }
@@ -63,6 +63,13 @@ struct PaceMCPServerCatalogTests {
     @Test func linearUsesOfficialReadOnlyOAuthWithoutAnAPIKey() throws {
         let entry = try #require(PaceMCPServerCatalog.entry(forSlug: "linear"))
         #expect(entry.arguments == ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp/readonly"])
+        #expect(entry.environment.isEmpty)
+    }
+
+    @Test func isolatedTestingHasNoInheritedDesktopTargetOrHostManagementTools() throws {
+        let entry = try #require(PaceMCPServerCatalog.entry(forSlug: "cua"))
+        #expect(entry.command.hasSuffix("/.agents/skills/isolated-computer-use/scripts/cua-mcp"))
+        #expect(entry.arguments == ["mcp"])
         #expect(entry.environment.isEmpty)
     }
 

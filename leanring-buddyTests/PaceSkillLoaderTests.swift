@@ -13,6 +13,26 @@ import Testing
 
 struct PaceSkillLoaderTests {
 
+    @Test
+    func bundledIsolatedTestingPowerLoadsIntoTheInvocationCatalog() throws {
+        let skillURL = try #require(Bundle.main.url(
+            forResource: "isolated-testing", withExtension: "skill.md", subdirectory: "skills"
+        ))
+        let markdown = try String(contentsOf: skillURL, encoding: .utf8)
+        let skill = try #require(PaceSkillLoader.parse(skillMarkdown: markdown))
+        let trigger = try #require(skill.trigger)
+        let catalog = PaceAutomationCatalog(
+            typedDefinitions: [], recordedFlows: [], skills: [skill], shortcutNames: []
+        )
+        let entry = try #require(catalog.entries.first)
+
+        #expect(entry.reference == .skill(slug: "isolated-testing", name: "Isolated Testing"))
+        #expect(entry.executionMode == .plannerGrounded)
+        #expect(entry.invocationPhrases.contains(trigger))
+        #expect(!skill.steps.isEmpty)
+        #expect(skill.steps.allSatisfy { $0.toolCall == nil })
+    }
+
     // MARK: - Parsing
 
     /// A complete .skill.md file with frontmatter and steps parses

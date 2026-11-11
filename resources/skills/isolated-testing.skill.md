@@ -1,0 +1,32 @@
+---
+name: "Isolated Testing"
+slug: "isolated-testing"
+description: "Build and test an app in its own virtual Mac, verify guest behavior, and return an evidence-based result with logs and artifacts."
+category: "work"
+requiredPreferences: []
+trigger: "test this app in isolation"
+---
+
+## Steps
+
+1. Establish the app, requested behavior, source snapshot or revision, and the checks that would demonstrate success. Reuse the current conversation; ask only for a missing target or requirement that affects the test. This is a testing power: preserve source and do not deploy, publish, merge, or repair product code unless requested.
+2. Use the configured cua MCP power and its supplied live schemas. Verify the required tools are present. Create one task-owned macOS VM with create_space using on=local, image=macos, kind=vm, runtime=lume, reuse=false, count=1, and wait=false. Record the returned local worker ID. Use list_spaces to establish readiness. Initial provisioning can take a long time; report starting or blocked accurately rather than falling back to the owner's desktop.
+3. Give the worker only the requested source and fixtures. Prefer a clean prepared source archive and its revision manifest, or clone the requested repository at an explicit revision inside the guest. For local files use send_file with the exact selected path and verify its returned hashes. A folder transfer must respect ignore files and must be known to exclude credentials, environment files, signing material, personal app data, build caches, and unrelated files. If that cannot be established, request or prepare a sanitized export through an already authorized file tool; do not transfer the whole home or workspace. Label a working-tree snapshot separately from a verified committed revision.
+4. Check the guest toolchain and project instructions before building. Use the project's authoritative scripts and focused regression checks first. Keep XcodeBuildMCP and platform-specific build rules where required. Use space_job with action=start for builds, tests, installs, and other work that may exceed a short MCP call; record the job ID, command, working directory, and timeout. Run commands only in the owned guest. A job starting is not a passing test.
+5. Observe each owned job with space_job status or incremental logs. Use returned log offsets, bounded output, and follow_ms no greater than 5000 so calls fit Pace's tool timeout. Verify terminal state, exit code, actual non-zero executed test counts, failures, and skips. On an uncertain timeout inspect the existing job before retrying; never launch a duplicate build blindly. If the turn ends while a job runs, preserve the worker and report its IDs and running state so the test can resume.
+6. Exercise the requested app flow inside that worker. Discover the guest's declared tools with list_tools, then call_tool with the explicit owned space ID, tool name, and current schema. Read fresh guest UI state, perform the requested action, and verify app-owned state afterward. Cover meaningful normal, empty, error, permission, and cancellation cases applicable to the request. Keep build success, packaged startup, semantic GUI behavior, visual review, and real-hardware behavior separate.
+7. Collect the evidence needed to assess the result: full build and test logs, test-result summaries, exact failure messages and reproduction steps, and screenshots or other artifacts when the guest can produce them. Write a concise report in the guest with space_write and download only the selected report and artifacts to a private Pace test-results folder. Verify transfer results. Do not publish a hosted link or claim an artifact exists when capture or download failed.
+8. Return the final outcome first: passed, failed, blocked, or still running. Include the app and source identity; worker and job IDs; commands and tested scope; elapsed time; passed, failed, and skipped counts; GUI observations; reproducible defects; and local artifact paths. List untested or unavailable checks explicitly. Give the most useful next action. Speak a short verdict and keep the detailed evidence in the text response. Do not infer 24/7 reliability, security isolation, performance improvement, or hardware parity from a short run.
+9. After results are safely collected and no job remains active, delete only the disposable worker this task created. Preserve an active or explicitly retained worker, and recover unfinished artifacts before cleanup. Never operate or remove another task's worker.
+
+## Notes
+
+Cua supplies this power's execution tools; the selected Pace planner supplies reasoning. It is an extensible MCP workflow, not a fixed script or a new model provider. Use only tool names and arguments supplied by the configured cua server. Keep Pace's existing action approval, provider consent, audit, and cancellation behavior intact.
+
+Every guest command, file operation and UI action must identify the owned local space explicitly. Never select host, direct host addresses, another person's worker, remote/cloud placement, or an inherited shared CLI desktop target. Do not use native host click/type/open-app actions, Peekaboo host control, or the owner's screen as a substitute for guest evidence. The current platform supports at most two simultaneous macOS VMs; if capacity is occupied, report the wait and preserve the other work.
+
+Prefer semantic accessibility observations for verification. Pace's current generic MCP response path consumes text and structuredContent; an image-only response is not proof that the planner inspected the picture. Save screenshot artifacts when supported and mark pixel-only visual review unverified unless an authorized image-capable path actually examined the guest image. Never describe a host screenshot as a guest screenshot.
+
+For Pace as the app under test, preserve the leanring-buddy project and scheme names. Use scripts/test-pace.sh for its isolated test build, and Xcode/XcodeBuildMCP for interactive builds. Unit fixtures do not qualify microphone, speech, audio routing, calendar permissions, TCC continuity, or physical-device behavior; report those hardware checks separately.
+
+Long jobs outlive a tool call. Keep a still-running result open and resumable rather than calling it completed. Cua job notifications are not proof that Pace received a completion event; report delivery only when observed.
