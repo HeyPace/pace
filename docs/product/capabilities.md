@@ -36,6 +36,8 @@ finished work, selected artifacts, and an honest completion status. The managed
 The guard rejects host/remote targets. Jobs resume by worker/job ID; automatic
 completion announcements are not integrated. Text/structured MCP results do not
 qualify image-only visual review. Existing action approvals still apply.
+Guest task execution is not yet verified end to end: local network access is
+blocking qualification.
 
 **Native interaction surfaces** — first launch opens a skippable three-scene
 journey: Pace's local signal, three live macOS permissions, then one editable
