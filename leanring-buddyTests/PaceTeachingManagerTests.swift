@@ -57,7 +57,8 @@ struct PaceTeachingManagerTests {
         let (persister, session, recorder) = PaceConversationRecorderTests().makeFixture()
         let preferences = UserDefaults(suiteName: "PaceTeachingManagerTests." + UUID().uuidString)!
         let manager = CompanionManager(watchModeDefaults: preferences, recordsDerivedConversationMemory: derivedMemory,
-            persistsDebugTraces: false, diagramOverlayController: .init(showsWindows: false), threadMemoryStore: .init(fileURL: nil))
+            persistsDebugTraces: false, diagramOverlayController: PaceDiagramOverlayController(showsWindows: false),
+            threadMemoryStore: PaceThreadMemoryStore(fileURL: nil))
         manager.threadMemory = PaceThreadMemory(configuration: .default)
         manager.chatSession = session
         manager.conversationRecorder = recorder

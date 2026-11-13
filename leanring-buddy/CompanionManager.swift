@@ -1286,11 +1286,11 @@ final class CompanionManager: ObservableObject {
         watchModeDefaults: UserDefaults = .standard,
         recordsDerivedConversationMemory: Bool = true,
         persistsDebugTraces: Bool = true,
-        diagramOverlayController: PaceDiagramOverlayController = PaceDiagramOverlayController(),
-        threadMemoryStore: PaceThreadMemoryStore = PaceThreadMemoryStore()
+        diagramOverlayController: PaceDiagramOverlayController? = nil,
+        threadMemoryStore: PaceThreadMemoryStore? = nil
     ) {
-        self.diagramOverlayController = diagramOverlayController
-        self.threadMemoryStore = threadMemoryStore
+        self.diagramOverlayController = diagramOverlayController ?? PaceDiagramOverlayController()
+        self.threadMemoryStore = threadMemoryStore ?? PaceThreadMemoryStore()
         self.persistsDebugTraces = persistsDebugTraces
         self.recordsDerivedConversationMemory = recordsDerivedConversationMemory
         self.watchModeDefaults = watchModeDefaults
