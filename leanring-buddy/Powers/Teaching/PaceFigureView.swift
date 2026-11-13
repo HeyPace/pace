@@ -409,7 +409,7 @@ private struct PaceFigureCalloutsView: View {
 }
 
 @MainActor
-private final class PaceFigureViewModel: ObservableObject {
+final class PaceFigureViewModel: ObservableObject {
     let sceneRoot = Entity()
     @Published private(set) var renderingError: String?
     @Published private(set) var hasMovingSurfaces = false
@@ -487,6 +487,7 @@ private final class PaceFigureViewModel: ObservableObject {
         }
         if appliedViewpointRevision != revision {
             appliedViewpointRevision = revision
+            previousControlValue = .nan
             if let viewpoint = scene.viewpoint {
                 sceneRoot.orientation = viewpoint.orientation
                 refreshCameraFraming()

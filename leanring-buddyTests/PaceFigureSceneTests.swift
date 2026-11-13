@@ -132,6 +132,28 @@ struct PaceFigureSceneTests {
         #expect(controller.controlDeflection == 0)
     }
 
+    @Test @MainActor func stoppedMotionStaysPausedUntilAnExplicitStepRevisionReplaysIt() throws {
+        let document = try #require(PaceTeachingTemplateCatalog.lessonDocument(for: .piCamera))
+        let model = PaceFigureViewModel()
+        model.update(document: document, selectedNodeID: "latch", revision: 1)
+        let geometry = try #require(model.sceneRoot.children.first)
+        let latch = try #require(geometry.findEntity(named: "latch"))
+        let restingPosition = latch.position
+        model.setControlValue(0.8, animated: false)
+        let requestedPosition = latch.position
+        #expect(simd_length(requestedPosition - restingPosition) > 0.1)
+        let interruptedPosition = restingPosition + (requestedPosition - restingPosition) * 0.3
+        latch.position = interruptedPosition
+        model.stopGuidedMotion()
+        model.update(document: document, selectedNodeID: "latch", revision: 1)
+        model.setControlValue(0.8, animated: false)
+        #expect(simd_length(latch.position - interruptedPosition) < 0.0001)
+        model.update(document: document, selectedNodeID: "latch", revision: 2)
+        model.setControlValue(0.8, animated: false)
+        #expect(simd_length(latch.position - requestedPosition) < 0.0001)
+        #expect(model.sceneRoot.children.first === geometry)
+    }
+
     @Test func customSolidsRequireEveryVisibleAssemblyToHaveAnExplanation() {
         let scene = PaceFigureScene(parts: [part()])
         #expect(scene.validationIssue(nodeIDs: ["body"]) == nil)
