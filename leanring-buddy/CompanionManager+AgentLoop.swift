@@ -774,8 +774,7 @@ extension CompanionManager {
                         // streaming phase and reset the pipeline so the
                         // new response starts fresh.
                         commitInterruptedAssistantPrefix()
-                        ttsClient.stopPlayback()
-                        streamingSentenceTTSPipeline.resetForNewTurn()
+                        streamingSentenceTTSPipeline.prepareForSupersedingStreamWithinTurn()
                         recordAssistantNarration("let me try that with a bigger model…", origin: .progress, turnIdentifier: activeConversationUserEvent?.eventID)
                         responseOverlayManager.updateStreamingText("let me try that with a bigger model…")
                         currentTurnHUDState = .understanding("re-routing to \(preferredReRoutePlanner.displayName)")

@@ -64,6 +64,36 @@ private final class SuspendedDispatchTTSClient: BuddyTTSClient {
 @MainActor
 struct StreamingSentenceTTSPipelineDispatchTests {
 
+    @Test func sameTurnRerouteRetainsMuteWhileARealNewTurnResetsIt() async {
+        let client = DispatchTestRecordingTTSClient()
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
+        pipeline.markIntentCommitted()
+        pipeline.setMutedForCurrentTurn(true)
+        await pipeline.acceptStreamedText("The first muted answer.")
+        pipeline.prepareForSupersedingStreamWithinTurn()
+        await pipeline.acceptStreamedText("The rerouted lesson remains muted.")
+        await pipeline.flushFinal(finalSpokenText: "The complete rerouted answer remains muted.")
+        #expect(pipeline.isMutedForCurrentTurn)
+        #expect(client.spokenTexts.isEmpty)
+        pipeline.resetForNewTurn()
+        pipeline.markIntentCommitted()
+        await pipeline.acceptStreamedText("The new voice turn may speak.")
+        #expect(!pipeline.isMutedForCurrentTurn)
+        #expect(client.spokenTexts == ["The new voice turn may speak."])
+    }
+
+    @Test func sameTurnRerouteCannotReopenSpeechAfterUserDismissal() async {
+        let client = DispatchTestRecordingTTSClient()
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
+        pipeline.markIntentCommitted()
+        pipeline.stopForUserDismissal()
+        pipeline.prepareForSupersedingStreamWithinTurn()
+        await pipeline.acceptStreamedText("A late rerouted lesson must remain silent.")
+        await pipeline.flushFinal(finalSpokenText: "The final rerouted lesson must remain silent.")
+        #expect(client.spokenTexts.isEmpty)
+        #expect(pipeline.lastTurnWasInterrupted)
+    }
+
     @Test func userDismissalStopsAudioAndRejectsLateChunksUntilANewIntent() async {
         let client = DispatchTestRecordingTTSClient()
         let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
