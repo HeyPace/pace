@@ -252,6 +252,28 @@ final class PaceDiagramOverlayController: ObservableObject {
         }
     }
 
+    /// Owns a coarse queue read without claiming precise onset/completion or advancing the lesson.
+    func readManualLessonStep(stopSpeech: @escaping () -> Void,
+                              read: @escaping @MainActor (PaceTeachingLesson.Step) async throws -> Void) async {
+        guard let step = currentLessonStep else { return }
+        cancelLessonPlayback()
+        let generation = lessonGeneration
+        stopLessonSpeech = stopSpeech
+        lessonPlaybackState = .playing
+        defer {
+            if lessonGeneration == generation {
+                stopLessonSpeech = nil
+                if lessonPlaybackState == .playing { lessonPlaybackState = .paused }
+            }
+        }
+        do { try await read(step) }
+        catch {
+            if lessonGeneration == generation, !Task.isCancelled, !(error is CancellationError) {
+                lessonPlaybackState = .failed
+            }
+        }
+    }
+
     func appendingPlannerContext(to prompt: String) -> String {
         guard var contextDocument = document else { return prompt }
         contextDocument.lesson = nil

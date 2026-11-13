@@ -26,11 +26,13 @@ struct PaceTeachingManagerTests {
     private final class Speech: BuddyTTSClient {
         var supportsUtteranceCompletion = true
         var spokenTexts: [String] = []
+        var holdsStandardSpeech = false
+        private(set) var stopCount = 0
         var exactTexts: [String] = []
         var completion: CheckedContinuation<Void, Error>?
         var isPlaying = false
         var lastStopReason: PaceTTSStopReason = .naturalCompletion
-        func speakText(_ text: String) async throws { spokenTexts.append(text) }
+        func speakText(_ text: String) async throws { spokenTexts.append(text); isPlaying = holdsStandardSpeech }
         func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws {
             exactTexts.append(text)
             isPlaying = true
@@ -39,6 +41,7 @@ struct PaceTeachingManagerTests {
             isPlaying = false
         }
         func stopPlayback() {
+            stopCount += 1
             let previous = completion
             completion = nil
             isPlaying = false
@@ -95,7 +98,11 @@ struct PaceTeachingManagerTests {
         #expect(manager.diagramOverlayController.lessonPlaybackState == .paused)
         let user = try #require(manager.activeConversationUserEvent)
         #expect(persister.events[user.eventID]?.deliveryState == .completed)
-        #expect(persister.events.values.contains { $0.role == .pace && !$0.text.isEmpty })
+        let writtenSteps = persister.events.values.filter { $0.role == .pace }
+        #expect(writtenSteps.count == PaceTeachingArrayIllustration.nextTokenExample.lesson?.steps.count)
+        for step in try #require(PaceTeachingArrayIllustration.nextTokenExample.lesson).steps {
+            #expect(writtenSteps.contains { $0.text == step.narration })
+        }
     }
 
     @Test func iPadLessonNeverSpeaksOnMacAndDeliversCompleteNonemptyTextOnce() async throws {
@@ -213,6 +220,61 @@ struct PaceTeachingManagerTests {
         #expect(speech.exactTexts.count == 1)
         #expect(manager.diagramOverlayController.lessonPlaybackState == .paused)
         #expect(persister.events[user.eventID]?.deliveryState == .completed)
+    }
+
+    @Test func unmutedPreciseReplayActuallyRestartsAfterHostFinalizesExactlyOnce() async throws {
+        let (manager, persister, speech) = try fixture()
+        startTextTurn(manager, muted: false)
+        try await waitUntil { speech.completion != nil }
+        let user = try #require(manager.activeConversationUserEvent)
+        manager.diagramOverlayController.pauseLesson()
+        manager.diagramOverlayController.toggleLessonPlayback()
+        try await waitUntil { speech.exactTexts.count == 2 && speech.completion != nil }
+        #expect(speech.exactTexts[0] == speech.exactTexts[1])
+        #expect(persister.events[user.eventID]?.deliveryState == .completed)
+        #expect(persister.writes.filter { $0.eventID == user.eventID && $0.deliveryState == .completed }.count == 1)
+        manager.diagramOverlayController.pauseLesson()
+        await manager.currentResponseTask?.value
+        #expect(speech.exactTexts.count == 2)
+        #expect(persister.writes.filter { $0.eventID == user.eventID && $0.deliveryState == .completed }.count == 1)
+    }
+
+    @Test func nonPreciseManualReadIsStoppedByNextWithoutAutomaticProgress() async throws {
+        let (manager, _, speech) = try fixture()
+        speech.supportsUtteranceCompletion = false
+        startTextTurn(manager, muted: false)
+        await manager.currentResponseTask?.value
+        let initialCount = speech.spokenTexts.count
+        speech.holdsStandardSpeech = true
+        manager.diagramOverlayController.toggleLessonPlayback()
+        try await waitUntil { speech.spokenTexts.count == initialCount + 1 && speech.isPlaying }
+        #expect(manager.diagramOverlayController.isLessonPlaybackActive)
+        let stopsBeforeNext = speech.stopCount
+        manager.diagramOverlayController.moveLesson(by: 1)
+        await manager.currentResponseTask?.value
+        #expect(speech.stopCount == stopsBeforeNext + 1)
+        #expect(!speech.isPlaying)
+        #expect(speech.spokenTexts.count == initialCount + 1)
+        #expect(manager.diagramOverlayController.lessonStepIndex == 1)
+        #expect(manager.diagramOverlayController.lessonPlaybackState == .paused)
+    }
+
+    @Test func repeatedPlayPausesNonPreciseReadInsteadOfQueuingAnotherRead() async throws {
+        let (manager, _, speech) = try fixture()
+        speech.supportsUtteranceCompletion = false
+        startTextTurn(manager, muted: false)
+        await manager.currentResponseTask?.value
+        let initialCount = speech.spokenTexts.count
+        speech.holdsStandardSpeech = true
+        manager.diagramOverlayController.toggleLessonPlayback()
+        try await waitUntil { speech.spokenTexts.count == initialCount + 1 && speech.isPlaying }
+        let stopsBeforePause = speech.stopCount
+        manager.diagramOverlayController.toggleLessonPlayback()
+        await manager.currentResponseTask?.value
+        #expect(speech.stopCount == stopsBeforePause + 1)
+        #expect(!speech.isPlaying)
+        #expect(speech.spokenTexts.count == initialCount + 1)
+        #expect(manager.diagramOverlayController.lessonPlaybackState == .paused)
     }
 
 }

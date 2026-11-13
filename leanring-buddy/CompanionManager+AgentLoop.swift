@@ -104,7 +104,7 @@ extension CompanionManager {
         let conversationTurnID = diagramOverlayController.lessonConversationTurnIdentifier
         let supportsGuidedSpeech = ttsClient.supportsUtteranceCompletion
         diagramOverlayController.lessonSupportsGuidedSpeech = supportsGuidedSpeech
-        if isRemoteTurn || !supportsGuidedSpeech {
+        if shouldMute || isRemoteTurn || !supportsGuidedSpeech {
             for step in diagramOverlayController.document?.lesson?.steps ?? [] {
                 recordTeachingStep(step, turnIdentifier: conversationTurnID)
             }
@@ -127,15 +127,22 @@ extension CompanionManager {
                 guard self.isActiveTurn(turnLease) else { throw CancellationError() }
                 self.voiceState = .idle
             })
-        if !supportsGuidedSpeech, !shouldMute, fromControls, isActiveTurn(turnLease),
-           let step = diagramOverlayController.currentLessonStep {
-            voiceState = .responding
-            do {
-                try await ttsClient.speakText(step.narration)
-                while isActiveTurn(turnLease), ttsClient.isPlaying { try await Task.sleep(for: .milliseconds(20)) }
-            } catch {
-                if isActiveTurn(turnLease), !(error is CancellationError) { diagramOverlayController.reportLessonSpeechFailure() }
-            }
+        if !supportsGuidedSpeech, !shouldMute, fromControls, isActiveTurn(turnLease) {
+            await diagramOverlayController.readManualLessonStep(stopSpeech: { [weak self] in
+                guard let self, self.turnLeaseRegistry.isCurrent(turnLease) else { return }
+                self.ttsClient.stopPlayback()
+                self.voiceState = .idle
+            }, read: { [weak self] step in
+                guard let self, self.isActiveTurn(turnLease) else { throw CancellationError() }
+                let generation = self.diagramOverlayController.lessonPlaybackGeneration
+                self.voiceState = .responding
+                try await self.ttsClient.speakText(step.narration)
+                while self.isActiveTurn(turnLease),
+                      self.diagramOverlayController.lessonPlaybackGeneration == generation,
+                      self.ttsClient.isPlaying {
+                    try await Task.sleep(for: .milliseconds(20))
+                }
+            })
         }
         return supportsGuidedSpeech || shouldMute || fromControls
     }

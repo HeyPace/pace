@@ -88,6 +88,8 @@ struct PaceBoundedTextAnswerPlannerTests {
         }
         for transcript in ["What is seven times nine?", "Who invented the telephone?", "What is the capital of France?",
                            "Explain gravity in one sentence", "Explain the F-35B lift system, text only",
+                           "How does TCP work? One sentence.", "Explain gravity, one sentence please",
+                           "Explain gravity. Just a single sentence, please.",
                            "How does a jet engine work without a diagram?"] {
             #expect(!PaceTeachingPower.prefersVisualExplanation(transcript))
             #expect(PaceTextAnswerPurpose.classifiedAnswer(prediction: prediction, transcript: transcript,

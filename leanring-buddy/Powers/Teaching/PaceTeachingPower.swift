@@ -6,7 +6,9 @@ nonisolated enum PaceTeachingPower {
         let textOnlyRequests = ["text only", "text-only", "without a diagram", "no diagram", "brief definition", "quick definition"]
         guard !textOnlyRequests.contains(where: { normalized.contains($0) }) else { return false }
         let shortFormat = #"\b(?:in|using|with|as)\s+(?:just\s+)?(?:one|a single)\s+sentence\b|\b(?:give|provide|return|write)\s+(?:me\s+)?(?:a\s+)?(?:one[- ]sentence|single[- ]sentence)\b"#
-        guard normalized.range(of: shortFormat, options: .regularExpression) == nil else { return false }
+        let standaloneShortFormat = #"(?:^|[.!?;,:—–-]\s*)(?:just\s+)?(?:one|a single|single)[ -]sentence\b(?:,?\s*(?:please|only))?[.!?]*\s*$"#
+        guard normalized.range(of: shortFormat, options: .regularExpression) == nil,
+              normalized.range(of: standaloneShortFormat, options: .regularExpression) == nil else { return false }
         let directRequest = normalized.replacingOccurrences(of: #"^(?:please\s+)?(?:can|could|would)\s+you\s+(?:please\s+)?"#, with: "", options: .regularExpression)
         if PaceDiagramDocument.requestsDiagram(directRequest, hasActiveDiagram: false) { return true }
         let teachingForms = #"^(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?(?:(?:explain|teach|walk me through|help me understand|show me how)\b|(?:how|why)\s+(?:does|do|can)\b)"#
