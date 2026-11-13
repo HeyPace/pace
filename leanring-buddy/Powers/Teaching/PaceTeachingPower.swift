@@ -1,6 +1,16 @@
 import Foundation
 
 nonisolated enum PaceTeachingPower {
+    static func prefersVisualExplanation(_ transcript: String) -> Bool {
+        let normalized = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let textOnlyRequests = ["text only", "text-only", "without a diagram", "no diagram", "one sentence",
+                                "one-sentence", "single sentence", "brief definition", "quick definition"]
+        guard !textOnlyRequests.contains(where: { normalized.contains($0) }) else { return false }
+        if PaceDiagramDocument.requestsDiagram(transcript, hasActiveDiagram: false) { return true }
+        let teachingForms = #"^(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?(?:(?:explain|teach|walk me through|help me understand|show me how)\b|(?:how|why)\s+(?:does|do|can)\b)"#
+        return normalized.range(of: teachingForms, options: .regularExpression) != nil
+    }
+
     static let definition = PacePowerDefinition(
         identifier: "pace.teaching",
         title: "Teaching",

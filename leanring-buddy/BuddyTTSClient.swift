@@ -26,9 +26,8 @@ enum PaceTTSStopReason: Equatable {
 
 @MainActor
 protocol BuddyTTSClient: AnyObject {
-    /// Speaks `text` and returns when audio playback has started (not
-    /// when it has finished). The caller polls `isPlaying` to detect
-    /// completion.
+    /// Accepts text into the backend queue. Legacy backends return at enqueue or
+    /// confirmed startup; use speakUtterance for exact onset and completion.
     func speakText(_ text: String) async throws
 
     /// Waits for this utterance to finish. The callback marks confirmed audio onset.

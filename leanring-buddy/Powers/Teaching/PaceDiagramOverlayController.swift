@@ -93,7 +93,7 @@ final class PaceDiagramOverlayController: ObservableObject {
     }
 
     func setControlDeflection(_ controlDeflection: Double) {
-        guard document?.figure != nil,
+        guard document?.figure?.template == .airplane || PaceTeachingTemplateCatalog.definition(for: document?.figure?.template) != nil,
             controlDeflection.isFinite, (-1...1).contains(controlDeflection)
         else { return }
         pauseLesson()

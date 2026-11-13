@@ -14,7 +14,8 @@ enum PaceTextAnswerPurpose: Equatable {
             prediction.complexity == .simple,
             prediction.confidence >= PaceIntentPrediction.confidenceEscalationThreshold,
             !hasScreenSuggestion, !hasActiveVisualContext,
-            !hasHistoryDependentQuestion(transcript)
+            !hasHistoryDependentQuestion(transcript),
+            !PaceTeachingPower.prefersVisualExplanation(transcript)
         else { return .selectedPlanner }
         return .boundedEverydayAnswer
     }

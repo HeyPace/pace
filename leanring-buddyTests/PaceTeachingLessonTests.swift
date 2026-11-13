@@ -234,4 +234,63 @@ struct PaceTeachingLessonTests {
         #expect(context.contains("do not recreate or replay"))
     }
 
+    @Test func uncooperativeOldNarrationCompletionCannotAdvanceReplacementLesson() async throws {
+        let controller = PaceDiagramOverlayController(showsWindows: false)
+        #expect(controller.present(try fixture()))
+        let gate = SpeechGate()
+        let oldRun = Task { await controller.runLesson(muted: false, stopSpeech: {}, narrate: gate.narrate) }
+        try await waitUntil { gate.waiter != nil }
+        let replacement = try #require(PaceTeachingTemplateCatalog.lessonDocument(for: .liftSystem))
+        #expect(controller.present(replacement))
+        gate.finish()
+        await oldRun.value
+        #expect(controller.document?.title == replacement.title)
+        #expect(controller.lessonStepIndex == 0)
+        #expect(controller.currentLessonStep?.focusNodeID == "airframe")
+        #expect(controller.lessonPlaybackState == .paused)
+    }
+
+    @Test func revokedCallerLeaseCannotPresentOrAdoptNewTurn() async throws {
+        let controller = PaceDiagramOverlayController(showsWindows: false)
+        let imageController = PaceImageOverlayController(showsWindows: false)
+        let actions: [PaceParsedAction] = [.showDiagram(try fixture())]
+        var generation = controller.dismissalGeneration
+        var playbackCalls = 0
+        _ = await PaceVisualActionDrainer.drain(
+            parseResult: .init(spokenText: "Old response", actions: actions, executionPlan: .serial(actions: actions),
+                               firstClickVisualisationLocation: nil),
+            diagramOverlayController: controller, imageOverlayController: imageController,
+            expectedDiagramDismissalGeneration: &generation,
+            expectedImageDismissalGeneration: imageController.dismissalGeneration,
+            isCurrentTurn: { false }, runLesson: { playbackCalls += 1 })
+        #expect(controller.document == nil)
+        #expect(playbackCalls == 0)
+    }
+
+    @Test func leaseRevocationWhileAwaitingLessonRejectsLaterVisualInSamePlan() async throws {
+        let controller = PaceDiagramOverlayController(showsWindows: false)
+        let imageController = PaceImageOverlayController(showsWindows: false)
+        let first = try fixture()
+        let replacement = try #require(PaceTeachingTemplateCatalog.lessonDocument(for: .liftSystem))
+        let actions: [PaceParsedAction] = [.showDiagram(first), .showDiagram(replacement)]
+        var callerIsCurrent = true
+        let gate = SpeechGate()
+        let drain = Task {
+            var generation = controller.dismissalGeneration
+            return await PaceVisualActionDrainer.drain(
+                parseResult: .init(spokenText: "", actions: actions, executionPlan: .serial(actions: actions),
+                                   firstClickVisualisationLocation: nil),
+                diagramOverlayController: controller, imageOverlayController: imageController,
+                expectedDiagramDismissalGeneration: &generation,
+                expectedImageDismissalGeneration: imageController.dismissalGeneration,
+                isCurrentTurn: { callerIsCurrent },
+                runLesson: { await controller.runLesson(muted: false, stopSpeech: gate.stop, narrate: gate.narrate) })
+        }
+        try await waitUntil { gate.waiter != nil }
+        callerIsCurrent = false
+        controller.pauseLesson()
+        _ = await drain.value
+        #expect(controller.document?.title == first.title)
+    }
+
 }

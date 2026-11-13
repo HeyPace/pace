@@ -40,18 +40,19 @@ extension CompanionManager {
     private func drainVisualActions(
         parseResult: PaceActionTagParseResult,
         expectedDiagramDismissalGeneration: inout Int,
-        expectedImageDismissalGeneration: Int
+        expectedImageDismissalGeneration: Int,
+        turnLease: PaceTurnLease
     ) async -> PaceActionTagParseResult {
-        let teachingTurnLease = turnLeaseRegistry.currentLease
         return await PaceVisualActionDrainer.drain(
             parseResult: parseResult,
             diagramOverlayController: diagramOverlayController,
             imageOverlayController: imageOverlayController,
             expectedDiagramDismissalGeneration: &expectedDiagramDismissalGeneration,
             expectedImageDismissalGeneration: expectedImageDismissalGeneration,
+            isCurrentTurn: { [weak self] in self?.isActiveTurn(turnLease) == true },
             runLesson: { [weak self] in
                 guard let self else { return }
-                await self.runTeachingLesson(turnLease: teachingTurnLease)
+                await self.runTeachingLesson(turnLease: turnLease)
             },
             generateImage: { request, expectedDismissalGeneration in
                 if self.canGenerateImagesWithCodex, self.activePacePadTurnIdentifier != nil {
@@ -787,8 +788,8 @@ extension CompanionManager {
                 let finalizedParseResult = await drainVisualActions(
                     parseResult: actionParseResult,
                     expectedDiagramDismissalGeneration: &diagramDismissalGeneration,
-                    expectedImageDismissalGeneration: imageDismissalGeneration)
-                guard !Task.isCancelled else { return }
+                    expectedImageDismissalGeneration: imageDismissalGeneration, turnLease: turnLease)
+                guard isActiveTurn(turnLease) else { return }
                 if finalizedParseResult.spokenText != actionParseResult.spokenText {
                     spokenText = finalizedParseResult.spokenText
                 }
@@ -2345,8 +2346,8 @@ extension CompanionManager {
                     let actionParseResult = await drainVisualActions(
                         parseResult: annotationDrainOutcome.drainedParseResult,
                         expectedDiagramDismissalGeneration: &diagramDismissalGeneration,
-                        expectedImageDismissalGeneration: imageDismissalGeneration)
-                    guard !Task.isCancelled else { return }
+                        expectedImageDismissalGeneration: imageDismissalGeneration, turnLease: turnLease)
+                    guard isActiveTurn(turnLease) else { return }
                     let streamedMailDraftForFinalization =
                         PaceStreamingMailDraftDetector
                         .firstMailDraft(in: actionParseResult.executionPlan)

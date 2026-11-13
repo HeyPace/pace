@@ -73,6 +73,26 @@ struct PaceBoundedTextAnswerPlannerTests {
             hasScreenSuggestion: false, hasActiveVisualContext: false) == .selectedPlanner)
     }
 
+    @Test func teachingRequestsKeepTheVisualCapableSelectedPlanner() {
+        let prediction = PaceIntentPrediction(intent: .pureKnowledge, confidence: 1, complexity: .simple)
+        for transcript in ["Explain how the F-35B hovers", "Explain next-token training",
+                           "Can you explain how the F-35B hovers?",
+                           "How does a jet engine work?", "How do camera ribbon connectors work?",
+                           "Teach me gradient descent", "Explain the Brayton cycle",
+                           "Show me a rotatable Pi 5 board", "Why does a lift fan help a jet hover?"] {
+            #expect(PaceTeachingPower.prefersVisualExplanation(transcript))
+            #expect(PaceTextAnswerPurpose.classifiedAnswer(prediction: prediction, transcript: transcript,
+                hasScreenSuggestion: false, hasActiveVisualContext: false) == .selectedPlanner)
+        }
+        for transcript in ["What is seven times nine?", "Who invented the telephone?", "What is the capital of France?",
+                           "Explain gravity in one sentence", "Explain the F-35B lift system, text only",
+                           "How does a jet engine work without a diagram?"] {
+            #expect(!PaceTeachingPower.prefersVisualExplanation(transcript))
+            #expect(PaceTextAnswerPurpose.classifiedAnswer(prediction: prediction, transcript: transcript,
+                hasScreenSuggestion: false, hasActiveVisualContext: false) == .boundedEverydayAnswer)
+        }
+    }
+
     @Test @MainActor
     func factoryRequiresAutomaticCodexSelectionAndCurrentConsent() {
         let automaticCodex = PaceLocalCLIPlannerClient(upstream: .codex, modelIdentifier: nil)

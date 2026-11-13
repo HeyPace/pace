@@ -8,6 +8,7 @@ enum PaceVisualActionDrainer {
         imageOverlayController: PaceImageOverlayController,
         expectedDiagramDismissalGeneration: inout Int,
         expectedImageDismissalGeneration: Int,
+        isCurrentTurn: @MainActor () -> Bool = { true },
         runLesson: (@MainActor () async -> Void)? = nil,
         generateImage: (@MainActor (PaceImageGenerationRequest, Int) async -> String)? = nil
     ) async -> PaceActionTagParseResult {
@@ -17,7 +18,7 @@ enum PaceVisualActionDrainer {
         for step in parseResult.executionPlan.steps {
             var remainingActions: [PaceParsedAction] = []
             for action in step.actions {
-                let permitsVisualOutput = !Task.isCancelled
+                let permitsVisualOutput = !Task.isCancelled && isCurrentTurn()
                     && expectedDiagramDismissalGeneration == diagramOverlayController.dismissalGeneration
                     && expectedImageDismissalGeneration == imageOverlayController.dismissalGeneration
                 switch action {
@@ -35,8 +36,8 @@ enum PaceVisualActionDrainer {
                     spokenText = diagramResult.spokenText
                     if case .showDiagram(let document) = action, document.lesson != nil,
                        diagramOverlayController.document?.lesson == document.lesson,
-                       diagramOverlayController.lessonNeedsInitialPlayback {
-                        await runLesson?()
+                       diagramOverlayController.lessonNeedsInitialPlayback, let runLesson {
+                        await runLesson()
                         spokenText = ""
                     }
                 case .generateImage(let request):
