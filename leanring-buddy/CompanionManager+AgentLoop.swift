@@ -67,6 +67,11 @@ extension CompanionManager {
 
     func playTeachingLessonFromControls() {
         guard diagramOverlayController.document?.lesson != nil else { return }
+        guard ttsClient.supportsUtteranceCompletion else {
+            diagramOverlayController.lessonSupportsGuidedSpeech = false
+            diagramOverlayController.pauseLesson()
+            return
+        }
         let isOriginatingRequest = diagramOverlayController.lessonConversationTurnIdentifier != nil
             && diagramOverlayController.lessonConversationTurnIdentifier == activeConversationUserEvent?.eventID
         if !isOriginatingRequest { cancelActiveTurnTasks() }
@@ -127,24 +132,7 @@ extension CompanionManager {
                 guard self.isActiveTurn(turnLease) else { throw CancellationError() }
                 self.voiceState = .idle
             })
-        if !supportsGuidedSpeech, !shouldMute, fromControls, isActiveTurn(turnLease) {
-            await diagramOverlayController.readManualLessonStep(stopSpeech: { [weak self] in
-                guard let self, self.turnLeaseRegistry.isCurrent(turnLease) else { return }
-                self.ttsClient.stopPlayback()
-                self.voiceState = .idle
-            }, read: { [weak self] step in
-                guard let self, self.isActiveTurn(turnLease) else { throw CancellationError() }
-                let generation = self.diagramOverlayController.lessonPlaybackGeneration
-                self.voiceState = .responding
-                try await self.ttsClient.speakText(step.narration)
-                while self.isActiveTurn(turnLease),
-                      self.diagramOverlayController.lessonPlaybackGeneration == generation,
-                      self.ttsClient.isPlaying {
-                    try await Task.sleep(for: .milliseconds(20))
-                }
-            })
-        }
-        return supportsGuidedSpeech || shouldMute || fromControls
+        return supportsGuidedSpeech || shouldMute
     }
 
     func recordTeachingStep(_ step: PaceTeachingLesson.Step, turnIdentifier: String?) {

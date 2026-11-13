@@ -163,14 +163,13 @@ final class PaceDiagramOverlayController: ObservableObject {
         stopSpeech?()
     }
 
-    func reportLessonSpeechFailure() { lessonPlaybackState = .failed }
-
     func pauseLesson() {
         cancelLessonPlayback()
         if let step = currentLessonStep { onWrittenLessonStep?(step) }
     }
 
     func toggleLessonPlayback() {
+        guard lessonSupportsGuidedSpeech else { return }
         lastUserInteractionAt = Date()
         if isLessonPlaybackActive { pauseLesson() }
         else {
@@ -249,28 +248,6 @@ final class PaceDiagramOverlayController: ObservableObject {
                 return
             }
             lessonStepIndex += 1
-        }
-    }
-
-    /// Owns a coarse queue read without claiming precise onset/completion or advancing the lesson.
-    func readManualLessonStep(stopSpeech: @escaping () -> Void,
-                              read: @escaping @MainActor (PaceTeachingLesson.Step) async throws -> Void) async {
-        guard let step = currentLessonStep else { return }
-        cancelLessonPlayback()
-        let generation = lessonGeneration
-        stopLessonSpeech = stopSpeech
-        lessonPlaybackState = .playing
-        defer {
-            if lessonGeneration == generation {
-                stopLessonSpeech = nil
-                if lessonPlaybackState == .playing { lessonPlaybackState = .paused }
-            }
-        }
-        do { try await read(step) }
-        catch {
-            if lessonGeneration == generation, !Task.isCancelled, !(error is CancellationError) {
-                lessonPlaybackState = .failed
-            }
         }
     }
 

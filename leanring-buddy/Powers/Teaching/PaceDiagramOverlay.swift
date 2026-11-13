@@ -382,7 +382,9 @@ private struct PaceDiagramHeaderView: View {
                     Button(controller.isLessonPlaybackActive ? "Pause lesson" : "Play lesson",
                            systemImage: controller.isLessonPlaybackActive ? "pause.fill" : "play.fill") {
                         controller.toggleLessonPlayback()
-                    }.labelStyle(.iconOnly).accessibilityIdentifier("pace.lesson.play-pause")
+                    }.labelStyle(.iconOnly).disabled(!controller.lessonSupportsGuidedSpeech)
+                        .help(controller.lessonSupportsGuidedSpeech ? "Play or pause narration" : "This voice supports ordinary replies and manual visual steps")
+                        .accessibilityIdentifier("pace.lesson.play-pause")
                     Text("\(controller.lessonStepIndex + 1) / \(controller.document?.lesson?.steps.count ?? 0)")
                         .monospacedDigit().foregroundStyle(DS.Colors.textSecondary)
                     Button("Next step", systemImage: "forward.end") { controller.moveLesson(by: 1) }
@@ -422,7 +424,7 @@ private struct PaceDiagramDetailView: View {
             if let step = controller.currentLessonStep, controller.selectedNodeID == step.focusNodeID {
                 Text(step.title).font(DS.Typography.headline)
                 Text(step.narration).font(DS.Typography.callout).lineLimit(5)
-                Text(controller.lessonPlaybackState == .failed ? "Speech did not finish. Play retries; Next and Back work quietly." : !controller.lessonSupportsGuidedSpeech ? "This voice reads one step. Next and Back are manual." : controller.lessonPlaybackState == .playing ? "Drag or select any part to pause." : "Play restarts here and continues. Next and Back explore quietly.")
+                Text(controller.lessonPlaybackState == .failed ? "Speech did not finish. Play retries; Next and Back work quietly." : !controller.lessonSupportsGuidedSpeech ? "This voice uses manual visual steps. Use Next and Back to explore." : controller.lessonPlaybackState == .playing ? "Drag or select any part to pause." : "Play restarts here and continues. Next and Back explore quietly.")
                     .font(DS.Typography.caption).foregroundStyle(DS.Colors.textSecondary)
             } else if let node = controller.selectedNode {
                 HStack {

@@ -26,13 +26,12 @@ struct PaceTeachingManagerTests {
     private final class Speech: BuddyTTSClient {
         var supportsUtteranceCompletion = true
         var spokenTexts: [String] = []
-        var holdsStandardSpeech = false
         private(set) var stopCount = 0
         var exactTexts: [String] = []
         var completion: CheckedContinuation<Void, Error>?
         var isPlaying = false
         var lastStopReason: PaceTTSStopReason = .naturalCompletion
-        func speakText(_ text: String) async throws { spokenTexts.append(text); isPlaying = holdsStandardSpeech }
+        func speakText(_ text: String) async throws { spokenTexts.append(text) }
         func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws {
             exactTexts.append(text)
             isPlaying = true
@@ -168,7 +167,7 @@ struct PaceTeachingManagerTests {
         let previousCount = speech.spokenTexts.count
         manager.playTeachingLessonFromControls()
         await manager.currentResponseTask?.value
-        #expect(speech.spokenTexts.count == previousCount + 1)
+        #expect(speech.spokenTexts.count == previousCount)
         #expect(manager.diagramOverlayController.lessonStepIndex == 0)
     }
 
@@ -239,41 +238,36 @@ struct PaceTeachingManagerTests {
         #expect(persister.writes.filter { $0.eventID == user.eventID && $0.deliveryState == .completed }.count == 1)
     }
 
-    @Test func nonPreciseManualReadIsStoppedByNextWithoutAutomaticProgress() async throws {
+    @Test func unsupportedManualVoicePlayIsDisabledWithoutChangingTheSelectedVoice() async throws {
         let (manager, _, speech) = try fixture()
         speech.supportsUtteranceCompletion = false
         startTextTurn(manager, muted: false)
         await manager.currentResponseTask?.value
         let initialCount = speech.spokenTexts.count
-        speech.holdsStandardSpeech = true
+        let initialStopCount = speech.stopCount
         manager.diagramOverlayController.toggleLessonPlayback()
-        try await waitUntil { speech.spokenTexts.count == initialCount + 1 && speech.isPlaying }
-        #expect(manager.diagramOverlayController.isLessonPlaybackActive)
-        let stopsBeforeNext = speech.stopCount
-        manager.diagramOverlayController.moveLesson(by: 1)
+        manager.playTeachingLessonFromControls()
         await manager.currentResponseTask?.value
-        #expect(speech.stopCount == stopsBeforeNext + 1)
-        #expect(!speech.isPlaying)
-        #expect(speech.spokenTexts.count == initialCount + 1)
-        #expect(manager.diagramOverlayController.lessonStepIndex == 1)
-        #expect(manager.diagramOverlayController.lessonPlaybackState == .paused)
+        #expect(manager.ttsClient === speech)
+        #expect(speech.spokenTexts.count == initialCount)
+        #expect(speech.stopCount == initialStopCount)
+        #expect(!manager.diagramOverlayController.isLessonPlaybackActive)
+        #expect(!manager.diagramOverlayController.lessonSupportsGuidedSpeech)
     }
 
-    @Test func repeatedPlayPausesNonPreciseReadInsteadOfQueuingAnotherRead() async throws {
+    @Test func unsupportedVoiceKeepsVisualNavigationQuietAfterItsOrdinaryAnswer() async throws {
         let (manager, _, speech) = try fixture()
         speech.supportsUtteranceCompletion = false
         startTextTurn(manager, muted: false)
         await manager.currentResponseTask?.value
         let initialCount = speech.spokenTexts.count
-        speech.holdsStandardSpeech = true
-        manager.diagramOverlayController.toggleLessonPlayback()
-        try await waitUntil { speech.spokenTexts.count == initialCount + 1 && speech.isPlaying }
-        let stopsBeforePause = speech.stopCount
+        manager.diagramOverlayController.moveLesson(by: 1)
+        manager.diagramOverlayController.moveLesson(by: 1)
         manager.diagramOverlayController.toggleLessonPlayback()
         await manager.currentResponseTask?.value
-        #expect(speech.stopCount == stopsBeforePause + 1)
-        #expect(!speech.isPlaying)
-        #expect(speech.spokenTexts.count == initialCount + 1)
+        #expect(speech.spokenTexts.count == initialCount)
+        #expect(speech.exactTexts.isEmpty)
+        #expect(manager.diagramOverlayController.lessonStepIndex == 2)
         #expect(manager.diagramOverlayController.lessonPlaybackState == .paused)
     }
 
