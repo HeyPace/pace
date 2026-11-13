@@ -93,7 +93,7 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// dispatch — chat-mode mute. Reset on every turn boundary so the
     /// flag is ephemeral by construction and cannot leak into the next
     /// voice turn.
-    private var isMutedForCurrentTurn: Bool = false
+    private(set) var isMutedForCurrentTurn: Bool = false
 
     /// True once the user interrupts or closes the current turn.
     /// Locks out any further `dispatchDeltaIfReady` work

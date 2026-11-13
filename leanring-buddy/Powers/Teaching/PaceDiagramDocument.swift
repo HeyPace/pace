@@ -248,6 +248,7 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
 
 nonisolated struct PaceTeachingLesson: Codable, Equatable, Sendable {
     let steps: [Step]
+    var writtenExplanation: String { steps.map { $0.title + "\n" + $0.narration }.joined(separator: "\n\n") }
     struct Step: Codable, Equatable, Identifiable, Sendable {
         let id: String
         let title: String

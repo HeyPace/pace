@@ -77,6 +77,8 @@ struct PaceBoundedTextAnswerPlannerTests {
         let prediction = PaceIntentPrediction(intent: .pureKnowledge, confidence: 1, complexity: .simple)
         for transcript in ["Explain how the F-35B hovers", "Explain next-token training",
                            "Can you explain how the F-35B hovers?",
+                           "Explain how a model tokenizes one sentence",
+                           "Can you show me a rotatable Pi 5 board?",
                            "How does a jet engine work?", "How do camera ribbon connectors work?",
                            "Teach me gradient descent", "Explain the Brayton cycle",
                            "Show me a rotatable Pi 5 board", "Why does a lift fan help a jet hover?"] {

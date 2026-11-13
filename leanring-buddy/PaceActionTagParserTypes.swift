@@ -696,6 +696,10 @@ nonisolated struct PaceMessageRequest {
 
 // MARK: - Action tag parser
 
+nonisolated struct PaceTeachingDelivery {
+    let handlesSpeech: Bool
+}
+
 /// Result of pulling all action tags out of Claude's response.
 nonisolated struct PaceActionTagParseResult {
     /// The assistant text with every recognised action tag stripped.
@@ -710,6 +714,7 @@ nonisolated struct PaceActionTagParseResult {
     /// existing cursor-flight visualization so the user sees pace
     /// move to the target before it executes.
     let firstClickVisualisationLocation: ScreenshotPixelLocation?
+    var teachingDelivery: PaceTeachingDelivery? = nil
 }
 
 nonisolated struct PaceFastActionParseResult {

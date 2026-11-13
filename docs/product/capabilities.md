@@ -60,7 +60,7 @@ values rather than a screenshot. Optional guided lessons reveal parts or rows,
 focus a precise assembly and narrate one step at a time using the selected local
 Apple or Kokoro voice. Back, Play/Pause and Next remain available; dragging,
 zooming or selecting a part pauses. Play restarts the current step. Muted lessons
-are manually stepped. Written captions and spoken steps share conversation history.
+are manually stepped. Other selected voice backends keep ordinary speech and manual steps when exact playback completion is unavailable. Written captions and spoken steps share conversation history; iPad-originated explanations stay silent on the Mac and retain their written reply.
 Other objects can be authored by the planner using bounded solid and
 triangle-mesh geometry. Explicit flowchart requests retain the 2D node-and-connection
 renderer. Click a part to read its

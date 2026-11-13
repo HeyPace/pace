@@ -28,6 +28,15 @@ nonisolated struct PaceTeachingArrayIllustration: Codable, Equatable, Sendable {
         return nil
     }
 
+    func contentHeight(revealedNodeIDs: Set<String>) -> Double {
+        let visibleRows = rows.filter { revealedNodeIDs.contains($0.nodeID) }
+        let heights = visibleRows.map { row -> Double in
+            let gridRows = row.kind == .matrix ? Int(ceil(Double(row.values.count) / Double(row.columns ?? 4))) : 1
+            return Double(gridRows) * (row.kind == .matrix ? 24 : 39) + Double(max(0, gridRows - 1)) * 5 + 20
+        }
+        return max(110, 40 + heights.reduce(0, +) + Double(max(0, visibleRows.count - 1)) * 12)
+    }
+
     static let nextTokenExample = PaceDiagramDocument(
         title: "How a language model learns the next token",
         summary: "Each context predicts the next token. Targets are the same sequence shifted by one position.",
@@ -114,6 +123,7 @@ struct PaceTeachingArrayView: View {
                         .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.white.opacity(isFocused ? 0.24 : 0.08)))
                     }
                 }
+                .frame(width: row.kind == .tokens ? CGFloat(row.values.count) * tokenWidth + CGFloat(row.values.count - 1) * 5 : nil, alignment: .leading)
                 .padding(.leading, row.kind == .tokens ? CGFloat(row.offset ?? 0) * (tokenWidth + 5) : 0)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

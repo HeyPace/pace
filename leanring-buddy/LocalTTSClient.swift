@@ -133,6 +133,8 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
         try await enqueueText(text, onPlaybackFailure: nil, waitsForCompletion: false, onStarted: nil)
     }
 
+    var supportsUtteranceCompletion: Bool { true }
+
     func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws {
         try await enqueueText(text, onPlaybackFailure: nil, waitsForCompletion: true, onStarted: onStarted)
     }

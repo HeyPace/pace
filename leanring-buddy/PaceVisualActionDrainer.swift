@@ -9,9 +9,10 @@ enum PaceVisualActionDrainer {
         expectedDiagramDismissalGeneration: inout Int,
         expectedImageDismissalGeneration: Int,
         isCurrentTurn: @MainActor () -> Bool = { true },
-        runLesson: (@MainActor () async -> Void)? = nil,
+        runLesson: (@MainActor (PaceDiagramDocument) async -> Bool)? = nil,
         generateImage: (@MainActor (PaceImageGenerationRequest, Int) async -> String)? = nil
     ) async -> PaceActionTagParseResult {
+        var teachingDelivery: PaceTeachingDelivery?
         var imageMessages: [String] = []
         var spokenText = parseResult.spokenText
         var remainingSteps: [PaceActionExecutionStep] = []
@@ -37,8 +38,10 @@ enum PaceVisualActionDrainer {
                     if case .showDiagram(let document) = action, document.lesson != nil,
                        diagramOverlayController.document?.lesson == document.lesson,
                        diagramOverlayController.lessonNeedsInitialPlayback, let runLesson {
-                        await runLesson()
-                        spokenText = ""
+                        let handlesSpeech = await runLesson(document)
+                        teachingDelivery = .init(handlesSpeech: handlesSpeech)
+                        spokenText = [spokenText, document.lesson?.writtenExplanation ?? ""]
+                            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: "\n\n")
                     }
                 case .generateImage(let request):
                     guard permitsVisualOutput else {
@@ -77,6 +80,7 @@ enum PaceVisualActionDrainer {
                 : ((remainingActions.isEmpty && !includesDiagram ? [] : [spokenText]) + imageMessages).joined(separator: " "),
             actions: remainingActions,
             executionPlan: .init(steps: remainingSteps),
-            firstClickVisualisationLocation: parseResult.firstClickVisualisationLocation)
+            firstClickVisualisationLocation: parseResult.firstClickVisualisationLocation,
+            teachingDelivery: teachingDelivery)
     }
 }

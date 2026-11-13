@@ -111,12 +111,12 @@ extension CompanionManager {
     func recordAssistantNarration(_ text: String, origin: ConversationEvent.Origin = .assistant,
                                   eventIdentifier: String = UUID().uuidString,
                                   turnIdentifier: String? = nil, recordedAt: Date = Date(),
-                                  plannerContext: String = "") -> String {
+                                  plannerContext: String = "", recordsDerivedMemory: Bool = true) -> String {
         let event = ConversationEvent(eventID: eventIdentifier, turnID: turnIdentifier,
             role: .pace, origin: origin, text: text, createdAt: recordedAt)
         let isNewEvent = conversationRecorder.event(withIdentifier: eventIdentifier) == nil
         conversationRecorder.record(event)
-        if recordsDerivedConversationMemory, isNewEvent && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if recordsDerivedMemory, recordsDerivedConversationMemory, isNewEvent && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let displacedTurnPair = threadMemory.record(userTurn: plannerContext, assistantTurn: text,
                 turnId: eventIdentifier, now: recordedAt)
             persistThreadMemorySnapshot()
@@ -131,7 +131,8 @@ extension CompanionManager {
     func recordConversationTurn(
         userTranscript: String,
         assistantResponse: String,
-        userEventIdentifier: String? = nil
+        userEventIdentifier: String? = nil,
+        recordsAssistantEvent: Bool = true
     ) {
         let ownsActiveStream = userEventIdentifier == nil || userEventIdentifier == activeConversationUserEvent?.eventID
         if ownsActiveStream, let activePacePadTurnIdentifier {
@@ -176,11 +177,12 @@ extension CompanionManager {
             conversationRecorder.updateDeliveryState(.completed, eventIdentifier: userEvent.eventID)
         }
         let assistantEventIdentifier = (ownsActiveStream ? activeConversationAssistantEventIdentifier : nil) ?? UUID().uuidString
-        conversationRecorder.record(ConversationEvent(eventID: assistantEventIdentifier,
-            turnID: stableTurnId, role: .pace, origin: .assistant, text: assistantResponse,
-            createdAt: recordedAt))
+        if recordsAssistantEvent {
+            conversationRecorder.record(ConversationEvent(eventID: assistantEventIdentifier,
+                turnID: stableTurnId, role: .pace, origin: .assistant, text: assistantResponse, createdAt: recordedAt))
+        }
         if ownsActiveStream {
-            lastConversationAssistantEventIdentifier = assistantEventIdentifier
+            if recordsAssistantEvent { lastConversationAssistantEventIdentifier = assistantEventIdentifier }
             activeConversationAssistantEventIdentifier = UUID().uuidString
         }
 

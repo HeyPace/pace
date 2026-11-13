@@ -174,7 +174,7 @@ final class CompanionManager: ObservableObject {
     /// `clear_annotations` (tool or voice command), and on the 30 s
     /// timer. See PRD tuition-mode annotations.
     let annotationOverlayController = PaceAnnotationOverlayController()
-    let diagramOverlayController = PaceDiagramOverlayController()
+    let diagramOverlayController: PaceDiagramOverlayController
     let imageOverlayController = PaceImageOverlayController()
 
     let buddyDictationManager = PacePushToTalkManager()
@@ -682,7 +682,7 @@ final class CompanionManager: ObservableObject {
     /// On-device persistence for `threadMemory` so a conversation
     /// survives quit/relaunch ("resume always, until reset"). Only the
     /// store touches disk; `threadMemory` stays I/O-free.
-    let threadMemoryStore = PaceThreadMemoryStore()
+    let threadMemoryStore: PaceThreadMemoryStore
 
     /// Whether thread memory (and therefore its persistence) is active.
     /// When off, we neither restore nor write the conversation to disk,
@@ -1285,8 +1285,12 @@ final class CompanionManager: ObservableObject {
     init(
         watchModeDefaults: UserDefaults = .standard,
         recordsDerivedConversationMemory: Bool = true,
-        persistsDebugTraces: Bool = true
+        persistsDebugTraces: Bool = true,
+        diagramOverlayController: PaceDiagramOverlayController = PaceDiagramOverlayController(),
+        threadMemoryStore: PaceThreadMemoryStore = PaceThreadMemoryStore()
     ) {
+        self.diagramOverlayController = diagramOverlayController
+        self.threadMemoryStore = threadMemoryStore
         self.persistsDebugTraces = persistsDebugTraces
         self.recordsDerivedConversationMemory = recordsDerivedConversationMemory
         self.watchModeDefaults = watchModeDefaults

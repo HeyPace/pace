@@ -30,6 +30,8 @@ protocol BuddyTTSClient: AnyObject {
     /// confirmed startup; use speakUtterance for exact onset and completion.
     func speakText(_ text: String) async throws
 
+    var supportsUtteranceCompletion: Bool { get }
+
     /// Waits for this utterance to finish. The callback marks confirmed audio onset.
     func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws
 
@@ -58,6 +60,7 @@ protocol BuddyTTSClient: AnyObject {
 enum PaceUtterancePlaybackError: Error { case completionUnavailable, playbackFailed }
 
 extension BuddyTTSClient {
+    var supportsUtteranceCompletion: Bool { false }
     /// Optional backends must implement actual utterance events before guided autoplay can use them.
     func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws {
         throw PaceUtterancePlaybackError.completionUnavailable

@@ -267,9 +267,7 @@ extension CompanionManager {
         }
         diagramOverlayController.onWrittenLessonStep = { [weak self] step in
             guard let self else { return }
-            self.recordAssistantNarration(step.narration,
-                eventIdentifier: self.diagramOverlayController.historyEventIdentifier(for: step),
-                turnIdentifier: self.diagramOverlayController.lessonConversationTurnIdentifier)
+            self.recordTeachingStep(step, turnIdentifier: self.diagramOverlayController.lessonConversationTurnIdentifier)
         }
         diagramOverlayController.onPlayLessonRequested = { [weak self] in self?.playTeachingLessonFromControls() }
         diagramOverlayController.onAskAboutPart = { [weak self] transcript in

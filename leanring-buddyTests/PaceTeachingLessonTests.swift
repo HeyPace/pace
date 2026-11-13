@@ -92,7 +92,7 @@ struct PaceTeachingLessonTests {
         #expect(controller.lessonPlaybackState == .idle)
     }
 
-    @Test func navigationHasDeterministicSnapshotsAndPlayingNavigationRequestsFreshOwner() async throws {
+    @Test func navigationHasDeterministicSnapshotsAndPlayingNavigationKeepsTheAwaitedOwner() async throws {
         let controller = PaceDiagramOverlayController(showsWindows: false)
         #expect(controller.present(try fixture()))
         var replayRequests = 0
@@ -108,10 +108,12 @@ struct PaceTeachingLessonTests {
         let run = Task { await controller.runLesson(muted: false, stopSpeech: gate.stop, narrate: gate.narrate) }
         try await waitUntil { gate.waiter != nil }
         controller.moveLesson(by: 1)
-        await run.value
-        #expect(replayRequests == 1)
+        try await waitUntil { gate.narratedIDs.count == 2 }
+        #expect(replayRequests == 0)
         #expect(controller.currentLessonStep?.focusNodeID == "latch")
-        #expect(controller.lessonPlaybackState == .paused)
+        #expect(controller.lessonPlaybackState == .playing)
+        controller.pauseLesson()
+        await run.value
     }
 
     @Test func manualSelectionAndReplacementFenceLateCompletion() async throws {
@@ -144,7 +146,7 @@ struct PaceTeachingLessonTests {
         #expect(voiceCalls == 0)
     }
 
-    @Test func sharedVisualDrainerAwaitsLessonAndConsumesOuterNarration() async throws {
+    @Test func sharedVisualDrainerAwaitsLessonAndRetainsWrittenAnswerWithHandledSpeech() async throws {
         let controller = PaceDiagramOverlayController(showsWindows: false)
         let imageController = PaceImageOverlayController(showsWindows: false)
         let document = try fixture()
@@ -159,7 +161,7 @@ struct PaceTeachingLessonTests {
                 diagramOverlayController: controller, imageOverlayController: imageController,
                 expectedDiagramDismissalGeneration: &generation,
                 expectedImageDismissalGeneration: imageController.dismissalGeneration,
-                runLesson: { await controller.runLesson(muted: false, stopSpeech: gate.stop, narrate: gate.narrate) })
+                runLesson: { _ in await controller.runLesson(muted: false, stopSpeech: gate.stop, narrate: gate.narrate); return true })
             hasReturned = true
             return result
         }
@@ -168,7 +170,8 @@ struct PaceTeachingLessonTests {
         #expect(!hasReturned)
         controller.pauseLesson()
         let result = await drain.value
-        #expect(result.spokenText.isEmpty)
+        #expect(result.spokenText.contains(document.lesson?.steps.first?.narration ?? "missing"))
+        #expect(result.teachingDelivery?.handlesSpeech == true)
         #expect(result.actions.isEmpty)
         #expect(result.executionPlan.steps.isEmpty)
     }
@@ -262,7 +265,7 @@ struct PaceTeachingLessonTests {
             diagramOverlayController: controller, imageOverlayController: imageController,
             expectedDiagramDismissalGeneration: &generation,
             expectedImageDismissalGeneration: imageController.dismissalGeneration,
-            isCurrentTurn: { false }, runLesson: { playbackCalls += 1 })
+            isCurrentTurn: { false }, runLesson: { _ in playbackCalls += 1; return true })
         #expect(controller.document == nil)
         #expect(playbackCalls == 0)
     }
@@ -284,7 +287,7 @@ struct PaceTeachingLessonTests {
                 expectedDiagramDismissalGeneration: &generation,
                 expectedImageDismissalGeneration: imageController.dismissalGeneration,
                 isCurrentTurn: { callerIsCurrent },
-                runLesson: { await controller.runLesson(muted: false, stopSpeech: gate.stop, narrate: gate.narrate) })
+                runLesson: { _ in await controller.runLesson(muted: false, stopSpeech: gate.stop, narrate: gate.narrate); return true })
         }
         try await waitUntil { gate.waiter != nil }
         callerIsCurrent = false

@@ -8,10 +8,14 @@ final class PaceDiagramOverlayController: ObservableObject {
     @Published private(set) var selectedNodeID: String?
     @Published private(set) var revision = 0
     @Published private(set) var controlDeflection = 0.0
-    enum LessonPlaybackState: Equatable { case idle, playing, paused, completed, failed }
+    enum LessonPlaybackState: Equatable { case idle, starting, playing, paused, completed, failed }
     @Published private(set) var lessonPlaybackState: LessonPlaybackState = .idle
     @Published private(set) var lessonStepIndex = 0
+    @Published var lessonSupportsGuidedSpeech = true
     private var lessonGeneration = UUID()
+    private var utteranceRevision = UUID()
+    private(set) var isLessonRunAwaited = false
+    var lessonOriginatedRemotely = false
     private var lessonPresentationIdentifier = UUID()
     private(set) var lessonNeedsInitialPlayback = false
     var lessonConversationTurnIdentifier: String?
@@ -52,6 +56,7 @@ final class PaceDiagramOverlayController: ObservableObject {
             lessonStepIndex = 0
             lessonPresentationIdentifier = UUID()
             lessonConversationTurnIdentifier = nil
+            lessonOriginatedRemotely = false
             lessonNeedsInitialPlayback = document.lesson != nil
             lessonPlaybackState = document.lesson == nil ? .idle : .paused
         }
@@ -102,7 +107,8 @@ final class PaceDiagramOverlayController: ObservableObject {
     }
 
     func selectNextNode() {
-        guard let nodes = document?.nodes, !nodes.isEmpty else { return }
+        let nodes = visibleNodes
+        guard !nodes.isEmpty else { return }
         let currentIndex = nodes.firstIndex { $0.id == selectedNodeID }
         let nextIndex = currentIndex.map { ($0 + 1) % nodes.count } ?? 0
         selectNode(id: nodes[nextIndex].id)
@@ -145,13 +151,19 @@ final class PaceDiagramOverlayController: ObservableObject {
         return document.nodes.filter { step.revealedNodeIDs.contains($0.id) }
     }
 
+    var lessonPlaybackGeneration: UUID { lessonGeneration }
+    var isLessonPlaybackActive: Bool { lessonPlaybackState == .playing || lessonPlaybackState == .starting }
+
     func cancelLessonPlayback() {
         lessonGeneration = UUID()
+        isLessonRunAwaited = false
         let stopSpeech = stopLessonSpeech
         stopLessonSpeech = nil
-        if lessonPlaybackState == .playing { lessonPlaybackState = .paused }
+        if isLessonPlaybackActive { lessonPlaybackState = .paused }
         stopSpeech?()
     }
+
+    func reportLessonSpeechFailure() { lessonPlaybackState = .failed }
 
     func pauseLesson() {
         cancelLessonPlayback()
@@ -160,23 +172,26 @@ final class PaceDiagramOverlayController: ObservableObject {
 
     func toggleLessonPlayback() {
         lastUserInteractionAt = Date()
-        if lessonPlaybackState == .playing { pauseLesson() }
+        if isLessonPlaybackActive { pauseLesson() }
         else {
             if lessonPlaybackState == .completed { lessonStepIndex = 0; applyLessonStep() }
+            lessonPlaybackState = .starting
             onPlayLessonRequested?()
         }
     }
 
     func moveLesson(by offset: Int) {
         guard let steps = document?.lesson?.steps else { return }
-        let shouldContinuePlaying = lessonPlaybackState == .playing
-        pauseLesson()
+        let shouldContinuePlaying = lessonPlaybackState == .playing && isLessonRunAwaited
+        if shouldContinuePlaying {
+            utteranceRevision = UUID()
+            stopLessonSpeech?()
+        } else { pauseLesson() }
         lastUserInteractionAt = Date()
         lessonStepIndex = min(max(0, lessonStepIndex + offset), steps.count - 1)
-        lessonPlaybackState = .paused
+        lessonPlaybackState = shouldContinuePlaying ? .playing : .paused
         applyLessonStep()
-        if shouldContinuePlaying { onPlayLessonRequested?() }
-        else if let step = currentLessonStep { onWrittenLessonStep?(step) }
+        if !shouldContinuePlaying, let step = currentLessonStep { onWrittenLessonStep?(step) }
     }
 
     func historyEventIdentifier(for step: PaceTeachingLesson.Step) -> String {
@@ -206,23 +221,28 @@ final class PaceDiagramOverlayController: ObservableObject {
             return
         }
         stopLessonSpeech = stopSpeech
+        isLessonRunAwaited = true
         lessonPlaybackState = .playing
         defer {
             if lessonGeneration == generation {
+                isLessonRunAwaited = false
                 stopLessonSpeech = nil
                 if lessonPlaybackState == .playing { lessonPlaybackState = .paused }
             }
         }
         while !Task.isCancelled, lessonGeneration == generation, let step = currentLessonStep {
             applyLessonStep()
+            let revision = utteranceRevision
             do { try await narrate(step) }
             catch {
                 guard lessonGeneration == generation else { return }
+                if !Task.isCancelled, revision != utteranceRevision { continue }
                 lessonPlaybackState = Task.isCancelled || error is CancellationError ? .paused : .failed
                 if lessonPlaybackState == .failed { onWrittenLessonStep?(step) }
                 return
             }
             guard !Task.isCancelled, lessonGeneration == generation else { return }
+            if revision != utteranceRevision { continue }
             if step.waitForUser == true { lessonPlaybackState = .paused; return }
             guard let steps = document?.lesson?.steps, lessonStepIndex + 1 < steps.count else {
                 lessonPlaybackState = .completed

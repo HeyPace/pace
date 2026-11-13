@@ -224,6 +224,8 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
         startDrainingPlaybackQueueIfNeeded()
     }
 
+    var supportsUtteranceCompletion: Bool { true }
+
     func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws {
         try Task.checkCancellation()
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)

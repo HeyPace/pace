@@ -37,7 +37,7 @@ extension CompanionManager {
             && PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
     }
 
-    private func drainVisualActions(
+    func drainVisualActions(
         parseResult: PaceActionTagParseResult,
         expectedDiagramDismissalGeneration: inout Int,
         expectedImageDismissalGeneration: Int,
@@ -50,9 +50,9 @@ extension CompanionManager {
             expectedDiagramDismissalGeneration: &expectedDiagramDismissalGeneration,
             expectedImageDismissalGeneration: expectedImageDismissalGeneration,
             isCurrentTurn: { [weak self] in self?.isActiveTurn(turnLease) == true },
-            runLesson: { [weak self] in
-                guard let self else { return }
-                await self.runTeachingLesson(turnLease: turnLease)
+            runLesson: { [weak self] _ in
+                guard let self else { return false }
+                return await self.runTeachingLesson(turnLease: turnLease)
             },
             generateImage: { request, expectedDismissalGeneration in
                 if self.canGenerateImagesWithCodex, self.activePacePadTurnIdentifier != nil {
@@ -67,29 +67,50 @@ extension CompanionManager {
 
     func playTeachingLessonFromControls() {
         guard diagramOverlayController.document?.lesson != nil else { return }
-        cancelActiveTurnTasks()
-        ttsClient.stopPlayback()
-        streamingSentenceTTSPipeline.resetForNewTurn()
-        let lease = turnLeaseRegistry.beginTurn()
+        let isOriginatingRequest = diagramOverlayController.lessonConversationTurnIdentifier != nil
+            && diagramOverlayController.lessonConversationTurnIdentifier == activeConversationUserEvent?.eventID
+        if !isOriginatingRequest { cancelActiveTurnTasks() }
+        let precedingResponseTask = currentResponseTask
+        let expectedDocumentGeneration = diagramOverlayController.dismissalGeneration
+        let expectedPlaybackGeneration = diagramOverlayController.lessonPlaybackGeneration
+        let shouldMute = chatSession.isChatTTSMuted || diagramOverlayController.lessonOriginatedRemotely
         currentResponseTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.runTeachingLesson(turnLease: lease)
+            await precedingResponseTask?.value
+            guard let self, !Task.isCancelled,
+                  self.diagramOverlayController.dismissalGeneration == expectedDocumentGeneration,
+                  self.diagramOverlayController.lessonPlaybackGeneration == expectedPlaybackGeneration,
+                  self.diagramOverlayController.document?.lesson != nil else { return }
+            self.ttsClient.stopPlayback()
+            let lease = self.turnLeaseRegistry.beginTurn()
+            _ = await self.runTeachingLesson(turnLease: lease, muteOverride: shouldMute, fromControls: true)
             guard self.isActiveTurn(lease) else { return }
             self.voiceState = .idle
-            self.currentTurnHUDState = .done("lesson paused")
+            self.currentTurnHUDState = self.diagramOverlayController.lessonPlaybackState == .failed
+                ? .failed("Speech issue") : .done("lesson ready")
         }
     }
 
-    func runTeachingLesson(turnLease: PaceTurnLease) async {
-        guard isActiveTurn(turnLease) else { return }
-        streamingSentenceTTSPipeline.resetForNewTurn()
+    @discardableResult
+    func runTeachingLesson(turnLease: PaceTurnLease, muteOverride: Bool? = nil,
+                           fromControls: Bool = false) async -> Bool {
+        guard isActiveTurn(turnLease) else { return true }
+        let isRemoteTurn = activePacePadTurnIdentifier != nil || diagramOverlayController.lessonOriginatedRemotely
+        let shouldMute = muteOverride ?? (streamingSentenceTTSPipeline.isMutedForCurrentTurn || isRemoteTurn)
+        if !fromControls { diagramOverlayController.lessonOriginatedRemotely = isRemoteTurn }
         ttsClient.stopPlayback()
         if diagramOverlayController.lessonConversationTurnIdentifier == nil {
             diagramOverlayController.lessonConversationTurnIdentifier = activeConversationUserEvent?.eventID
         }
         let conversationTurnID = diagramOverlayController.lessonConversationTurnIdentifier
+        let supportsGuidedSpeech = ttsClient.supportsUtteranceCompletion
+        diagramOverlayController.lessonSupportsGuidedSpeech = supportsGuidedSpeech
+        if isRemoteTurn || !supportsGuidedSpeech {
+            for step in diagramOverlayController.document?.lesson?.steps ?? [] {
+                recordTeachingStep(step, turnIdentifier: conversationTurnID)
+            }
+        }
         await diagramOverlayController.runLesson(
-            muted: isChatModeMutedForCurrentTurn,
+            muted: shouldMute || !supportsGuidedSpeech,
             stopSpeech: { [weak self] in
                 guard let self, self.turnLeaseRegistry.isCurrent(turnLease) else { return }
                 self.ttsClient.stopPlayback()
@@ -99,15 +120,32 @@ extension CompanionManager {
                 guard let self, self.isActiveTurn(turnLease) else { throw CancellationError() }
                 self.voiceState = .responding
                 self.currentTurnHUDState = .acting(step.title)
-                let narrationEventID = self.diagramOverlayController.historyEventIdentifier(for: step)
                 try await self.ttsClient.speakUtterance(step.narration) { [weak self] in
                     guard let self, self.isActiveTurn(turnLease) else { return }
-                    self.recordAssistantNarration(step.narration, eventIdentifier: narrationEventID,
-                        turnIdentifier: conversationTurnID)
+                    self.recordTeachingStep(step, turnIdentifier: conversationTurnID)
                 }
                 guard self.isActiveTurn(turnLease) else { throw CancellationError() }
                 self.voiceState = .idle
             })
+        if !supportsGuidedSpeech, !shouldMute, fromControls, isActiveTurn(turnLease),
+           let step = diagramOverlayController.currentLessonStep {
+            voiceState = .responding
+            do {
+                try await ttsClient.speakText(step.narration)
+                while isActiveTurn(turnLease), ttsClient.isPlaying { try await Task.sleep(for: .milliseconds(20)) }
+            } catch {
+                if isActiveTurn(turnLease), !(error is CancellationError) { diagramOverlayController.reportLessonSpeechFailure() }
+            }
+        }
+        return supportsGuidedSpeech || shouldMute || fromControls
+    }
+
+    func recordTeachingStep(_ step: PaceTeachingLesson.Step, turnIdentifier: String?) {
+        let eventIdentifier = diagramOverlayController.historyEventIdentifier(for: step)
+        guard conversationRecorder.event(withIdentifier: eventIdentifier) == nil else { return }
+        recordAssistantNarration(step.narration,
+            eventIdentifier: eventIdentifier,
+            turnIdentifier: turnIdentifier, recordsDerivedMemory: false)
     }
 
     // MARK: - AI Response Pipeline (plan-act-observe loop)
@@ -833,10 +871,11 @@ extension CompanionManager {
                     ),
                     systemPromptForExport: completedAnswerSystemPrompt)
 
-                recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
+                recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText,
+                    recordsAssistantEvent: actionParseResult.teachingDelivery == nil)
 
-                responseOverlayManager.updateStreamingText(spokenText)
-                if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if actionParseResult.teachingDelivery == nil { responseOverlayManager.updateStreamingText(spokenText) }
+                if actionParseResult.teachingDelivery?.handlesSpeech != true, !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     guard await beginFinalSpeechIfCurrentTurn(spokenText: spokenText, turnLease: turnLease) else { return }
                 }
 
@@ -2399,9 +2438,9 @@ extension CompanionManager {
                     }
                     // Replace the raw-with-tags streaming view with the
                     // cleaned spoken text now that tags are stripped.
-                    responseOverlayManager.updateStreamingText(
-                        spokenText.isEmpty ? "…" : spokenText
-                    )
+                    if actionParseResult.teachingDelivery == nil {
+                        responseOverlayManager.updateStreamingText(spokenText.isEmpty ? "…" : spokenText)
+                    }
                     // Note the spoken text so the notch panel can show
                     // the reply-replay button for the next 30 seconds.
                     // Uses the SAME post-processed string that flows
@@ -2479,7 +2518,8 @@ extension CompanionManager {
                         : ""
                     recordConversationTurn(
                         userTranscript: recordedUserTranscript,
-                        assistantResponse: spokenText
+                        assistantResponse: spokenText,
+                        recordsAssistantEvent: actionParseResult.teachingDelivery == nil
                     )
                     // Track the latest step's spoken text so a research turn
                     // can journal ONE entry (question = original transcript,
@@ -2503,7 +2543,7 @@ extension CompanionManager {
                         || !PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
                             for: actionParseResult.executionPlan
                         )
-                    if shouldSpeakInitialPlannerText,
+                    if shouldSpeakInitialPlannerText, actionParseResult.teachingDelivery?.handlesSpeech != true,
                         !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     {
                         guard await beginFinalSpeechIfCurrentTurn(spokenText: spokenText, turnLease: turnLease) else { return }

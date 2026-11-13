@@ -24,14 +24,16 @@ import Foundation
 final class PaceThreadMemoryStore {
     private let fileURL: URL?
 
-    init() {
+    convenience init() {
         let applicationSupportRootURL = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first
-        fileURL = applicationSupportRootURL?
+        self.init(fileURL: applicationSupportRootURL?
             .appendingPathComponent("Pace", isDirectory: true)
-            .appendingPathComponent("thread-memory.json", isDirectory: false)
+            .appendingPathComponent("thread-memory.json", isDirectory: false))
     }
+
+    init(fileURL: URL?) { self.fileURL = fileURL }
 
     /// Load the persisted snapshot, or nil when no conversation has been
     /// saved yet / the file is unreadable. A decode failure returns nil

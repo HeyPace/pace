@@ -38,7 +38,7 @@ final class PaceDiagramOverlayManager {
         visibleFrame = screen.visibleFrame
         let maximumWidth = max(300, min(1120, visibleFrame.width - 64))
         let headerWidth = min(maximumWidth, 860)
-        let headerHostingView = NSHostingView(rootView: PaceDiagramHeaderView(controller: controller).frame(width: headerWidth))
+        let headerHostingView = NSHostingView(rootView: PaceDiagramHeaderView(controller: controller).frame(width: headerWidth).fixedSize(horizontal: false, vertical: true))
         let headerHeight = min(110, max(60, headerHostingView.fittingSize.height))
         let headerFrame = CGRect(x: visibleFrame.midX - headerWidth / 2,
                                  y: visibleFrame.maxY - headerHeight - 12,
@@ -46,7 +46,10 @@ final class PaceDiagramOverlayManager {
         let detailHeight = detailPanelHeight(controller: controller, summary: document.summary)
         let availableStageHeight = max(180, headerFrame.minY - visibleFrame.minY - detailHeight - 40)
         let usesNativeIllustration = document.figure != nil || document.illustration != nil
-        let stageHeight = usesNativeIllustration ? availableStageHeight : min(maximumWidth * 0.6, availableStageHeight)
+        let preferredStageHeight = document.illustration.map {
+            CGFloat($0.contentHeight(revealedNodeIDs: Set(controller.visibleNodes.map(\.id))))
+        } ?? availableStageHeight
+        let stageHeight = usesNativeIllustration ? min(preferredStageHeight, availableStageHeight) : min(maximumWidth * 0.6, availableStageHeight)
         let stageWidth = usesNativeIllustration ? maximumWidth : stageHeight / 0.6
         stageFrame = CGRect(x: visibleFrame.midX - stageWidth / 2,
                             y: headerFrame.minY - stageHeight - 10,
@@ -111,7 +114,9 @@ final class PaceDiagramOverlayManager {
         let width = min(controller.currentLessonStep == nil ? 450 : 700, visibleFrame.width - 64)
         let height = detailPanelHeight(controller: controller, summary: document.summary)
         panel.contentView = NSHostingView(
-            rootView: PaceDiagramDetailView(controller: controller, summary: document.summary))
+            rootView: PaceDiagramDetailView(controller: controller, summary: document.summary)
+                .frame(width: width).fixedSize(horizontal: false,
+                    vertical: controller.currentLessonStep != nil && controller.selectedNodeID == controller.currentLessonStep?.focusNodeID))
         panel.setFrame(
             CGRect(
                 x: visibleFrame.midX - width / 2,
@@ -127,7 +132,7 @@ final class PaceDiagramOverlayManager {
             return controller.selectedNode == nil ? 76 : 174
         }
         let width = min(700, visibleFrame.width - 64)
-        let hostingView = NSHostingView(rootView: PaceDiagramDetailView(controller: controller, summary: summary).frame(width: width))
+        let hostingView = NSHostingView(rootView: PaceDiagramDetailView(controller: controller, summary: summary).frame(width: width).fixedSize(horizontal: false, vertical: true))
         return min(170, max(86, hostingView.fittingSize.height))
     }
 
@@ -374,8 +379,8 @@ private struct PaceDiagramHeaderView: View {
                 if controller.currentLessonStep != nil {
                     Button("Previous step", systemImage: "backward.end") { controller.moveLesson(by: -1) }
                         .labelStyle(.iconOnly).disabled(controller.lessonStepIndex == 0)
-                    Button(controller.lessonPlaybackState == .playing ? "Pause lesson" : "Play lesson",
-                           systemImage: controller.lessonPlaybackState == .playing ? "pause.fill" : "play.fill") {
+                    Button(controller.isLessonPlaybackActive ? "Pause lesson" : "Play lesson",
+                           systemImage: controller.isLessonPlaybackActive ? "pause.fill" : "play.fill") {
                         controller.toggleLessonPlayback()
                     }.labelStyle(.iconOnly).accessibilityIdentifier("pace.lesson.play-pause")
                     Text("\(controller.lessonStepIndex + 1) / \(controller.document?.lesson?.steps.count ?? 0)")
@@ -417,7 +422,7 @@ private struct PaceDiagramDetailView: View {
             if let step = controller.currentLessonStep, controller.selectedNodeID == step.focusNodeID {
                 Text(step.title).font(DS.Typography.headline)
                 Text(step.narration).font(DS.Typography.callout).lineLimit(5)
-                Text(controller.lessonPlaybackState == .failed ? "Speech did not finish. Play retries; Next and Back work quietly." : controller.lessonPlaybackState == .playing ? "Drag or select any part to pause." : "Play repeats this step. Next and Back let you explore quietly.")
+                Text(controller.lessonPlaybackState == .failed ? "Speech did not finish. Play retries; Next and Back work quietly." : !controller.lessonSupportsGuidedSpeech ? "This voice reads one step. Next and Back are manual." : controller.lessonPlaybackState == .playing ? "Drag or select any part to pause." : "Play restarts here and continues. Next and Back explore quietly.")
                     .font(DS.Typography.caption).foregroundStyle(DS.Colors.textSecondary)
             } else if let node = controller.selectedNode {
                 HStack {
