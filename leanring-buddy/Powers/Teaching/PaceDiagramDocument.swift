@@ -82,6 +82,8 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
     let nodes: [PaceDiagramNode]
     let connections: [PaceDiagramConnection]
     var figure: PaceFigureScene? = nil
+    var illustration: PaceTeachingArrayIllustration? = nil
+    var lesson: PaceTeachingLesson? = nil
 
     static let maximumNodeCount = 12
     static let maximumConnectionCount = 24
@@ -113,6 +115,11 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
             else {
                 return "requires bounded labels and a useful explanation for every part"
             }
+        }
+        if let issue = lesson?.validationIssue(nodeIDs: Set(identifiers), figure: figure) { return issue }
+        if let illustration {
+            guard figure == nil, connections.isEmpty else { return "uses either an array illustration, a 3D figure or a flowchart" }
+            return illustration.validationIssue(nodeIDs: Set(identifiers))
         }
         if let figure {
             guard connections.isEmpty else {
@@ -235,5 +242,48 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
             && !text.unicodeScalars.contains(where: {
                 CharacterSet.controlCharacters.contains($0) && $0 != "\n" && $0 != "\t"
             })
+    }
+}
+
+
+nonisolated struct PaceTeachingLesson: Codable, Equatable, Sendable {
+    let steps: [Step]
+    struct Step: Codable, Equatable, Identifiable, Sendable {
+        let id: String
+        let title: String
+        let narration: String
+        let revealedNodeIDs: [String]
+        var focusNodeID: String? = nil
+        var viewpoint: PaceFigureScene.Viewpoint? = nil
+        var controlValue: Double? = nil
+        var waitForUser: Bool? = nil
+    }
+
+    func validationIssue(nodeIDs: Set<String>, figure: PaceFigureScene?) -> String? {
+        guard (1...12).contains(steps.count), Set(steps.map(\.id)).count == steps.count else {
+            return "requires one to twelve uniquely identified lesson steps"
+        }
+        for step in steps {
+            guard !step.id.isEmpty, step.id.count <= 40,
+                  step.id.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" }),
+                  !step.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, step.title.count <= 100,
+                  !step.narration.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, step.narration.count <= 700,
+                  !step.revealedNodeIDs.isEmpty,
+                  Set(step.revealedNodeIDs).count == step.revealedNodeIDs.count,
+                  Set(step.revealedNodeIDs).isSubset(of: nodeIDs),
+                  step.focusNodeID.map({ step.revealedNodeIDs.contains($0) }) ?? true else {
+                return "requires bounded lesson text and unique existing revealed parts, including the focused part"
+            }
+            if step.viewpoint != nil && figure == nil { return "requires a 3D figure for a lesson viewpoint" }
+            if let value = step.controlValue {
+                guard value.isFinite, (-1...1).contains(value), var snapshot = figure else {
+                    return "requires a finite lesson control value from -1 to 1 on a figure"
+                }
+                snapshot.focusNodeID = step.focusNodeID
+                snapshot.controlDeflection = value
+                if let issue = snapshot.validationIssue(nodeIDs: nodeIDs) { return issue }
+            }
+        }
+        return nil
     }
 }

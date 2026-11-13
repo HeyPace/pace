@@ -31,6 +31,9 @@ protocol BuddyTTSClient: AnyObject {
     /// completion.
     func speakText(_ text: String) async throws
 
+    /// Waits for this utterance to finish. The callback marks confirmed audio onset.
+    func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws
+
     /// Whether speech audio is currently being played out of the device.
     var isPlaying: Bool { get }
 
@@ -51,6 +54,15 @@ protocol BuddyTTSClient: AnyObject {
     /// Implementations store the value and propagate it on the next
     /// stop event.
     func recordExpectedStopReason(_ reason: PaceTTSStopReason)
+}
+
+enum PaceUtterancePlaybackError: Error { case completionUnavailable, playbackFailed }
+
+extension BuddyTTSClient {
+    /// Optional backends must implement actual utterance events before guided autoplay can use them.
+    func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws {
+        throw PaceUtterancePlaybackError.completionUnavailable
+    }
 }
 
 nonisolated enum PaceSpeechProvider {

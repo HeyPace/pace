@@ -8,6 +8,7 @@ struct PaceFigureAssembly {
     let root: Entity
     let selectableEntities: [ModelEntity]
     let movingSurfaces: [PaceFigureControlSurface]
+    var semanticAnchors: [String: Entity] = [:]
 }
 
 @MainActor
@@ -18,6 +19,8 @@ struct PaceFigureControlSurface {
     let maximumAngle: Float
     let nodeID: String
     let direction: Float
+    var restingPosition: SIMD3<Float> = .zero
+    var maximumTranslation: SIMD3<Float> = .zero
 }
 
 @MainActor
@@ -34,7 +37,8 @@ struct PaceFigureView: View {
                 model: model, document: controller.document, selectedNodeID: controller.selectedNodeID,
                 revision: controller.revision, controlValue: Float(controller.controlDeflection),
                 zoom: zoom, animated: !reduceMotion,
-                selectPart: controller.selectNode
+                selectPart: { controller.pauseLesson(); model.stopGuidedMotion(); controller.selectNode(id: $0) },
+                onManualInteraction: { controller.pauseLesson(); model.stopGuidedMotion() }
             )
             .onHover { hovering in
                 if hovering { NSCursor.openHand.set() } else { NSCursor.arrow.set() }
@@ -45,7 +49,7 @@ struct PaceFigureView: View {
             .overlay {
                 if showsLabels {
                     PaceFigureCalloutsView(
-                        nodes: controller.document?.nodes ?? [], points: model.projectedAnchors,
+                        nodes: controller.visibleNodes, points: model.projectedAnchors,
                         selectedNodeID: controller.selectedNodeID,
                         isAircraft: controller.document?.figure?.template == .airplane,
                         selectPart: controller.selectNode
@@ -94,7 +98,11 @@ struct PaceFigureView: View {
             .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: 18))
             .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.09), lineWidth: 1))
         }
+        .onAppear { if PaceTeachingTemplateCatalog.definition(for: controller.document?.figure?.template) != nil { zoom = 1.08 } }
         .onDisappear { model.stopProjection() }
+        .onChange(of: controller.lessonPlaybackState) { _, state in
+            if state != .playing { model.stopGuidedMotion() }
+        }
     }
 
     private var partNavigation: some View {
@@ -159,21 +167,21 @@ struct PaceFigureView: View {
 
     private var deflectionControl: some View {
         HStack(spacing: 8) {
-            Text("Deflection")
+            Text("Demonstrate")
                 .foregroundStyle(DS.Colors.textSecondary)
             Slider(
                 value: Binding(get: { controller.controlDeflection }, set: controller.setControlDeflection),
                 in: -1...1
             )
                 .frame(width: 80)
-                .accessibilityLabel("Control surface deflection")
-                .help("Move the airplane's ailerons, elevators, rudder and flaps")
+                .accessibilityLabel("Selected assembly movement")
+                .help("Move the selected articulated assembly through its illustrative range")
                 .onHover { hovering in if hovering { NSCursor.pointingHand.set() } }
         }
     }
 
     private func figureButton(_ label: String, symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button(action: { controller.pauseLesson(); model.stopGuidedMotion(); action() }) {
             Image(systemName: symbol).frame(width: 24, height: 24).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -196,8 +204,11 @@ private struct PaceFigureRenderer: NSViewRepresentable {
     let zoom: Float
     let animated: Bool
     let selectPart: (String) -> Void
+    let onManualInteraction: () -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(model: model, selectPart: selectPart) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(model: model, selectPart: selectPart, onManualInteraction: onManualInteraction)
+    }
 
     func makeNSView(context: Context) -> ARView {
         let view = PaceFigureARView(frame: .zero)
@@ -234,6 +245,7 @@ private struct PaceFigureRenderer: NSViewRepresentable {
         model.setControlValue(controlValue, animated: animated)
         model.setZoom(zoom)
         context.coordinator.selectPart = selectPart
+        context.coordinator.onManualInteraction = onManualInteraction
     }
 
     static func dismantleNSView(_ view: ARView, coordinator: Coordinator) {
@@ -245,14 +257,18 @@ private struct PaceFigureRenderer: NSViewRepresentable {
     final class Coordinator: NSObject {
         let model: PaceFigureViewModel
         var selectPart: (String) -> Void
+        var onManualInteraction: () -> Void
 
-        init(model: PaceFigureViewModel, selectPart: @escaping (String) -> Void) {
+        init(model: PaceFigureViewModel, selectPart: @escaping (String) -> Void,
+             onManualInteraction: @escaping () -> Void) {
             self.model = model
             self.selectPart = selectPart
+            self.onManualInteraction = onManualInteraction
         }
 
         @objc func drag(_ gesture: NSPanGestureRecognizer) {
             guard let view = gesture.view else { return }
+            if gesture.state == .began { onManualInteraction() }
             let translation = gesture.translation(in: view)
             model.orbit(horizontal: Float(translation.x) * 0.008, vertical: Float(-translation.y) * 0.008)
             gesture.setTranslation(.zero, in: view)
@@ -291,7 +307,7 @@ private struct PaceFigureCalloutsView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let labelWidth = min(150, max(100, geometry.size.width * 0.19))
+            let labelWidth = min(190, max(150, geometry.size.width * 0.18))
             ZStack(alignment: .topLeading) {
                 Canvas { context, _ in
                     for node in nodes {
@@ -331,7 +347,8 @@ private struct PaceFigureCalloutsView: View {
                                     .frame(width: 20, height: 20)
                                     .background(Color(hex: "#2588F0"), in: Circle())
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(node.label).font(.system(size: 11, weight: .semibold)).lineLimit(2)
+                                    Text(node.label).font(.system(size: 11, weight: .semibold)).lineLimit(3)
+                                        .fixedSize(horizontal: false, vertical: true)
                                     if let role = node.subtitle ?? (isAircraft ? Self.aircraftRoles[node.id] : nil) {
                                         Text(role).font(.system(size: 9)).foregroundStyle(Color(hex: "#B9C5D2"))
                                             .lineLimit(2)
@@ -450,6 +467,7 @@ private final class PaceFigureViewModel: ObservableObject {
                     entity.addChild(anchor)
                     anchors[entity.name, default: []].append(anchor)
                 }
+                for (identifier, anchor) in assembly.semanticAnchors { anchors[identifier] = [anchor] }
                 projectedAnchors = [:]
                 originalMaterials = Dictionary(
                     uniqueKeysWithValues: assembly.selectableEntities.map {
@@ -519,6 +537,8 @@ private final class PaceFigureViewModel: ObservableObject {
         }
     }
 
+    func stopGuidedMotion() { sceneRoot.stopAllAnimations(recursive: true) }
+
     func stopProjection() {
         projectionSubscription?.cancel()
         projectionSubscription = nil
@@ -535,6 +555,9 @@ private final class PaceFigureViewModel: ObservableObject {
             let angle = isFocused ? surface.maximumAngle * value * surface.direction : 0
             var transform = surface.entity.transform
             transform.rotation = simd_quatf(angle: angle, axis: surface.axis) * surface.restingOrientation
+            if surface.maximumTranslation != .zero {
+                transform.translation = surface.restingPosition + surface.maximumTranslation * (isFocused ? value : 0)
+            }
             surface.entity.move(to: transform, relativeTo: surface.entity.parent, duration: animated ? 0.16 : 0)
         }
     }
@@ -570,11 +593,16 @@ private final class PaceFigureViewModel: ObservableObject {
         for surface in assembly.movingSurfaces {
             let hingePosition = surface.entity.position(relativeTo: sceneRoot)
             let surfaceBounds = surface.entity.visualBounds(relativeTo: sceneRoot)
-            let corners = PaceFigureCameraFraming.Bounds(
-                minimum: surfaceBounds.min, maximum: surfaceBounds.max
-            ).corners
-            let radius = corners.map { simd_length($0 - hingePosition) }.max() ?? 0
-            bounds.includeSphere(center: hingePosition, radius: radius)
+            let movingBounds = PaceFigureCameraFraming.Bounds(minimum: surfaceBounds.min, maximum: surfaceBounds.max)
+            if surface.maximumAngle != 0 {
+                let radius = movingBounds.corners.map { simd_length($0 - hingePosition) }.max() ?? 0
+                bounds.includeSphere(center: hingePosition, radius: radius)
+            }
+            if surface.maximumTranslation != .zero, let parent = surface.entity.parent {
+                let displacement = parent.convert(position: surface.maximumTranslation, to: sceneRoot)
+                    - parent.convert(position: .zero, to: sceneRoot)
+                bounds.includeSymmetricTranslation(of: movingBounds, by: displacement)
+            }
         }
         framingBounds = bounds
     }
@@ -603,7 +631,20 @@ private final class PaceFigureViewModel: ObservableObject {
     private static func makeCustomAssembly(_ scene: PaceFigureScene) throws -> PaceFigureAssembly {
         let root = Entity()
         var selectableEntities: [ModelEntity] = []
-        for part in scene.parts ?? [] {
+        let definition = PaceTeachingTemplateCatalog.definition(for: scene.template)
+        var movingSurfaces: [PaceFigureControlSurface] = []
+        var motionGroups: [String: Entity] = [:]
+        for motion in definition?.motions ?? [] {
+            let group = Entity()
+            group.name = motion.nodeID
+            group.position = vector(motion.pivot)
+            root.addChild(group)
+            motionGroups[motion.nodeID] = group
+            movingSurfaces.append(.init(entity: group, restingOrientation: group.orientation,
+                axis: vector(motion.axis), maximumAngle: Float(motion.maximumAngle), nodeID: motion.nodeID,
+                direction: 1, restingPosition: group.position, maximumTranslation: vector(motion.translation)))
+        }
+        for part in definition?.parts ?? scene.parts ?? [] {
             let mesh: MeshResource
             switch part.geometry {
             case .box: mesh = .generateBox(size: 1, cornerRadius: 0.045)
@@ -629,10 +670,24 @@ private final class PaceFigureViewModel: ObservableObject {
             }
             entity.generateCollisionShapes(recursive: false)
             entity.components.set(InputTargetComponent())
-            root.addChild(entity)
+            if let group = motionGroups[part.nodeID] {
+                entity.position -= group.position
+                group.addChild(entity)
+            } else { root.addChild(entity) }
             selectableEntities.append(entity)
         }
-        return PaceFigureAssembly(root: root, selectableEntities: selectableEntities, movingSurfaces: [])
+        var semanticAnchors: [String: Entity] = [:]
+        for (identifier, position) in definition?.anchors ?? [:] {
+            let anchor = Entity()
+            anchor.position = vector(position)
+            if let group = motionGroups[identifier] {
+                anchor.position -= group.position
+                group.addChild(anchor)
+            } else { root.addChild(anchor) }
+            semanticAnchors[identifier] = anchor
+        }
+        return PaceFigureAssembly(root: root, selectableEntities: selectableEntities,
+                                 movingSurfaces: movingSurfaces, semanticAnchors: semanticAnchors)
     }
 
     private static func vector(_ coordinates: [Double]) -> SIMD3<Float> {

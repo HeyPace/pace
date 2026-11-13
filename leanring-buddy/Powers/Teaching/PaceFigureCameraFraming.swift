@@ -4,7 +4,7 @@ import simd
 
 nonisolated enum PaceFigureCameraFraming {
     static let verticalFieldOfViewInDegrees: Float = 35
-    static let minimumCameraDistance: Float = 2.6
+    static let minimumCameraDistance: Float = 1.8
     static let framingMargin: Float = 1.12
 
     struct Bounds {
@@ -26,6 +26,12 @@ nonisolated enum PaceFigureCameraFraming {
             return coordinates.allSatisfy(\.isFinite)
                 && minimum.x <= maximum.x && minimum.y <= maximum.y && minimum.z <= maximum.z
                 && minimum != maximum
+        }
+
+        mutating func includeSymmetricTranslation(of bounds: Bounds, by displacement: SIMD3<Float>) {
+            let extent = SIMD3(abs(displacement.x), abs(displacement.y), abs(displacement.z))
+            minimum = simd_min(minimum, bounds.minimum - extent)
+            maximum = simd_max(maximum, bounds.maximum + extent)
         }
 
         mutating func includeSphere(center: SIMD3<Float>, radius: Float) {

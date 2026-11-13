@@ -8,6 +8,7 @@ final class PaceDiagramOverlayManager {
     private var headerPanel: PaceDiagramIslandPanel?
     private var detailPanel: PaceDiagramIslandPanel?
     private var figurePanel: PaceDiagramIslandPanel?
+    private var isShowingArrayIllustration = false
     private var nodePanels: [String: PaceDiagramIslandPanel] = [:]
     private var displayIdentifier: NSNumber?
     private var screenObserver: NSObjectProtocol?
@@ -35,23 +36,33 @@ final class PaceDiagramOverlayManager {
         else { return }
         displayIdentifier = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
         visibleFrame = screen.visibleFrame
-        let maximumWidth = max(300, min(1120, visibleFrame.width - 80))
-        let stageHeight = min(maximumWidth * 0.6, max(180, visibleFrame.height - 350))
-        let stageWidth = stageHeight / 0.6
-        stageFrame = CGRect(
-            x: visibleFrame.midX - stageWidth / 2,
-            y: visibleFrame.midY - stageHeight / 2 + 5,
-            width: stageWidth, height: stageHeight
-        )
+        let maximumWidth = max(300, min(1120, visibleFrame.width - 64))
+        let headerWidth = min(maximumWidth, 860)
+        let headerHostingView = NSHostingView(rootView: PaceDiagramHeaderView(controller: controller).frame(width: headerWidth))
+        let headerHeight = min(110, max(60, headerHostingView.fittingSize.height))
+        let headerFrame = CGRect(x: visibleFrame.midX - headerWidth / 2,
+                                 y: visibleFrame.maxY - headerHeight - 12,
+                                 width: headerWidth, height: headerHeight)
+        let detailHeight = detailPanelHeight(controller: controller, summary: document.summary)
+        let availableStageHeight = max(180, headerFrame.minY - visibleFrame.minY - detailHeight - 40)
+        let usesNativeIllustration = document.figure != nil || document.illustration != nil
+        let stageHeight = usesNativeIllustration ? availableStageHeight : min(maximumWidth * 0.6, availableStageHeight)
+        let stageWidth = usesNativeIllustration ? maximumWidth : stageHeight / 0.6
+        stageFrame = CGRect(x: visibleFrame.midX - stageWidth / 2,
+                            y: headerFrame.minY - stageHeight - 10,
+                            width: stageWidth, height: stageHeight)
 
-        if document.figure != nil {
+        if document.figure != nil || document.illustration != nil {
             drawingPanel?.orderOut(nil)
             for panel in nodePanels.values { panel.orderOut(nil) }
             let panel = figurePanel ?? PaceDiagramIslandPanel()
-            panel.setAccessibilityLabel("Pace interactive 3D figure")
-            if figurePanel == nil {
-                panel.contentView = NSHostingView(rootView: PaceFigureView(controller: controller))
+            panel.setAccessibilityLabel(document.illustration == nil ? "Pace interactive 3D figure" : "Pace interactive array illustration")
+            if figurePanel == nil || isShowingArrayIllustration != (document.illustration != nil) {
+                if document.illustration != nil {
+                    panel.contentView = NSHostingView(rootView: PaceTeachingArrayView(controller: controller))
+                } else { panel.contentView = NSHostingView(rootView: PaceFigureView(controller: controller)) }
             }
+            isShowingArrayIllustration = document.illustration != nil
             panel.setFrame(stageFrame, display: true)
             panel.orderFrontRegardless()
             figurePanel = panel
@@ -67,23 +78,17 @@ final class PaceDiagramOverlayManager {
             self.drawingPanel = drawingPanel
         }
 
-        let headerWidth = min(stageWidth, 860)
-        let headerFrame = CGRect(
-            x: visibleFrame.midX - headerWidth / 2,
-            y: min(visibleFrame.maxY - 128, stageFrame.maxY + 12),
-            width: headerWidth, height: 104
-        )
         let headerPanel = self.headerPanel ?? PaceDiagramIslandPanel()
-        headerPanel.contentView = NSHostingView(rootView: PaceDiagramHeaderView(controller: controller))
+        headerPanel.contentView = headerHostingView
         headerPanel.setFrame(headerFrame, display: true)
         headerPanel.orderFrontRegardless()
         self.headerPanel = headerPanel
 
-        for (identifier, panel) in nodePanels where !document.nodes.contains(where: { $0.id == identifier }) {
+        for (identifier, panel) in nodePanels where !controller.visibleNodes.contains(where: { $0.id == identifier }) {
             panel.orderOut(nil)
             nodePanels.removeValue(forKey: identifier)
         }
-        for node in document.nodes where document.figure == nil {
+        for node in controller.visibleNodes where document.figure == nil && document.illustration == nil {
             let nodeFrame = CGRect(
                 x: stageFrame.minX + node.x / PaceDiagramDocument.canvasWidth * stageFrame.width,
                 y: stageFrame.maxY - (node.y + node.height) / PaceDiagramDocument.canvasHeight * stageFrame.height,
@@ -103,8 +108,8 @@ final class PaceDiagramOverlayManager {
     func refreshSelection() {
         guard let controller, let document = controller.document else { return }
         let panel = detailPanel ?? PaceDiagramIslandPanel()
-        let width = min(450, visibleFrame.width - 64)
-        let height: CGFloat = controller.selectedNode == nil ? 76 : 174
+        let width = min(controller.currentLessonStep == nil ? 450 : 700, visibleFrame.width - 64)
+        let height = detailPanelHeight(controller: controller, summary: document.summary)
         panel.contentView = NSHostingView(
             rootView: PaceDiagramDetailView(controller: controller, summary: document.summary))
         panel.setFrame(
@@ -115,6 +120,15 @@ final class PaceDiagramOverlayManager {
             ), display: true)
         panel.orderFrontRegardless()
         detailPanel = panel
+    }
+
+    private func detailPanelHeight(controller: PaceDiagramOverlayController, summary: String) -> CGFloat {
+        guard let step = controller.currentLessonStep, controller.selectedNodeID == step.focusNodeID else {
+            return controller.selectedNode == nil ? 76 : 174
+        }
+        let width = min(700, visibleFrame.width - 64)
+        let hostingView = NSHostingView(rootView: PaceDiagramDetailView(controller: controller, summary: summary).frame(width: width))
+        return min(170, max(86, hostingView.fittingSize.height))
     }
 
     func hide() {
@@ -234,7 +248,7 @@ private struct PaceDiagramNodeView: View {
                     PaceDiagramNodeOutline(shape: node.shape ?? .rectangle)
                         .fill(
                             LinearGradient(
-                                colors: [Color(hex: isSelected ? "#223754" : "#182333"), Color(hex: "#101820")],
+                                colors: [.black, .black],
                                 startPoint: .topLeading, endPoint: .bottomTrailing
                             ))
                 }
@@ -281,7 +295,7 @@ private struct PaceDiagramConnectionsView: View {
     var body: some View {
         Canvas { context, size in
             guard let document = controller.document else { return }
-            let nodesByID = Dictionary(uniqueKeysWithValues: document.nodes.map { ($0.id, $0) })
+            let nodesByID = Dictionary(uniqueKeysWithValues: controller.visibleNodes.map { ($0.id, $0) })
             for connection in document.connections {
                 guard let source = nodesByID[connection.source], let target = nodesByID[connection.target] else {
                     continue
@@ -351,15 +365,28 @@ private struct PaceDiagramHeaderView: View {
     @ObservedObject var controller: PaceDiagramOverlayController
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 8) {
                 Image(systemName: controller.document?.figure == nil ? "point.3.connected.trianglepath.dotted" : "cube")
                     .foregroundStyle(Color(hex: "#A6C5F0"))
                 Text("pace is explaining").font(DS.Typography.callout)
                 Spacer()
-                Button("Next part", systemImage: "arrow.right") { controller.selectNextNode() }
-                    .labelStyle(.iconOnly)
-                    .help("Select the next diagram part")
+                if controller.currentLessonStep != nil {
+                    Button("Previous step", systemImage: "backward.end") { controller.moveLesson(by: -1) }
+                        .labelStyle(.iconOnly).disabled(controller.lessonStepIndex == 0)
+                    Button(controller.lessonPlaybackState == .playing ? "Pause lesson" : "Play lesson",
+                           systemImage: controller.lessonPlaybackState == .playing ? "pause.fill" : "play.fill") {
+                        controller.toggleLessonPlayback()
+                    }.labelStyle(.iconOnly).accessibilityIdentifier("pace.lesson.play-pause")
+                    Text("\(controller.lessonStepIndex + 1) / \(controller.document?.lesson?.steps.count ?? 0)")
+                        .monospacedDigit().foregroundStyle(DS.Colors.textSecondary)
+                    Button("Next step", systemImage: "forward.end") { controller.moveLesson(by: 1) }
+                        .labelStyle(.iconOnly)
+                        .disabled(controller.lessonStepIndex + 1 >= (controller.document?.lesson?.steps.count ?? 0))
+                } else {
+                    Button("Next part", systemImage: "arrow.right") { controller.selectNextNode() }
+                        .labelStyle(.iconOnly).help("Select the next diagram part")
+                }
                 Button("Close diagram", systemImage: "xmark") { controller.dismiss(intent: .userInitiated) }
                     .labelStyle(.iconOnly)
                     .help("Close diagram · Escape while hovering the diagram")
@@ -367,15 +394,17 @@ private struct PaceDiagramHeaderView: View {
             }
             .font(.system(size: 12))
             Text(controller.document?.title ?? "")
-                .font(DS.Typography.sceneTitle)
+                .font(.system(size: 23, weight: .semibold))
                 .lineLimit(2)
         }
         .foregroundStyle(DS.Colors.textPrimary)
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: 15))
         .buttonStyle(DiagramQuietButtonStyle())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Interactive lesson controls")
     }
 }
 
@@ -385,7 +414,12 @@ private struct PaceDiagramDetailView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let node = controller.selectedNode {
+            if let step = controller.currentLessonStep, controller.selectedNodeID == step.focusNodeID {
+                Text(step.title).font(DS.Typography.headline)
+                Text(step.narration).font(DS.Typography.callout).lineLimit(5)
+                Text(controller.lessonPlaybackState == .failed ? "Speech did not finish. Play retries; Next and Back work quietly." : controller.lessonPlaybackState == .playing ? "Drag or select any part to pause." : "Play repeats this step. Next and Back let you explore quietly.")
+                    .font(DS.Typography.caption).foregroundStyle(DS.Colors.textSecondary)
+            } else if let node = controller.selectedNode {
                 HStack {
                     Text("SELECTED · \(node.label)")
                         .font(.system(size: 9, weight: .medium, design: .monospaced))
@@ -426,7 +460,7 @@ private struct PaceDiagramDetailView: View {
             }
         }
         .padding(18)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.12), lineWidth: 1))
         .foregroundStyle(DS.Colors.textPrimary)

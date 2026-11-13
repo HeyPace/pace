@@ -18,6 +18,7 @@ extension CompanionManager {
     /// active lease. Routing and response tasks are separate because routing
     /// can suspend before a response task exists.
     func cancelActiveTurnTasks(preservingConversationRequest: Bool = false) {
+        diagramOverlayController.cancelLessonPlayback()
         cancelWatchSuggestionSpeech()
         if !preservingConversationRequest { interruptConversationRequest() }
         turnLeaseRegistry.invalidateCurrentTurn()
@@ -41,12 +42,17 @@ extension CompanionManager {
         expectedDiagramDismissalGeneration: inout Int,
         expectedImageDismissalGeneration: Int
     ) async -> PaceActionTagParseResult {
-        await PaceVisualActionDrainer.drain(
+        let teachingTurnLease = turnLeaseRegistry.currentLease
+        return await PaceVisualActionDrainer.drain(
             parseResult: parseResult,
             diagramOverlayController: diagramOverlayController,
             imageOverlayController: imageOverlayController,
             expectedDiagramDismissalGeneration: &expectedDiagramDismissalGeneration,
             expectedImageDismissalGeneration: expectedImageDismissalGeneration,
+            runLesson: { [weak self] in
+                guard let self else { return }
+                await self.runTeachingLesson(turnLease: teachingTurnLease)
+            },
             generateImage: { request, expectedDismissalGeneration in
                 if self.canGenerateImagesWithCodex, self.activePacePadTurnIdentifier != nil {
                     self.activePacePadTurnUsesOffDevicePlanner = true
@@ -55,6 +61,51 @@ extension CompanionManager {
                 defer { self.endScreenSuggestionDisclosureLease(disclosureLease) }
                 return await self.imageOverlayController.generate(
                     request, expectedDismissalGeneration: expectedDismissalGeneration)
+            })
+    }
+
+    func playTeachingLessonFromControls() {
+        guard diagramOverlayController.document?.lesson != nil else { return }
+        cancelActiveTurnTasks()
+        ttsClient.stopPlayback()
+        streamingSentenceTTSPipeline.resetForNewTurn()
+        let lease = turnLeaseRegistry.beginTurn()
+        currentResponseTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.runTeachingLesson(turnLease: lease)
+            guard self.isActiveTurn(lease) else { return }
+            self.voiceState = .idle
+            self.currentTurnHUDState = .done("lesson paused")
+        }
+    }
+
+    func runTeachingLesson(turnLease: PaceTurnLease) async {
+        guard isActiveTurn(turnLease) else { return }
+        streamingSentenceTTSPipeline.resetForNewTurn()
+        ttsClient.stopPlayback()
+        if diagramOverlayController.lessonConversationTurnIdentifier == nil {
+            diagramOverlayController.lessonConversationTurnIdentifier = activeConversationUserEvent?.eventID
+        }
+        let conversationTurnID = diagramOverlayController.lessonConversationTurnIdentifier
+        await diagramOverlayController.runLesson(
+            muted: isChatModeMutedForCurrentTurn,
+            stopSpeech: { [weak self] in
+                guard let self, self.turnLeaseRegistry.isCurrent(turnLease) else { return }
+                self.ttsClient.stopPlayback()
+                self.voiceState = .idle
+            },
+            narrate: { [weak self] step in
+                guard let self, self.isActiveTurn(turnLease) else { throw CancellationError() }
+                self.voiceState = .responding
+                self.currentTurnHUDState = .acting(step.title)
+                let narrationEventID = self.diagramOverlayController.historyEventIdentifier(for: step)
+                try await self.ttsClient.speakUtterance(step.narration) { [weak self] in
+                    guard let self, self.isActiveTurn(turnLease) else { return }
+                    self.recordAssistantNarration(step.narration, eventIdentifier: narrationEventID,
+                        turnIdentifier: conversationTurnID)
+                }
+                guard self.isActiveTurn(turnLease) else { throw CancellationError() }
+                self.voiceState = .idle
             })
     }
 

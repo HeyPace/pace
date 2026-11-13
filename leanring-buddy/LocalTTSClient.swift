@@ -56,6 +56,8 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
         var hasStarted: Bool { startedAt != nil }
         var startupContinuation: CheckedContinuation<Void, Error>?
         let onPlaybackFailure: (() -> Void)?
+        var completionContinuation: CheckedContinuation<Void, Error>?
+        var onStarted: (@MainActor () -> Void)?
 
         init(
             utterance: AVSpeechUtterance,
@@ -128,10 +130,19 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
     }
 
     func speakText(_ text: String) async throws {
-        try await speakText(text, onPlaybackFailure: nil)
+        try await enqueueText(text, onPlaybackFailure: nil, waitsForCompletion: false, onStarted: nil)
+    }
+
+    func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws {
+        try await enqueueText(text, onPlaybackFailure: nil, waitsForCompletion: true, onStarted: onStarted)
     }
 
     func speakText(_ text: String, onPlaybackFailure: (() -> Void)?) async throws {
+        try await enqueueText(text, onPlaybackFailure: onPlaybackFailure, waitsForCompletion: false, onStarted: nil)
+    }
+
+    private func enqueueText(_ text: String, onPlaybackFailure: (() -> Void)?, waitsForCompletion: Bool,
+                             onStarted: (@MainActor () -> Void)?) async throws {
         try Task.checkCancellation()
         reconcileNativeIdlePlayback()
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -161,14 +172,16 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
                     && speechSynthesizer.isSpeaking
                 let pendingUtterance = PendingUtterance(
                     utterance: utterance,
-                    startupContinuation: hasConfirmedActivePlayback ? nil : continuation,
+                    startupContinuation: waitsForCompletion || hasConfirmedActivePlayback ? nil : continuation,
                     onPlaybackFailure: onPlaybackFailure
                 )
+                pendingUtterance.completionContinuation = waitsForCompletion ? continuation : nil
+                pendingUtterance.onStarted = onStarted
                 pendingUtterances.append(pendingUtterance)
                 recordPlaybackEvent("submit", pendingUtterance: pendingUtterance)
                 speechSynthesizer.speak(utterance)
                 schedulePlaybackWatchdog()
-                if hasConfirmedActivePlayback { continuation.resume() }
+                if hasConfirmedActivePlayback && !waitsForCompletion { continuation.resume() }
             }
         } onCancel: { [weak self] in
             Task { @MainActor in
@@ -188,6 +201,8 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
         switch event {
         case .started:
             pendingUtterance.startedAt = Date()
+            pendingUtterance.onStarted?()
+            pendingUtterance.onStarted = nil
             recordPlaybackEvent("start", pendingUtterance: pendingUtterance)
             for queuedUtterance in pendingUtterances {
                 queuedUtterance.startupContinuation?.resume()
@@ -201,6 +216,12 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
             pendingUtterance.startupContinuation?.resume(throwing: event == .cancelled
                 ? LocalTTSPlaybackError.playbackCancelled : LocalTTSPlaybackError.playbackDidNotStart)
             pendingUtterance.startupContinuation = nil
+            if event == .finished && pendingUtterance.hasStarted {
+                pendingUtterance.completionContinuation?.resume()
+            } else {
+                pendingUtterance.completionContinuation?.resume(throwing: LocalTTSPlaybackError.playbackCancelled)
+            }
+            pendingUtterance.completionContinuation = nil
             pendingUtterances.removeAll { $0.utterance === utterance }
             if event == .cancelled || !pendingUtterance.hasStarted { pendingUtterance.onPlaybackFailure?() }
         }
@@ -217,6 +238,8 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
               now.timeIntervalSince(startedAt) >= playbackCompletionGraceInterval {
             pendingUtterances.removeFirst()
             recordPlaybackEvent("reconciled_native_idle", pendingUtterance: pendingUtterance)
+            pendingUtterance.completionContinuation?.resume()
+            pendingUtterance.completionContinuation = nil
         }
         schedulePlaybackWatchdog()
     }
@@ -276,6 +299,9 @@ final class LocalTTSClient: NSObject, BuddyTTSClient {
             recordPlaybackEvent("cancel", pendingUtterance: pendingUtterance, detail: reason)
             pendingUtterance.startupContinuation?.resume(throwing: error)
             pendingUtterance.startupContinuation = nil
+            pendingUtterance.completionContinuation?.resume(throwing: error)
+            pendingUtterance.completionContinuation = nil
+            pendingUtterance.onStarted = nil
             if reportsFailure { pendingUtterance.onPlaybackFailure?() }
         }
         speechSynthesizer.stopSpeaking(at: .immediate)

@@ -265,6 +265,13 @@ extension CompanionManager {
             self?.recordAssistantNarration(message, origin: .progress, turnIdentifier: self?.activeConversationUserEvent?.eventID)
             self?.responseOverlayManager.updateStreamingText(message)
         }
+        diagramOverlayController.onWrittenLessonStep = { [weak self] step in
+            guard let self else { return }
+            self.recordAssistantNarration(step.narration,
+                eventIdentifier: self.diagramOverlayController.historyEventIdentifier(for: step),
+                turnIdentifier: self.diagramOverlayController.lessonConversationTurnIdentifier)
+        }
+        diagramOverlayController.onPlayLessonRequested = { [weak self] in self?.playTeachingLessonFromControls() }
         diagramOverlayController.onAskAboutPart = { [weak self] transcript in
             self?.submitChatTranscriptFromDeepLink(transcript)
         }

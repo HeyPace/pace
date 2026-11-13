@@ -98,14 +98,26 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
     private let fallbackClient: any BuddyTTSClient
     private let urlSession: URLSession
 
-    private struct PendingUtterance {
+    private final class PendingUtterance {
+        let id = UUID()
         let text: String
+        var completion: CheckedContinuation<Void, Error>?
+        var onStarted: (@MainActor () -> Void)?
+        init(text: String) { self.text = text }
+        func finish(_ error: Error? = nil) {
+            if let error { completion?.resume(throwing: error) } else { completion?.resume() }
+            completion = nil
+            onStarted = nil
+        }
     }
+    private var activeUtterance: PendingUtterance?
+    private var drainTask: Task<Void, Never>?
+    private var playbackGeneration: UInt64 = 0
 
     private var pendingUtteranceQueue: [PendingUtterance] = []
     private var isDrainingPlaybackQueue = false
     private var audioPlayer: AVAudioPlayer?
-    private var playbackContinuation: CheckedContinuation<Void, Never>?
+    private var playbackContinuation: CheckedContinuation<Void, Error>?
     private var serverUnavailableUntil: Date?
     /// Why playback last ended. The fallback client (Apple voice) has
     /// its own `lastStopReason`; the value here reflects whichever
@@ -198,6 +210,7 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
     /// request — a single bad sentence dropped to Apple TTS while
     /// neighbors stayed on Kokoro, producing the half-and-half voice mix.
     func speakText(_ text: String) async throws {
+        try Task.checkCancellation()
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
         // Push-to-talk starts the optional prewarm while the user is still
@@ -209,6 +222,32 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
         pendingNextStopReason = nil
         pendingUtteranceQueue.append(PendingUtterance(text: trimmedText))
         startDrainingPlaybackQueueIfNeeded()
+    }
+
+    func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws {
+        try Task.checkCancellation()
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return }
+        let utterance = PendingUtterance(text: trimmedText)
+        let generation = playbackGeneration
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                guard !Task.isCancelled else { continuation.resume(throwing: CancellationError()); return }
+                utterance.completion = continuation
+                utterance.onStarted = onStarted
+                lastStopReason = .naturalCompletion
+                pendingNextStopReason = nil
+                pendingUtteranceQueue.append(utterance)
+                startDrainingPlaybackQueueIfNeeded()
+            }
+        } onCancel: { [weak self] in
+            Task { @MainActor in
+                guard let self, self.playbackGeneration == generation,
+                      self.activeUtterance === utterance || self.pendingUtteranceQueue.contains(where: { $0 === utterance }) else { return }
+                self.stopPlayback()
+            }
+        }
+        try Task.checkCancellation()
     }
 
     /// Public push-to-talk-press entry point. Warms Kokoro's MLX weights
@@ -248,10 +287,17 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
         // barge-in path; otherwise treat as manual stop.
         lastStopReason = pendingNextStopReason ?? .manualStop
         pendingNextStopReason = nil
+        playbackGeneration &+= 1
+        drainTask?.cancel()
+        drainTask = nil
+        isDrainingPlaybackQueue = false
+        let cancelledUtterances = pendingUtteranceQueue + [activeUtterance].compactMap { $0 }
         pendingUtteranceQueue = []
+        activeUtterance = nil
+        cancelledUtterances.forEach { $0.finish(CancellationError()) }
         audioPlayer?.stop()
         audioPlayer = nil
-        playbackContinuation?.resume()
+        playbackContinuation?.resume(throwing: CancellationError())
         playbackContinuation = nil
         fallbackClient.stopPlayback()
     }
@@ -281,6 +327,7 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
             let (audioData, response) = try await sessionSnapshot.data(
                 for: configurationSnapshot.speechRequest(for: text)
             )
+            guard !Task.isCancelled else { return nil }
             guard let httpResponse = response as? HTTPURLResponse,
                   (200..<300).contains(httpResponse.statusCode),
                   !audioData.isEmpty else {
@@ -294,6 +341,7 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
             serverUnavailableUntil = nil
             return audioData
         } catch {
+            guard !Task.isCancelled else { return nil }
             auditSynthesis(outcome: "transport_error")
             didDetectSidecarOutageDuringCurrentSession = true
             serverUnavailableUntil = Date().addingTimeInterval(
@@ -306,61 +354,79 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
     private func startDrainingPlaybackQueueIfNeeded() {
         guard !isDrainingPlaybackQueue else { return }
         isDrainingPlaybackQueue = true
-        Task { [weak self] in
-            await self?.drainPlaybackQueue()
+        let generation = playbackGeneration
+        drainTask = Task { [weak self] in
+            await self?.drainPlaybackQueue(generation: generation)
         }
     }
 
-    private func drainPlaybackQueue() async {
-        defer { isDrainingPlaybackQueue = false }
-        while !pendingUtteranceQueue.isEmpty {
-            let utterance = pendingUtteranceQueue.removeFirst()
-            await speakWithKokoroOrSystemFallback(text: utterance.text)
-        }
+    private func isCurrentPlayback(_ generation: UInt64) -> Bool {
+        generation == playbackGeneration && !Task.isCancelled
     }
 
-    /// Prefer Kokoro, but preserve the basic voice-assistant contract when
-    /// the sidecar is unhealthy. A failed sentence is retried once, then
-    /// split around punctuation for model-specific input-shape failures.
-    /// If those attempts still fail, the always-local system voice speaks
-    /// the same text instead of silently dropping Pace's reply.
-    private func speakWithKokoroOrSystemFallback(text: String) async {
-        if let audioData = await synthesizeAudioData(forText: text) {
-            await playAudioData(audioData)
-            return
-        }
-        // First retry: same text. Transient transport errors are common
-        // and almost always succeed on a clean second try.
-        if let retriedAudioData = await synthesizeAudioData(forText: text) {
-            await playAudioData(retriedAudioData)
-            return
-        }
-        // Second retry: split the text at a punctuation boundary and try
-        // each half independently. mlx-audio's Kokoro path occasionally
-        // fails with "broadcast_shapes (1,N,1) and (1,M,9) cannot be
-        // broadcast" on specific phoneme sequences; the split text uses
-        // a different sequence that usually doesn't trip the bug.
-        let (firstHalf, secondHalf) = Self.splitForSynthesisRetry(text)
-        if firstHalf != text, let firstHalfAudio = await synthesizeAudioData(forText: firstHalf) {
-            await playAudioData(firstHalfAudio)
-            if !secondHalf.isEmpty, let secondHalfAudio = await synthesizeAudioData(forText: secondHalf) {
-                await playAudioData(secondHalfAudio)
-            } else {
-                await speakWithSystemFallback(text: secondHalf)
+    private func drainPlaybackQueue(generation: UInt64) async {
+        defer {
+            if generation == playbackGeneration {
+                isDrainingPlaybackQueue = false
+                drainTask = nil
+                activeUtterance = nil
             }
-            return
         }
-        await speakWithSystemFallback(text: text)
+        while isCurrentPlayback(generation), !pendingUtteranceQueue.isEmpty {
+            let utterance = pendingUtteranceQueue.removeFirst()
+            activeUtterance = utterance
+            do {
+                try await speakWithKokoroOrSystemFallback(utterance: utterance, generation: generation)
+                guard isCurrentPlayback(generation) else { return }
+                utterance.finish()
+            } catch {
+                guard isCurrentPlayback(generation) else { return }
+                utterance.finish(error)
+            }
+            activeUtterance = nil
+        }
     }
 
-    private func speakWithSystemFallback(text: String) async {
-        guard !text.isEmpty else { return }
-        do {
-            print("🔊 Kokoro unavailable — speaking with the local system voice")
-            try await fallbackClient.speakText(text)
-        } catch {
-            print("🔊 System voice fallback failed: \(error.localizedDescription)")
+    private func speakWithKokoroOrSystemFallback(utterance: PendingUtterance, generation: UInt64) async throws {
+        for _ in 0..<2 {
+            let audioData = await synthesizeAudioData(forText: utterance.text)
+            guard isCurrentPlayback(generation) else { throw CancellationError() }
+            if let audioData {
+                try await playAudioDataOrFallback(audioData, text: utterance.text, utterance: utterance, generation: generation)
+                return
+            }
         }
+        let (firstHalf, secondHalf) = Self.splitForSynthesisRetry(utterance.text)
+        if firstHalf != utterance.text {
+            let firstHalfAudio = await synthesizeAudioData(forText: firstHalf)
+            guard isCurrentPlayback(generation) else { throw CancellationError() }
+            if let firstHalfAudio {
+                try await playAudioDataOrFallback(firstHalfAudio, text: firstHalf, utterance: utterance, generation: generation)
+                guard isCurrentPlayback(generation) else { throw CancellationError() }
+                if !secondHalf.isEmpty {
+                    let secondHalfAudio = await synthesizeAudioData(forText: secondHalf)
+                    guard isCurrentPlayback(generation) else { throw CancellationError() }
+                    if let secondHalfAudio {
+                        try await playAudioDataOrFallback(secondHalfAudio, text: secondHalf, utterance: utterance, generation: generation)
+                    } else {
+                        try await speakWithSystemFallback(text: secondHalf, utterance: utterance, generation: generation)
+                    }
+                }
+                return
+            }
+        }
+        try await speakWithSystemFallback(text: utterance.text, utterance: utterance, generation: generation)
+    }
+
+    private func speakWithSystemFallback(text: String, utterance: PendingUtterance, generation: UInt64) async throws {
+        guard isCurrentPlayback(generation) else { throw CancellationError() }
+        guard !text.isEmpty else { return }
+        try await fallbackClient.speakUtterance(text) { [weak self] in
+            guard let self, self.isCurrentPlayback(generation) else { return }
+            utterance.onStarted?()
+            utterance.onStarted = nil
+        }
+        guard isCurrentPlayback(generation) else { throw CancellationError() }
     }
 
     /// Splits text near the middle at the LAST punctuation boundary in
@@ -389,30 +455,59 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
         return (trimmedText, "")
     }
 
-    private func playAudioData(_ audioData: Data) async {
+    private func playAudioDataOrFallback(_ audioData: Data, text: String,
+                                         utterance: PendingUtterance, generation: UInt64) async throws {
+        do { try await playAudioData(audioData, utterance: utterance, generation: generation) }
+        catch {
+            guard isCurrentPlayback(generation), !(error is CancellationError) else { throw CancellationError() }
+            audioPlayer?.stop()
+            audioPlayer = nil
+            try await speakWithSystemFallback(text: text, utterance: utterance, generation: generation)
+        }
+    }
+
+    private func playAudioData(_ audioData: Data, utterance: PendingUtterance, generation: UInt64) async throws {
+        guard isCurrentPlayback(generation) else { throw CancellationError() }
         guard let player = try? AVAudioPlayer(data: audioData) else {
-            print("🔊 Server TTS: undecodable audio payload — skipping sentence")
-            return
+            print("🔊 Server TTS: undecodable audio payload — using system voice")
+            throw LocalTTSPlaybackError.playbackDidNotStart
         }
         audioPlayer = player
         player.delegate = self
         player.prepareToPlay()
-        guard player.play() else {
-            audioPlayer = nil
-            return
-        }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            guard isCurrentPlayback(generation) else { continuation.resume(throwing: CancellationError()); return }
             playbackContinuation = continuation
+            guard player.play() else {
+                playbackContinuation = nil
+                audioPlayer = nil
+                continuation.resume(throwing: LocalTTSPlaybackError.playbackDidNotStart)
+                return
+            }
+            let notifyStart = utterance.onStarted
+            utterance.onStarted = nil
+            notifyStart?()
         }
-        audioPlayer = nil
+        guard isCurrentPlayback(generation) else { throw CancellationError() }
+        if audioPlayer === player { audioPlayer = nil }
     }
 }
 
 extension LocalServerTTSClient: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor [weak self] in
-            self?.playbackContinuation?.resume()
-            self?.playbackContinuation = nil
+            guard let self, self.audioPlayer === player else { return }
+            if flag { self.playbackContinuation?.resume() }
+            else { self.playbackContinuation?.resume(throwing: PaceUtterancePlaybackError.playbackFailed) }
+            self.playbackContinuation = nil
         }
     }
+    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        Task { @MainActor [weak self] in
+            guard let self, self.audioPlayer === player else { return }
+            self.playbackContinuation?.resume(throwing: PaceUtterancePlaybackError.playbackFailed)
+            self.playbackContinuation = nil
+        }
+    }
+
 }

@@ -2,7 +2,7 @@ import Foundation
 import simd
 
 nonisolated struct PaceFigureScene: Codable, Equatable, Sendable {
-    enum Template: String, Codable, Sendable { case airplane }
+    enum Template: String, Codable, Sendable { case airplane; case liftSystem = "lift_system"; case piCamera = "pi_camera" }
     enum Geometry: String, Codable, Sendable { case box, ellipsoid, cylinder, cone, mesh }
     enum Finish: String, Codable, Sendable { case shell, metal, glass, accent, dark }
 
@@ -56,10 +56,11 @@ nonisolated struct PaceFigureScene: Codable, Equatable, Sendable {
             return "requires the figure focus to reference an existing part"
         }
         if let controlDeflection {
-            guard controlDeflection.isFinite, (-1...1).contains(controlDeflection), template == .airplane else {
+            guard controlDeflection.isFinite, (-1...1).contains(controlDeflection),
+                  template == .airplane || PaceTeachingTemplateCatalog.definition(for: template) != nil else {
                 return "requires a finite control deflection from -1 to 1 on the airplane template"
             }
-            if controlDeflection != 0, !Self.airplaneControlSurfaceNodeIDs.contains(focusNodeID ?? "") {
+            if controlDeflection != 0, !(template == .airplane ? Self.airplaneControlSurfaceNodeIDs : PaceTeachingTemplateCatalog.definition(for: template)?.controlNodeIDs ?? []).contains(focusNodeID ?? "") {
                 return "requires a selected aileron, elevator, rudder or flap assembly for nonzero deflection"
             }
         }
@@ -69,6 +70,10 @@ nonisolated struct PaceFigureScene: Codable, Equatable, Sendable {
                     "requires airplane explanations for fuselage, cockpit, wings, engines, ailerons, elevators, rudder and flaps"
             }
             return nil
+        }
+        if let definition = PaceTeachingTemplateCatalog.definition(for: template) {
+            return nodeIDs == definition.nodeIDs && (parts?.isEmpty ?? true)
+                ? nil : "requires the exact semantic parts of the selected native template and no custom solids"
         }
         guard let parts, (1...96).contains(parts.count), Set(parts.map(\.id)).count == parts.count else {
             return "requires one to ninety-six uniquely identified solid parts"

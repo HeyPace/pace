@@ -128,6 +128,74 @@ struct LocalTTSPlaybackStateTests {
         throw CancellationError()
     }
 
+
+    @Test func utteranceCompletionIsSpecificAndWaitsBeyondConfirmedStart() async throws {
+        let synthesizer = TestSpeechSynthesizer()
+        let client = LocalTTSClient(speechSynthesizer: synthesizer, auditLog: makeAuditLog())
+        var starts: [String] = []
+        var completed: [String] = []
+        let first = Task {
+            try await client.speakUtterance("First exact utterance.") { starts.append("first") }
+            completed.append("first")
+        }
+        defer { client.stopPlayback() }
+        try await waitForSubmission(synthesizer)
+        let firstUtterance = try #require(synthesizer.utterances.first)
+        synthesizer.start(firstUtterance)
+        for _ in 0..<20 { await Task.yield() }
+        #expect(starts == ["first"])
+        #expect(completed.isEmpty)
+        let second = Task {
+            try await client.speakUtterance("Second exact utterance.") { starts.append("second") }
+            completed.append("second")
+        }
+        try await waitForSubmission(synthesizer, count: 2)
+        #expect(starts == ["first"])
+        #expect(completed.isEmpty)
+        synthesizer.finish(firstUtterance)
+        try await first.value
+        #expect(completed == ["first"])
+        let secondUtterance = try #require(synthesizer.utterances.last)
+        synthesizer.start(secondUtterance)
+        for _ in 0..<20 { await Task.yield() }
+        #expect(starts == ["first", "second"])
+        #expect(completed == ["first"])
+        synthesizer.finish(secondUtterance)
+        try await second.value
+        #expect(completed == ["first", "second"])
+        synthesizer.finish(firstUtterance)
+        synthesizer.finish(secondUtterance)
+        for _ in 0..<20 { await Task.yield() }
+        #expect(completed.count == 2)
+    }
+
+    @Test func stoppingExactUtteranceCancelsAndCannotCompleteNewerSpeech() async throws {
+        let synthesizer = TestSpeechSynthesizer()
+        let client = LocalTTSClient(speechSynthesizer: synthesizer, auditLog: makeAuditLog())
+        let old = Task { try await client.speakUtterance("Old exact utterance.", onStarted: {}) }
+        try await waitForSubmission(synthesizer)
+        let oldUtterance = try #require(synthesizer.utterances.first)
+        synthesizer.start(oldUtterance)
+        client.stopPlayback()
+        do { try await old.value; Issue.record("Stop must cancel actual utterance completion.") }
+        catch { #expect(error is CancellationError) }
+        var freshFinished = false
+        let fresh = Task {
+            try await client.speakUtterance("Fresh exact utterance.", onStarted: {})
+            freshFinished = true
+        }
+        defer { client.stopPlayback() }
+        try await waitForSubmission(synthesizer, count: 2)
+        let freshUtterance = try #require(synthesizer.utterances.last)
+        synthesizer.start(freshUtterance)
+        synthesizer.finish(oldUtterance)
+        for _ in 0..<20 { await Task.yield() }
+        #expect(!freshFinished)
+        #expect(client.isPlaying)
+        synthesizer.finish(freshUtterance)
+        try await fresh.value
+        #expect(freshFinished)
+    }
     @Test func submissionOnlySucceedsAfterDelegateConfirmsPlaybackStarted() async throws {
         let synthesizer = TestSpeechSynthesizer()
         let auditLog = makeAuditLog()
@@ -541,6 +609,11 @@ struct LocalServerTTSClientIntegrationTests {
 
         func speakText(_ text: String) async throws {
             spokenTexts.append(text)
+        }
+
+        func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws {
+            spokenTexts.append(text)
+            onStarted()
         }
 
         func stopPlayback() {}

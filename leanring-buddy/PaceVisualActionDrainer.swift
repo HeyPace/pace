@@ -8,6 +8,7 @@ enum PaceVisualActionDrainer {
         imageOverlayController: PaceImageOverlayController,
         expectedDiagramDismissalGeneration: inout Int,
         expectedImageDismissalGeneration: Int,
+        runLesson: (@MainActor () async -> Void)? = nil,
         generateImage: (@MainActor (PaceImageGenerationRequest, Int) async -> String)? = nil
     ) async -> PaceActionTagParseResult {
         var imageMessages: [String] = []
@@ -32,6 +33,12 @@ enum PaceVisualActionDrainer {
                             firstClickVisualisationLocation: nil),
                         expectedDismissalGeneration: &expectedDiagramDismissalGeneration)
                     spokenText = diagramResult.spokenText
+                    if case .showDiagram(let document) = action, document.lesson != nil,
+                       diagramOverlayController.document?.lesson == document.lesson,
+                       diagramOverlayController.lessonNeedsInitialPlayback {
+                        await runLesson?()
+                        spokenText = ""
+                    }
                 case .generateImage(let request):
                     guard permitsVisualOutput else {
                         imageMessages.append("I kept the image closed.")

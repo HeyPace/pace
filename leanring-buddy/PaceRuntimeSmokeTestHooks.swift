@@ -10,6 +10,9 @@
 import Foundation
 
 extension Notification.Name {
+    static let paceSmokeTeachNextToken = Notification.Name("com.pace.smoke.teachNextToken")
+    static let paceSmokeTeachLiftSystem = Notification.Name("com.pace.smoke.teachLiftSystem")
+    static let paceSmokeTeachPiCamera = Notification.Name("com.pace.smoke.teachPiCamera")
     static let paceSmokeShowDiagram = Notification.Name("com.pace.smoke.showDiagram")
     static let paceSmokeSelectDiagramPart = Notification.Name("com.pace.smoke.selectDiagramPart")
     static let paceSmokeDismissDiagram = Notification.Name("com.pace.smoke.dismissDiagram")
@@ -53,6 +56,25 @@ final class PaceRuntimeSmokeTestHooks {
     }
 
     private func installObservers() {
+        if Self.isEnabled, Bundle.main.object(forInfoDictionaryKey: "PaceLocalDevelopmentBuild") as? Bool == true {
+            observe(.paceSmokeTeachNextToken) { [weak self] in
+                guard let self else { return }
+                self.companionManager.cancelActiveTurnTasks()
+                guard self.companionManager.diagramOverlayController.present(PaceTeachingArrayIllustration.nextTokenExample) else { return }
+                self.companionManager.playTeachingLessonFromControls()
+                PaceSmokeTestStateStore.recordDiagramState(PaceTeachingArrayIllustration.nextTokenExample.nodes.count, selectedPart: nil)
+            }
+            for (notification, template) in [(Notification.Name.paceSmokeTeachLiftSystem, PaceFigureScene.Template.liftSystem),
+                                             (.paceSmokeTeachPiCamera, .piCamera)] {
+                observe(notification) { [weak self] in
+                    guard let self, let document = PaceTeachingTemplateCatalog.lessonDocument(for: template) else { return }
+                    self.companionManager.cancelActiveTurnTasks()
+                    guard self.companionManager.diagramOverlayController.present(document) else { return }
+                    self.companionManager.playTeachingLessonFromControls()
+                    PaceSmokeTestStateStore.recordDiagramState(document.nodes.count, selectedPart: nil)
+                }
+            }
+        }
         #if DEBUG
             observe(.paceSmokeShowDiagram) { [weak self] in
                 guard let self,
