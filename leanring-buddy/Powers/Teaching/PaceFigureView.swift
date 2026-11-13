@@ -559,7 +559,11 @@ final class PaceFigureViewModel: ObservableObject {
             if surface.maximumTranslation != .zero {
                 transform.translation = surface.restingPosition + surface.maximumTranslation * (isFocused ? value : 0)
             }
-            surface.entity.move(to: transform, relativeTo: surface.entity.parent, duration: animated ? 0.16 : 0)
+            if animated {
+                surface.entity.move(to: transform, relativeTo: surface.entity.parent, duration: 0.16)
+            } else {
+                surface.entity.transform = transform
+            }
         }
     }
 
