@@ -6,11 +6,33 @@
 
 import Foundation
 import Testing
+#if canImport(MLXLLM)
+    import MLXLMCommon
+#endif
 
 @testable import Pace
 
 @MainActor
 struct PaceMLXPlannerClientCacheTests {
+
+    @Test func tokenizerAdapterLoadsLocalVocabularyWithoutDownloadingAModel() async throws {
+        #if canImport(MLXLLM)
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let tokenizerJSON =
+                ###"{"version":"1.0","normalizer":{"type":"BertNormalizer","clean_text":true,"handle_chinese_chars":true,"strip_accents":null,"lowercase":true},"pre_tokenizer":{"type":"BertPreTokenizer"},"model":{"type":"WordPiece","unk_token":"[UNK]","continuing_subword_prefix":"##","max_input_chars_per_word":100,"vocab":{"[UNK]":0,"[CLS]":1,"[SEP]":2,"hello":3}}}"###
+            let configuration =
+                #"{"tokenizer_class":"BertTokenizer","unk_token":"[UNK]","cls_token":"[CLS]","sep_token":"[SEP]","eos_token":"[SEP]","model_max_length":512}"#
+            try Data(tokenizerJSON.utf8).write(to: directory.appendingPathComponent("tokenizer.json"))
+            try Data(configuration.utf8).write(to: directory.appendingPathComponent("tokenizer_config.json"))
+            let tokenizer = try await PaceMLXHuggingFaceTokenizerLoader().load(from: directory)
+            #expect(tokenizer.encode(text: "Hello", addSpecialTokens: false) == [3])
+            #expect(tokenizer.decode(tokenIds: [3], skipSpecialTokens: true) == "hello")
+            #expect(tokenizer.eosTokenId == 2)
+            #expect(tokenizer.convertIdToToken(3) == "hello")
+        #endif
+    }
 
     @Test func localModelHonorsSystemAndHistoryWithoutLeakingPreviousRequestWhenEnabled() async throws {
         guard ProcessInfo.processInfo.environment["PACE_RUN_LOCAL_NOTES"] == "1" else { return }

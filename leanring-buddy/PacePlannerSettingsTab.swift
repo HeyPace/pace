@@ -217,7 +217,8 @@ struct PacePlannerSettingsTab: View {
 
             paceSettingsToggleRow(
                 title: "Fast everyday answers",
-                subtitle: "While Codex is selected, send only simple current questions to OpenAI gpt-6-luna. Uses your OpenAI API credits. Voice stays local. Save an OpenAI key under Direct API first.",
+                subtitle:
+                    "While automatic Codex is selected, use OpenAI gpt-6-luna for simple questions and explicit screen summaries or photos. With Read My Screen on, screen answers include current images, screen context and conversation history. Uses your OpenAI API credits. Voice stays local. Save an OpenAI key under Direct API first.",
                 isOn: Binding(get: { companionManager.fastEverydayAnswersEnabled },
                     set: { companionManager.setFastEverydayAnswersEnabled($0) }))
 

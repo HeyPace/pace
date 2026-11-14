@@ -16,6 +16,30 @@ import Testing
 
 struct PaceMCPServerCatalogTests {
 
+    @Test func shippedPresetUpdatesKeepEnvironmentAndPreserveCustomLaunches() throws {
+        let previous = PaceMCPServerConfiguration(
+            command: "npx",
+            args: ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp/readonly"],
+            env: ["TEST_VALUE": "preserve-me"])
+        let updated = PaceMCPServerCatalog.currentConfiguration(forSlug: "linear", configured: previous)
+        #expect(updated.args == PaceMCPServerCatalog.entry(forSlug: "linear")?.arguments)
+        #expect(updated.env == previous.env)
+        for custom in [
+            PaceMCPServerConfiguration(command: "/custom/npx", args: previous.args),
+            PaceMCPServerConfiguration(command: "npx", args: previous.args + ["--custom"]),
+            PaceMCPServerConfiguration(command: "npx", args: previous.args, workingDirectory: "/custom"),
+            PaceMCPServerConfiguration(
+                command: "npx", args: ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp"]),
+        ] {
+            #expect(PaceMCPServerCatalog.currentConfiguration(forSlug: "linear", configured: custom) == custom)
+        }
+        #expect(
+            !PaceActionApprovalPolicy.permitsObservationOnly(
+                .serial(actions: [.mcp(PaceMCPToolCall(serverName: "linear", toolName: "list_issues", arguments: [:]))]
+                ),
+                configuredServers: ["linear": updated]))
+    }
+
     // MARK: - Helpers
 
     /// Returns a fresh, unique URL inside the temp dir for one test.
@@ -62,7 +86,7 @@ struct PaceMCPServerCatalogTests {
 
     @Test func linearUsesOfficialReadOnlyOAuthWithoutAnAPIKey() throws {
         let entry = try #require(PaceMCPServerCatalog.entry(forSlug: "linear"))
-        #expect(entry.arguments == ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp/readonly"])
+        #expect(entry.arguments == ["-y", "mcp-remote@0.16.6", "https://mcp.linear.app/mcp/readonly"])
         #expect(entry.environment.isEmpty)
     }
 

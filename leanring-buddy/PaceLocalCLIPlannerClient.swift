@@ -394,11 +394,12 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         // dashboard aggregates for the "0 bytes → X KB to <upstream>"
         // headline, so it MUST be recorded on every turn — direct-spawn
         // is off-device and cannot be silent about egress.
+        let imageByteCount = supportsImageInput ? images.reduce(0) { $0 + $1.data.count } : 0
         let estimatedInputCharacterCount =
             systemPrompt.utf8.count
             + conversationHistory.reduce(0) { $0 + $1.userPlaceholder.utf8.count + $1.assistantResponse.utf8.count }
             + userPrompt.utf8.count
-            + (supportsImageInput ? images.reduce(0) { $0 + $1.data.count } : 0)
+            + imageByteCount
         do {
             let assembledText: String
             switch upstream {
@@ -429,7 +430,8 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
                 durationMilliseconds: Int(duration * 1000),
                 outcome: "ok",
                 inputCharacterCount: estimatedInputCharacterCount,
-                outputCharacterCount: assembledText.count
+                outputCharacterCount: assembledText.count,
+                imageByteCount: imageByteCount
             )
             return (text: assembledText, duration: duration)
         } catch {
@@ -442,7 +444,8 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
                 durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1000),
                 outcome: deliveredCompletedTurn ? "late-error-after-completed-turn" : "error",
                 inputCharacterCount: estimatedInputCharacterCount,
-                outputCharacterCount: outputDelivery.characterCount
+                outputCharacterCount: outputDelivery.characterCount,
+                imageByteCount: imageByteCount
             )
             throw error
         }
@@ -458,7 +461,8 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         durationMilliseconds: Int,
         outcome: String,
         inputCharacterCount: Int,
-        outputCharacterCount: Int?
+        outputCharacterCount: Int?,
+        imageByteCount: Int
     ) {
         PaceAPIAuditLog.shared.record(
             subsystem: "planner.cliDirect",
@@ -468,7 +472,8 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
             outcome: outcome,
             inputCharacterCount: inputCharacterCount,
             outputCharacterCount: outputCharacterCount,
-            detail: "tier=cliDirect upstream=\(upstream.rawValue) model=\(modelIdentifier ?? "cli-default") effort=\(codexReasoningEffort?.rawValue ?? "cli-default") outcome=\(outcome)"
+            detail:
+                "tier=cliDirect upstream=\(upstream.rawValue) model=\(modelIdentifier ?? "cli-default") effort=\(codexReasoningEffort?.rawValue ?? "cli-default") imageBytes=\(imageByteCount) outcome=\(outcome)"
         )
     }
 

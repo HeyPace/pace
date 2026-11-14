@@ -20,7 +20,7 @@ import Foundation
 
 /// Single row in the catalog. Each row knows how to install itself
 /// into the user's MCP config file under the keyed `slug`.
-struct PaceMCPServerCatalogEntry: Equatable, Identifiable {
+nonisolated struct PaceMCPServerCatalogEntry: Equatable, Identifiable {
     /// Stable identifier used both as the JSON key in `mcpServers`
     /// and as the dictionary key inside the catalog. Lowercase.
     let slug: String
@@ -53,7 +53,7 @@ struct PaceMCPServerCatalogEntry: Equatable, Identifiable {
 /// Optional OSS and hosted integrations installed through the existing settings cards.
 /// Keep this in sync with `mcp-servers.example.json` so users editing
 /// the file by hand see the same canonical commands.
-enum PaceMCPServerCatalog {
+nonisolated enum PaceMCPServerCatalog {
     static let bundledCatalog: [PaceMCPServerCatalogEntry] = [
         PaceMCPServerCatalogEntry(
             slug: "playwright",
@@ -62,7 +62,7 @@ enum PaceMCPServerCatalog {
             setupNote: "Uses installed Chrome in a separate session. Requires Node 18+. Starts only when requested.",
             setupDocsURL: URL(string: "https://github.com/microsoft/playwright-mcp"),
             command: "npx",
-            arguments: ["-y", "@playwright/mcp@0.0.83", "--browser", "chrome", "--isolated"],
+            arguments: ["-y", "@playwright/mcp@0.0.85", "--browser", "chrome", "--isolated"],
             environment: [:]
         ),
         PaceMCPServerCatalogEntry(
@@ -73,7 +73,7 @@ enum PaceMCPServerCatalog {
                 "Enables foreground Mac control through Pace approvals. Requires Node 22+ and Peekaboo's Screen Recording and Accessibility permissions. No separate AI provider is needed.",
             setupDocsURL: URL(string: "https://github.com/openclaw/Peekaboo/blob/main/docs/MCP.md"),
             command: "npx",
-            arguments: ["-y", "@steipete/peekaboo@4.9.0", "mcp", "serve", "--allow-foreground"],
+            arguments: ["-y", "@steipete/peekaboo@4.9.8", "mcp", "serve", "--allow-foreground"],
             environment: [:]
         ),
         PaceMCPServerCatalogEntry(
@@ -118,7 +118,7 @@ enum PaceMCPServerCatalog {
                 "Uses the open-source mcp-remote bridge. Requires Node 18+. Test Connection opens Linear OAuth; approve your workspace. No Composio key is needed.",
             setupDocsURL: URL(string: "https://linear.app/docs/mcp"),
             command: "npx",
-            arguments: ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp/readonly"],
+            arguments: ["-y", "mcp-remote@0.16.6", "https://mcp.linear.app/mcp/readonly"],
             environment: [:]
         ),
         PaceMCPServerCatalogEntry(
@@ -135,7 +135,7 @@ enum PaceMCPServerCatalog {
             // from `PaceMCPSecretStore` at spawn time. The user never
             // needs to edit the JSON file — the Settings card paste
             // flow writes the key directly to Keychain.
-            arguments: ["-y", "@composio/mcp@latest"],
+            arguments: ["-y", "@composio/mcp@1.0.9"],
             environment: ["COMPOSIO_API_KEY": ""]
         ),
     ]
@@ -154,6 +154,23 @@ enum PaceMCPServerCatalog {
         "slack": "composio",
 
     ]
+
+    /// Resolve only the exact presets shipped by previous Pace builds. Keep
+    /// user files, custom commands, endpoints and extra arguments untouched.
+    static func currentConfiguration(
+        forSlug slug: String, configured: PaceMCPServerConfiguration
+    ) -> PaceMCPServerConfiguration {
+        let previousArguments: [String: [String]] = [
+            "playwright": ["-y", "@playwright/mcp@0.0.83", "--browser", "chrome", "--isolated"],
+            "peekaboo": ["-y", "@steipete/peekaboo@4.9.0", "mcp", "serve", "--allow-foreground"],
+            "linear": ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp/readonly"],
+            "composio": ["-y", "@composio/mcp@latest"],
+        ]
+        guard let entry = entry(forSlug: slug), configured.command == entry.command,
+            configured.workingDirectory == nil, configured.args == previousArguments[slug]
+        else { return configured }
+        return PaceMCPServerConfiguration(command: entry.command, args: entry.arguments, env: configured.env)
+    }
 
     /// Convenience lookup used by the Settings cards to map slug → entry.
     static func entry(forSlug slug: String) -> PaceMCPServerCatalogEntry? {

@@ -750,7 +750,9 @@ extension CompanionManager {
                 let plannerStartedAt = Date()
                 PaceLatencyBudget.shared.mark(.plannerStart)
 
-                guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
+                guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else {
+                    return
+                }
                 let (fullResponseText, _) = try await plannerForTextOnlyTurn.generateResponseStreaming(
                     images: [],
                     systemPrompt: selectedSystemPromptForTurn,
@@ -2218,7 +2220,8 @@ extension CompanionManager {
                             isTuitionModeEnabled: isTuitionModeEnabled,
                             threadSummaryInjection: threadSummaryInjectionForTurn,
                             ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment,
-                            usesIterativeComputerUse: !usesPassiveScreenPrompt && plannerClientForThisTurn is PaceLocalCLIPlannerClient,
+                            usesIterativeComputerUse: !usesPassiveScreenPrompt
+                                && plannerClientForThisTurn is PaceLocalCLIPlannerClient,
                             includeInteractiveDiagrams: !usesPassiveScreenPrompt
                         )
                     }
@@ -2286,6 +2289,8 @@ extension CompanionManager {
                     var userPromptForPlannerForDebug = ""
                     let fullResponseText: String
                     var raceLiteWonSpokenText: String? = nil
+                    var plannerDisplayNameForStep = plannerClientForThisTurn.displayName
+                    var plannerPathDetailForStep = "single planner"
                     if useSpeculativeRace {
                         userPromptForPlannerForDebug =
                             "(speculative race — full-path prompt assembled inside the race; lite path is transcript-only)"
@@ -2378,8 +2383,35 @@ extension CompanionManager {
                             ? labeledImages : []
 
                         guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
+                        let responsePlannerForThisCall = BuddyPlannerClientFactory.makePassiveScreenAnswerPlanner(
+                            usesPassiveScreenPrompt: usesPassiveScreenPrompt,
+                            selectedPlanner: plannerClientForThisTurn,
+                            tier: activePlannerTier,
+                            upstream: activePlannerTierCLIDirectUpstream,
+                            hasAcceptedDirectSpawnConsent: PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
+                            canRunDirectSpawnTurn: PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date()),
+                            fastEverydayAnswersEnabled: fastEverydayAnswersEnabled,
+                            isScreenReadAuthorized: { [weak self] in
+                                guard let self else { return false }
+                                return self.isActiveTurn(turnLease) && self.useLocalVLMForScreenContext
+                                    && (self.plannerClient as? PaceLocalCLIPlannerClient)?.allowsBoundedEverydayAnswers
+                                        == true
+                            },
+                            onSourceSelected: { [weak self] source in
+                                guard let self, self.isActiveTurn(turnLease) else { return }
+                                switch source {
+                                case .fastScreen:
+                                    self.currentTurnHUDState = .understanding(
+                                        "reading screen with OpenAI gpt-6-luna · API credits")
+                                    plannerPathDetailForStep = "OpenAI Responses · gpt-6-luna passive screen answer"
+                                case .selected:
+                                    self.currentTurnHUDState = .understanding("reading screen with Codex")
+                                    plannerPathDetailForStep =
+                                        "OpenAI Responses · gpt-6-luna → \(plannerClientForThisTurn.displayName)"
+                                }
+                            })
                         let (singlePlannerResponseText, _) =
-                            try await plannerClientForThisTurn.generateResponseStreaming(
+                            try await responsePlannerForThisCall.generateResponseStreaming(
                                 images: imagesForPlanner,
                                 systemPrompt: systemPromptForTurn,
                                 conversationHistory: historyForPlanner,
@@ -2453,6 +2485,7 @@ extension CompanionManager {
                                 }
                             )
                         fullResponseText = singlePlannerResponseText
+                        plannerDisplayNameForStep = responsePlannerForThisCall.displayName
                     }
                     PaceLatencyBudget.shared.mark(.plannerComplete)
                     turnFullResponseText = fullResponseText
@@ -2467,7 +2500,7 @@ extension CompanionManager {
                         PaceTelemetryLog.recordTokenThroughput(
                             tokensPerSecond: tps,
                             totalTokens: tokenEstimate,
-                            modelIdentifier: plannerClientForThisTurn.displayName
+                            modelIdentifier: plannerDisplayNameForStep
                         )
                     }
                     guard !Task.isCancelled else { return }
@@ -2852,7 +2885,7 @@ extension CompanionManager {
                                 ? (raceLiteWonSpokenText != nil
                                     ? "speculative race · lite (Apple FM, no screen) won audio"
                                     : "speculative race · full planner won")
-                                : "single planner",
+                                : plannerPathDetailForStep,
                             userHeardScreenlessAnswer: raceLiteWonSpokenText,
                             screenElementCount: lastPlannerElementLineCountForDebug,
                             rawPlannerOutput: fullResponseText,

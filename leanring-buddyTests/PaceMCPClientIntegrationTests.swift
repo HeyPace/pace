@@ -331,7 +331,7 @@ struct PaceMCPClientIntegrationTests {
     func installedPlaywrightPublishesRealBrowserSchemas() async throws {
         let configuration = PaceMCPServerConfiguration(
             command: "/opt/homebrew/bin/npx",
-            args: ["-y", "@playwright/mcp@0.0.83", "--browser", "chrome", "--isolated"]
+            args: ["-y", "@playwright/mcp@0.0.85", "--browser", "chrome", "--isolated"]
         )
         let client = PaceMCPStdioClient(
             serverConfigurations: ["playwright": configuration], requestTimeoutInSeconds: 60)

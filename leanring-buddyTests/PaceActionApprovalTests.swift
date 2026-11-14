@@ -108,12 +108,12 @@ struct PaceActionApprovalTests {
         ])
         let configuration = PaceMCPServerConfiguration(
             command: "npx",
-            args: ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp/readonly"]
+            args: ["-y", "mcp-remote@0.16.6", "https://mcp.linear.app/mcp/readonly"]
         )
         #expect(PaceActionApprovalPolicy.permitsObservationOnly(plan, configuredServers: ["linear": configuration]))
         #expect(!PaceActionApprovalPolicy.permitsObservationOnly(plan, configuredServers: [:]))
         let writeConfiguration = PaceMCPServerConfiguration(
-            command: "npx", args: ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp"])
+            command: "npx", args: ["-y", "mcp-remote@0.16.6", "https://mcp.linear.app/mcp"])
         #expect(
             !PaceActionApprovalPolicy.permitsObservationOnly(plan, configuredServers: ["linear": writeConfiguration]))
         let alteredConfiguration = PaceMCPServerConfiguration(

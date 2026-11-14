@@ -4,6 +4,35 @@ nonisolated struct PaceEverydayQuestion: Equatable, Sendable {
     let currentQuestion: String
 }
 
+nonisolated struct PacePassiveScreenQuestion: Sendable {
+    struct Image: Sendable {
+        let jpegData: Data
+        let label: String
+    }
+
+    struct Exchange: Sendable {
+        let user: String
+        let assistant: String
+    }
+
+    let images: [Image]
+    let systemPrompt: String
+    let conversationHistory: [Exchange]
+    let userPrompt: String
+
+    var imageByteCount: Int { images.reduce(0) { $0 + $1.jpegData.count } }
+    var inputCharacterCount: Int {
+        systemPrompt.utf8.count + userPrompt.utf8.count
+            + images.reduce(0) { $0 + $1.label.utf8.count }
+            + conversationHistory.reduce(0) { $0 + $1.user.utf8.count + $1.assistant.utf8.count }
+    }
+}
+
+@MainActor
+protocol PacePassiveScreenAnswerClient {
+    func answerScreen(_ question: PacePassiveScreenQuestion) async throws -> String
+}
+
 @MainActor
 protocol PaceEverydayAnswerClient {
     func answer(_ question: PaceEverydayQuestion) async throws -> String
@@ -28,7 +57,7 @@ nonisolated enum PaceEverydayAnswerError: Error, LocalizedError {
 }
 
 @MainActor
-final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient {
+final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient, PacePassiveScreenAnswerClient {
     static let model = "gpt-6-luna"
     static let instructions = "You are Pace, a concise voice assistant. The current message may come from on-device speech transcription or typing. If asked whether you can hear the user, acknowledge receiving their message; do not claim live microphone or screen status. " + PaceBoundedTextAnswerPlanner.answerInstructions
     private static let sharedSession: URLSession = {
@@ -54,6 +83,38 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient {
     }
 
     func answer(_ question: PaceEverydayQuestion) async throws -> String {
+        try await completedResponse(
+            input: question.currentQuestion, instructions: Self.instructions,
+            operation: "everyday.answer", route: "currentQuestionOnly",
+            inputCharacterCount: Self.instructions.count + question.currentQuestion.count)
+    }
+
+    func answerScreen(_ question: PacePassiveScreenQuestion) async throws -> String {
+        var input: [[String: Any]] = []
+        for exchange in question.conversationHistory {
+            input.append(["role": "user", "content": exchange.user])
+            input.append(["role": "assistant", "content": exchange.assistant])
+        }
+        var currentContent: [[String: Any]] = [["type": "input_text", "text": question.userPrompt]]
+        for image in question.images {
+            currentContent.append(["type": "input_text", "text": image.label])
+            currentContent.append([
+                "type": "input_image",
+                "image_url": "data:image/jpeg;base64," + image.jpegData.base64EncodedString(),
+            ])
+        }
+        input.append(["role": "user", "content": currentContent])
+        return try await completedResponse(
+            input: input, instructions: question.systemPrompt,
+            operation: "screen.answer", route: "passiveScreenContext",
+            inputCharacterCount: question.inputCharacterCount + question.imageByteCount,
+            imageByteCount: question.imageByteCount)
+    }
+
+    private func completedResponse(
+        input: Any, instructions: String, operation: String, route: String,
+        inputCharacterCount: Int, imageByteCount: Int = 0
+    ) async throws -> String {
         try Task.checkCancellation()
         guard isAuthorized() else { throw PaceEverydayAnswerError.consentRevoked }
         let startedAt = Date()
@@ -62,42 +123,59 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient {
         var outputTokenCount: Int?
         var outputCharacterCount: Int?
         defer {
-            auditLog.record(subsystem: "planner.openai.responses", operation: "everyday.answer",
+            auditLog.record(
+                subsystem: "planner.openai.responses", operation: operation,
                 target: Self.model, durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1000),
-                outcome: outcome, inputCharacterCount: Self.instructions.count + question.currentQuestion.count,
+                outcome: outcome, inputCharacterCount: inputCharacterCount,
                 outputCharacterCount: outputCharacterCount,
-                detail: "route=currentQuestionOnly model=\(Self.model) reasoning=none store=false",
+                detail: "route=\(route) model=\(Self.model) reasoning=none store=false imageBytes=\(imageByteCount)",
                 inputTokenCount: inputTokenCount, outputTokenCount: outputTokenCount)
         }
-        guard let key = loadKey(), !key.isEmpty else { throw PaceEverydayAnswerError.missingKey }
-        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/responses")!)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 10
-        request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "model": Self.model, "reasoning": ["effort": "none"], "store": false,
-            "max_output_tokens": 1024, "text": ["verbosity": "low"],
-            "stream": true, "instructions": Self.instructions, "input": question.currentQuestion,
-        ])
-        let (bytes, response) = try await session.bytes(for: request)
-        guard let response = response as? HTTPURLResponse else { throw PaceEverydayAnswerError.invalidResponse }
-        guard response.statusCode == 200 else { throw PaceEverydayAnswerError.httpFailure(response.statusCode) }
-        var data = Data()
-        for try await byte in bytes {
+        do {
+            guard let key = loadKey(), !key.isEmpty else { throw PaceEverydayAnswerError.missingKey }
+            var request = URLRequest(url: URL(string: "https://api.openai.com/v1/responses")!)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 10
+            request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: [
+                "model": Self.model, "reasoning": ["effort": "none"], "store": false,
+                "max_output_tokens": 1024, "text": ["verbosity": "low"],
+                "stream": true, "instructions": instructions, "input": input,
+            ])
             try Task.checkCancellation()
-            guard data.count < 1_048_576 else { throw PaceEverydayAnswerError.invalidResponse }
-            data.append(byte)
+            guard isAuthorized() else { throw PaceEverydayAnswerError.consentRevoked }
+            let (bytes, response) = try await session.bytes(for: request)
+            guard let response = response as? HTTPURLResponse else { throw PaceEverydayAnswerError.invalidResponse }
+            guard response.statusCode == 200 else { throw PaceEverydayAnswerError.httpFailure(response.statusCode) }
+            var data = Data()
+            for try await byte in bytes {
+                try Task.checkCancellation()
+                guard data.count < 1_048_576 else { throw PaceEverydayAnswerError.invalidResponse }
+                data.append(byte)
+            }
+            try Task.checkCancellation()
+            guard isAuthorized() else { throw PaceEverydayAnswerError.consentRevoked }
+            let answer = try Self.completedAnswer(data) { inputTokens, outputTokens in
+                inputTokenCount = inputTokens
+                outputTokenCount = outputTokens
+            }
+            outputCharacterCount = answer.count
+            outcome = "completed"
+            return answer
+        } catch {
+            switch error {
+            case is CancellationError: outcome = "cancelled"
+            case PaceEverydayAnswerError.consentRevoked: outcome = "consentRevoked"
+            case PaceEverydayAnswerError.refused: outcome = "refused"
+            case PaceEverydayAnswerError.httpFailure(let status): outcome = "httpFailure=\(status)"
+            case PaceEverydayAnswerError.missingKey: outcome = "missingKey"
+            case PaceEverydayAnswerError.invalidResponse: outcome = "invalidResponse"
+            case let error as URLError where error.code == .cancelled: outcome = "cancelled"
+            default: break
+            }
+            throw error
         }
-        try Task.checkCancellation()
-        guard isAuthorized() else { throw PaceEverydayAnswerError.consentRevoked }
-        let answer = try Self.completedAnswer(data) { inputTokens, outputTokens in
-            inputTokenCount = inputTokens
-            outputTokenCount = outputTokens
-        }
-        outputCharacterCount = answer.count
-        outcome = "completed"
-        return answer
     }
 
     nonisolated static func completedAnswer(_ data: Data, reportUsage: ((Int?, Int?) -> Void)? = nil) throws -> String {

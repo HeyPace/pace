@@ -253,7 +253,10 @@ nonisolated enum PaceMCPServerRegistry {
             }
             let servers = root.mcpServers ?? root.servers ?? [:]
             if !servers.isEmpty {
-                return servers
+                return Dictionary(
+                    uniqueKeysWithValues: servers.map { slug, configured in
+                        (slug, PaceMCPServerCatalog.currentConfiguration(forSlug: slug, configured: configured))
+                    })
             }
         }
         return [:]

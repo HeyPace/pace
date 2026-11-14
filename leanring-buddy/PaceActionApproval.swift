@@ -92,11 +92,10 @@ nonisolated enum PaceActionApprovalPolicy {
                 case "linear":
                     // The official endpoint exposes read tools only. Custom commands,
                     // extra bridge arguments, and write endpoints must fail closed.
+                    guard let entry = PaceMCPServerCatalog.entry(forSlug: "linear") else { return false }
                     return configuredServers["linear"]
                         == PaceMCPServerConfiguration(
-                            command: "npx",
-                            args: ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp/readonly"]
-                        )
+                            command: entry.command, args: entry.arguments)
                 default:
                     return false
                 }

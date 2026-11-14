@@ -24,12 +24,14 @@ if ! command -v uvx >/dev/null 2>&1; then
 fi
 
 echo "▶ Kokoro TTS sidecar on http://localhost:${PORT}/v1 (Ctrl-C to stop)"
-exec uvx \
-    --with uvicorn \
-    --with fastapi \
-    --with python-multipart \
-    --with webrtcvad \
-    --with "setuptools<81" \
-    --with "misaki[en]" \
-    --from mlx-audio \
+# webrtcvad still imports pkg_resources, removed in setuptools 81.
+# Pin the tested environment so a restart cannot silently change the voice.
+exec uvx --python 3.11 \
+    --with "uvicorn==0.54.0" \
+    --with "fastapi==0.163.0" \
+    --with "python-multipart==0.0.33" \
+    --with "webrtcvad==2.0.10" \
+    --with "setuptools==80.10.2" \
+    --with "misaki[en]==0.9.4" \
+    --from "mlx-audio==0.6.5" \
     python -m mlx_audio.server --port "${PORT}"

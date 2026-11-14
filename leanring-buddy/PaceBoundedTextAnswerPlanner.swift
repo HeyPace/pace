@@ -53,6 +53,40 @@ enum PaceTextAnswerPurpose: Equatable {
 
 @MainActor
 extension BuddyPlannerClientFactory {
+    static func makePassiveScreenAnswerPlanner(
+        usesPassiveScreenPrompt: Bool,
+        selectedPlanner: any BuddyPlannerClient,
+        tier: PacePlannerTier,
+        upstream: PaceLocalCLIUpstream,
+        hasAcceptedDirectSpawnConsent: Bool,
+        canRunDirectSpawnTurn: Bool,
+        fastEverydayAnswersEnabled: Bool,
+        isScreenReadAuthorized: @escaping () -> Bool,
+        onSourceSelected: @escaping (PaceBoundedScreenAnswerPlanner.AnswerSource) -> Void
+    ) -> any BuddyPlannerClient {
+        guard usesPassiveScreenPrompt, fastEverydayAnswersEnabled,
+            tier == .cliDirect, upstream == .codex,
+            cliDirectDispatchDecision(
+                hasAcceptedDirectSpawnConsent: hasAcceptedDirectSpawnConsent,
+                canRunDirectSpawnTurn: canRunDirectSpawnTurn) == .spawnCLI,
+            let selectedCodexPlanner = selectedPlanner as? PaceLocalCLIPlannerClient,
+            selectedCodexPlanner.allowsBoundedEverydayAnswers
+        else { return selectedPlanner }
+        let isAuthorized = {
+            let configuration = PacePlannerTierStore.loadConfiguration()
+            return PacePlannerTierStore.fastEverydayAnswersEnabled()
+                && configuration.tier == .cliDirect
+                && configuration.cliDirectUpstream == .codex
+                && PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent()
+                && PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+                && isScreenReadAuthorized()
+        }
+        return PaceBoundedScreenAnswerPlanner(
+            screenClient: PaceOpenAIResponsesEverydayClient(isAuthorized: isAuthorized),
+            selectedPlanner: selectedPlanner, isAuthorized: isAuthorized,
+            onSourceSelected: onSourceSelected)
+    }
+
     static func makeTextAnswerPlanner(
         purpose: PaceTextAnswerPurpose,
         selectedPlanner: any BuddyPlannerClient,
@@ -249,7 +283,7 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
         return (response.text, Date().timeIntervalSince(startedAt))
     }
 
-    private static func escalationReason(forFailure error: any Error) -> EscalationReason? {
+    static func escalationReason(forFailure error: any Error) -> EscalationReason? {
         switch error {
         case PaceEverydayAnswerError.missingKey: return .unavailable
         case PaceEverydayAnswerError.invalidResponse: return .unexpectedOutput
@@ -282,5 +316,138 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
             return .unexpectedOutput
         }
         return nil
+    }
+}
+
+@MainActor
+final class PaceBoundedScreenAnswerPlanner: BuddyPlannerClient {
+    enum AnswerSource: Equatable {
+        case fastScreen
+        case selected
+    }
+
+    private(set) var lastAnswerSource: AnswerSource?
+    var displayName: String {
+        lastAnswerSource == .selected ? selectedPlanner.displayName : "OpenAI Responses · gpt-6-luna screen answer"
+    }
+    let supportsImageInput = true
+    private let screenClient: any PacePassiveScreenAnswerClient
+    private let selectedPlanner: any BuddyPlannerClient
+    private let isAuthorized: () -> Bool
+    private let onSourceSelected: (AnswerSource) -> Void
+    private let recordDecision: (String, Int) -> Void
+
+    init(
+        screenClient: any PacePassiveScreenAnswerClient, selectedPlanner: any BuddyPlannerClient,
+        isAuthorized: @escaping () -> Bool,
+        onSourceSelected: @escaping (AnswerSource) -> Void = { _ in },
+        recordDecision: @escaping (String, Int) -> Void = { reason, imageByteCount in
+            let isSelectedFallback = reason.hasPrefix("selectedPlannerFallback")
+            PaceAPIAuditLog.shared.record(
+                subsystem: "planner.routing", operation: "screen.answer.selection",
+                target: isSelectedFallback ? "codex" : "openai.responses", durationMilliseconds: 0, outcome: "ok",
+                detail:
+                    "model=\(isSelectedFallback ? "cli-default" : "gpt-6-luna") effort=\(isSelectedFallback ? "cli-default" : "none") route=passiveScreenContext imageBytes=\(imageByteCount) decision=\(reason)"
+            )
+        }
+    ) {
+        self.screenClient = screenClient
+        self.selectedPlanner = selectedPlanner
+        self.isAuthorized = isAuthorized
+        self.onSourceSelected = onSourceSelected
+        self.recordDecision = recordDecision
+    }
+
+    func resetForNewTurn() {
+        lastAnswerSource = nil
+        selectedPlanner.resetForNewTurn()
+    }
+
+    private func checkAuthorization() throws {
+        try Task.checkCancellation()
+        guard isAuthorized() else { throw PaceEverydayAnswerError.consentRevoked }
+    }
+
+    func generateResponseStreaming(
+        images: [(data: Data, label: String)], systemPrompt: String,
+        conversationHistory: [(userPlaceholder: String, assistantResponse: String)], userPrompt: String,
+        onTextChunk: @MainActor @Sendable (String) -> Void
+    ) async throws -> (text: String, duration: TimeInterval) {
+        try checkAuthorization()
+        let startedAt = Date()
+        lastAnswerSource = nil
+        let question = PacePassiveScreenQuestion(
+            images: images.map { .init(jpegData: $0.data, label: $0.label) },
+            systemPrompt: systemPrompt,
+            conversationHistory: conversationHistory.map {
+                .init(user: $0.userPlaceholder, assistant: $0.assistantResponse)
+            },
+            userPrompt: userPrompt)
+        recordDecision("attemptFastScreenAnswer", question.imageByteCount)
+        onSourceSelected(.fastScreen)
+        do {
+            try checkAuthorization()
+            let response = try await screenClient.answerScreen(question)
+            try checkAuthorization()
+            let spokenAnswer = try Self.validatedSpokenAnswer(response)
+            lastAnswerSource = .fastScreen
+            recordDecision("acceptedFastScreenAnswer", question.imageByteCount)
+            onTextChunk(spokenAnswer)
+            return (spokenAnswer, Date().timeIntervalSince(startedAt))
+        } catch {
+            try checkAuthorization()
+            if case PaceEverydayAnswerError.httpFailure(let status) = error,
+                status != 429 && !(500..<600).contains(status)
+            {
+                throw error
+            }
+            guard let reason = PaceBoundedTextAnswerPlanner.escalationReason(forFailure: error) else { throw error }
+            recordDecision("selectedPlannerFallback=\(reason.rawValue)", question.imageByteCount)
+        }
+        try checkAuthorization()
+        lastAnswerSource = .selected
+        onSourceSelected(.selected)
+        try checkAuthorization()
+        // A revoked screen grant must not leak a suspended fallback through its streaming callback.
+        let response = try await selectedPlanner.generateResponseStreaming(
+            images: images, systemPrompt: systemPrompt, conversationHistory: conversationHistory,
+            userPrompt: userPrompt, onTextChunk: { _ in })
+        try checkAuthorization()
+        onTextChunk(response.text)
+        return (response.text, Date().timeIntervalSince(startedAt))
+    }
+
+    static func validatedSpokenAnswer(_ response: String) throws -> String {
+        let trimmedResponse = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        let spokenText: String
+        if trimmedResponse.hasPrefix("{") {
+            guard let data = trimmedResponse.data(using: .utf8),
+                let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                Set(envelope.keys).isSubset(of: ["spokenText", "intent", "payload"]),
+                let answer = envelope["spokenText"] as? String
+            else { throw PaceEverydayAnswerError.invalidResponse }
+            if let intent = envelope["intent"] {
+                guard let intent = intent as? String,
+                    ["answer", "clarify", "refuse"].contains(
+                        intent.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+                else { throw PaceEverydayAnswerError.invalidResponse }
+            }
+            if let payload = envelope["payload"] {
+                guard let payload = payload as? [String: Any], payload.isEmpty
+                else { throw PaceEverydayAnswerError.invalidResponse }
+            }
+            guard PaceActionTagParser.parseActions(from: trimmedResponse).actions.isEmpty else {
+                throw PaceEverydayAnswerError.invalidResponse
+            }
+            spokenText = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            spokenText = trimmedResponse
+        }
+        guard PaceBoundedTextAnswerPlanner.escalationReason(for: spokenText) == nil,
+            spokenText.range(
+                of: #"\[[A-Z_]+(?:[:\]])|</?(?:tool|action|function|diagram|image)[_a-z]*\b"#,
+                options: [.regularExpression, .caseInsensitive]) == nil
+        else { throw PaceEverydayAnswerError.invalidResponse }
+        return spokenText
     }
 }

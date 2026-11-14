@@ -3,7 +3,7 @@
 //  leanring-buddy
 //
 //  In-process MLX planner — runs Qwen3-4B-Instruct (or a sibling
-//  bundled model) directly via `mlx-swift-examples` rather than
+//  bundled model) directly via `mlx-swift-lm` rather than
 //  through LM Studio's HTTP loopback. The whole point is to drop
 //  the LM Studio install dependency from the new-user setup story
 //  so first-launch Pace just works.
@@ -36,7 +36,7 @@ nonisolated enum PaceMLXPlannerError: LocalizedError {
         switch self {
         case .runtimeNotLinked:
             return
-                "MLX runtime not linked into this build. Add `mlx-swift-examples` as a Swift Package dependency in Xcode → Project → Package Dependencies."
+                "MLX runtime not linked into this build. Add `mlx-swift-lm` as a Swift Package dependency in Xcode → Project → Package Dependencies."
         case .modelLoadFailed(let underlyingErrorDescription):
             return "MLX model load failed: \(underlyingErrorDescription)"
         case .inferenceFailed(let underlyingErrorDescription):
@@ -209,7 +209,7 @@ final class PaceMLXPlannerClient: BuddyPlannerClient {
             do {
                 accumulatedText = try await modelContainer.perform { context in
                     let input = try await context.processor.prepare(input: UserInput(chat: preparedMessages))
-                    let cache = context.model.newCache(parameters: generationParameters)
+                    let cache = try context.model.newCache(parameters: generationParameters)
                     var responseText = ""
                     for await item in try MLXLMCommon.generate(
                         input: input, cache: cache, parameters: generationParameters, context: context
@@ -258,11 +258,13 @@ final class PaceMLXPlannerClient: BuddyPlannerClient {
             ) {
                 print("🧠 PaceMLXPlannerClient: reusing Hugging Face cache at \(existingSnapshotDirectory.path)")
                 loaded = try await MLXLMCommon.loadModelContainer(
-                    directory: existingSnapshotDirectory,
-                    progressHandler: progressHandler
+                    from: existingSnapshotDirectory,
+                    using: PaceMLXHuggingFaceTokenizerLoader()
                 )
             } else {
                 loaded = try await MLXLMCommon.loadModelContainer(
+                    from: PaceMLXHuggingFaceDownloader(),
+                    using: PaceMLXHuggingFaceTokenizerLoader(),
                     id: modelIdentifier,
                     progressHandler: progressHandler
                 )

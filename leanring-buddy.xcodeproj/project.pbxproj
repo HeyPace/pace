@@ -18,6 +18,8 @@
 		BB00CC0B2F65000B0039DA55 /* TTSKit in Frameworks */ = {isa = PBXBuildFile; productRef = BB00CC0A2F65000A0039DA55 /* TTSKit */; };
 		CC00DD000000000000000003 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = CC00DD000000000000000002 /* MCP */; };
 		CC00EE000000000000000003 /* SileroVAD in Frameworks */ = {isa = PBXBuildFile; productRef = CC00EE000000000000000002 /* SileroVAD */; };
+		E10000000000000000000003 /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = E10000000000000000000004 /* HuggingFace */; };
+		E10000000000000000000005 /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = E10000000000000000000006 /* Tokenizers */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -107,7 +109,9 @@
 				AA00BB032F6500030039DA55 /* Sparkle in Frameworks */,
 				DD00AA000000000000000003 /* SaaSMakerUI in Frameworks */,
 				BB00CC052F6500050039DA55 /* MLXLLM in Frameworks */,
-				BB00CC062F6500060039DA55 /* MLXLMCommon in Frameworks */,
+				E10000000000000000000005 /* Tokenizers in Frameworks */,
+				E10000000000000000000003 /* HuggingFace in Frameworks */,
+						BB00CC062F6500060039DA55 /* MLXLMCommon in Frameworks */,
 				BB00CC072F6500070039DA55 /* MLXEmbedders in Frameworks */,
 				BB00CC092F6500090039DA55 /* MLXVLM in Frameworks */,
 				BB00CC0B2F65000B0039DA55 /* TTSKit in Frameworks */,
@@ -189,6 +193,8 @@
 				CC00EE000000000000000002 /* SileroVAD */,
 				CC00DD000000000000000002 /* MCP */,
 				BB00CC022F6500020039DA55 /* MLXLLM */,
+				E10000000000000000000006 /* Tokenizers */,
+				E10000000000000000000004 /* HuggingFace */,
 				BB00CC032F6500030039DA55 /* MLXLMCommon */,
 				BB00CC042F6500040039DA55 /* MLXEmbedders */,
 				BB00CC082F6500080039DA55 /* MLXVLM */,
@@ -309,6 +315,8 @@
 				CC00EE000000000000000001 /* XCRemoteSwiftPackageReference "silero-vad-swift" */,
 				CC00DD000000000000000001 /* XCRemoteSwiftPackageReference "swift-sdk" */,
 				BB00CC012F6500010039DA55 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
+				E10000000000000000000008 /* XCRemoteSwiftPackageReference "swift-transformers" */,
+				E10000000000000000000007 /* XCRemoteSwiftPackageReference "swift-huggingface" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 28F22CC02F56440300A0FC59 /* Products */;
@@ -851,6 +859,22 @@
 				version = 1.0.0;
 			};
 		};
+		E10000000000000000000007 /* XCRemoteSwiftPackageReference "swift-huggingface" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-huggingface";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
+		E10000000000000000000008 /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-transformers";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.4.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -903,6 +927,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CC00EE000000000000000001 /* XCRemoteSwiftPackageReference "silero-vad-swift" */;
 			productName = SileroVAD;
+		};
+		E10000000000000000000004 /* HuggingFace */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E10000000000000000000007 /* XCRemoteSwiftPackageReference "swift-huggingface" */;
+			productName = HuggingFace;
+		};
+		E10000000000000000000006 /* Tokenizers */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E10000000000000000000008 /* XCRemoteSwiftPackageReference "swift-transformers" */;
+			productName = Tokenizers;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

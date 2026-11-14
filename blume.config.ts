@@ -6,7 +6,7 @@
 // not edit docs content to satisfy Blume; edit Blume config to fit the docs.
 //
 // Usage:
-//   pnpm install            # install Blume (pinned to 1.0.4)
+//   pnpm install            # install Blume (version pinned in package.json)
 //   pnpm run docs:dev       # http://localhost:3000
 //   pnpm run docs:build     # -> dist/
 //   pnpm run docs:validate  # broken-link check (also run in CI)
