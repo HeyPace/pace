@@ -423,9 +423,14 @@ final class PaceBoundedScreenAnswerPlanner: BuddyPlannerClient {
         if trimmedResponse.hasPrefix("{") {
             guard let data = trimmedResponse.data(using: .utf8),
                 let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                Set(envelope.keys).isSubset(of: ["spokenText", "intent", "payload"]),
+                Set(envelope.keys).isSubset(of: [
+                    "spokenText", "intent", "payload", "pointAtElementId", "clickElementId",
+                ]),
                 let answer = envelope["spokenText"] as? String
             else { throw PaceEverydayAnswerError.invalidResponse }
+            for field in ["pointAtElementId", "clickElementId"] where envelope[field] != nil {
+                guard envelope[field] as? Int == -1 else { throw PaceEverydayAnswerError.invalidResponse }
+            }
             if let intent = envelope["intent"] {
                 guard let intent = intent as? String,
                     ["answer", "clarify", "refuse"].contains(

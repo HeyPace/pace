@@ -388,6 +388,19 @@ struct PaceEverydayAnswerClientTests {
         }
     }
 
+    @Test func screenSummaryAcceptsOnlyInactivePointingFields() throws {
+        let valid = #"{"spokenText":"The page shows a bicycle.","pointAtElementId":-1,"clickElementId":-1}"#
+        #expect(try PaceBoundedScreenAnswerPlanner.validatedSpokenAnswer(valid) == "The page shows a bicycle.")
+        for value in ["0", "1", "null", "true", "\"-1\""] {
+            for field in ["pointAtElementId", "clickElementId"] {
+                let invalid = "{\"spokenText\":\"Unsafe\",\"\(field)\":\(value)}"
+                #expect(throws: PaceEverydayAnswerError.self) {
+                    try PaceBoundedScreenAnswerPlanner.validatedSpokenAnswer(invalid)
+                }
+            }
+        }
+    }
+
     @Test func screenMalformedSSEMissingKeyAndTransientErrorsPromoteOnlyOnceWithoutPartialSpeech() async throws {
         let responses: [(Int, Data)] = [
             (429, Data()), (503, Data()),

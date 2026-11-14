@@ -133,17 +133,8 @@ final class PaceMLXPlannerClient: BuddyPlannerClient {
         modelIdentifier: String,
         homeDirectoryURL: URL
     ) -> URL {
-        let repositoryDirectoryName =
-            "models--"
-            + modelIdentifier
-            .split(separator: "/")
-            .joined(separator: "--")
-        return
-            homeDirectoryURL
-            .appendingPathComponent(".cache", isDirectory: true)
-            .appendingPathComponent("huggingface", isDirectory: true)
-            .appendingPathComponent("hub", isDirectory: true)
-            .appendingPathComponent(repositoryDirectoryName, isDirectory: true)
+        PaceMLXModelCache.standardRepositoryDirectory(
+            modelIdentifier: modelIdentifier, homeDirectoryURL: homeDirectoryURL)
     }
 
     // MARK: - BuddyPlannerClient
@@ -252,23 +243,12 @@ final class PaceMLXPlannerClient: BuddyPlannerClient {
             modelLoadLock.unlock()
             if let cached { return cached }
 
-            let loaded: ModelContainer
-            if let existingSnapshotDirectory = existingStandardHuggingFaceSnapshotDirectory(
-                modelIdentifier: modelIdentifier
-            ) {
-                print("🧠 PaceMLXPlannerClient: reusing Hugging Face cache at \(existingSnapshotDirectory.path)")
-                loaded = try await MLXLMCommon.loadModelContainer(
-                    from: existingSnapshotDirectory,
-                    using: PaceMLXHuggingFaceTokenizerLoader()
-                )
-            } else {
-                loaded = try await MLXLMCommon.loadModelContainer(
-                    from: PaceMLXHuggingFaceDownloader(),
-                    using: PaceMLXHuggingFaceTokenizerLoader(),
-                    id: modelIdentifier,
-                    progressHandler: progressHandler
-                )
-            }
+            let loaded = try await MLXLMCommon.loadModelContainer(
+                from: PaceMLXHuggingFaceDownloader(),
+                using: PaceMLXHuggingFaceTokenizerLoader(),
+                id: modelIdentifier,
+                progressHandler: progressHandler
+            )
 
             modelLoadLock.lock()
             cachedModelContainer = loaded
@@ -276,40 +256,5 @@ final class PaceMLXPlannerClient: BuddyPlannerClient {
             return loaded
         }
 
-        private static func existingStandardHuggingFaceSnapshotDirectory(
-            modelIdentifier: String
-        ) -> URL? {
-            let fileManager = FileManager.default
-            let repositoryDirectory = standardHuggingFaceRepositoryCacheDirectory(
-                modelIdentifier: modelIdentifier,
-                homeDirectoryURL: fileManager.homeDirectoryForCurrentUser
-            )
-            let mainReferenceURL =
-                repositoryDirectory
-                .appendingPathComponent("refs", isDirectory: true)
-                .appendingPathComponent("main", isDirectory: false)
-            guard
-                let mainRevision = try? String(contentsOf: mainReferenceURL, encoding: .utf8)
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                !mainRevision.isEmpty
-            else {
-                return nil
-            }
-
-            let snapshotDirectory =
-                repositoryDirectory
-                .appendingPathComponent("snapshots", isDirectory: true)
-                .appendingPathComponent(mainRevision, isDirectory: true)
-            let configurationURL = snapshotDirectory.appendingPathComponent("config.json")
-            guard fileManager.fileExists(atPath: configurationURL.path),
-                let snapshotFileNames = try? fileManager.contentsOfDirectory(
-                    atPath: snapshotDirectory.path
-                ),
-                snapshotFileNames.contains(where: { $0.hasSuffix(".safetensors") })
-            else {
-                return nil
-            }
-            return snapshotDirectory
-        }
     #endif
 }

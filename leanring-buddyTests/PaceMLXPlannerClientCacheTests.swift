@@ -6,14 +6,71 @@
 
 import Foundation
 import Testing
+
+@testable import Pace
+
 #if canImport(MLXLLM)
     import MLXLMCommon
 #endif
 
-@testable import Pace
-
 @MainActor
 struct PaceMLXPlannerClientCacheTests {
+
+    private func writeCompleteModel(at directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for name in ["config.json", "tokenizer.json", "tokenizer_config.json", "model.safetensors"] {
+            try Data("fixture".utf8).write(to: directory.appendingPathComponent(name))
+        }
+    }
+
+    @Test func migrationReusesBothLegacyModelRootsWithoutMovingFiles() throws {
+        for root in ["Library/Caches/models", "Documents/huggingface/models"] {
+            let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: home) }
+            let cached = home.appendingPathComponent(root + "/example/model", isDirectory: true)
+            try writeCompleteModel(at: cached)
+            let resolved = PaceMLXModelCache.cachedModelDirectory(
+                modelIdentifier: "example/model", homeDirectoryURL: home)
+            #expect(resolved?.path == cached.path)
+            #expect(
+                try String(contentsOf: cached.appendingPathComponent("model.safetensors"), encoding: .utf8) == "fixture"
+            )
+            #expect(
+                PaceMLXModelCache.cachedModelDirectory(
+                    modelIdentifier: "example/model", useLatest: true, homeDirectoryURL: home) == nil)
+            #expect(
+                PaceMLXModelCache.cachedModelDirectory(
+                    modelIdentifier: "example/model", revision: "other", homeDirectoryURL: home) == nil)
+            #expect(
+                PaceMLXModelCache.cachedModelDirectory(modelIdentifier: "../example/model", homeDirectoryURL: home)
+                    == nil)
+        }
+    }
+
+    @Test func currentSnapshotTakesPriorityAndPartialShardsAreNotReused() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let legacy = home.appendingPathComponent("Library/Caches/models/example/model", isDirectory: true)
+        try writeCompleteModel(at: legacy)
+        let index = #"{"weight_map":{"first":"model.safetensors","second":"second.safetensors"}}"#
+        try Data(index.utf8).write(to: legacy.appendingPathComponent("model.safetensors.index.json"))
+        #expect(PaceMLXModelCache.cachedModelDirectory(modelIdentifier: "example/model", homeDirectoryURL: home) == nil)
+        try Data("second shard".utf8).write(to: legacy.appendingPathComponent("second.safetensors"))
+        #expect(
+            PaceMLXModelCache.cachedModelDirectory(modelIdentifier: "example/model", homeDirectoryURL: home)?.path
+                == legacy.path)
+        let repository = PaceMLXModelCache.standardRepositoryDirectory(
+            modelIdentifier: "example/model", homeDirectoryURL: home)
+        let revision = String(repeating: "a", count: 40)
+        let current = repository.appendingPathComponent("snapshots/" + revision, isDirectory: true)
+        try writeCompleteModel(at: current)
+        try FileManager.default.createDirectory(
+            at: repository.appendingPathComponent("refs"), withIntermediateDirectories: true)
+        try Data(revision.utf8).write(to: repository.appendingPathComponent("refs/main"))
+        #expect(
+            PaceMLXModelCache.cachedModelDirectory(modelIdentifier: "example/model", homeDirectoryURL: home)?.path
+                == current.path)
+    }
 
     @Test func tokenizerAdapterLoadsLocalVocabularyWithoutDownloadingAModel() async throws {
         #if canImport(MLXLLM)
