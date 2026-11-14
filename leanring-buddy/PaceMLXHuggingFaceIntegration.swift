@@ -8,6 +8,7 @@ nonisolated enum PaceMLXModelCache {
 
     static func cachedModelDirectory(
         modelIdentifier: String, revision: String? = nil, useLatest: Bool = false,
+        requiresChatTemplate: Bool = true,
         homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL? {
         guard !useLatest, revision == nil || revision == "main",
@@ -30,10 +31,10 @@ nonisolated enum PaceMLXModelCache {
                 homeDirectoryURL.appendingPathComponent(root, isDirectory: true)
                     .appendingPathComponent(modelIdentifier, isDirectory: true))
         }
-        return candidates.first(where: containsCompleteModel)
+        return candidates.first { containsCompleteModel(at: $0, requiresChatTemplate: requiresChatTemplate) }
     }
 
-    private static func containsCompleteModel(at directory: URL) -> Bool {
+    private static func containsCompleteModel(at directory: URL, requiresChatTemplate: Bool) -> Bool {
         func containsFile(_ name: String) -> Bool {
             let path = directory.appendingPathComponent(name).path
             var isDirectory: ObjCBool = false
@@ -47,8 +48,15 @@ nonisolated enum PaceMLXModelCache {
             let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path),
             names.contains(where: { $0.hasSuffix(".safetensors") && containsFile($0) })
         else { return false }
+        if requiresChatTemplate && !containsChatTemplate(at: directory) { return false }
         let indexName = "model.safetensors.index.json"
-        guard names.contains(indexName) else { return true }
+        guard names.contains(indexName) else {
+            // A cancelled multi-shard download may leave its first weight file
+            // before the index arrives. It must not become a permanent cache hit.
+            return !names.contains {
+                $0.range(of: #"-[0-9]+-of-[0-9]+\.safetensors$"#, options: .regularExpression) != nil
+            }
+        }
         guard let data = try? Data(contentsOf: directory.appendingPathComponent(indexName)),
             let index = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let weights = index["weight_map"] as? [String: String], !weights.isEmpty
@@ -56,6 +64,30 @@ nonisolated enum PaceMLXModelCache {
         return Set(weights.values).allSatisfy { name in
             !name.contains("/") && name.hasSuffix(".safetensors") && containsFile(name)
         }
+    }
+
+    private static func containsChatTemplate(at directory: URL) -> Bool {
+        func hasTemplate(_ value: Any?) -> Bool {
+            if let text = value as? String { return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            return (value as? [[String: Any]])?.contains { template in
+                (template["template"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            } == true
+        }
+        if let template = try? String(
+            contentsOf: directory.appendingPathComponent("chat_template.jinja"), encoding: .utf8),
+            hasTemplate(template)
+        {
+            return true
+        }
+        for name in ["chat_template.json", "tokenizer_config.json"] {
+            if let data = try? Data(contentsOf: directory.appendingPathComponent(name)),
+                let configuration = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                hasTemplate(configuration["chat_template"])
+            {
+                return true
+            }
+        }
+        return false
     }
 }
 
@@ -68,6 +100,7 @@ nonisolated enum PaceMLXModelCache {
     // these mappings shared by the planner, screen reader and embedder; the
     // upstream libraries still own downloads, caching and tokenization.
     nonisolated struct PaceMLXHuggingFaceDownloader: MLXLMCommon.Downloader {
+        var requiresChatTemplate = true
         func download(
             id: String,
             revision: String?,
@@ -80,7 +113,8 @@ nonisolated enum PaceMLXModelCache {
             }
             try Task.checkCancellation()
             if let cachedDirectory = PaceMLXModelCache.cachedModelDirectory(
-                modelIdentifier: id, revision: revision, useLatest: useLatest)
+                modelIdentifier: id, revision: revision, useLatest: useLatest,
+                requiresChatTemplate: requiresChatTemplate)
             {
                 let progress = Progress(totalUnitCount: 1)
                 progress.completedUnitCount = 1

@@ -19,7 +19,8 @@ struct PaceMLXPlannerClientCacheTests {
     private func writeCompleteModel(at directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         for name in ["config.json", "tokenizer.json", "tokenizer_config.json", "model.safetensors"] {
-            try Data("fixture".utf8).write(to: directory.appendingPathComponent(name))
+            let contents = name == "tokenizer_config.json" ? #"{"chat_template":"{{ messages }}"}"# : "fixture"
+            try Data(contents.utf8).write(to: directory.appendingPathComponent(name))
         }
     }
 
@@ -70,6 +71,32 @@ struct PaceMLXPlannerClientCacheTests {
         #expect(
             PaceMLXModelCache.cachedModelDirectory(modelIdentifier: "example/model", homeDirectoryURL: home)?.path
                 == current.path)
+    }
+
+    @Test func chatModelsRequireTemplatesButEncoderCachesDoNot() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let directory = home.appendingPathComponent("Library/Caches/models/example/model", isDirectory: true)
+        try writeCompleteModel(at: directory)
+        try Data("{}".utf8).write(to: directory.appendingPathComponent("tokenizer_config.json"))
+        #expect(PaceMLXModelCache.cachedModelDirectory(modelIdentifier: "example/model", homeDirectoryURL: home) == nil)
+        #expect(
+            PaceMLXModelCache.cachedModelDirectory(
+                modelIdentifier: "example/model", requiresChatTemplate: false, homeDirectoryURL: home)?.path
+                == directory.path)
+        try Data("{{ messages }}".utf8).write(to: directory.appendingPathComponent("chat_template.jinja"))
+        #expect(
+            PaceMLXModelCache.cachedModelDirectory(modelIdentifier: "example/model", homeDirectoryURL: home)?.path
+                == directory.path)
+    }
+
+    @Test func anInterruptedShardDownloadWithoutAnIndexIsNotReused() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let directory = home.appendingPathComponent("Library/Caches/models/example/model", isDirectory: true)
+        try writeCompleteModel(at: directory)
+        try Data("first shard".utf8).write(to: directory.appendingPathComponent("model-00001-of-00002.safetensors"))
+        #expect(PaceMLXModelCache.cachedModelDirectory(modelIdentifier: "example/model", homeDirectoryURL: home) == nil)
     }
 
     @Test func tokenizerAdapterLoadsLocalVocabularyWithoutDownloadingAModel() async throws {

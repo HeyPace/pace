@@ -151,7 +151,7 @@ final class PaceMLXEmbeddingClient: PaceTextEmbedding {
 
             let configuration = MLXLMCommon.ModelConfiguration(id: modelIdentifier)
             let loaded = try await EmbedderModelFactory.shared.loadContainer(
-                from: PaceMLXHuggingFaceDownloader(),
+            from: PaceMLXHuggingFaceDownloader(requiresChatTemplate: false),
                 using: PaceMLXHuggingFaceTokenizerLoader(),
                 configuration: configuration
             )
