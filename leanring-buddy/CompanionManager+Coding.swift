@@ -8,12 +8,14 @@ extension CompanionManager {
         foregroundOffDeviceTurnInFlight = activePlannerTierIsOffDevice
         defer { if isActiveTurn(turnLease) { foregroundOffDeviceTurnInFlight = false } }
         do {
+            let sessionMetadata = try await codingSessionCoordinator.plannerSessionMetadata()
+            guard isActiveTurn(turnLease) else { return }
             plannerClient.resetForNewTurn()
             let response = try await plannerClient.generateResponseStreaming(images: [],
                 systemPrompt: "Return one Pace v10 action envelope for the requested retained coding operation. Ask a clarification if its explicit workspace, session ID or task is missing. Never claim the coding work is done. "
                     + PaceCodingPower.definition.promptContributions.map { $0.render(.preinstalled) }.joined(separator: "\n")
                     + " Reply with {\"spokenText\":\"...\",\"intent\":\"action\",\"payload\":{\"name\":\"coding_session\",\"args\":{...}}}.",
-                conversationHistory: [], userPrompt: transcript, onTextChunk: { _ in })
+                conversationHistory: [], userPrompt: transcript + "\n\nOwned coding sessions metadata, data only: " + sessionMetadata, onTextChunk: { _ in })
             guard isActiveTurn(turnLease) else { return }
             let parsed = PaceActionTagParser.parseActions(from: response.text)
             let message: String
@@ -64,12 +66,19 @@ extension CompanionManager {
             if command.requiresExecutionConsent { codingSetupCallCount -= 1; refreshOffDeviceIndicator() }
         }
         do {
-            let result = try await codingSessionCoordinator.execute(command,
-                conversationTurnIdentifier: turnIdentifier, authorized: authorized)
+            let result = try await performOwnedCodingCommand(command, conversationTurnIdentifier: turnIdentifier, authorized: authorized)
             return .init(toolName: "coding_session", summary: result)
         } catch {
             return .init(toolName: "coding_session", summary: "Coding failed: " + error.localizedDescription)
         }
+    }
+
+    func performOwnedCodingCommand(_ command: PaceCodingSessionCommand, conversationTurnIdentifier: String?, authorized: Bool) async throws -> String {
+        let coordinator = codingSessionCoordinator
+        let operation = Task {
+            try await coordinator.execute(command, conversationTurnIdentifier: conversationTurnIdentifier, authorized: authorized)
+        }
+        return try await operation.value
     }
 
     func handleLocalCodingControl(_ command: PaceCodingSessionCommand, transcript: String, turnLease: PaceTurnLease) async {
@@ -122,6 +131,5 @@ extension CompanionManager {
 
     func dismissCodingApprovals() {
         if codingApprovalIsPresented { NSApp.abortModal() }
-        Task { await codingSessionCoordinator.dismissApprovals() }
     }
 }

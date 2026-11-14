@@ -96,7 +96,7 @@ nonisolated enum PaceCodingSessionEvent: Sendable {
 }
 
 nonisolated enum PaceCodingError: Error, LocalizedError {
-    case unavailable, invalidWorkspace, workspaceChanged, busy, missingSession, ambiguousSession, invalidProtocol, unsafePolicy, disconnected, timedOut, permissionDenied, persistence
+    case unavailable, invalidWorkspace, workspaceChanged, busy, missingSession, ambiguousSession, invalidProtocol, unsafePolicy, disconnected, timedOut, permissionDenied, persistence, catalogCapacity, workspaceCapacity
     var errorDescription: String? {
         switch self {
         case .unavailable: return "Codex is not available on PATH."
@@ -110,6 +110,8 @@ nonisolated enum PaceCodingError: Error, LocalizedError {
         case .disconnected: return "The owned Codex process disconnected. Explicitly resume to reconcile the retained thread."
         case .timedOut: return "Codex did not confirm completion in time. Check status before resuming."
         case .permissionDenied: return "Coding requires EnableActions and current Codex off-device consent."
+        case .catalogCapacity: return "The 200-session coding catalog is full. Resume an existing session; saved history has been preserved."
+        case .workspaceCapacity: return "Four coding workspaces are already active. Wait for one to finish or explicitly cancel it."
         case .persistence: return "Coding session state could not be saved safely. No further task was started."
         }
     }

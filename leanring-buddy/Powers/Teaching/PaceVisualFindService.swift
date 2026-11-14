@@ -74,11 +74,18 @@ enum PaceVisualFindService {
             // Same OCR call the screen-context service makes: screenshot
             // bytes + the capture's screenshot pixel dimensions in,
             // top-left-origin pixel bboxes out.
-            let recognizedBoxes = try await visionOCRClient.recognizeText(
-                in: capture.imageData,
-                screenshotWidthInPixels: capture.screenshotWidthInPixels,
-                screenshotHeightInPixels: capture.screenshotHeightInPixels
-            )
+            let recognizedBoxes: [RecognizedTextBox]
+            do {
+                recognizedBoxes = try await visionOCRClient.recognizeText(
+                    in: capture.imageData,
+                    screenshotWidthInPixels: capture.screenshotWidthInPixels,
+                    screenshotHeightInPixels: capture.screenshotHeightInPixels)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                try requireCurrentTurn(isCurrentTurn)
+                continue
+            }
             try requireCurrentTurn(isCurrentTurn)
 
             let matchingBoxes = matchBoxes(query: trimmedQuery, in: recognizedBoxes)

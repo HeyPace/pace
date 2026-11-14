@@ -10,19 +10,25 @@ nonisolated enum PaceCodingPower {
             Retained coding uses coding_session, separately from codex_session which only opens Warp.
             For a request to work on a repository, ask for its explicit existing directory if missing. Start with
             {"tool":"coding_session","operation":"start","directory":"/absolute/workspace","task":"the requested coding task"}.
-            Resume requires the exact sessionID and a new explicit task. Status can omit sessionID to list owned sessions.
+            Resume requires the owned sessionID and a new explicit task. Use the supplied owned-session metadata to resolve an unambiguous spoken workspace or the only resumable session. If multiple sessions fit, ask which workspace; never invent an ID. Status can omit sessionID to list owned sessions.
             Cancel requires the exact sessionID. Never guess an unrelated workspace or replay an old task.
             Coding runs independently after start; ordinary chat and closing teaching visuals do not cancel it.
             """
         })])
 
     static func requestsRetainedCoding(_ transcript: String) -> Bool {
-        let text = transcript.lowercased()
-        return text.contains("coding session") || text.contains("coding task")
-            || (text.contains("codex session") && ["start", "resume", "continue"].contains { text.contains($0) }
-                && text.range(of: #"\b(?:and|to)\b"#, options: .regularExpression) != nil)
-            || text.range(of: #"\b(?:work on|fix|implement|change|edit|test|resume|continue)\b.*\b(?:codex|repo|repository)\b"#, options: .regularExpression) != nil
-            || text.range(of: #"\b(?:codex|repo|repository)\b.*\b(?:fix|implement|change|edit|test|resume|continue)\b"#, options: .regularExpression) != nil
+        var text = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("please ") { text = String(text.dropFirst(7)) }
+        if text.hasPrefix("can you ") { text = String(text.dropFirst(8)) }
+        if text.hasPrefix("could you ") { text = String(text.dropFirst(10)) }
+        if text.hasPrefix("open ") || text.hasPrefix("launch ") || text.contains("warp") { return false }
+        if text.range(of: #"^(?:resume|continue) (?:the |my |that )?coding (?:task|session)\b"#, options: .regularExpression) != nil { return true }
+        if text.range(of: #"^start (?:a )?(?:retained )?coding (?:task|session)\b"#, options: .regularExpression) != nil { return true }
+        let hasExplicitPath = text.range(of: #"(?:^|[\s\"'])(?:~/|/)[^\s]+"#, options: .regularExpression) != nil
+        guard hasExplicitPath else { return false }
+        return text.range(of: #"^work on\s.+\bwith codex\b"#, options: .regularExpression) != nil
+            || text.range(of: #"^start (?:a )?retained codex session\b"#, options: .regularExpression) != nil
+            || text.range(of: #"^(?:start coding|code) in\s"#, options: .regularExpression) != nil
     }
 
     static let tools = [PaceLocalToolDefinition(kind: .codingSession, canonicalName: "coding_session", aliases: [],

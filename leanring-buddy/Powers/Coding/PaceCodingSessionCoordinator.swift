@@ -10,10 +10,20 @@ actor PaceCodingSessionCoordinator {
     private let approve: Approval
     private var sessions: [PaceCodingSessionID: PaceCodingSessionSnapshot] = [:]
     private var loaded = false
-    private var transport: (any PaceCodingTransport)?
-    private var transportGeneration = UUID()
-    private var opening: Task<Void, any Error>?
-    private var eventTask: Task<Void, Never>?
+    private var isClosed = false
+    private struct Slot {
+        let generation: UUID
+        let transport: any PaceCodingTransport
+        var opening: Task<Void, any Error>?
+        var eventTask: Task<Void, Never>?
+    }
+    private var slots: [URL: Slot] = [:]
+    private var closingWorkspaces: Set<URL> = []
+    private var closingTasks: [UUID: Task<Void, Never>] = [:]
+    private var shutdownHasStarted = false
+    private var shutdownHasFinished = false
+    private var shutdownWaiters: [CheckedContinuation<Void, Never>] = []
+    static let maximumActiveWorkspaces = 4
     private var reservedWorkspaces: Set<URL> = []
     private var pendingCancellations: Set<PaceCodingSessionID> = []
     private var startingThreads: Set<PaceCodexThreadID> = []
@@ -37,6 +47,7 @@ actor PaceCodingSessionCoordinator {
     }
 
     func execute(_ command: PaceCodingSessionCommand, conversationTurnIdentifier: String?, authorized: Bool) async throws -> String {
+        guard !isClosed else { throw PaceCodingError.disconnected }
         try loadIfNeeded()
         if command.requiresExecutionConsent, !authorized { throw PaceCodingError.permissionDenied }
         switch command {
@@ -52,7 +63,7 @@ actor PaceCodingSessionCoordinator {
                 try await change(session.id, state: .cancelling)
                 return "Coding session \(session.id.rawValue) cancellation is requested. Waiting for its turn identity and terminal confirmation."
             }
-            guard let transport, let turnID = session.lastTurnID else {
+            guard let transport = slots[session.directory]?.transport, let turnID = session.lastTurnID else {
                 try await change(session.id, state: .needsResume)
                 return session.summary + ". Disconnected; no terminal interruption confirmation."
             }
@@ -67,41 +78,71 @@ actor PaceCodingSessionCoordinator {
             }
             return "Coding session \(session.id.rawValue) is cancelling. Codex has not confirmed terminal interruption."
         case .start(let directory, let task):
-            guard sessions.count < 200 else { throw PaceCodingError.persistence }
+            guard sessions.count < 200 else { throw PaceCodingError.catalogCapacity }
             let workspace = try Self.workspace(directory)
-            guard !reservedWorkspaces.contains(workspace), !sessions.values.contains(where: { $0.directory == workspace && $0.state.isBusy }) else { throw PaceCodingError.busy }
+            guard !reservedWorkspaces.contains(workspace), !closingWorkspaces.contains(workspace), !sessions.values.contains(where: { $0.directory == workspace && $0.state.isBusy }) else { throw PaceCodingError.busy }
             reservedWorkspaces.insert(workspace)
-            defer { reservedWorkspaces.remove(workspace) }
-            let transport = try await ensureTransport(cwd: workspace)
-            let response = try await transport.request("thread/start", params: Self.threadParameters(cwd: workspace).merging(["ephemeral": .bool(false)]) { _, new in new })
-            let result = try Self.validatePolicy(response, cwd: workspace)
-            guard let thread = result["thread"]?.codingObject, let threadID = thread["id"]?.codingString else { throw PaceCodingError.invalidProtocol }
-            let snapshot = PaceCodingSessionSnapshot(id: .init(), directory: workspace,
-                threadID: .init(rawValue: threadID), lastTurnID: nil,
-                conversationTurnIdentifier: conversationTurnIdentifier, state: .ready, updatedAt: Date())
-            sessions[snapshot.id] = snapshot
-            try persist()
-            await eventSink(.changed(snapshot))
-            return try await startTurn(snapshot, task: task, conversationTurnIdentifier: conversationTurnIdentifier, transport: transport)
+            var reservedGeneration: UUID?
+            defer {
+                reservedWorkspaces.remove(workspace)
+                if let generation = reservedGeneration { Task { await self.retireSlotIfIdle(workspace, generation: generation) } }
+            }
+            let slot = try await ensureSlot(cwd: workspace)
+            reservedGeneration = slot.generation
+            do {
+                let transport = slot.transport
+                guard slotIsCurrent(workspace, generation: slot.generation) else { throw PaceCodingError.disconnected }
+                let response = try await transport.request("thread/start", params: Self.threadParameters(cwd: workspace).merging(["ephemeral": .bool(false)]) { _, new in new })
+                guard slotIsCurrent(workspace, generation: slot.generation) else { throw PaceCodingError.disconnected }
+                let result = try Self.validatePolicy(response, cwd: workspace)
+                guard let thread = result["thread"]?.codingObject, let threadID = thread["id"]?.codingString else { throw PaceCodingError.invalidProtocol }
+                let snapshot = PaceCodingSessionSnapshot(id: .init(), directory: workspace,
+                    threadID: .init(rawValue: threadID), lastTurnID: nil,
+                    conversationTurnIdentifier: conversationTurnIdentifier, state: .ready, updatedAt: Date())
+                sessions[snapshot.id] = snapshot
+                try persist()
+                await eventSink(.changed(snapshot))
+                return try await startTurn(snapshot, task: task, conversationTurnIdentifier: conversationTurnIdentifier, slot: slot)
+            } catch {
+                await closeSlot(workspace, generation: slot.generation)
+                throw error
+            }
         case .resume(let identifier, let task):
             var session = try resolve(identifier)
-            guard !session.state.isBusy, !reservedWorkspaces.contains(session.directory) else { throw PaceCodingError.busy }
+            guard !session.state.isBusy, !reservedWorkspaces.contains(session.directory), !closingWorkspaces.contains(session.directory),
+                  !sessions.values.contains(where: { $0.id != identifier && $0.directory == session.directory && $0.state.isBusy }) else { throw PaceCodingError.busy }
             guard try Self.workspace(session.directory.path) == session.directory else { throw PaceCodingError.workspaceChanged }
-            reservedWorkspaces.insert(session.directory)
-            defer { reservedWorkspaces.remove(session.directory) }
-            let transport = try await ensureTransport(cwd: session.directory)
-            // Read without executing. A lost running record never replays its original task.
-            let read = try await transport.request("thread/read", params: ["threadId": .string(session.threadID.rawValue), "includeTurns": .bool(true)])
-            guard let thread = read.codingObject?["thread"]?.codingObject, thread["id"]?.codingString == session.threadID.rawValue,
-                  thread["cwd"]?.codingString == session.directory.path else { throw PaceCodingError.workspaceChanged }
-            if let turns = thread["turns"]?.codingArray, turns.contains(where: { $0.codingObject?["status"]?.codingString == "inProgress" }) { throw PaceCodingError.busy }
-            let response = try await transport.request("thread/resume", params: Self.threadParameters(cwd: session.directory).merging(["threadId": .string(session.threadID.rawValue)]) { _, new in new })
-            let resumed = try Self.validatePolicy(response, cwd: session.directory)
-            guard resumed["thread"]?.codingObject?["id"]?.codingString == session.threadID.rawValue else { throw PaceCodingError.invalidProtocol }
-            session.state = .ready
-            sessions[identifier] = session
-            try persist()
-            return try await startTurn(session, task: task, conversationTurnIdentifier: conversationTurnIdentifier, transport: transport)
+            let workspace = session.directory
+            reservedWorkspaces.insert(workspace)
+            var reservedGeneration: UUID?
+            defer {
+                reservedWorkspaces.remove(workspace)
+                if let generation = reservedGeneration { Task { await self.retireSlotIfIdle(workspace, generation: generation) } }
+            }
+            let slot = try await ensureSlot(cwd: workspace)
+            reservedGeneration = slot.generation
+            do {
+                let transport = slot.transport
+                guard slotIsCurrent(session.directory, generation: slot.generation) else { throw PaceCodingError.disconnected }
+                // Read without executing. A lost running record never replays its original task.
+                let read = try await transport.request("thread/read", params: ["threadId": .string(session.threadID.rawValue), "includeTurns": .bool(true)])
+                guard slotIsCurrent(workspace, generation: slot.generation) else { throw PaceCodingError.disconnected }
+                guard let thread = read.codingObject?["thread"]?.codingObject, thread["id"]?.codingString == session.threadID.rawValue,
+                      thread["cwd"]?.codingString == session.directory.path else { throw PaceCodingError.workspaceChanged }
+                if let turns = thread["turns"]?.codingArray, turns.contains(where: { $0.codingObject?["status"]?.codingString == "inProgress" }) { throw PaceCodingError.busy }
+                let response = try await transport.request("thread/resume", params: Self.threadParameters(cwd: session.directory).merging(["threadId": .string(session.threadID.rawValue)]) { _, new in new })
+                guard slotIsCurrent(workspace, generation: slot.generation) else { throw PaceCodingError.disconnected }
+                let resumed = try Self.validatePolicy(response, cwd: session.directory)
+                guard resumed["thread"]?.codingObject?["id"]?.codingString == session.threadID.rawValue else { throw PaceCodingError.invalidProtocol }
+                session.state = .ready
+                sessions[identifier] = session
+                try persist()
+                return try await startTurn(session, task: task, conversationTurnIdentifier: conversationTurnIdentifier, slot: slot)
+            } catch {
+                await closeSlot(session.directory, generation: slot.generation)
+                throw error
+            }
+
         }
     }
 
@@ -129,34 +170,83 @@ actor PaceCodingSessionCoordinator {
         return matches.first!
     }
 
-    private func ensureTransport(cwd: URL) async throws -> any PaceCodingTransport {
-        if let transport {
-            if let opening { try await opening.value }
-            return transport
+    private func slotIsCurrent(_ workspace: URL, generation: UUID) -> Bool {
+        !isClosed && slots[workspace]?.generation == generation
+    }
+
+    private func ensureSlot(cwd: URL) async throws -> Slot {
+        guard !isClosed else { throw PaceCodingError.disconnected }
+        guard !closingWorkspaces.contains(cwd) else { throw PaceCodingError.busy }
+        if let slot = slots[cwd] {
+            if let opening = slot.opening { try await opening.value }
+            guard slotIsCurrent(cwd, generation: slot.generation) else { throw PaceCodingError.disconnected }
+            return slot
         }
+        guard slots.count + closingWorkspaces.count < Self.maximumActiveWorkspaces else { throw PaceCodingError.workspaceCapacity }
         let candidate = transportFactory(cwd)
         let generation = UUID()
-        transportGeneration = generation
-        transport = candidate
+        slots[cwd] = Slot(generation: generation, transport: candidate)
         let events = await candidate.events()
-        eventTask = Task { [weak self] in
-            for await event in events { await self?.receive(event, generation: generation) }
+        guard slotIsCurrent(cwd, generation: generation) else {
+            await candidate.shutdown()
+            throw PaceCodingError.disconnected
+        }
+        slots[cwd]?.eventTask = Task { [weak self] in
+            for await event in events { await self?.receive(event, workspace: cwd, generation: generation) }
         }
         let opening = Task { try await candidate.open() }
-        self.opening = opening
+        slots[cwd]?.opening = opening
         do {
             try await opening.value
-            self.opening = nil
-            return candidate
+            guard slotIsCurrent(cwd, generation: generation), let slot = slots[cwd] else { throw PaceCodingError.disconnected }
+            slots[cwd]?.opening = nil
+            return slot
         } catch {
-            self.opening = nil
-            transport = nil
-            await candidate.shutdown()
+            await closeSlot(cwd, generation: generation)
             throw error
         }
     }
 
-    private func startTurn(_ original: PaceCodingSessionSnapshot, task: String, conversationTurnIdentifier: String?, transport: any PaceCodingTransport) async throws -> String {
+    private func closeSlot(_ workspace: URL, generation: UUID, recordsDisconnection: Bool = true) async {
+        if let closing = closingTasks[generation] { await closing.value; return }
+        guard let slot = slots[workspace], slot.generation == generation else { return }
+        closingWorkspaces.insert(workspace)
+        slots.removeValue(forKey: workspace)
+        let closing = Task { await self.finishClosingSlot(slot, workspace: workspace, recordsDisconnection: recordsDisconnection) }
+        closingTasks[generation] = closing
+        await closing.value
+        closingTasks.removeValue(forKey: generation)
+    }
+
+    private func finishClosingSlot(_ slot: Slot, workspace: URL, recordsDisconnection: Bool) async {
+        defer { closingWorkspaces.remove(workspace) }
+        slot.opening?.cancel()
+        for session in Array(sessions.values) where session.directory == workspace {
+            await denyApprovals(for: session, using: slot.transport)
+            if recordsDisconnection, session.state.isBusy {
+                try? await change(session.id, state: .needsResume)
+                if let turnID = session.lastTurnID {
+                    await eventSink(.conversation(ConversationEvent(eventID: "coding-disconnected-" + session.threadID.rawValue + "/" + turnID.rawValue,
+                        turnID: session.conversationTurnIdentifier, role: .pace, origin: .failure,
+                        text: session.summary + ". Codex disconnected. Explicit resume is required; completion is unverified.", deliveryState: .interrupted)))
+                }
+            }
+        }
+        resolvedApprovalIDs = resolvedApprovalIDs.filter { !$0.hasPrefix(slot.generation.uuidString + "/") }
+        await slot.transport.shutdown()
+        _ = try? await slot.opening?.value
+        slot.eventTask?.cancel()
+    }
+
+    private func retireSlotIfIdle(_ workspace: URL, generation: UUID) async {
+        guard !reservedWorkspaces.contains(workspace), !closingWorkspaces.contains(workspace) else { return }
+        guard !sessions.values.contains(where: { $0.directory == workspace && $0.state.isBusy }) else { return }
+        await closeSlot(workspace, generation: generation, recordsDisconnection: false)
+    }
+
+    private func startTurn(_ original: PaceCodingSessionSnapshot, task: String, conversationTurnIdentifier: String?, slot: Slot) async throws -> String {
+        let transport = slot.transport
+        guard slotIsCurrent(original.directory, generation: slot.generation) else { throw PaceCodingError.disconnected }
         guard !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, task.count <= 100_000 else { throw PaceCodingError.invalidProtocol }
         try await change(original.id, state: .starting)
         startingThreads.insert(original.threadID)
@@ -168,6 +258,7 @@ actor PaceCodingSessionCoordinator {
                 "cwd": .string(original.directory.path), "approvalPolicy": .string("on-request"),
                 "approvalsReviewer": .string("user"), "sandboxPolicy": Self.sandbox(original.directory),
             ])
+            guard slotIsCurrent(original.directory, generation: slot.generation) else { throw PaceCodingError.disconnected }
             guard let turn = response.codingObject?["turn"]?.codingObject, let turnID = turn["id"]?.codingString else { throw PaceCodingError.invalidProtocol }
             var session = original
             session.lastTurnID = .init(rawValue: turnID)
@@ -178,64 +269,59 @@ actor PaceCodingSessionCoordinator {
             completedMessages[session.id] = []
             try persist()
             await eventSink(.changed(session))
+            guard slotIsCurrent(original.directory, generation: slot.generation) else { throw PaceCodingError.disconnected }
             if pendingCancellations.remove(session.id) != nil {
                 _ = try await transport.request("turn/interrupt", params: ["threadId": .string(session.threadID.rawValue), "turnId": .string(turnID)])
             }
             while let queued = earlyMessages.removeValue(forKey: original.threadID), !queued.isEmpty {
-                for message in queued { await handle(message, bypassingStartGate: true) }
+                for message in queued { await handle(message, workspace: original.directory, generation: slot.generation, bypassingStartGate: true) }
             }
             startingThreads.remove(original.threadID)
+            await retireSlotIfIdle(original.directory, generation: slot.generation)
             return (sessions[session.id] ?? session).summary
         } catch {
             pendingCancellations.remove(original.id)
-            await transport.shutdown()
-            try? await change(original.id, state: .needsResume)
+            await closeSlot(original.directory, generation: slot.generation)
             throw error
         }
     }
 
-    private func receive(_ event: PaceCodingTransportEvent, generation: UUID) async {
-        guard generation == transportGeneration else { return }
+    private func receive(_ event: PaceCodingTransportEvent, workspace: URL, generation: UUID) async {
+        guard slotIsCurrent(workspace, generation: generation) else { return }
         switch event {
-        case .disconnected:
-            transport = nil
-            for session in Array(sessions.values) where session.state.isBusy {
-                try? await change(session.id, state: .needsResume)
-                if let turnID = session.lastTurnID {
-                    await eventSink(.conversation(ConversationEvent(eventID: "coding-disconnected-" + session.threadID.rawValue + "/" + turnID.rawValue,
-                        turnID: session.conversationTurnIdentifier, role: .pace, origin: .failure,
-                        text: session.summary + ". Codex disconnected. Explicit resume is required; completion is unverified.", deliveryState: .interrupted)))
-                }
-            }
-            for approval in pendingApprovals.values { approval.cancel() }
-            pendingApprovals.removeAll(); pendingApprovalIDs.removeAll(); approvalSessionIDs.removeAll()
-        case .message(let message): await handle(message)
+        case .disconnected: await closeSlot(workspace, generation: generation)
+        case .message(let message): await handle(message, workspace: workspace, generation: generation)
         }
     }
 
-    private func handle(_ message: [String: PaceMCPJSONValue], bypassingStartGate: Bool = false) async {
+    private func handle(_ message: [String: PaceMCPJSONValue], workspace: URL, generation: UUID, bypassingStartGate: Bool = false) async {
+        guard slotIsCurrent(workspace, generation: generation), let transport = slots[workspace]?.transport else { return }
         guard let method = message["method"]?.codingString, let params = message["params"]?.codingObject else {
-            if let requestID = message["id"] { try? await transport?.reply(id: requestID, result: nil, error: "Pace rejects malformed server requests.") }
+            if let requestID = message["id"] { try? await transport.reply(id: requestID, result: nil, error: "Pace rejects malformed server requests.") }
             return
         }
         guard let threadID = params["threadId"]?.codingString else {
-            if let requestID = message["id"] { try? await transport?.reply(id: requestID, result: nil, error: "Pace rejects unscoped server requests.") }
+            if let requestID = message["id"] { try? await transport.reply(id: requestID, result: nil, error: "Pace rejects unscoped server requests.") }
             return
         }
         let typedThreadID = PaceCodexThreadID(rawValue: threadID)
+        guard sessions.values.contains(where: { $0.threadID == typedThreadID && $0.directory == workspace }) else {
+            if let requestID = message["id"] { try? await transport.reply(id: requestID, result: nil, error: "Pace rejects threads from another workspace source.") }
+            return
+        }
         if !bypassingStartGate, startingThreads.contains(typedThreadID) {
             var queued = earlyMessages[typedThreadID, default: []]
-            guard queued.count < 200 else { await shutdown(); return }
+            guard queued.count < 200 else { await closeSlot(workspace, generation: generation); return }
             queued.append(message); earlyMessages[typedThreadID] = queued; return
         }
-        guard let session = sessions.values.first(where: { $0.threadID == typedThreadID }), session.state.isBusy,
+        guard let session = sessions.values.first(where: { $0.threadID == typedThreadID && $0.directory == workspace }), session.state.isBusy,
               let turnID = session.lastTurnID,
               (params["turnId"]?.codingString ?? params["turn"]?.codingObject?["id"]?.codingString) == turnID.rawValue else {
-            if let requestID = message["id"] { try? await transport?.reply(id: requestID, result: nil, error: "Pace rejects stale or unowned turns.") }
+            if let requestID = message["id"] { try? await transport.reply(id: requestID, result: nil, error: "Pace rejects stale or unowned turns.") }
             return
         }
         if let requestID = message["id"] {
-            await requestApproval(method, params: params, requestID: requestID, session: session)
+            await requestApproval(method, params: params, requestID: requestID, session: session, generation: generation)
             return
         }
         if ["item/started", "item/completed"].contains(method), let item = params["item"]?.codingObject, let itemID = item["id"]?.codingString {
@@ -255,21 +341,26 @@ actor PaceCodingSessionCoordinator {
         } else if method == "turn/completed", let turn = params["turn"]?.codingObject,
                   let status = turn["status"]?.codingString, ["completed", "interrupted", "failed"].contains(status) {
             await denyApprovals(for: session)
+            guard slotIsCurrent(workspace, generation: generation), sessions[session.id]?.lastTurnID == turnID,
+                  sessions[session.id]?.state.isBusy == true else { return }
             let state: PaceCodingSessionState = status == "completed" ? .completed : status == "interrupted" ? .interrupted : .failed
             do { try await change(session.id, state: state) }
-            catch { try? await change(session.id, state: .needsResume); return }
+            catch { await closeSlot(workspace, generation: generation); return }
+            guard slotIsCurrent(workspace, generation: generation), sessions[session.id]?.lastTurnID == turnID else { return }
             let text = status == "completed" ? (completedMessages[session.id]?.last ?? "Coding turn completed. Ask for status or resume this session.")
                 : "Coding session \(session.id.rawValue.uuidString) \(status)."
             completedMessages.removeValue(forKey: session.id)
             await eventSink(.conversation(ConversationEvent(eventID: "coding-final-" + threadID + "/" + turnID.rawValue,
                 turnID: session.conversationTurnIdentifier, role: .pace, origin: .assistant, text: text,
                 deliveryState: status == "interrupted" ? .interrupted : .completed)))
+            if !startingThreads.contains(session.threadID) { await retireSlotIfIdle(workspace, generation: generation) }
         }
     }
 
-    private func requestApproval(_ method: String, params: [String: PaceMCPJSONValue], requestID: PaceMCPJSONValue, session: PaceCodingSessionSnapshot) async {
-        guard let transport else { return }
-        let identifier = (try? JSONEncoder().encode(requestID)).flatMap { String(data: $0, encoding: .utf8) } ?? "invalid"
+    private func requestApproval(_ method: String, params: [String: PaceMCPJSONValue], requestID: PaceMCPJSONValue, session: PaceCodingSessionSnapshot, generation: UUID) async {
+        guard slotIsCurrent(session.directory, generation: generation), let transport = slots[session.directory]?.transport else { return }
+        let rawIdentifier = (try? JSONEncoder().encode(requestID)).flatMap { String(data: $0, encoding: .utf8) } ?? "invalid"
+        let identifier = generation.uuidString + "/" + rawIdentifier
         guard pendingApprovals[identifier] == nil, !resolvedApprovalIDs.contains(identifier) else {
             try? await transport.reply(id: requestID, result: nil, error: "Pace rejects duplicate approval IDs.")
             return
@@ -298,7 +389,13 @@ actor PaceCodingSessionCoordinator {
             else { try? await transport.reply(id: requestID, result: nil, error: "Pace rejects this server request.") }
             return
         }
-        try? await change(session.id, state: .awaitingApproval)
+        do { try await change(session.id, state: .awaitingApproval) }
+        catch { await closeSlot(session.directory, generation: generation); return }
+        guard slotIsCurrent(session.directory, generation: generation), sessions[session.id]?.lastTurnID == session.lastTurnID,
+              sessions[session.id]?.state == .awaitingApproval else {
+            try? await transport.reply(id: requestID, result: .object(["decision": .string("cancel")]), error: nil)
+            return
+        }
         approvalSessionIDs[identifier] = session.id
         pendingApprovalIDs[identifier] = requestID
         pendingApprovals[identifier] = Task { [weak self, approve] in
@@ -313,14 +410,19 @@ actor PaceCodingSessionCoordinator {
         resolvedApprovalIDs.insert(identifier)
         approvalSessionIDs.removeValue(forKey: identifier)
         let current = sessions[session.id]
+        guard let currentSlot = slots[session.directory], !isClosed,
+              identifier.hasPrefix(currentSlot.generation.uuidString + "/") else { return }
         let accepted = decision == .allowOnce && current?.lastTurnID == session.lastTurnID && current?.state == .awaitingApproval
-        try? await transport?.reply(id: requestID, result: .object(["decision": .string(accepted ? "accept" : "cancel")]), error: nil)
-        if current?.state == .awaitingApproval, !approvalSessionIDs.values.contains(session.id) {
+        try? await currentSlot.transport.reply(id: requestID, result: .object(["decision": .string(accepted ? "accept" : "cancel")]), error: nil)
+        if slotIsCurrent(session.directory, generation: currentSlot.generation),
+            sessions[session.id]?.lastTurnID == session.lastTurnID, sessions[session.id]?.state == .awaitingApproval,
+            !approvalSessionIDs.values.contains(session.id) {
             try? await change(session.id, state: .running)
         }
     }
 
-    private func denyApprovals(for session: PaceCodingSessionSnapshot) async {
+    private func denyApprovals(for session: PaceCodingSessionSnapshot, using ownedTransport: (any PaceCodingTransport)? = nil) async {
+        let transport = ownedTransport ?? slots[session.directory]?.transport
         let matching = approvalSessionIDs.filter { $0.value == session.id }.map(\.key)
         for identifier in matching {
             pendingApprovals.removeValue(forKey: identifier)?.cancel()
@@ -336,17 +438,36 @@ actor PaceCodingSessionCoordinator {
             await denyApprovals(for: session)
             if let turnID = session.lastTurnID {
                 try? await change(session.id, state: .cancelling)
-                _ = try? await transport?.request("turn/interrupt", params: ["threadId": .string(session.threadID.rawValue), "turnId": .string(turnID.rawValue)])
+                _ = try? await slots[session.directory]?.transport.request("turn/interrupt", params: ["threadId": .string(session.threadID.rawValue), "turnId": .string(turnID.rawValue)])
             }
         }
     }
 
     func shutdown() async {
+        if shutdownHasStarted {
+            if !shutdownHasFinished { await withCheckedContinuation { shutdownWaiters.append($0) } }
+            return
+        }
+        shutdownHasStarted = true
+        isClosed = true
+        let ownedSlots = slots
+        for slot in ownedSlots.values { slot.opening?.cancel() }
         await dismissApprovals()
         for session in Array(sessions.values) where session.state.isBusy { try? await change(session.id, state: .needsResume) }
-        await transport?.shutdown()
-        transport = nil
-        eventTask?.cancel(); eventTask = nil
+        for (workspace, slot) in ownedSlots { await closeSlot(workspace, generation: slot.generation, recordsDisconnection: false) }
+        for closing in Array(closingTasks.values) { await closing.value }
+        shutdownHasFinished = true
+        for waiter in shutdownWaiters { waiter.resume() }
+        shutdownWaiters.removeAll()
+    }
+
+    func plannerSessionMetadata() throws -> String {
+        try loadIfNeeded()
+        let metadata = sessions.values.sorted { $0.updatedAt > $1.updatedAt }.map { session in
+            ["sessionID": session.id.rawValue.uuidString, "workspace": session.directory.lastPathComponent, "state": session.state.rawValue]
+        }
+        let data = try JSONEncoder().encode(metadata)
+        return String(decoding: data, as: UTF8.self)
     }
 
     private func change(_ identifier: PaceCodingSessionID, state: PaceCodingSessionState) async throws {

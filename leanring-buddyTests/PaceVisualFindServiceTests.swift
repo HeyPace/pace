@@ -292,4 +292,20 @@ struct PaceVisualFindOwnershipTests {
         } else { Issue.record("expected a rectangle") }
     }
 
+    @Test func oneDisplayOCRFailureKeepsMatchesFromAnotherDisplay() async throws {
+        var broken = capture(identifier: 99, origin: .zero)
+        broken = CompanionScreenCapture(displayIdentifier: broken.displayIdentifier, imageData: Data([0]), label: "broken", isCursorScreen: false,
+            displayWidthInPoints: broken.displayWidthInPoints, displayHeightInPoints: broken.displayHeightInPoints, displayFrame: broken.displayFrame,
+            screenshotWidthInPixels: broken.screenshotWidthInPixels, screenshotHeightInPixels: broken.screenshotHeightInPixels)
+        let good = capture(identifier: 42)
+        let overlay = PaceAnnotationOverlayController()
+        let outcome = try await PaceVisualFindService.findAndMark(query: "target", overlayController: overlay,
+            visionOCRClient: PaceVisionOCRClient(recognizeTextOperation: { data, _, _ in
+                if data == Data([0]) { throw CocoaError(.fileReadCorruptFile) }
+                return [RecognizedTextBox(text: "target", pixelBoundingBox: [20, 40, 100, 20])]
+            }), isCurrentTurn: { true }, captureScreens: { [broken, good] })
+        #expect(outcome.totalMatches == 1)
+        #expect(overlay.activeAnnotations.first?.sourceDisplayIdentifier == 42)
+    }
+
 }

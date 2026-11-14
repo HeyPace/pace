@@ -3,6 +3,20 @@ import Foundation
 import Testing
 @testable import Pace
 
+private actor SuspendedCodingMetadata {
+    private var continuation: CheckedContinuation<[String: PaceMCPJSONValue], any Error>?
+    private(set) var wasCancelled = false
+    var isWaiting: Bool { continuation != nil }
+    func wait() async throws -> [String: PaceMCPJSONValue] {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation = $0 }
+        } onCancel: { Task { await self.noteCancellation() } }
+    }
+    private func noteCancellation() { wasCancelled = true }
+    func finish() { continuation?.resume(returning: [:]); continuation = nil }
+}
+
+
 struct PaceCodingTransportTests {
     private func fixture() throws -> (URL, PaceCodingAppServerTransport) {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PaceCodingWire-" + UUID().uuidString)
@@ -14,6 +28,8 @@ struct PaceCodingTransportTests {
         if sys.argv[1:3] == ['mcp', 'list']:
             print('[]')
             sys.exit(0)
+        with open('app-server-launch.marker', 'w') as marker:
+            marker.write(str(os.getpid()))
         def send(value):
             raw = (json.dumps(value) + '\n').encode()
             for start in range(0, len(raw), 7):
@@ -99,6 +115,27 @@ struct PaceCodingTransportTests {
         #expect(!arguments.contains { $0.contains("untrusted") || $0.contains("\\/") })
         #expect(!arguments.contains("shell_tool"))
         #expect(!arguments.contains { $0.contains("project_doc_max_bytes") || $0.contains("ignore-user-config") })
+    }
+
+    @Test func shutdownDuringMetadataWaitsAndRejectsLateResultBeforeAnyAppServerLaunch() async throws {
+        let (directory, _) = try fixture()
+        let metadata = SuspendedCodingMetadata()
+        let transport = PaceCodingAppServerTransport(executable: directory.appendingPathComponent("fixture-server"),
+            workingDirectory: directory, discoverMCPOverrides: { _, _ in try await metadata.wait() })
+        let opening = Task { try await transport.open() }
+        let deadline = Date().addingTimeInterval(3)
+        while !(await metadata.isWaiting), Date() < deadline { try await Task.sleep(for: .milliseconds(1)) }
+        #expect(await metadata.isWaiting)
+        let shutdown = Task { await transport.shutdown() }
+        while !(await metadata.wasCancelled), Date() < deadline { try await Task.sleep(for: .milliseconds(1)) }
+        #expect(await metadata.wasCancelled)
+        await metadata.finish()
+        await shutdown.value
+        do { try await opening.value; Issue.record("closed transport cannot finish opening") }
+        catch { #expect(error is CancellationError || error is PaceCodingError) }
+        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("app-server-launch.marker").path))
+        do { try await transport.open(); Issue.record("shutdown permanently closes the owned transport") }
+        catch { #expect(error is PaceCodingError) }
     }
 
 }

@@ -17,33 +17,50 @@ nonisolated enum PaceCodingTransportEvent: Sendable {
 actor PaceCodingAppServerTransport: PaceCodingTransport {
     private let executable: URL?
     private let workingDirectory: URL
+    private let discoverMCPOverrides: (@Sendable (URL, URL) async throws -> [String: PaceMCPJSONValue])?
+    private var metadataTask: Task<[String: PaceMCPJSONValue], any Error>?
     private var process: Process?
     private var input: FileHandle?
     private var output: FileHandle?
-    private var processControl = PaceCLIProcessControl()
+    private let processControl = PaceCLIProcessControl()
     private var pending: [String: CheckedContinuation<PaceMCPJSONValue, any Error>] = [:]
     private var serial = 0
     private var buffer = Data()
     private var reapTask: Task<Void, Never>?
     private var hasDisconnected = false
+    private var isClosed = false
     private var reader: Task<Void, Never>?
     private let stream: AsyncStream<PaceCodingTransportEvent>
     private let continuation: AsyncStream<PaceCodingTransportEvent>.Continuation
 
-    init(executable: URL? = PaceLocalCLIPlannerClient.resolveExecutable(named: "codex"), workingDirectory: URL) {
+    init(executable: URL? = PaceLocalCLIPlannerClient.resolveExecutable(named: "codex"), workingDirectory: URL,
+         discoverMCPOverrides: (@Sendable (URL, URL) async throws -> [String: PaceMCPJSONValue])? = nil) {
         self.executable = executable
         self.workingDirectory = workingDirectory
+        self.discoverMCPOverrides = discoverMCPOverrides
         (stream, continuation) = AsyncStream.makeStream()
     }
 
     func events() -> AsyncStream<PaceCodingTransportEvent> { stream }
 
     func open() async throws {
+        guard !isClosed, !hasDisconnected else { throw PaceCodingError.disconnected }
         guard process == nil else { return }
-        guard !hasDisconnected else { throw PaceCodingError.disconnected }
         guard let executable else { throw PaceCodingError.unavailable }
-        let overrides = try await Self.disabledMCPOverrides(executable: executable, cwd: workingDirectory)
+        guard metadataTask == nil else { throw PaceCodingError.busy }
+        let metadata = Task { [discoverMCPOverrides, workingDirectory] in
+            if let discoverMCPOverrides { return try await discoverMCPOverrides(executable, workingDirectory) }
+            return try await Self.disabledMCPOverrides(executable: executable, cwd: workingDirectory)
+        }
+        metadataTask = metadata
+        let overrides: [String: PaceMCPJSONValue]
+        do {
+            overrides = try await withTaskCancellationHandler { try await metadata.value } onCancel: { metadata.cancel() }
+        }
+        catch { metadataTask = nil; throw error }
+        metadataTask = nil
         try Task.checkCancellation()
+        guard !isClosed, !hasDisconnected else { throw PaceCodingError.disconnected }
         let process = Process()
         let inputPipe = Pipe()
         let outputPipe = Pipe()
@@ -60,7 +77,6 @@ actor PaceCodingAppServerTransport: PaceCodingTransport {
             else { chunkContinuation.yield(data) }
         }
         process.terminationHandler = { _ in chunkContinuation.finish() }
-        processControl = PaceCLIProcessControl()
         try processControl.launch(process)
         self.process = process
         input = inputPipe.fileHandleForWriting
@@ -118,7 +134,7 @@ actor PaceCodingAppServerTransport: PaceCodingTransport {
     }
 
     private func write(_ object: [String: PaceMCPJSONValue]) throws {
-        guard let input, process?.isRunning == true else { throw PaceCodingError.disconnected }
+        guard !isClosed, let input, process?.isRunning == true else { throw PaceCodingError.disconnected }
         var data = try JSONEncoder().encode(object)
         data.append(10)
         try input.write(contentsOf: data)
@@ -174,10 +190,17 @@ actor PaceCodingAppServerTransport: PaceCodingTransport {
     }
 
     func shutdown() async {
+        // Close before yielding so a suspended inventory result cannot launch a new owned process.
+        isClosed = true
+        processControl.stop()
+        let metadata = metadataTask
+        metadata?.cancel()
         output?.readabilityHandler = nil
         try? input?.close()
         input = nil
         await didDisconnect()
+        _ = try? await metadata?.value
+        metadataTask = nil
         try? output?.close()
         output = nil
         reader?.cancel()
@@ -228,6 +251,7 @@ actor PaceCodingAppServerTransport: PaceCodingTransport {
             defer { timeout.cancel(); control.finished() }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
+            control.waitForStoppedProcessGroup()
             try control.checkCancellation()
             guard process.terminationStatus == 0, data.count <= 1_048_576 else { throw PaceCodingError.invalidProtocol }
             return data

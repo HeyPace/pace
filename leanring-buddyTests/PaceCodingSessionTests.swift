@@ -6,12 +6,20 @@ private actor CodingEventCollector {
     var events: [PaceCodingSessionEvent] = []
     var approvals: [PaceActionApprovalRequest] = []
     var shouldSuspendProgress = false
+    var shouldSuspendFinal = false
+    var finalContinuation: CheckedContinuation<Void, Never>?
+    var isFinalSuspended: Bool { finalContinuation != nil }
+    func suspendFinal() { shouldSuspendFinal = true }
+    func resumeFinal() { finalContinuation?.resume(); finalContinuation = nil }
     var progressContinuation: CheckedContinuation<Void, Never>?
     var isProgressSuspended: Bool { progressContinuation != nil }
     func suspendProgress() { shouldSuspendProgress = true }
     func resumeProgress() { progressContinuation?.resume(); progressContinuation = nil }
     func record(_ event: PaceCodingSessionEvent) async {
         events.append(event)
+        if shouldSuspendFinal, case .conversation(let message) = event, message.eventID.hasPrefix("coding-final-") {
+            await withCheckedContinuation { finalContinuation = $0 }
+        }
         if shouldSuspendProgress, case .conversation(let message) = event, message.origin == .progress {
             await withCheckedContinuation { progressContinuation = $0 }
         }
@@ -32,15 +40,31 @@ private actor CodingFixtureTransport: PaceCodingTransport {
     var interrupted = false
     var sendsEarlyCompletion = false
     var sendsEarlyItems = false
+    var failsTurnStart = false
+    func failTurnStart() { failsTurnStart = true }
+    func setThreadID(_ identifier: String) { threadID = identifier }
+    var suspendedThreadStart: CheckedContinuation<Void, Never>?
+    var shouldSuspendThreadStart = false
+    var isThreadStartSuspended: Bool { suspendedThreadStart != nil }
+    func suspendThreadStart() { shouldSuspendThreadStart = true }
+    func resumeThreadStart() { suspendedThreadStart?.resume(); suspendedThreadStart = nil }
+    var suspendedOpen: CheckedContinuation<Void, Never>?
+    var shouldSuspendOpen = false
+    var isOpenSuspended: Bool { suspendedOpen != nil }
+    var shutdownCount = 0
+    func suspendOpen() { shouldSuspendOpen = true }
+    func resumeOpen() { suspendedOpen?.resume(); suspendedOpen = nil }
     var suspendedTurnStart: CheckedContinuation<Void, Never>?
     var shouldSuspendTurnStart = false
     var isTurnStartSuspended: Bool { suspendedTurnStart != nil }
     func suspendTurnStart() { shouldSuspendTurnStart = true }
     func resumeTurnStart() { suspendedTurnStart?.resume(); suspendedTurnStart = nil }
     init() { (stream, continuation) = AsyncStream.makeStream() }
-    func open() {}
+    func open() async {
+        if shouldSuspendOpen { await withCheckedContinuation { suspendedOpen = $0 } }
+    }
     func events() -> AsyncStream<PaceCodingTransportEvent> { stream }
-    func shutdown() { continuation.finish() }
+    func shutdown() { shutdownCount += 1; continuation.yield(.disconnected); continuation.finish() }
     func reply(id: PaceMCPJSONValue, result: PaceMCPJSONValue?, error: String?) { replies.append((id, result, error)) }
     func send(_ method: String, params: [String: PaceMCPJSONValue], id: PaceMCPJSONValue? = nil) {
         var message: [String: PaceMCPJSONValue] = ["method": .string(method), "params": .object(params)]
@@ -56,6 +80,8 @@ private actor CodingFixtureTransport: PaceCodingTransport {
         requests.append((method, params))
         switch method {
         case "thread/start", "thread/resume":
+            if method == "thread/start", shouldSuspendThreadStart { await withCheckedContinuation { suspendedThreadStart = $0 } }
+            try Task.checkCancellation()
             cwd = params["cwd"]?.codingString ?? cwd
             return .object(["cwd": .string(cwd), "approvalPolicy": .string("on-request"), "approvalsReviewer": .string("user"),
                 "thread": .object(["id": .string(threadID)]), "sandbox": .object([
@@ -65,6 +91,8 @@ private actor CodingFixtureTransport: PaceCodingTransport {
         case "turn/start":
             turnNumber += 1
             if shouldSuspendTurnStart { await withCheckedContinuation { suspendedTurnStart = $0 } }
+            try Task.checkCancellation()
+            if failsTurnStart { throw PaceCodingError.invalidProtocol }
             if sendsEarlyItems {
                 for (identifier, phase, text) in [("progress", "commentary", "Working on the test."), ("final", "final_answer", "Fixed the exact test.")] {
                     send("item/completed", params: ["threadId": .string(threadID), "turnId": .string("turn-\(turnNumber)"),
@@ -202,6 +230,155 @@ struct PaceCodingSessionTests {
         await coordinator.shutdown()
     }
 
+
+
+
+
+    @Test func distinctWorkspaceSourcesCannotSpoofThreadsAndMayReuseServerApprovalIDs() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PaceCodingSources-" + UUID().uuidString)
+        let firstPath = directory.appendingPathComponent("first").path
+        let secondPath = directory.appendingPathComponent("second").path
+        try FileManager.default.createDirectory(atPath: firstPath, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: secondPath, withIntermediateDirectories: true)
+        let first = CodingFixtureTransport(), second = CodingFixtureTransport()
+        await first.setThreadID("first-thread"); await second.setThreadID("second-thread")
+        let canonicalFirst = try PaceCodingSessionCoordinator.workspace(firstPath)
+        let canonicalSecond = try PaceCodingSessionCoordinator.workspace(secondPath)
+        let store = PaceCodingSessionStore(directory: directory.appendingPathComponent("state"))
+        let collector = CodingEventCollector()
+        let coordinator = PaceCodingSessionCoordinator(store: store,
+            transportFactory: { $0.path == canonicalFirst.path ? first : second }, eventSink: { await collector.record($0) },
+            approve: { request in await collector.approval(request); return .allowOnce })
+        _ = try await coordinator.execute(.start(directory: firstPath, task: "First task"), conversationTurnIdentifier: "first", authorized: true)
+        await second.suspendTurnStart()
+        let secondStartup = Task { try await coordinator.execute(.start(directory: secondPath, task: "Second task"), conversationTurnIdentifier: "second", authorized: true) }
+        try await waitUntil { await second.isTurnStartSuspended }
+        await first.send("item/completed", params: ["threadId": .string("second-thread"), "turnId": .string("turn-1"),
+            "item": .object(["id": .string("spoofed-final"), "type": .string("agentMessage"), "text": .string("SPOOFED_SLOT_RESULT")])])
+        try await Task.sleep(for: .milliseconds(10))
+        await second.resumeTurnStart()
+        _ = try await secondStartup.value
+        await first.send("turn/completed", params: ["threadId": .string("second-thread"), "turn": .object(["id": .string("turn-1"), "status": .string("completed")])])
+        for (transport, thread, workspace) in [(first, "first-thread", canonicalFirst), (second, "second-thread", canonicalSecond)] {
+            await transport.send("item/commandExecution/requestApproval", params: ["threadId": .string(thread), "turnId": .string("turn-1"),
+                "itemId": .string("checkpoint"), "kind": .string("humanCommand"), "command": .string("swift test"), "cwd": .string(workspace.path)], id: .number(1))
+        }
+        try await waitUntil {
+            let firstCount = await first.replies.count
+            let secondCount = await second.replies.count
+            return firstCount == 1 && secondCount == 1
+        }
+        #expect(await first.replies.first?.1?.codingObject?["decision"] == .string("accept"))
+        #expect(await second.replies.first?.1?.codingObject?["decision"] == .string("accept"))
+        #expect(try store.load().first { $0.directory.path == canonicalSecond.path }?.state.isBusy == true)
+        #expect(await collector.conversationEvents.isEmpty)
+        #expect(await collector.approvals.count == 2)
+        await second.send("turn/completed", params: ["threadId": .string("second-thread"), "turn": .object(["id": .string("turn-1"), "status": .string("completed")])])
+        try await waitUntil { await collector.conversationEvents.contains { $0.eventID.hasPrefix("coding-final-") } }
+        #expect(await collector.conversationEvents.allSatisfy { !$0.text.contains("SPOOFED_SLOT_RESULT") })
+        await coordinator.shutdown()
+    }
+
+    @Test func terminalRetirementCannotCloseSlotReservedByNewStart() async throws {
+        let (directory, store, transport, collector, coordinator) = try fixture()
+        _ = try await coordinator.execute(.start(directory: directory.path, task: "First task"), conversationTurnIdentifier: "first", authorized: true)
+        await collector.suspendFinal()
+        await transport.send("turn/completed", params: ["threadId": .string("thread-owned"), "turn": .object(["id": .string("turn-1"), "status": .string("completed")])])
+        try await waitUntil { await collector.isFinalSuspended }
+        await transport.setThreadID("second-thread")
+        await transport.suspendThreadStart()
+        let second = Task { try await coordinator.execute(.start(directory: directory.path, task: "Second task"), conversationTurnIdentifier: "second", authorized: true) }
+        try await waitUntil { await transport.isThreadStartSuspended }
+        await collector.resumeFinal()
+        try await Task.sleep(for: .milliseconds(10))
+        #expect(await transport.shutdownCount == 0)
+        await transport.resumeThreadStart()
+        _ = try await second.value
+        #expect(await transport.shutdownCount == 0)
+        #expect(try store.load().first { $0.threadID.rawValue == "second-thread" }?.state == .running)
+        await coordinator.shutdown()
+    }
+
+    @Test func fullCatalogFailsSpecificallyBeforeLaunchingAnythingAndKeepsHistory() async throws {
+        let (directory, store, transport, _, coordinator) = try fixture()
+        let canonical = try PaceCodingSessionCoordinator.workspace(directory.path)
+        let saved = (0..<200).map { index in PaceCodingSessionSnapshot(id: .init(), directory: canonical,
+            threadID: .init(rawValue: "old-\(index)"), lastTurnID: nil, conversationTurnIdentifier: nil, state: .completed, updatedAt: Date()) }
+        try store.save(saved)
+        do { _ = try await coordinator.execute(.start(directory: directory.path, task: "Task"), conversationTurnIdentifier: nil, authorized: true); Issue.record("full catalog must reject before launch") }
+        catch { #expect(error.localizedDescription.contains("200-session coding catalog is full")) }
+        #expect(await transport.requests.isEmpty)
+        #expect(try store.load().count == 200)
+        await coordinator.shutdown()
+    }
+
+    @Test func failedStartupInSecondWorkspaceCannotStopFirstWorkspaceOrSpoofItsThread() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PaceCodingIsolation-" + UUID().uuidString)
+        let firstWorkspace = directory.appendingPathComponent("first").resolvingSymlinksInPath()
+        let secondWorkspace = directory.appendingPathComponent("second").resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: firstWorkspace, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondWorkspace, withIntermediateDirectories: true)
+        let first = CodingFixtureTransport(), second = CodingFixtureTransport()
+        await first.setThreadID("first-thread"); await second.setThreadID("second-thread")
+        await second.failTurnStart()
+        let store = PaceCodingSessionStore(directory: directory.appendingPathComponent("state"))
+        let coordinator = PaceCodingSessionCoordinator(store: store, transportFactory: { $0.path == firstWorkspace.path ? first : second },
+            eventSink: { _ in }, approve: { _ in .cancel })
+        _ = try await coordinator.execute(.start(directory: firstWorkspace.path, task: "First task"), conversationTurnIdentifier: "first", authorized: true)
+        do { _ = try await coordinator.execute(.start(directory: secondWorkspace.path, task: "Second task"), conversationTurnIdentifier: "second", authorized: true); Issue.record("second startup must fail") }
+        catch {}
+        #expect(await first.shutdownCount == 0)
+        #expect(await second.shutdownCount > 0)
+        #expect(try store.load().first { $0.directory.path == firstWorkspace.path }?.state == .running)
+        await first.send("turn/completed", params: ["threadId": .string("second-thread"), "turn": .object(["id": .string("turn-1"), "status": .string("completed")])])
+        try await Task.sleep(for: .milliseconds(10))
+        #expect(try store.load().first { $0.directory.path == secondWorkspace.path }?.state == .needsResume)
+        await coordinator.shutdown()
+    }
+
+    @Test func resumeCannotRaceAnotherSessionWritingTheSameWorkspace() async throws {
+        let (directory, store, transport, _, coordinator) = try fixture()
+        let old = PaceCodingSessionSnapshot(id: .init(), directory: directory.resolvingSymlinksInPath(),
+            threadID: .init(rawValue: "older-thread"), lastTurnID: nil, conversationTurnIdentifier: nil, state: .completed, updatedAt: Date())
+        try store.save([old])
+        _ = try await coordinator.execute(.start(directory: directory.path, task: "Current task"), conversationTurnIdentifier: "new", authorized: true)
+        do { _ = try await coordinator.execute(.resume(sessionID: old.id, task: "Older task"), conversationTurnIdentifier: "old", authorized: true); Issue.record("workspace must have one writer") }
+        catch { #expect(error.localizedDescription.contains("busy")) }
+        #expect(await transport.requests.filter { $0.0 == "thread/resume" }.isEmpty)
+        await coordinator.shutdown()
+    }
+
+    @Test func actualEscalationShapeIsDeniedWithoutModalOrAcceptance() async throws {
+        let (directory, _, transport, collector, coordinator) = try fixture()
+        _ = try await coordinator.execute(.start(directory: directory.path, task: "Task"), conversationTurnIdentifier: nil, authorized: true)
+        await transport.send("item/commandExecution/requestApproval", params: ["threadId": .string("thread-owned"),
+            "turnId": .string("turn-1"), "itemId": .string("echo-check"), "kind": .string("command"),
+            "command": .string("/bin/echo PACE_APPROVAL_FIXTURE"), "cwd": .string(directory.path),
+            "proposedExecpolicyAmendment": .array([.string("/bin/echo"), .string("PACE_APPROVAL_FIXTURE")])], id: .number(17))
+        try await waitUntil { await transport.replies.count == 1 }
+        #expect(await transport.replies.first?.1?.codingObject?["decision"] == .string("cancel"))
+        #expect(await collector.approvals.isEmpty)
+        await coordinator.shutdown()
+    }
+
+    @Test func shutdownDuringOpenWaitsForStaleCandidateAndNeverStartsThread() async throws {
+        let (directory, _, transport, _, coordinator) = try fixture()
+        await transport.suspendOpen()
+        let starting = Task { try await coordinator.execute(.start(directory: directory.path, task: "Fix test"),
+            conversationTurnIdentifier: "origin", authorized: true) }
+        try await waitUntil { await transport.isOpenSuspended }
+        let shutdown = Task { await coordinator.shutdown() }
+        try await waitUntil { await transport.shutdownCount > 0 }
+        await transport.resumeOpen()
+        await shutdown.value
+        do { _ = try await starting.value; Issue.record("closed coordinator cannot return a newly opened candidate") }
+        catch { #expect(error is CancellationError || error is PaceCodingError) }
+        #expect(await transport.requests.isEmpty)
+        do { _ = try await coordinator.execute(.status(sessionID: nil), conversationTurnIdentifier: nil, authorized: false)
+            Issue.record("closed coordinator rejects new work")
+        } catch { #expect(error is PaceCodingError) }
+    }
+
     @Test func cancelDuringTurnStartInterruptsNewIdentityAfterResponseInsteadOfLosingRequest() async throws {
         let (directory, store, transport, _, coordinator) = try fixture()
         await transport.suspendTurnStart()
@@ -261,17 +438,26 @@ struct PaceCodingSessionTests {
 }
 
 
+private actor CodingApprovalGate {
+    private var continuation: CheckedContinuation<PaceActionApprovalDecision, Never>?
+    var isWaiting: Bool { continuation != nil }
+    func wait() async -> PaceActionApprovalDecision { await withCheckedContinuation { continuation = $0 } }
+    func cancel() { continuation?.resume(returning: .cancel); continuation = nil }
+}
+
 @MainActor
 private final class CodingRoutingPlanner: BuddyPlannerClient {
     let displayName = "Fixture coding planner"
     let supportsImageInput = false
     var calls = 0
     var response = ""
+    var receivedPrompt = ""
     func resetForNewTurn() {}
     func generateResponseStreaming(images: [(data: Data, label: String)], systemPrompt: String,
         conversationHistory: [(userPlaceholder: String, assistantResponse: String)], userPrompt: String,
         onTextChunk: @MainActor @Sendable (String) -> Void) async throws -> (text: String, duration: TimeInterval) {
         calls += 1
+        receivedPrompt = userPrompt
         #expect(images.isEmpty)
         #expect(systemPrompt.contains("coding_session"))
         return (response, 0)
@@ -285,6 +471,8 @@ struct PaceCodingManagerTests {
         let planner = CodingRoutingPlanner()
         planner.response = #"{"spokenText":"Starting coding","intent":"action","payload":{"name":"coding_session","args":{"operation":"start","directory":"/tmp/fixture-repo","task":"Fix the test"}}}"#
         manager.plannerClient = planner
+        manager.codingSessionCoordinator = PaceCodingSessionCoordinator(store: PaceCodingSessionStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            eventSink: { _ in }, approve: { _ in .cancel })
         manager.textOnlyPlannerClient = planner
         manager.activePlannerTier = .local
         manager.actionExecutor = PaceActionExecutor(actionsAreEnabledOverride: true)
@@ -296,7 +484,7 @@ struct PaceCodingManagerTests {
         manager.actionExecutor.executeCodingSession = { command in
             commands.append(command); return .init(toolName: "coding_session", summary: "Coding session fixture running")
         }
-        for transcript in ["work on /tmp/fixture-repo with Codex and fix the test", "Start a Codex session in /tmp/fixture-repo and fix the test"] {
+        for transcript in ["work on /tmp/fixture-repo with Codex and fix the test", "Start a retained coding session in /tmp/fixture-repo and fix the test"] {
             manager.beginConversationRequest(transcript)
             let lease = manager.turnLeaseRegistry.beginTurn()
             await manager.sendTranscriptToPlannerWithScreenshotAsync(transcript: transcript, turnLease: lease)
@@ -324,6 +512,8 @@ struct PaceCodingManagerTests {
         let planner = CodingRoutingPlanner()
         planner.response = #"{"spokenText":"Starting","intent":"action","payload":{"name":"coding_session","args":{"operation":"start","directory":"/tmp/fixture-repo","task":"Fix test"}}}"#
         manager.plannerClient = planner
+        manager.codingSessionCoordinator = PaceCodingSessionCoordinator(store: PaceCodingSessionStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            eventSink: { _ in }, approve: { _ in .cancel })
         manager.activePlannerTier = .local
         manager.actionExecutor = PaceActionExecutor(actionsAreEnabledOverride: true)
         var executions = 0
@@ -332,7 +522,7 @@ struct PaceCodingManagerTests {
             manager.turnLeaseRegistry.invalidateCurrentTurn()
             return .allowOnce
         }
-        let transcript = "work on repo with Codex and fix test"
+        let transcript = "work on /tmp/fixture-repo with Codex and fix test"
         manager.beginConversationRequest(transcript)
         let lease = manager.turnLeaseRegistry.beginTurn()
         await manager.sendTranscriptToPlannerWithScreenshotAsync(transcript: transcript, turnLease: lease)
@@ -368,6 +558,86 @@ struct PaceCodingManagerTests {
         #expect(!speech.spokenTexts.contains { $0.contains("C80E9056") || $0.contains("/tmp/") })
         #expect(persister.events.values.contains { $0.text == short + "\n\n" + message })
         #expect(CompanionManager.shortCodingAcknowledgement(message + "\n" + message) == "You have 2 retained coding sessions. Their details are in chat.")
+    }
+
+    @Test func routingKeepsQuestionsAndWarpLaunchesOnTheirExistingPaths() {
+        for request in ["work on ~/projects/app with Codex and fix tests", "start a retained coding session in /tmp/app and add tests", "resume the coding task and add tests", "please continue my coding session with a new test"] {
+            #expect(PaceCodingPower.requestsRetainedCoding(request))
+        }
+        for request in ["How do I fix a corrupted git repository?", "change my GitHub repository visibility", "What is a coding session?", "show the coding task on my screen", "open a codex session to fix tests in ~/proj", "start Codex in ~/projects/app", "launch Codex in Warp", "Start a Codex session in /tmp/app and fix tests"] {
+            #expect(!PaceCodingPower.requestsRetainedCoding(request))
+        }
+    }
+
+    @Test func foregroundCancellationCannotCancelApprovedStartupAndUnrelatedCloseDoesNotInterruptIt() async throws {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("PaceCodingBackground-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        let transport = CodingFixtureTransport()
+        await transport.suspendTurnStart()
+        let store = PaceCodingSessionStore(directory: workspace.appendingPathComponent("state"))
+        manager.codingSessionCoordinator = PaceCodingSessionCoordinator(store: store, transportFactory: { _ in transport }, eventSink: { _ in }, approve: { _ in .cancel })
+        let foreground = Task { try await manager.performOwnedCodingCommand(.start(directory: workspace.path, task: "Fix task"), conversationTurnIdentifier: "original", authorized: true) }
+        let deadline = Date().addingTimeInterval(3)
+        while !(await transport.isTurnStartSuspended), Date() < deadline { try await Task.sleep(for: .milliseconds(1)) }
+        foreground.cancel()
+        manager.dismissCodingApprovals()
+        await transport.resumeTurnStart()
+        _ = try await foreground.value
+        #expect(try store.load().first?.state == .running)
+        #expect(await transport.shutdownCount == 0)
+        #expect(await transport.requests.filter { $0.0 == "turn/interrupt" }.isEmpty)
+        await manager.codingSessionCoordinator.shutdown()
+    }
+
+    @Test func spokenResumeReceivesOwnedSessionMetadataWithoutOldTaskOrTranscript() async throws {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PaceVoiceResume-" + UUID().uuidString)
+        let store = PaceCodingSessionStore(directory: directory.appendingPathComponent("state"))
+        let saved = PaceCodingSessionSnapshot(id: .init(), directory: directory, threadID: .init(rawValue: "retained-thread"),
+            lastTurnID: nil, conversationTurnIdentifier: "PRIVATE_PRIOR_EVENT", state: .completed, updatedAt: Date())
+        try store.save([saved])
+        manager.codingSessionCoordinator = PaceCodingSessionCoordinator(store: store, eventSink: { _ in }, approve: { _ in .cancel })
+        let planner = CodingRoutingPlanner()
+        planner.response = "{\"spokenText\":\"Resuming\",\"intent\":\"action\",\"payload\":{\"name\":\"coding_session\",\"args\":{\"operation\":\"resume\",\"sessionID\":\"\(saved.id.rawValue.uuidString)\",\"task\":\"Add tests\"}}}"
+        manager.plannerClient = planner
+        manager.activePlannerTier = .local
+        manager.actionExecutor = PaceActionExecutor(actionsAreEnabledOverride: true)
+        manager.actionApprovalPresentationOverride = { _ in .allowOnce }
+        var resumed: PaceCodingSessionCommand?
+        manager.actionExecutor.executeCodingSession = { command in resumed = command; return .init(toolName: "coding_session", summary: "Resumed.") }
+        let request = "resume the coding task and add tests"
+        manager.beginConversationRequest(request)
+        let lease = manager.turnLeaseRegistry.beginTurn()
+        await manager.sendTranscriptToPlannerWithScreenshotAsync(transcript: request, turnLease: lease)
+        #expect(resumed == .resume(sessionID: saved.id, task: "Add tests"))
+        #expect(planner.receivedPrompt.contains(saved.id.rawValue.uuidString))
+        #expect(planner.receivedPrompt.contains(directory.lastPathComponent))
+        #expect(!planner.receivedPrompt.contains("PRIVATE_PRIOR_EVENT"))
+    }
+
+    @Test func closingAnUnrelatedExplanationCannotInterruptAwaitingBackgroundCoding() async throws {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PaceCodingModal-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let store = PaceCodingSessionStore(directory: directory.appendingPathComponent("state"))
+        let transport = CodingFixtureTransport()
+        let approval = CodingApprovalGate()
+        manager.codingSessionCoordinator = PaceCodingSessionCoordinator(store: store, transportFactory: { _ in transport },
+            eventSink: { _ in }, approve: { _ in await approval.wait() })
+        _ = try await manager.performOwnedCodingCommand(.start(directory: directory.path, task: "Task"), conversationTurnIdentifier: "owned", authorized: true)
+        await transport.send("item/commandExecution/requestApproval", params: ["threadId": .string("thread-owned"), "turnId": .string("turn-1"),
+            "itemId": .string("checkpoint"), "kind": .string("humanCommand"), "command": .string("swift test"), "cwd": .string(directory.path)], id: .number(9))
+        let deadline = Date().addingTimeInterval(3)
+        while !(await approval.isWaiting), Date() < deadline { try await Task.sleep(for: .milliseconds(1)) }
+        #expect(await approval.isWaiting)
+        #expect(!manager.codingApprovalIsPresented)
+        manager.dismissCodingApprovals()
+        try await Task.sleep(for: .milliseconds(10))
+        #expect(try store.load().first?.state == .awaitingApproval)
+        #expect(await transport.requests.filter { $0.0 == "turn/interrupt" }.isEmpty)
+        await approval.cancel()
+        await manager.codingSessionCoordinator.shutdown()
     }
 
 }
