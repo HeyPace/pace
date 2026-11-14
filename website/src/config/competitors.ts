@@ -26,6 +26,9 @@ export type License =
 export interface Competitor {
   /** Display name. */
   name: string;
+  /** Optional source-checked decision guide for the dedicated page. */
+  detailFragment?: string;
+  rechecked?: string;
   /**
    * URL slug for the dedicated /compared/<slug> page. Must equal the
    * anchor id used on the /compared hub so hub anchors and per-page
@@ -91,25 +94,21 @@ export const competitors: Competitor[] = [
   {
     name: "OpenFelix",
     slug: "openfelix",
+    detailFragment: "comparison-openfelix",
+    rechecked: "15 November 2026",
     angle: "MCP + journals vs cron + proactive alerts",
     tagline: "Voice-first AI agent for macOS that actually runs locally.",
     author: "fspecii / @AmbsdOP",
     url: "https://github.com/fspecii/openfelix",
-    openSource: true,
-    license: "Apache-2.0",
-    posture: "on-device",
-    stt: "On-device (Option+Space)",
-    reasoner: "MLX (Qwen / Mistral)",
-    tts: "Local",
+    openSource: false,
+    license: "No license yet",
+    posture: "hybrid",
+    stt: "Voice input documented; verify selected provider",
+    reasoner: "Local MLX or cloud backends",
+    tts: "Voice output documented; verify configuration",
     screenAware: true,
-    standoutFeatures: [
-      "Cron jobs — schedule tasks with `daily@09:00`, `every:30m`, `once:ISO8601`.",
-      "Proactive alerts pushed to Telegram, Discord, and Slack.",
-      "Music generation via ACE-Step and YouTube spoken summaries.",
-      "Skill system that extends the agent to anything.",
-    ],
-    paceDiffers:
-      "Pace has MCP integration, a recipe library, and passive time-understanding journals (screen watch + app usage). OpenFelix leans into scheduled + proactive surfaces Pace doesn't ship yet.",
+    standoutFeatures: ["README documents shared OpenClaw skills and configuration.", "Scheduling and proactive alerts are documented.", "Local MLX and cloud backends are available; README recommends cloud for reliable tools.", "README labels the app an early-stage prototype."],
+    paceDiffers: "OpenFelix emphasizes OpenClaw skills, scheduling and proactive alerts with local or cloud models. HeyPace offers a text-first public preview with local-model and optional external-planner paths; its voice acceptance remains unverified.",
   },
   {
     name: "ORB",
@@ -181,7 +180,9 @@ export const competitors: Competitor[] = [
   {
     name: "Cursor Voice",
     slug: "cursor-voice",
-    angle: "fully on-device vs OpenAI Realtime per turn",
+    detailFragment: "comparison-cursor-voice",
+    rechecked: "15 November 2026",
+    angle: "Realtime voice sessions vs text-first local-model preview",
     tagline: "Native macOS voice assistant next to your cursor, powered by OpenAI Realtime API.",
     author: "cursorvoice",
     url: "https://github.com/cursorvoice/cursor-voice",
@@ -192,13 +193,8 @@ export const competitors: Competitor[] = [
     reasoner: "OpenAI Realtime API (gpt-realtime)",
     tts: "OpenAI Realtime API (built-in voices)",
     screenAware: true,
-    standoutFeatures: [
-      "Barge-in with echo rejection — interrupt the AI mid-response by talking over it.",
-      "On-device wake word (\"Hey Cursor\") via SFSpeechRecognizer, then cloud Realtime API for the conversation.",
-      "Built-in web_search tool without requiring an API key.",
-    ],
-    paceDiffers:
-      "Pace is fully on-device; Cursor Voice round-trips every turn through OpenAI's Realtime API. Cursor Voice has barge-in and wake word — both things Pace lacks. Pace wins on privacy and zero per-turn cost.",
+    standoutFeatures: ["README documents spoken interruption of Realtime responses.", "Optional on-device wake word, with active-session audio routed to OpenAI.", "Screen tools, local persistent memory and a Keychain-stored API key."],
+    paceDiffers: "Cursor Voice documents OpenAI Realtime conversations, interruption and a local wake word. HeyPace offers local-model and optional external-planner paths, but its public 0.3.20 preview is text-first and voice acceptance remains unverified.",
   },
   {
     name: "Dottie",
@@ -225,24 +221,21 @@ export const competitors: Competitor[] = [
   {
     name: "Fazm",
     slug: "fazm",
-    angle: "on-device speech vs Deepgram-cloud STT/TTS",
+    detailFragment: "comparison-fazm",
+    rechecked: "15 November 2026",
+    angle: "browser workflow and hosted backend vs local-model evaluation",
     tagline: "The fastest AI computer agent — controls your browser, writes code, handles documents.",
     author: "mediar-ai",
     url: "https://github.com/mediar-ai/fazm",
     openSource: true,
     license: "MIT",
     posture: "hybrid",
-    stt: "Deepgram Nova-3 (streaming WebSocket)",
-    reasoner: "Claude (via ACP bridge)",
-    tts: "Deepgram Aura (7 languages)",
+    stt: "Not verified for the current release",
+    reasoner: "Hosted backend documented; Claude ACP bridge in source",
+    tts: "Not verified for the current release",
     screenAware: true,
-    standoutFeatures: [
-      "Controls 300+ macOS apps via the Accessibility API — not screenshots, the structured UI tree.",
-      "Multi-language architecture: Swift desktop + TypeScript ACP bridge + Rust backend.",
-      "Real Chrome session automation — Gmail, Drive, Docs, Sheets, Calendar, WhatsApp.",
-    ],
-    paceDiffers:
-      "Fazm uses the Accessibility API for screen understanding (more reliable, more token-efficient than Pace's VLM-screenshot approach). But Fazm's STT and TTS go through Deepgram's cloud despite 'local' marketing. Pace is fully on-device, including speech.",
+    standoutFeatures: ["README demonstrates browser, document and Google Apps workflows.", "Swift desktop app with a TypeScript Claude ACP bridge.", "Build instructions document a hosted backend bootstrap and authenticated model-key access."],
+    paceDiffers: "Fazm emphasizes browser and document workflows and documents a hosted backend setup. HeyPace offers local-model and explicitly selected external-planner paths. This source comparison establishes no speed or reliability winner.",
   },
   {
     name: "Vox",
@@ -357,7 +350,9 @@ export const competitors: Competitor[] = [
   {
     name: "Cyclop One",
     slug: "cyclop-one",
-    angle: "on-device inference vs Claude-powered desktop automation",
+    detailFragment: "comparison-cyclop-one",
+    rechecked: "15 November 2026",
+    angle: "Claude desktop plugins vs local-model evaluation",
     tagline: "Autonomous macOS desktop agent powered by Claude vision.",
     author: "cyclop-one",
     url: "https://github.com/cyclop-one/cyclop-one",
@@ -373,8 +368,7 @@ export const competitors: Competitor[] = [
       "Markdown skills and a JSON-over-stdio plugin protocol.",
       "Persistent procedural memory plus remote-control integrations.",
     ],
-    paceDiffers:
-      "Pace runs its default reasoning and vision stack on-device; Cyclop One requires the Claude API but has a more explicit plugin and remote-control architecture.",
+    paceDiffers: "HeyPace offers local-model and optional external-planner paths in a text-first public preview. Cyclop One documents Claude-powered desktop automation, plugins and remote integrations; neither is runtime-qualified by this source comparison.",
   },
   {
     name: "Peepbox",
