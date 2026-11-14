@@ -710,7 +710,9 @@ extension CompanionManager {
                     tier: activePlannerTier, upstream: activePlannerTierCLIDirectUpstream,
                     hasAcceptedDirectSpawnConsent: PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
                     canRunDirectSpawnTurn: PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date()),
-                    everydaySystemPrompt: everydaySystemPromptForTurn)
+                    everydaySystemPrompt: everydaySystemPromptForTurn,
+                    everydayQuestion: PaceEverydayQuestion(currentQuestion: transcript),
+                    fastEverydayAnswersEnabled: fastEverydayAnswersEnabled)
                 plannerForTextOnlyTurn.resetForNewTurn()
                 print("🧠 Text-only planner: using \(plannerForTextOnlyTurn.displayName)")
 
@@ -1285,17 +1287,28 @@ extension CompanionManager {
     /// its own turn (drives the response overlay + TTS + voiceState),
     /// mirroring `handleWatchModeCommand`.
     func handleVisualFindCommand(_ command: PaceVisualFindCommand, transcript: String) {
+        let turnLease = turnLeaseRegistry.currentLease
+        let dismissalGeneration = diagramOverlayController.dismissalGeneration
         let searchQuery = command.searchQuery
         currentResponseTask = Task { [weak self] in
-            guard let self else { return }
+            guard let self, self.isActiveTurn(turnLease) else { return }
             self.voiceState = .responding
 
             let spokenText: String
             do {
+                guard self.useLocalVLMForScreenContext else {
+                    throw NSError(domain: "PaceVisualFind", code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Turn on Read My Screen to find text on screen."])
+                }
                 let outcome = try await PaceVisualFindService.findAndMark(
                     query: searchQuery,
                     overlayController: self.annotationOverlayController,
-                    visionOCRClient: self.visionOCRClient
+                    visionOCRClient: self.visionOCRClient,
+                    isCurrentTurn: { [weak self] in
+                        guard let self else { return false }
+                        return self.isActiveTurn(turnLease) && self.useLocalVLMForScreenContext
+                            && self.diagramOverlayController.dismissalGeneration == dismissalGeneration
+                    }
                 )
                 spokenText = PaceVisualFindService.spokenConfirmation(
                     query: searchQuery,
@@ -1305,22 +1318,24 @@ extension CompanionManager {
             } catch is CancellationError {
                 return
             } catch {
-                guard !Task.isCancelled else { return }
+                guard self.isActiveTurn(turnLease) else { return }
                 print("⚠️ Visual-find capture failed: \(error.localizedDescription)")
-                spokenText = "i couldn't read your screen to search for \(searchQuery)."
+                spokenText = self.useLocalVLMForScreenContext
+                    ? "i couldn't read your screen to search for \(searchQuery)."
+                    : "Turn on Read My Screen to find text on screen."
             }
 
-            guard !Task.isCancelled else { return }
+            guard self.isActiveTurn(turnLease) else { return }
 
             self.currentTurnHUDState = .done(spokenText)
             self.recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
             self.responseOverlayManager.showOverlayAndBeginStreaming()
             self.responseOverlayManager.updateStreamingText(spokenText)
             await self.streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
-            while self.ttsClient.isPlaying {
+            while self.ttsClient.isPlaying && self.isActiveTurn(turnLease) {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
-            guard !Task.isCancelled else { return }
+            guard self.isActiveTurn(turnLease) else { return }
             self.responseOverlayManager.finishStreaming()
             self.voiceState = .idle
             if self.isWalkingAvatarEnabled {

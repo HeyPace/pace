@@ -15,9 +15,23 @@ enum PaceTextAnswerPurpose: Equatable {
             prediction.confidence >= PaceIntentPrediction.confidenceEscalationThreshold,
             !hasScreenSuggestion, !hasActiveVisualContext,
             !hasHistoryDependentQuestion(transcript),
+            !requiresCurrentOrActionContext(transcript),
             !PaceTeachingPower.prefersVisualExplanation(transcript)
         else { return .selectedPlanner }
         return .boundedEverydayAnswer
+    }
+
+    private static func requiresCurrentOrActionContext(_ transcript: String) -> Bool {
+        let words = Set(transcript.lowercased().split { $0.isWhitespace || $0.isPunctuation }.map(String.init))
+        let contextualWords: Set<String> = [
+            "calendar", "email", "emails", "mail", "file", "files", "folder", "folders", "project", "projects",
+            "repo", "repository", "coding", "codex", "session", "sessions", "task", "tasks", "code", "edit",
+            "open", "click", "type", "run", "cancel", "resume", "status", "screen", "display", "cursor",
+            "weather", "news", "today", "tomorrow", "yesterday", "now", "current", "currently", "latest",
+            "time", "date", "price", "prices", "stock", "president", "ceo", "remember", "recall", "said",
+            "meeting", "meetings", "reminder", "reminders", "research", "search", "browse", "look",
+        ]
+        return !words.isDisjoint(with: contextualWords)
     }
 
     private static func hasHistoryDependentQuestion(_ transcript: String) -> Bool {
@@ -46,7 +60,9 @@ extension BuddyPlannerClientFactory {
         upstream: PaceLocalCLIUpstream,
         hasAcceptedDirectSpawnConsent: Bool,
         canRunDirectSpawnTurn: Bool,
-        everydaySystemPrompt: String
+        everydaySystemPrompt: String,
+        everydayQuestion: PaceEverydayQuestion? = nil,
+        fastEverydayAnswersEnabled: Bool = false
     ) -> any BuddyPlannerClient {
         guard purpose == .boundedEverydayAnswer,
             tier == .cliDirect, upstream == .codex,
@@ -56,6 +72,16 @@ extension BuddyPlannerClientFactory {
             let selectedCodexPlanner = selectedPlanner as? PaceLocalCLIPlannerClient,
             selectedCodexPlanner.allowsBoundedEverydayAnswers
         else { return selectedPlanner }
+        if fastEverydayAnswersEnabled, let everydayQuestion {
+            return PaceBoundedTextAnswerPlanner(
+                everydayClient: PaceOpenAIResponsesEverydayClient(isAuthorized: {
+                    PacePlannerTierStore.fastEverydayAnswersEnabled()
+                        && PacePlannerTierStore.loadConfiguration().tier == .cliDirect
+                        && PacePlannerTierStore.loadConfiguration().cliDirectUpstream == .codex
+                        && PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent()
+                        && PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+                }), question: everydayQuestion, selectedPlanner: selectedPlanner)
+        }
         // This factory owns both ends of the completed-turn delivery contract.
         let everydayPlanner = PaceLocalCLIPlannerClient(
             upstream: .codex, modelIdentifier: "gpt-6-luna", codexReasoningEffort: .low,
@@ -102,9 +128,11 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
         If answering reliably needs deeper reasoning, research, screen context, or prior conversation, return exactly PACE_USE_SELECTED_PLANNER as your entire response.
         """
 
-    var displayName: String { "Codex everyday answer → \(selectedPlanner.displayName)" }
+    var displayName: String { "\(everydayClient == nil ? "Codex" : "OpenAI Responses") everyday answer → \(selectedPlanner.displayName)" }
     let supportsImageInput = false
-    private let everydayPlanner: any BuddyPlannerClient
+    private let everydayPlanner: (any BuddyPlannerClient)?
+    private let everydayClient: (any PaceEverydayAnswerClient)?
+    private let everydayQuestion: PaceEverydayQuestion?
     private let selectedPlanner: any BuddyPlannerClient
     private let textDelivery: TextDelivery
     private let recordDecision: (String) -> Void
@@ -121,6 +149,8 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
                 detail: "model=gpt-6-luna effort=low selectedModel=cli-default selectedEffort=cli-default selection=classifiedSimpleAnswer decision=\(reason)")
         }
     ) {
+        self.everydayClient = nil
+        self.everydayQuestion = nil
         self.everydayPlanner = everydayPlanner
         self.selectedPlanner = selectedPlanner
         self.everydaySystemPrompt = everydaySystemPrompt
@@ -128,8 +158,23 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
         self.recordDecision = recordDecision
     }
 
+    init(everydayClient: any PaceEverydayAnswerClient, question: PaceEverydayQuestion,
+         selectedPlanner: any BuddyPlannerClient, recordDecision: @escaping (String) -> Void = { reason in
+        PaceAPIAuditLog.shared.record(subsystem: "planner.routing", operation: "text.answer.selection",
+            target: "openai.responses", durationMilliseconds: 0, outcome: "ok",
+            detail: "model=gpt-6-luna effort=none route=currentQuestionOnly decision=\(reason)")
+    }) {
+        self.everydayClient = everydayClient
+        self.everydayQuestion = question
+        self.everydayPlanner = nil
+        self.selectedPlanner = selectedPlanner
+        self.everydaySystemPrompt = PaceOpenAIResponsesEverydayClient.instructions
+        self.textDelivery = .bufferedUntilReturn
+        self.recordDecision = recordDecision
+    }
+
     func resetForNewTurn() {
-        everydayPlanner.resetForNewTurn()
+        everydayPlanner?.resetForNewTurn()
         selectedPlanner.resetForNewTurn()
     }
 
@@ -149,6 +194,9 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
         var failureEscalationReason: EscalationReason?
         do {
             // Only the factory's completed-turn client may deliver before process exit.
+            if let everydayClient, let everydayQuestion {
+                everydayResponseText = try await everydayClient.answer(everydayQuestion)
+            } else if let everydayPlanner {
             let response = try await everydayPlanner.generateResponseStreaming(
                 images: [], systemPrompt: everydaySystemPrompt + "\n\n" + Self.answerInstructions,
                 conversationHistory: conversationHistory, userPrompt: userPrompt,
@@ -164,6 +212,7 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
                     onTextChunk(completeTurnText)
                 })
             everydayResponseText = completedTurnAnswer.receivedText ?? response.text
+            } else { throw PaceEverydayAnswerError.invalidResponse }
         } catch {
             try Task.checkCancellation()
             if error is CancellationError { throw error }
@@ -189,7 +238,7 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
         recordDecision("selectedPlannerFallback=\(reason.rawValue)")
         try Task.checkCancellation()
         let response = try await selectedPlanner.generateResponseStreaming(
-            images: [], systemPrompt: systemPrompt, conversationHistory: conversationHistory,
+            images: images, systemPrompt: systemPrompt, conversationHistory: conversationHistory,
             userPrompt: userPrompt, onTextChunk: onTextChunk)
         try Task.checkCancellation()
         lastAnswerSource = .selected
@@ -198,6 +247,13 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
 
     private static func escalationReason(forFailure error: any Error) -> EscalationReason? {
         switch error {
+        case PaceEverydayAnswerError.missingKey: return .unavailable
+        case PaceEverydayAnswerError.invalidResponse: return .unexpectedOutput
+        case PaceEverydayAnswerError.httpFailure(let status): return status == 429 || status >= 500 ? .unavailable : nil
+        case let error as URLError:
+            if error.code == .timedOut { return .timedOut }
+            return [.notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost,
+                .cannotFindHost, .dnsLookupFailed].contains(error.code) ? .unavailable : nil
         case PaceCLIProcessError.emptyResponse: return .emptyAnswer
         case PaceCLIProcessError.timedOut: return .timedOut
         case PaceCLIProcessError.failed(_, let stderrExcerpt):

@@ -188,3 +188,91 @@ struct PaceVisualFindServiceTests {
         )
     }
 }
+
+
+private actor SuspendedVisualFindOCR {
+    private var continuation: CheckedContinuation<[RecognizedTextBox], any Error>?
+    var isWaiting: Bool { continuation != nil }
+
+    func wait() async throws -> [RecognizedTextBox] {
+        try await withCheckedThrowingContinuation { continuation = $0 }
+    }
+
+    func finish(_ result: Result<[RecognizedTextBox], any Error>) {
+        continuation?.resume(with: result)
+        continuation = nil
+    }
+}
+
+@MainActor
+struct PaceVisualFindOwnershipTests {
+    private func capture(identifier: UInt32 = 42, origin: CGPoint = CGPoint(x: -1000, y: -200)) -> CompanionScreenCapture {
+        CompanionScreenCapture(displayIdentifier: identifier, imageData: Data(), label: "target",
+            isCursorScreen: true, displayWidthInPoints: 1000, displayHeightInPoints: 800,
+            displayFrame: CGRect(origin: origin, size: CGSize(width: 1000, height: 800)),
+            screenshotWidthInPixels: 2000, screenshotHeightInPixels: 1600)
+    }
+
+    @Test func supersededOCRCannotSetOrClearNewerAnnotations() async throws {
+        for result in [
+            Result<[RecognizedTextBox], any Error>.success([RecognizedTextBox(text: "target", pixelBoundingBox: [20, 40, 100, 20])]),
+            .success([]), .failure(CancellationError())
+        ] {
+            let gate = SuspendedVisualFindOCR()
+            let overlay = PaceAnnotationOverlayController()
+            var ownsTurn = true
+            let source = capture()
+            let task = Task { @MainActor in
+                try await PaceVisualFindService.findAndMark(query: "target", overlayController: overlay,
+                    visionOCRClient: PaceVisionOCRClient(recognizeTextOperation: { _, _, _ in try await gate.wait() }),
+                    isCurrentTurn: { ownsTurn }, captureScreens: { [source] })
+            }
+            while !(await gate.isWaiting) { await Task.yield() }
+            ownsTurn = false
+            let newer = PaceRenderedAnnotation(geometry: .rect(.zero), style: .default, screenIndex: 1)
+            overlay.setAnnotations([newer])
+            await gate.finish(result)
+            do { _ = try await task.value; Issue.record("obsolete find must cancel") }
+            catch { #expect(error is CancellationError) }
+            #expect(overlay.activeAnnotations == [newer])
+        }
+    }
+
+    @Test func cancelledCaptureCannotBeginOCRorChangeLayer() async throws {
+        let gate = SuspendedVisualFindOCR()
+        let overlay = PaceAnnotationOverlayController()
+        let source = capture()
+        let task = Task { @MainActor in
+            try await PaceVisualFindService.findAndMark(query: "target", overlayController: overlay,
+                visionOCRClient: PaceVisionOCRClient(recognizeTextOperation: { _, _, _ in
+                    Issue.record("OCR must not begin after cancelled capture"); return []
+                }), isCurrentTurn: { true }, captureScreens: { _ = try await gate.wait(); return [source] })
+        }
+        while !(await gate.isWaiting) { await Task.yield() }
+        task.cancel()
+        let newer = PaceRenderedAnnotation(geometry: .rect(.zero), style: .default, screenIndex: 1)
+        overlay.setAnnotations([newer])
+        await gate.finish(.success([]))
+        do { _ = try await task.value; Issue.record("cancelled find must throw") }
+        catch { #expect(error is CancellationError) }
+        #expect(overlay.activeAnnotations == [newer])
+    }
+
+    @Test func sourceDisplaySurvivesCaptureOrderAndNegativeScaledOrigins() async throws {
+        let overlay = PaceAnnotationOverlayController()
+        let source = capture()
+        _ = try await PaceVisualFindService.findAndMark(query: "target", overlayController: overlay,
+            visionOCRClient: PaceVisionOCRClient(recognizeTextOperation: { _, _, _ in
+                [RecognizedTextBox(text: "target", pixelBoundingBox: [20, 40, 100, 20])]
+            }), isCurrentTurn: { true }, captureScreens: { [source] })
+        let rendered = try #require(overlay.activeAnnotations.first)
+        #expect(rendered.sourceDisplayIdentifier == 42)
+        #expect(rendered.belongsToDisplay(identifier: 42, frame: source.displayFrame, legacyScreenIndex: 2))
+        #expect(!rendered.belongsToDisplay(identifier: 42, frame: .zero, legacyScreenIndex: 1))
+        #expect(!rendered.belongsToDisplay(identifier: 99, frame: source.displayFrame, legacyScreenIndex: 1))
+        if case .rect(let rectangle) = rendered.geometry {
+            #expect(rectangle.minX == -992)
+            #expect(rectangle.minY == 568)
+        } else { Issue.record("expected a rectangle") }
+    }
+}

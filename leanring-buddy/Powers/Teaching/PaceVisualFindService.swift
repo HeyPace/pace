@@ -49,12 +49,18 @@ enum PaceVisualFindService {
     static func findAndMark(
         query: String,
         overlayController: PaceAnnotationOverlayController,
-        visionOCRClient: PaceVisionOCRClient
+        visionOCRClient: PaceVisionOCRClient,
+        isCurrentTurn: @escaping @MainActor () -> Bool,
+        captureScreens: @MainActor () async throws -> [CompanionScreenCapture] = {
+            try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+        }
     ) async throws -> (totalMatches: Int, renderedMatches: Int) {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else { return (0, 0) }
 
-        let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+        try requireCurrentTurn(isCurrentTurn)
+        let screenCaptures = try await captureScreens()
+        try requireCurrentTurn(isCurrentTurn)
 
         // Order captures cursor-screen-first so, when we hit the render
         // cap, the "first 20" are on the screen the user is looking at.
@@ -68,11 +74,12 @@ enum PaceVisualFindService {
             // Same OCR call the screen-context service makes: screenshot
             // bytes + the capture's screenshot pixel dimensions in,
             // top-left-origin pixel bboxes out.
-            let recognizedBoxes = (try? await visionOCRClient.recognizeText(
+            let recognizedBoxes = try await visionOCRClient.recognizeText(
                 in: capture.imageData,
                 screenshotWidthInPixels: capture.screenshotWidthInPixels,
                 screenshotHeightInPixels: capture.screenshotHeightInPixels
-            )) ?? []
+            )
+            try requireCurrentTurn(isCurrentTurn)
 
             let matchingBoxes = matchBoxes(query: trimmedQuery, in: recognizedBoxes)
             let oneBasedScreenIndex = captureIndex + 1
@@ -85,6 +92,7 @@ enum PaceVisualFindService {
         guard totalMatchCount > 0 else {
             // No matches — make sure any stale annotation layer is gone so
             // the user isn't confused by leftover rectangles.
+            try requireCurrentTurn(isCurrentTurn)
             overlayController.clear(reason: "visual-find: no matches")
             return (0, 0)
         }
@@ -116,12 +124,20 @@ enum PaceVisualFindService {
                     strokeWidth: PaceAnnotationStyle.default.strokeWidth,
                     filled: false
                 ),
-                screenIndex: match.screenIndex
+                screenIndex: match.screenIndex,
+                sourceDisplayIdentifier: match.capture.displayIdentifier,
+                sourceDisplayFrame: match.capture.displayFrame
             )
         }
 
+        try requireCurrentTurn(isCurrentTurn)
         overlayController.setAnnotations(renderedAnnotations)
         return (totalMatchCount, renderedAnnotations.count)
+    }
+
+    private static func requireCurrentTurn(_ isCurrentTurn: @MainActor () -> Bool) throws {
+        try Task.checkCancellation()
+        guard isCurrentTurn() else { throw CancellationError() }
     }
 
     // MARK: - Pure, testable helpers

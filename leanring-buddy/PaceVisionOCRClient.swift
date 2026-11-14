@@ -96,77 +96,91 @@ final class PaceVisionOCRClient {
                 screenshotImageData, screenshotWidthInPixels, screenshotHeightInPixels
             )
         }
-        return try await Task.detached(priority: .userInitiated) { [recognitionLevel, resolvedRecognitionLanguages] in
-            try await withCheckedThrowingContinuation { continuation in
-                // Vision's synchronous perform call must not occupy the UI actor.
-                let request = VNRecognizeTextRequest { request, error in
-                    if let error {
-                        continuation.resume(throwing: error)
-                        return
-                    }
-
-                    guard let observations = request.results as? [VNRecognizedTextObservation] else {
-                        continuation.resume(returning: [])
-                        return
-                    }
-
-                    let recognizedBoxes: [RecognizedTextBox] = observations.compactMap { observation in
-                        guard let topCandidate = observation.topCandidates(1).first else {
-                            return nil
-                        }
-                        let trimmedText = topCandidate.string
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !trimmedText.isEmpty else { return nil }
-
-                        // Vision normalised bbox: (0,0) is BOTTOM-left, y
-                        // grows up, all values in [0, 1]. Convert to
-                        // screenshot pixel coords with top-left origin so
-                        // it matches the VLM's coordinate space.
-                        let normalisedRect = observation.boundingBox
-                        let pixelX = Int(normalisedRect.origin.x * CGFloat(screenshotWidthInPixels))
-                        let pixelW = Int(normalisedRect.size.width * CGFloat(screenshotWidthInPixels))
-                        let pixelH = Int(normalisedRect.size.height * CGFloat(screenshotHeightInPixels))
-                        // Flip Y: top-left = imageHeight - (normalisedY + normalisedHeight) * imageHeight
-                        let pixelY = Int(
-                            (1.0 - normalisedRect.origin.y - normalisedRect.size.height)
-                                * CGFloat(screenshotHeightInPixels)
-                        )
-
-                        // NFC-normalise each box so downstream string
-                        // matching compares apples to apples (composed
-                        // diacritics vs. decomposed). Cheap to do once
-                        // here; expensive to debug later when "é" looks
-                        // identical but compares unequal.
-                        return RecognizedTextBox(
-                            text: PaceOCRPostProcessor.normalizeUnicodeForOCRComparison(trimmedText),
-                            pixelBoundingBox: [pixelX, pixelY, pixelW, pixelH]
-                        )
-                    }
-
-                    continuation.resume(returning: recognizedBoxes)
+        let cancellation = RecognitionCancellation()
+        let task = Task.detached(priority: .userInitiated) { [recognitionLevel, resolvedRecognitionLanguages] in
+            try Task.checkCancellation()
+            let request = VNRecognizeTextRequest()
+            cancellation.install(request)
+            defer { cancellation.clear() }
+            request.recognitionLevel = recognitionLevel
+            request.usesLanguageCorrection = true
+            request.recognitionLanguages = resolvedRecognitionLanguages
+            if #available(macOS 13.0, *) { request.automaticallyDetectsLanguage = true }
+            let handler = VNImageRequestHandler(data: screenshotImageData, options: [:])
+            try handler.perform([request])
+            try Task.checkCancellation()
+            let observations = request.results ?? []
+            let recognizedBoxes: [RecognizedTextBox] = observations.compactMap { observation in
+                guard let topCandidate = observation.topCandidates(1).first else {
+                    return nil
                 }
-                request.recognitionLevel = recognitionLevel
-                request.usesLanguageCorrection = true
-                request.recognitionLanguages = resolvedRecognitionLanguages
-                // macOS 13+ — Vision detects which language each text block
-                // is in and routes accordingly. Lets a mixed-language UI
-                // (English app chrome + German document body) get both
-                // halves right without us pre-classifying.
-                if #available(macOS 13.0, *) {
-                    request.automaticallyDetectsLanguage = true
-                }
+                let trimmedText = topCandidate.string
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedText.isEmpty else { return nil }
 
-                let imageRequestHandler = VNImageRequestHandler(
-                    data: screenshotImageData,
-                    options: [:]
+                // Vision normalised bbox: (0,0) is BOTTOM-left, y
+                // grows up, all values in [0, 1]. Convert to
+                // screenshot pixel coords with top-left origin so
+                // it matches the VLM's coordinate space.
+                let normalisedRect = observation.boundingBox
+                let pixelX = Int(normalisedRect.origin.x * CGFloat(screenshotWidthInPixels))
+                let pixelW = Int(normalisedRect.size.width * CGFloat(screenshotWidthInPixels))
+                let pixelH = Int(normalisedRect.size.height * CGFloat(screenshotHeightInPixels))
+                // Flip Y: top-left = imageHeight - (normalisedY + normalisedHeight) * imageHeight
+                let pixelY = Int(
+                    (1.0 - normalisedRect.origin.y - normalisedRect.size.height)
+                        * CGFloat(screenshotHeightInPixels)
                 )
-                do {
-                    try imageRequestHandler.perform([request])
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+
+                // NFC-normalise each box so downstream string
+                // matching compares apples to apples (composed
+                // diacritics vs. decomposed). Cheap to do once
+                // here; expensive to debug later when "é" looks
+                // identical but compares unequal.
+                return RecognizedTextBox(
+                    text: PaceOCRPostProcessor.normalizeUnicodeForOCRComparison(trimmedText),
+                    pixelBoundingBox: [pixelX, pixelY, pixelW, pixelH]
+                )
             }
-        }.value
+
+            return recognizedBoxes
+        }
+        return try await withTaskCancellationHandler {
+            let result = try await task.value
+            try Task.checkCancellation()
+            return result
+        } onCancel: {
+            cancellation.cancel()
+            task.cancel()
+        }
+    }
+}
+
+private final class RecognitionCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var request: VNRecognizeTextRequest?
+    private var isCancelled = false
+
+    func install(_ request: VNRecognizeTextRequest) {
+        lock.lock()
+        self.request = request
+        let shouldCancel = isCancelled
+        lock.unlock()
+        if shouldCancel { request.cancel() }
+    }
+
+    func cancel() {
+        lock.lock()
+        isCancelled = true
+        let pendingRequest = request
+        lock.unlock()
+        pendingRequest?.cancel()
+    }
+
+    func clear() {
+        lock.lock()
+        request = nil
+        lock.unlock()
     }
 }
 

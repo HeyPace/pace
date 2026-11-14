@@ -41,17 +41,31 @@ struct PaceRenderedAnnotation: Identifiable, Equatable {
     let geometry: PaceAnnotationAppKitGeometry
     let style: PaceAnnotationStyle
     let screenIndex: Int
+    let sourceDisplayIdentifier: UInt32
+    let sourceDisplayFrame: CGRect?
 
     init(
         id: UUID = UUID(),
         geometry: PaceAnnotationAppKitGeometry,
         style: PaceAnnotationStyle,
-        screenIndex: Int
+        screenIndex: Int,
+        sourceDisplayIdentifier: UInt32 = 0,
+        sourceDisplayFrame: CGRect? = nil
     ) {
         self.id = id
         self.geometry = geometry
         self.style = style
         self.screenIndex = screenIndex
+        self.sourceDisplayIdentifier = sourceDisplayIdentifier
+        self.sourceDisplayFrame = sourceDisplayFrame
+    }
+
+    func belongsToDisplay(identifier: UInt32, frame: CGRect, legacyScreenIndex: Int) -> Bool {
+        if sourceDisplayIdentifier != 0 {
+            return sourceDisplayIdentifier == identifier && (sourceDisplayFrame == nil || sourceDisplayFrame == frame)
+        }
+        if let sourceDisplayFrame { return sourceDisplayFrame == frame }
+        return screenIndex == legacyScreenIndex
     }
 }
 
@@ -287,7 +301,9 @@ enum PaceAnnotationActionDrainer {
             PaceRenderedAnnotation(
                 geometry: convertShapeToAppKitGeometry(shape, on: targetScreenCapture),
                 style: shape.style,
-                screenIndex: resolvedScreenIndex
+                screenIndex: resolvedScreenIndex,
+                sourceDisplayIdentifier: targetScreenCapture.displayIdentifier,
+                sourceDisplayFrame: targetScreenCapture.displayFrame
             )
         }
         overlayController.setAnnotations(renderedAnnotations)

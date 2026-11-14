@@ -1066,6 +1066,8 @@ final class CompanionManager: ObservableObject {
         PacePlannerTierStore.loadConfiguration().cliDirectUpstream
     }()
 
+    @Published var fastEverydayAnswersEnabled = PacePlannerTierStore.fastEverydayAnswersEnabled()
+
     /// The provider Direct-API turns will target when tier == .directAPI.
     @Published var directAPIProvider: PaceDirectAPIProvider = {
         PacePlannerTierStore.loadConfiguration().directAPIProvider

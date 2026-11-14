@@ -125,6 +125,14 @@ private enum PlannerTierUserDefaultsKey: String {
 // MARK: - PacePlannerTierStore
 
 enum PacePlannerTierStore {
+    static func fastEverydayAnswersEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: "pace.planner.fastEverydayAnswersEnabled")
+    }
+
+    static func setFastEverydayAnswersEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(enabled, forKey: "pace.planner.fastEverydayAnswersEnabled")
+    }
+
 
     // MARK: First-launch detection
 

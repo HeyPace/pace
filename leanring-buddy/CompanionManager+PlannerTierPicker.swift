@@ -10,6 +10,11 @@ import Foundation
 
 @MainActor
 extension CompanionManager {
+    func setFastEverydayAnswersEnabled(_ enabled: Bool) {
+        PacePlannerTierStore.setFastEverydayAnswersEnabled(enabled)
+        fastEverydayAnswersEnabled = enabled
+    }
+
 
     // MARK: - Planner tier picker state
 

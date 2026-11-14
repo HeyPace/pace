@@ -215,6 +215,12 @@ struct PacePlannerSettingsTab: View {
                 Spacer()
             }
 
+            paceSettingsToggleRow(
+                title: "Fast everyday answers",
+                subtitle: "While Codex is selected, send only simple current questions to OpenAI gpt-6-luna. Uses your OpenAI API credits. Voice stays local. Save an OpenAI key under Direct API first.",
+                isOn: Binding(get: { companionManager.fastEverydayAnswersEnabled },
+                    set: { companionManager.setFastEverydayAnswersEnabled($0) }))
+
             Text(
                 "Off-device: each turn's transcript and screen context is sent off your Mac via \(chosenUpstream.displayLabel). Usable immediately after consent; the capsule tints amber and every call is logged to the Privacy dashboard. Failures surface verbatim — no silent fallback to local."
             )

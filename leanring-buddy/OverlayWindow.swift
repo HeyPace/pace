@@ -92,6 +92,7 @@ struct BlueCursorView: View {
     /// tuition-mode annotation layer can filter to "shapes on THIS
     /// screen only".
     let screenIndex: Int
+    let sourceDisplayIdentifier: UInt32
     let isFirstAppearance: Bool
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject var annotationOverlayController: PaceAnnotationOverlayController
@@ -103,11 +104,13 @@ struct BlueCursorView: View {
     init(
         screenFrame: CGRect,
         screenIndex: Int,
+        sourceDisplayIdentifier: UInt32,
         isFirstAppearance: Bool,
         companionManager: CompanionManager
     ) {
         self.screenFrame = screenFrame
         self.screenIndex = screenIndex
+        self.sourceDisplayIdentifier = sourceDisplayIdentifier
         self.isFirstAppearance = isFirstAppearance
         self.companionManager = companionManager
         self.annotationOverlayController = companionManager.annotationOverlayController
@@ -222,7 +225,7 @@ struct BlueCursorView: View {
             // never blocks the user clicking that button.
             PaceAnnotationLayerView(
                 annotations: annotationOverlayController.activeAnnotations
-                    .filter { $0.screenIndex == screenIndex },
+                    .filter { $0.belongsToDisplay(identifier: sourceDisplayIdentifier, frame: screenFrame, legacyScreenIndex: screenIndex) },
                 pixelToLocal: { appKitPoint in
                     convertScreenPointToSwiftUICoordinates(appKitPoint)
                 }
@@ -881,6 +884,7 @@ class OverlayWindowManager {
             let contentView = BlueCursorView(
                 screenFrame: screen.frame,
                 screenIndex: zeroBasedScreenIndex + 1,
+                sourceDisplayIdentifier: (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0,
                 isFirstAppearance: isFirstAppearance,
                 companionManager: companionManager
             )
