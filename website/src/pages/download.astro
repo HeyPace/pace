@@ -10,7 +10,7 @@ import PageEnhancements from "../components/PageEnhancements.astro";
 import releaseInfo from "../config/release-info.json";
 
 const description =
-  "Download Pace — the on-device macOS voice companion. Latest version, recent releases, and auto-update via Sparkle.";
+  "Download the HeyPace preview for Apple Silicon Macs on macOS 26. Review installation, permissions, local model setup and optional cloud planning before use.";
 
 const latest = releaseInfo.latest;
 const releases = releaseInfo.releases ?? [];
@@ -18,7 +18,7 @@ const releasesPageURL = releaseInfo.releasesPageURL;
 ---
 
 <BaseLayout
-  title="Download Pace — macOS voice companion"
+  title="Download HeyPace for Mac — voice, screen context and actions"
   description={description}
   pathname="/download"
 >
@@ -47,7 +47,7 @@ const releasesPageURL = releaseInfo.releasesPageURL;
                 <span aria-hidden="true">↓</span>
               </a>
               <div class="text-sm text-[var(--color-text-muted)] font-mono space-y-1">
-                <p>{latest.lengthMB} MB · zip</p>
+                <p>{latest.lengthMB} MB · DMG</p>
                 <p>macOS {latest.minimumSystemVersion}+ · Apple Silicon</p>
                 <p>Released {latest.displayDate}</p>
               </div>
