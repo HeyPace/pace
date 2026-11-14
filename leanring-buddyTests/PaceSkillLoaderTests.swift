@@ -13,6 +13,23 @@ import Testing
 
 struct PaceSkillLoaderTests {
 
+    @Test func preinstalledSkillsShipAsUsableBundleResources() throws {
+        let directory = try #require(Bundle.main.resourceURL?.appendingPathComponent("skills", isDirectory: true))
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasSuffix(".skill.md") }
+        let skills = try files.map { file in
+            try #require(PaceSkillLoader.parse(skillMarkdown: String(contentsOf: file, encoding: .utf8)))
+        }
+        let expected = Set(["standup-notes", "computer-use", "browser-use", "teach-on-screen", "coding-session", "research"])
+        #expect(expected.isSubset(of: Set(skills.map(\.slug))))
+        #expect(Set(skills.map(\.slug)).count == skills.count)
+        #expect(skills.allSatisfy { !$0.steps.isEmpty && !$0.description.isEmpty })
+        for skill in skills {
+            #expect(PaceSkillLoader.resolveSkillForRunRequest(requestedSlug: skill.slug,
+                requestedName: skill.name, in: skills)?.slug == skill.slug)
+        }
+    }
+
     // MARK: - Parsing
 
     /// A complete .skill.md file with frontmatter and steps parses

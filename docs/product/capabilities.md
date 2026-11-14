@@ -156,6 +156,9 @@ General → Automation:
 **Skills** — `.skill.md` files in `Resources/skills/` define reusable multi-step
 workflows that are parsed into planner prompts. Voice: "run the standup skill"
 (`PaceSkillLoader`).
+The app bundles Use Apps, Use Browser, Teach on Screen, Coding Session,
+Research and Standup Notes. They reuse the shared planner, tools, approvals
+and conversation. Additional user skills load from the local Pace skills folder.
 
 **Local automation reuse** — “list my automations” builds a non-persisted local
 catalog over bundled typed automations, bounded Pace Programs, recorded flows,
