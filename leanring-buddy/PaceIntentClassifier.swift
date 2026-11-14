@@ -172,7 +172,7 @@ final class PaceIntentClassifier {
     /// Drops a leading wake phrase plus its trailing comma/space so every
     /// rule below sees the bare intent. Only the FIRST matching prefix is
     /// stripped; "hi pace" alone stays intact (it is itself chitchat).
-    private static func strippedOfWakePhrase(_ lowercaseTranscript: String) -> String {
+    nonisolated private static func strippedOfWakePhrase(_ lowercaseTranscript: String) -> String {
         for wakePhrasePrefix in wakePhrasePrefixes {
             guard lowercaseTranscript.hasPrefix(wakePhrasePrefix + " ")
                 || lowercaseTranscript.hasPrefix(wakePhrasePrefix + ",") else {
@@ -260,7 +260,7 @@ final class PaceIntentClassifier {
     /// otherwise "Hey Pace, how is it going?" misses every chitchat
     /// pattern and pays the full screenshot+VLM+planner pipeline for a
     /// greeting.
-    private static let wakePhrasePrefixes: [String] = [
+    nonisolated private static let wakePhrasePrefixes: [String] = [
         "hey pace", "hi pace", "hello pace", "ok pace", "okay pace",
         "yo pace",
     ]
@@ -376,9 +376,18 @@ final class PaceIntentClassifier {
 
     // Match the complete current-screen question so generic knowledge and
     // historical screen questions keep their text-only route.
-    private static let currentScreenQuestionPattern = try? NSRegularExpression(
+    nonisolated private static let currentScreenQuestionPattern = try? NSRegularExpression(
         pattern: #"\Awhat(?:['’]?s| is)\s+on\s+(?:(?:my|the)\s+)?screen[.!?]*\z"#
     )
+
+    nonisolated static func isCurrentScreenQuestion(_ transcript: String) -> Bool {
+        let normalizedTranscript = strippedOfWakePhrase(
+            transcript.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        return currentScreenQuestionPattern?.firstMatch(
+            in: normalizedTranscript,
+            range: NSRange(normalizedTranscript.startIndex..., in: normalizedTranscript)
+        ) != nil
+    }
 
     private static let largeModelHints: [String] = [
         "phone a large model", "ask the big model", "use the big model",
@@ -456,10 +465,7 @@ final class PaceIntentClassifier {
             }
         }
 
-        if Self.currentScreenQuestionPattern?.firstMatch(
-            in: lowercaseTranscript,
-            range: NSRange(lowercaseTranscript.startIndex..., in: lowercaseTranscript)
-        ) != nil {
+        if Self.isCurrentScreenQuestion(transcript) {
             return PaceIntentPrediction(intent: .screenDescription, confidence: 0.95)
         }
 

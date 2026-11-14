@@ -52,13 +52,16 @@ nonisolated enum PaceActionApprovalPolicy {
     static func needsAnswerAfterInspection(_ actionExecutionPlan: PaceActionExecutionPlan) -> Bool {
         !actionExecutionPlan.flattenedActions.isEmpty
             && actionExecutionPlan.flattenedActions.allSatisfy { action in
-                guard case .mcp = action else { return false }
+                guard case .mcp(let toolCall) = action else { return false }
+                // Focus recovery changes permission requirements, but the result
+                // is still evidence that must return to the planner for an answer.
+                if toolCall.serverName == "peekaboo", toolCall.toolName == "see" { return true }
                 return permitsObservationOnly(.serial(actions: [action]))
             }
     }
 
-    static func requestsObservationOnly(_ transcript: String, intent: PaceIntent? = nil) -> Bool {
-        if intent == .screenDescription { return true }
+    static func requestsObservationOnly(_ transcript: String) -> Bool {
+        if PaceIntentClassifier.isCurrentScreenQuestion(transcript) { return true }
         let normalizedTranscript = transcript.lowercased()
             .replacingOccurrences(of: "’", with: "'")
         return [

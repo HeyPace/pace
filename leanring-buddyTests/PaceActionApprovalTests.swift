@@ -9,12 +9,26 @@ import Testing
 @testable import Pace
 
 struct PaceActionApprovalTests {
-    @Test func screenDescriptionDefaultsToObservationWithoutChangingExplicitActionIntents() {
-        for transcript in ["What's on my screen?", "Explain this checklist.", "What am I looking at?"] {
-            #expect(PaceActionApprovalPolicy.requestsObservationOnly(transcript, intent: .screenDescription))
+    @MainActor
+    @Test func exactScreenQuestionsAreObservationOnlyWithoutBlockingDescribeAndActRequests() {
+        let classifier = PaceIntentClassifier()
+        for transcript in ["What's on my screen?", "What’s on the screen?", "Hey Pace, whats on screen?"] {
+            #expect(classifier.classify(transcript).intent == .screenDescription)
+            #expect(PaceActionApprovalPolicy.requestsObservationOnly(transcript))
         }
-        #expect(!PaceActionApprovalPolicy.requestsObservationOnly("What's on my screen?"))
-        #expect(!PaceActionApprovalPolicy.requestsObservationOnly("Explain this checklist, then click Save.", intent: .screenAction))
+        for transcript in [
+            "Summarize this email and reply to Sam",
+            "Read this and add it to my reminders",
+            "Summarize this and add it to notes",
+        ] {
+            #expect(classifier.classify(transcript).intent == .screenDescription)
+            #expect(!PaceActionApprovalPolicy.requestsObservationOnly(transcript))
+        }
+        // Suggestion/diagram turns can force screen capture, but that routing
+        // override must not turn an action request into observation-only.
+        for transcript in ["Yes, fix it", "Click retry", "Explain this checklist, then click Save."] {
+            #expect(!PaceActionApprovalPolicy.requestsObservationOnly(transcript))
+        }
         for action in [
             PaceParsedAction.openApplication("Chrome"), .type("unexpected typing"),
             .click(.init(xInScreenshotPixels: 10, yInScreenshotPixels: 20, screenNumber: nil)),
@@ -36,7 +50,7 @@ struct PaceActionApprovalTests {
         let focusedInspection = PaceParsedAction.mcp(.init(
             serverName: "peekaboo", toolName: "see", arguments: ["app_target": .string("Safari"), "web_focus": .bool(true)]))
         #expect(!PaceActionApprovalPolicy.permitsObservationOnly(.serial(actions: [focusedInspection])))
-        #expect(!PaceActionApprovalPolicy.needsAnswerAfterInspection(.serial(actions: [focusedInspection])))
+        #expect(PaceActionApprovalPolicy.needsAnswerAfterInspection(.serial(actions: [focusedInspection])))
     }
 
     @Test func repeatedPartialInspectionKeepsBothExactRequestsAndReadEvidence() {

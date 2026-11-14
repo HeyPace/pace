@@ -2079,7 +2079,7 @@ extension CompanionManager {
         // headless CLI gets a research-shaped prompt instead of
         // Pace's agent-mode tool docs.
         let isResearchTurn: Bool = (researchTurnPlannerOverride != nil)
-        let requiresObservationOnly = PaceActionApprovalPolicy.requestsObservationOnly(transcript, intent: intentPrediction.intent)
+        let requiresObservationOnly = PaceActionApprovalPolicy.requestsObservationOnly(transcript)
 
         guard isActiveTurn(turnLease) else { return }
         currentResponseTask = Task {
