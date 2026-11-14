@@ -377,7 +377,7 @@ final class PaceIntentClassifier {
     // Match the complete current-screen question so generic knowledge and
     // historical screen questions keep their text-only route.
     nonisolated private static let currentScreenQuestionPattern = try? NSRegularExpression(
-        pattern: #"\Awhat(?:['’]?s| is)\s+on\s+(?:(?:my|the)\s+)?screen[.!?]*\z"#
+        pattern: #"\A(?:what(?:['’]?s| is)\s+on\s+(?:(?:my|the)\s+)?screen(?:\s+(?:right\s+)?now)?|what am i looking at)[.!?]*\z"#
     )
 
     nonisolated static func isCurrentScreenQuestion(_ transcript: String) -> Bool {

@@ -198,6 +198,21 @@ struct PaceIntentClassifierTests {
         }
     }
 
+    @Test func shippedScreenStarterPromptReadsScreenWithoutTakingControl() throws {
+        let prompt = try #require(PaceStarterPromptCatalog.prompt(forSlug: "what-is-on-screen"))
+        let prediction = PaceIntentClassifier().classify(prompt.displayText)
+        #expect(prediction.intent == .screenDescription)
+        #expect(prediction.route == .readScreen)
+        #expect(PaceActionApprovalPolicy.requestsObservationOnly(prompt.displayText))
+        for question in ["What is on my screen now?", "What am I looking at?"] {
+            #expect(PaceIntentClassifier().classify(question).route == .readScreen)
+            #expect(PaceActionApprovalPolicy.requestsObservationOnly(question))
+        }
+        for compoundRequest in ["What's on my screen right now? Then click Save.", "What am I looking at? Add it to notes."] {
+            #expect(!PaceActionApprovalPolicy.requestsObservationOnly(compoundRequest))
+        }
+    }
+
     @Test func genericScreenKnowledgeAndHistoricalQuestionsRemainTextOnly() {
         let classifier = PaceIntentClassifier()
         for question in [

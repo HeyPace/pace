@@ -12,7 +12,7 @@ struct PaceActionApprovalTests {
     @MainActor
     @Test func exactScreenQuestionsAreObservationOnlyWithoutBlockingDescribeAndActRequests() {
         let classifier = PaceIntentClassifier()
-        for transcript in ["What's on my screen?", "What’s on the screen?", "Hey Pace, whats on screen?"] {
+        for transcript in ["What's on my screen?", "What’s on the screen?", "Hey Pace, whats on screen?", "what's on my screen right now?", "What is on my screen now?", "What am I looking at?"] {
             #expect(classifier.classify(transcript).intent == .screenDescription)
             #expect(PaceActionApprovalPolicy.requestsObservationOnly(transcript))
         }
