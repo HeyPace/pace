@@ -24,7 +24,7 @@
   },
   "devDependencies": {
     "astro": "7.4.12",
-    "blume": "1.4.3",
+    "blume": "2.2.7",
     "jscpd": "5.4.3"
   },
   "pnpm": {
