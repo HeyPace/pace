@@ -75,7 +75,7 @@
     "layout": "split",
     "eyebrow": "private voice agent · apple silicon mac",
     "title": "a voice assistant that *sees your Mac.*",
-    "lede": "Hold ctrl+option, ask about the screen in front of you, and Pace can answer or take an approved action. Voice, screen understanding, and planning stay local by default. No account required.",
+    "lede": "Start with a text request about the screen in front of you, then check the answer or approved action. Choose local processing or an explicitly consented cloud planner. No account required. Voice and hotkey acceptance remain unverified in the public release.",
     "primary": {
       "label": "download the free preview",
       "href": "/download"
