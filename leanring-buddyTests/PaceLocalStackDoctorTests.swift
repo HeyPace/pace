@@ -15,6 +15,48 @@ import Testing
 
 struct PaceLocalStackDoctorTests {
 
+    private final class OfflineServiceProtocol: URLProtocol, @unchecked Sendable {
+        override class func canInit(with request: URLRequest) -> Bool { true }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+        override func startLoading() {
+            let response = HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocolDidFinishLoading(self)
+        }
+        override func stopLoading() {}
+    }
+
+    @MainActor
+    @Test func directCLIDiagnosticsDoNotRequireLMStudioPlannerOrVision() async {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OfflineServiceProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        for upstream in [PaceLocalCLIUpstream.codex, .claude] {
+            let checks = await PaceLocalStackDoctor().runChecks(plannerTier: .cliDirect,
+                cliUpstream: upstream, readMyScreenEnabled: true, urlSession: session)
+            #expect(checks.contains { $0.title == "\(upstream.displayLabel) planner" })
+            #expect(!checks.contains { ["LM Studio server", "Planner model loaded", "VLM loaded (Read My Screen)"].contains($0.title) })
+            #expect(checks.contains { $0.title == "Screen reading" && $0.status == .info })
+            let recall = checks.first { $0.title.hasPrefix("Semantic recall") }
+            #expect(recall != nil && recall?.status != .fail)
+            if recall?.status == .warn {
+                #expect(recall?.detail.contains("Keyword recall remains available") == true)
+            }
+        }
+    }
+
+    @MainActor
+    @Test func disabledScreenReadingDoesNotProbeOrAdvertiseVision() async {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OfflineServiceProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let checks = await PaceLocalStackDoctor().runChecks(plannerTier: .cliDirect,
+            cliUpstream: .codex, readMyScreenEnabled: false, urlSession: session)
+        #expect(!checks.contains { $0.title == "Screen reading" || $0.title.hasPrefix("VLM loaded") })
+    }
+
     // MARK: - embeddingsResponseStatus
 
     @Test func embeddingsResponseStatusIsOkForValidEmbeddingArray() {

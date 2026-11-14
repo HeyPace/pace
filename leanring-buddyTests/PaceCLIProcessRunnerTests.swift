@@ -179,6 +179,31 @@ struct PaceCLIProcessRunnerTests {
     }
 
     @MainActor
+    @Test func naturalCLIExitAlsoStopsDescendantsWithClosedStdout() async throws {
+        for exitStatus in [0, 23] {
+            let directory = try makePlannerFixture(lines: [codexMessage, codexCompletion],
+                cleanupDelay: 0, exitStatus: exitStatus, ignoresTermination: true,
+                inheritsStdoutInDescendant: true, descendantClosesStdout: true)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let planner = fixturePlanner(directory: directory, completionPolicy: .processExit)
+            do {
+                let response = try await planner.generateResponseStreaming(images: [], systemPrompt: "Synthetic",
+                    conversationHistory: [], userPrompt: "Synthetic", onTextChunk: { _ in })
+                #expect(exitStatus == 0 && response.text == "Accepted answer.")
+            } catch { #expect(exitStatus != 0) }
+            let descendantIdentifier = try #require(Int32(String(contentsOf:
+                directory.appendingPathComponent("descendant-pid"), encoding: .utf8)))
+            defer { kill(descendantIdentifier, SIGKILL) }
+            for _ in 0..<50 {
+                if kill(descendantIdentifier, 0) != 0 { break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            #expect(kill(descendantIdentifier, 0) != 0)
+            try expectPlannerExitedAndWorkDirectoryRemoved(directory)
+        }
+    }
+
+    @MainActor
     @Test func claudeAndExplicitProcessExitPolicyKeepNormalCleanup() async throws {
         for upstream in [PaceLocalCLIUpstream.claude, .codex] {
             let lines = upstream == .claude
@@ -219,7 +244,8 @@ struct PaceCLIProcessRunnerTests {
 
     private func makePlannerFixture(
         lines: [String], sealDelay: Double = 0, cleanupDelay: Double, exitStatus: Int = 17,
-        ignoresTermination: Bool = false, inheritsStdoutInDescendant: Bool = false
+        ignoresTermination: Bool = false, inheritsStdoutInDescendant: Bool = false,
+        descendantClosesStdout: Bool = false
     ) throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -237,6 +263,9 @@ struct PaceCLIProcessRunnerTests {
         if \(inheritsStdoutInDescendant ? "True" : "False"):
             descendant = os.fork()
             if descendant == 0:
+                if \(descendantClosesStdout ? "True" : "False"):
+                    os.close(1)
+                    os.close(2)
                 time.sleep(4)
                 os._exit(0)
             (directory / 'descendant-pid').write_text(str(descendant))

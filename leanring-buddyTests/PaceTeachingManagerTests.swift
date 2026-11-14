@@ -550,6 +550,20 @@ struct PaceTeachingManagerTests {
         #expect(manager.conversationHistory.last?.assistantResponse == "The rear nozzle directs engine thrust downwards.")
     }
 
+    @Test func captureWithoutAFollowUpKeepsTheFigureAvailableWithoutLateNarration() async throws {
+        let (manager, _, speech, planner) = try prepareEarlyPreviewTurn()
+        startTextTurn(manager, muted: false, transcript: "Explain how the F-35B hovers")
+        let responseTask = manager.currentResponseTask
+        try await waitUntil { planner.completion != nil }
+        let preview = manager.diagramOverlayController.document
+        manager.cancelActiveTurnTasks()
+        planner.fail()
+        await responseTask?.value
+        #expect(manager.diagramOverlayController.document == preview)
+        #expect(manager.pendingTeachingPreviewOwnership == nil)
+        #expect(speech.exactTexts.isEmpty && speech.spokenTexts.isEmpty)
+    }
+
     @Test func latePreviewResponseCannotReplaceOrCancelANewerTurn() async throws {
         let (manager, persister, speech, planner) = try prepareEarlyPreviewTurn()
         startTextTurn(manager, muted: false, transcript: "Explain how the F-35B hovers")

@@ -43,6 +43,7 @@ nonisolated final class PaceCLIProcessControl: @unchecked Sendable {
 
     func stop(timedOut: Bool = false) {
         lock.lock()
+        guard !hasFinished else { lock.unlock(); return }
         cancellationRequested = true
         timeoutReached = timeoutReached || timedOut
         let runningProcess = process
@@ -104,6 +105,8 @@ nonisolated final class PaceCLIProcessControl: @unchecked Sendable {
     fileprivate func finished() {
         lock.lock()
         hasFinished = true
+        ownedProcessGroup = nil
+        process = nil
         let waiters = completionWaiters
         completionWaiters.removeAll()
         lock.unlock()
@@ -185,7 +188,7 @@ nonisolated enum PaceCLIProcessRunner {
         DispatchQueue.global().asyncAfter(deadline: .now() + max(0.1, timeout), execute: timeoutWork)
         defer {
             timeoutWork.cancel()
-            if process.isRunning { processControl.stop() }
+            processControl.stop()
             process.waitUntilExit()
             processControl.waitForStoppedProcessGroup()
             try? inputPipe.fileHandleForWriting.close()
