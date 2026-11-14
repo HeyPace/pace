@@ -40,10 +40,12 @@ private final class EverydaySelectedPlanner: BuddyPlannerClient {
 
 @MainActor @Suite(.serialized)
 struct PaceEverydayAnswerClientTests {
-    private func completed(_ text: String) throws -> Data {
-        let event: [String: Any] = ["type": "response.completed", "response": ["status": "completed", "output": [
+    private func completed(_ text: String, usage: [String: Int]? = nil) throws -> Data {
+        var response: [String: Any] = ["status": "completed", "output": [
             ["type": "message", "role": "assistant", "status": "completed", "content": [["type": "output_text", "text": text]]]
-        ]]]
+        ]]
+        response["usage"] = usage
+        let event: [String: Any] = ["type": "response.completed", "response": response]
         return Data(("data: " + String(data: try JSONSerialization.data(withJSONObject: event), encoding: .utf8)! + "\n\n").utf8)
     }
 
@@ -52,6 +54,41 @@ struct PaceEverydayAnswerClientTests {
         configuration.protocolClasses = [EverydayURLProtocol.self]
         return PaceOpenAIResponsesEverydayClient(session: URLSession(configuration: configuration),
             loadKey: { "injected-test-key" }, isAuthorized: { true })
+    }
+
+    @Test func providerUsageReachesTheAuditWithoutAnotherRequest() async throws {
+        let logURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pace-everyday-usage-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+        let auditLog = PaceAPIAuditLog(logFileURL: logURL)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [EverydayURLProtocol.self]
+        let response = try completed("63", usage: ["input_tokens": 157, "output_tokens": 2])
+        var requestCount = 0
+        EverydayURLProtocol.handler = { _ in requestCount += 1; return (200, response) }
+        let answerClient = PaceOpenAIResponsesEverydayClient(session: URLSession(configuration: configuration),
+            loadKey: { "injected-test-key" }, auditLog: auditLog, isAuthorized: { true })
+        let answer = try await answerClient.answer(.init(currentQuestion: "What is seven times nine?"))
+        let entries = auditLog.readAllEntries()
+        #expect(answer == "63")
+        #expect(requestCount == 1)
+        #expect(entries.count == 1)
+        #expect(entries.first?.inputTokenCount == 157)
+        #expect(entries.first?.outputTokenCount == 2)
+        #expect(entries.first?.outputCharacterCount == 2)
+    }
+
+    @Test func unavailableUsageStaysUnknownInsteadOfBecomingZero() throws {
+        let usageSamples: [[String: Int]?] = [nil, ["input_tokens": -1, "output_tokens": -2]]
+        for usage in usageSamples {
+            var reportedInput: Int?
+            var reportedOutput: Int?
+            _ = try PaceOpenAIResponsesEverydayClient.completedAnswer(completed("63", usage: usage)) {
+                reportedInput = $0; reportedOutput = $1
+            }
+            #expect(reportedInput == nil)
+            #expect(reportedOutput == nil)
+        }
     }
 
     @Test func rawQuestionIsOnlyDynamicDataAndAcceptedOnce() async throws {

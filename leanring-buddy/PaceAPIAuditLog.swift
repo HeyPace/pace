@@ -209,7 +209,12 @@ nonisolated final class PaceAPIAuditLog: @unchecked Sendable {
         try? fileManager.moveItem(at: logFileURL, to: rotatedURL)
     }
 
-    private static func defaultLogFileURL() -> URL {
+    static func defaultLogFileURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        if environment["XCTestConfigurationFilePath"] != nil {
+            return URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+                .appendingPathComponent("pace-unit-audit-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
+                .appendingPathComponent("api-audit.jsonl")
+        }
         let applicationSupportURL = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask

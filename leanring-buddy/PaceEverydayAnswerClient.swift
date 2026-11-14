@@ -41,13 +41,16 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient {
     private let session: URLSession
     private let loadKey: () -> String?
     private let isAuthorized: () -> Bool
+    private let auditLog: PaceAPIAuditLog
 
     init(session: URLSession? = nil,
          loadKey: @escaping () -> String? = { PaceKeychainStore.loadAPIKey(for: .openai) },
+         auditLog: PaceAPIAuditLog = .shared,
          isAuthorized: @escaping () -> Bool) {
         self.session = session ?? Self.sharedSession
         self.loadKey = loadKey
         self.isAuthorized = isAuthorized
+        self.auditLog = auditLog
     }
 
     func answer(_ question: PaceEverydayQuestion) async throws -> String {
@@ -55,10 +58,16 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient {
         guard isAuthorized() else { throw PaceEverydayAnswerError.consentRevoked }
         let startedAt = Date()
         var outcome = "failed"
+        var inputTokenCount: Int?
+        var outputTokenCount: Int?
+        var outputCharacterCount: Int?
         defer {
-            PaceAPIAuditLog.shared.record(subsystem: "planner.openai.responses", operation: "everyday.answer",
+            auditLog.record(subsystem: "planner.openai.responses", operation: "everyday.answer",
                 target: Self.model, durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1000),
-                outcome: outcome, detail: "route=currentQuestionOnly model=\(Self.model) reasoning=none store=false")
+                outcome: outcome, inputCharacterCount: Self.instructions.count + question.currentQuestion.count,
+                outputCharacterCount: outputCharacterCount,
+                detail: "route=currentQuestionOnly model=\(Self.model) reasoning=none store=false",
+                inputTokenCount: inputTokenCount, outputTokenCount: outputTokenCount)
         }
         guard let key = loadKey(), !key.isEmpty else { throw PaceEverydayAnswerError.missingKey }
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/responses")!)
@@ -82,12 +91,16 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient {
         }
         try Task.checkCancellation()
         guard isAuthorized() else { throw PaceEverydayAnswerError.consentRevoked }
-        let answer = try Self.completedAnswer(data)
+        let answer = try Self.completedAnswer(data) { inputTokens, outputTokens in
+            inputTokenCount = inputTokens
+            outputTokenCount = outputTokens
+        }
+        outputCharacterCount = answer.count
         outcome = "completed"
         return answer
     }
 
-    nonisolated static func completedAnswer(_ data: Data) throws -> String {
+    nonisolated static func completedAnswer(_ data: Data, reportUsage: ((Int?, Int?) -> Void)? = nil) throws -> String {
         guard data.count <= 1_048_576, let wireText = String(data: data, encoding: .utf8) else {
             throw PaceEverydayAnswerError.invalidResponse
         }
@@ -135,6 +148,12 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient {
                 texts.append(text)
             }
         }
+        let usage = completedResponse["usage"] as? [String: Any]
+        func nonnegativeCount(_ key: String) -> Int? {
+            guard let count = usage?[key] as? Int, count >= 0 else { return nil }
+            return count
+        }
+        reportUsage?(nonnegativeCount("input_tokens"), nonnegativeCount("output_tokens"))
         return texts.joined(separator: "\n")
     }
 }
