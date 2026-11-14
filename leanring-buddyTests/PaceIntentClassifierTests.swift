@@ -182,6 +182,40 @@ struct PaceIntentClassifierTests {
         }
     }
 
+    @Test func currentScreenQuestionsReadScreenAcrossDictationVariants() {
+        let classifier = PaceIntentClassifier()
+        for questionPrefix in ["What's", "What’s", "What is", "Whats"] {
+            for screenReference in ["screen", "my screen", "the screen"] {
+                for wakePhrase in ["", "Hey Pace, ", "Okay Pace "] {
+                    let question = "\(wakePhrase)\(questionPrefix) on \(screenReference)?"
+                    let prediction = classifier.classify(question)
+                    #expect(prediction.intent == .screenDescription,
+                        "expected screenDescription for \(question), got \(prediction.intent)")
+                    #expect(prediction.route == .readScreen,
+                        "expected screen capture for \(question), got \(prediction.route)")
+                }
+            }
+        }
+    }
+
+    @Test func genericScreenKnowledgeAndHistoricalQuestionsRemainTextOnly() {
+        let classifier = PaceIntentClassifier()
+        for question in [
+            "What is screen resolution?",
+            "What's the difference between OLED and LCD screens?",
+            "How does screen recording work?",
+            "What was on my screen yesterday?",
+            "What was on the screen earlier?",
+            "Hey Pace, what was I working on this morning?",
+        ] {
+            let prediction = classifier.classify(question)
+            #expect(prediction.intent == .pureKnowledge,
+                "expected pureKnowledge for \(question), got \(prediction.intent)")
+            #expect(prediction.route == .answerDirectly,
+                "expected text-only route for \(question), got \(prediction.route)")
+        }
+    }
+
     @Test func screenActionClicks() async throws {
         let classifier = PaceIntentClassifier()
         for command in [
