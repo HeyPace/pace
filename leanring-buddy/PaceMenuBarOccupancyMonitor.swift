@@ -33,13 +33,14 @@ final class PaceMenuBarOccupancyMonitor {
     private var cachedProcessIdentifier: pid_t?
     var occupancy: PaceMenuBarOccupancy {
         guard cachedRouteRevision == PaceActiveDisplayCoordinator.shared.route.revision,
-            cachedProcessIdentifier == NSWorkspace.shared.frontmostApplication?.processIdentifier
+            cachedProcessIdentifier == NSWorkspace.shared.menuBarOwningApplication?.processIdentifier
         else { return PaceMenuBarOccupancy() }
         return cachedOccupancy
     }
     private var displayRouteObservation: AnyCancellable?
     private var refreshTimer: Timer?
     private var activationObserver: NSObjectProtocol?
+    private var menuBarOwnershipObservation: NSKeyValueObservation?
     private var refreshTask: Task<Void, Never>?
 
     func start() {
@@ -52,6 +53,13 @@ final class PaceMenuBarOccupancyMonitor {
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                self?.invalidateOccupancy()
+                self?.refresh()
+            }
+        }
+        // Show Desktop can change the menu owner without activating a different app.
+        menuBarOwnershipObservation = NSWorkspace.shared.observe(\.menuBarOwningApplication) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
                 self?.invalidateOccupancy()
                 self?.refresh()
             }
@@ -69,7 +77,7 @@ final class PaceMenuBarOccupancyMonitor {
         guard refreshTask == nil,
               let targetScreen = PaceLivingNotchScreenGeometryResolver.targetScreen(),
               PaceLivingNotchScreenGeometryResolver.geometry(for: targetScreen, displayMode: .resting) != nil,
-              let application = NSWorkspace.shared.frontmostApplication,
+              let application = NSWorkspace.shared.menuBarOwningApplication,
               let primaryScreen = NSScreen.screens.first else { return }
         let processIdentifier = application.processIdentifier
         let routeRevision = PaceActiveDisplayCoordinator.shared.route.revision
@@ -81,7 +89,7 @@ final class PaceMenuBarOccupancyMonitor {
             }.value
             guard let self else { return }
             self.refreshTask = nil
-            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == processIdentifier,
+            guard NSWorkspace.shared.menuBarOwningApplication?.processIdentifier == processIdentifier,
                 PaceActiveDisplayCoordinator.shared.route.revision == routeRevision else {
                 self.refresh()
                 return
