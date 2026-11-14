@@ -2159,6 +2159,16 @@ extension CompanionManager {
                         screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
                     }
                     guard !Task.isCancelled else { return }
+                    let usesPassiveScreenPrompt = CompanionSystemPrompt.shouldUsePassiveScreenPrompt(
+                        transcript: transcript,
+                        route: mutableIntentPrediction.route,
+                        isReadMyScreenEnabled: useLocalVLMForScreenContext,
+                        hasScreenCapture: !screenCaptures.isEmpty,
+                        hasScreenSuggestion: screenSuggestionContext != nil,
+                        hasActiveVisualContext: hasActiveDiagram || hasActiveImage,
+                        requestsVisualOutput: requestsInteractiveDiagram || requestsGeneratedImage,
+                        isResearchTurn: isResearchTurn
+                    )
                     let screenCaptureElapsedMs = Int(
                         Date().timeIntervalSince(screenCaptureStartedAt) * 1000
                     )
@@ -2203,12 +2213,12 @@ extension CompanionManager {
                         )
                     } else {
                         systemPromptForTurn = CompanionSystemPrompt.build(
-                            includeAgentMode: isAgentModeEnabled,
+                            includeAgentMode: isAgentModeEnabled && !usesPassiveScreenPrompt,
                             isTuitionModeEnabled: isTuitionModeEnabled,
                             threadSummaryInjection: threadSummaryInjectionForTurn,
                             ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment,
-                            usesIterativeComputerUse: plannerClientForThisTurn is PaceLocalCLIPlannerClient,
-                            includeInteractiveDiagrams: true
+                            usesIterativeComputerUse: !usesPassiveScreenPrompt && plannerClientForThisTurn is PaceLocalCLIPlannerClient,
+                            includeInteractiveDiagrams: !usesPassiveScreenPrompt
                         )
                     }
                     // Mark this turn as off-device for the amber-tint
@@ -2324,8 +2334,14 @@ extension CompanionManager {
                                     || !plannerClientForThisTurn.supportsImageInput
                             )
                         PaceLatencyBudget.shared.mark(.vlmComplete)
+                        let userPromptWithConfiguredTools: String
+                        if usesPassiveScreenPrompt {
+                            userPromptWithConfiguredTools = screenContextPrompt
+                        } else {
+                            userPromptWithConfiguredTools = await appendConfiguredMCPContext(to: screenContextPrompt)
+                        }
                         let userPromptForPlanner = await appendLocalRetrievalContext(
-                            to: await appendConfiguredMCPContext(to: screenContextPrompt),
+                            to: userPromptWithConfiguredTools,
                             query: transcript,
                             route: intentPrediction.route,
                             isFirstPlannerStep: isFirstStep,

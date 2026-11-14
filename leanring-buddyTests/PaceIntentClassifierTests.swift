@@ -213,6 +213,60 @@ struct PaceIntentClassifierTests {
         }
     }
 
+    @Test func passiveScreenPromptRequiresAnExactCurrentScreenQuestion() {
+        let classifier = PaceIntentClassifier()
+        for question in ["What is on my screen now?", "Hey Pace, what’s on the screen?", "What am I looking at?"] {
+            #expect(CompanionSystemPrompt.shouldUsePassiveScreenPrompt(
+                transcript: question, route: classifier.classify(question).route,
+                isReadMyScreenEnabled: true, hasScreenCapture: true, hasScreenSuggestion: false,
+                hasActiveVisualContext: false, requestsVisualOutput: false, isResearchTurn: false))
+            #expect(PaceActionApprovalPolicy.requestsObservationOnly(question))
+        }
+        for request in [
+            "What's on my screen right now? Then click Save.",
+            "What am I looking at? Add it to notes.",
+            "List my open Chrome tabs without clicking anything.",
+            "Point to the Save button without clicking it.",
+            "Describe my screen",
+            "Explain what's shown",
+            "Explain that further",
+            "Draw a diagram of what's on screen",
+            "Generate an image of what's on screen",
+            "Research what's on screen",
+        ] {
+            #expect(!CompanionSystemPrompt.shouldUsePassiveScreenPrompt(
+                transcript: request, route: classifier.classify(request).route,
+                isReadMyScreenEnabled: true, hasScreenCapture: true, hasScreenSuggestion: false,
+                hasActiveVisualContext: false, requestsVisualOutput: false, isResearchTurn: false),
+                "Expected the existing full prompt for \(request)")
+        }
+    }
+
+    @Test func passiveScreenPromptPreservesPrivacyAndContextGates() {
+        let contexts: [(screenEnabled: Bool, capture: Bool, suggestion: Bool, activeVisual: Bool, visualOutput: Bool, research: Bool)] = [
+            (false, true, false, false, false, false),
+            (true, false, false, false, false, false),
+            (true, true, true, false, false, false),
+            (true, true, false, true, false, false),
+            (true, true, false, false, true, false),
+            (true, true, false, false, false, true),
+        ]
+        for context in contexts {
+            #expect(!CompanionSystemPrompt.shouldUsePassiveScreenPrompt(
+                transcript: "What's on my screen?", route: .readScreen,
+                isReadMyScreenEnabled: context.screenEnabled, hasScreenCapture: context.capture,
+                hasScreenSuggestion: context.suggestion,
+                hasActiveVisualContext: context.activeVisual, requestsVisualOutput: context.visualOutput,
+                isResearchTurn: context.research))
+        }
+        for route in [PaceIntentRoute.executeTool, .fullPipeline, .research, .escalateToLargeModel, .answerDirectly] {
+            #expect(!CompanionSystemPrompt.shouldUsePassiveScreenPrompt(
+                transcript: "What's on my screen?", route: route,
+                isReadMyScreenEnabled: true, hasScreenCapture: true, hasScreenSuggestion: false,
+                hasActiveVisualContext: false, requestsVisualOutput: false, isResearchTurn: false))
+        }
+    }
+
     @Test func genericScreenKnowledgeAndHistoricalQuestionsRemainTextOnly() {
         let classifier = PaceIntentClassifier()
         for question in [

@@ -59,6 +59,45 @@ struct PacePowerCatalogTests {
         #expect(!readOnlyPrompt.contains("- {\"tool\":\"click\""))
     }
 
+    @MainActor @Test func passiveScreenPromptKeepsGroundingAndMemoryWithoutActionOrVisualSchemas() throws {
+        let threadSummary = "<conversation_so_far>We were reviewing the Pace project.</conversation_so_far>"
+        let ambientContext = "Frontmost app: Xcode"
+        let prompt = CompanionSystemPrompt.build(
+            includeAgentMode: false,
+            isTuitionModeEnabled: true,
+            threadSummaryInjection: threadSummary,
+            ambientContextInjection: ambientContext,
+            usesIterativeComputerUse: false,
+            includeInteractiveDiagrams: false)
+        #expect(prompt.hasPrefix(threadSummary))
+        #expect(prompt.contains(ambientContext))
+        #expect(prompt.contains(PaceTextPower.conversationRules))
+        #expect(prompt.contains(PaceVoicePower.responseRules))
+        #expect(prompt.contains(PaceTeachingPower.pointingRules))
+        #expect(!prompt.contains("available tools:"))
+        #expect(!prompt.contains("Pace WILL call you again"))
+        #expect(!prompt.contains(PaceTeachingPower.tuitionModeRules))
+        #expect(!prompt.contains("show_diagram"))
+        #expect(!prompt.contains("generate_image"))
+
+        let fullPrompt = CompanionSystemPrompt.build(
+            includeAgentMode: true,
+            isTuitionModeEnabled: true,
+            threadSummaryInjection: threadSummary,
+            ambientContextInjection: ambientContext,
+            usesIterativeComputerUse: true,
+            includeInteractiveDiagrams: true)
+        #expect(fullPrompt.contains("available tools:"))
+        #expect(fullPrompt.contains("Pace WILL call you again"))
+        #expect(fullPrompt.contains("show_diagram"))
+        #expect(fullPrompt.contains("generate_image"))
+        print("Screen prompt UTF-8 bytes: full=\(fullPrompt.utf8.count), passive=\(prompt.utf8.count)")
+        if let exportPath = ProcessInfo.processInfo.environment["PACE_SCREEN_PROMPT_EXPORT_PATH"] {
+            let data = try JSONSerialization.data(withJSONObject: ["full": fullPrompt, "passive": prompt])
+            try data.write(to: URL(fileURLWithPath: exportPath), options: .atomic)
+        }
+    }
+
     @MainActor @Test func omittingAnImageProviderOmitsItsToolAndInstructions() {
         let catalog = PacePowerCatalog(powers: [PaceComputerUsePower.definition, PaceTeachingPower.definition])
         let prompt = catalog.prompt(for: .init(

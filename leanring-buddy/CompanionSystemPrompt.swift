@@ -27,6 +27,26 @@ import Foundation
 enum CompanionSystemPrompt {
     static let desktopToolRecoveryGuidance = PaceComputerUsePower.desktopToolRecoveryGuidance
 
+    static func shouldUsePassiveScreenPrompt(
+        transcript: String,
+        route: PaceIntentRoute,
+        isReadMyScreenEnabled: Bool,
+        hasScreenCapture: Bool,
+        hasScreenSuggestion: Bool,
+        hasActiveVisualContext: Bool,
+        requestsVisualOutput: Bool,
+        isResearchTurn: Bool
+    ) -> Bool {
+        isReadMyScreenEnabled
+            && hasScreenCapture
+            && route == .readScreen
+            && !hasScreenSuggestion
+            && !hasActiveVisualContext
+            && !requestsVisualOutput
+            && !isResearchTurn
+            && PaceIntentClassifier.isCurrentScreenQuestion(transcript)
+    }
+
     /// Build the system prompt for the next request.
     /// - Parameters:
     ///   - includeAgentMode: pass `true` only when
