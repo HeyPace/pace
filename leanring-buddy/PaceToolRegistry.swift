@@ -46,6 +46,7 @@ nonisolated enum PaceLocalToolKind: String, CaseIterable {
     case openApp
     case openURL
     case screenCapture
+    case codingSession
     case codexSession
     case meeting
     case music
@@ -269,6 +270,8 @@ nonisolated enum PaceToolRegistry {
             return definition(forToolName: "screen_capture")
         case .meeting:
             return definition(forToolName: "meeting")
+        case .codingSession:
+            return definition(forToolName: "coding_session")
         case .codexSession:
             return definition(forToolName: "codex_session")
         case .controlMusic:

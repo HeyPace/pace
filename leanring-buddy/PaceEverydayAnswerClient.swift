@@ -30,7 +30,7 @@ nonisolated enum PaceEverydayAnswerError: Error, LocalizedError {
 @MainActor
 final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient {
     static let model = "gpt-6-luna"
-    static let instructions = "You are Pace, a concise voice assistant. " + PaceBoundedTextAnswerPlanner.answerInstructions
+    static let instructions = "You are Pace, a concise voice assistant. The current message may come from on-device speech transcription or typing. If asked whether you can hear the user, acknowledge receiving their message; do not claim live microphone or screen status. " + PaceBoundedTextAnswerPlanner.answerInstructions
     private static let sharedSession: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
@@ -99,7 +99,7 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient {
             let payload = dataLines.joined(separator: "\n")
             if payload == "[DONE]" { return }
             guard let bytes = payload.data(using: .utf8),
-                  let event = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+                  let event = (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any],
                   let type = event["type"] as? String else { throw PaceEverydayAnswerError.invalidResponse }
             guard completedResponse == nil else { throw PaceEverydayAnswerError.invalidResponse }
             if type == "response.refusal.delta" || type == "response.refusal.done" { throw PaceEverydayAnswerError.refused }

@@ -46,7 +46,31 @@
                 "additionalProperties": true
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "name": {
+                      "const": "coding_session"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "args"
+                  ],
+                  "properties": {
+                    "args": {
+                      "$ref": "#/$defs/codingSessionArguments"
+                    }
+                  }
+                }
+              }
+            ]
           }
         },
         "answer": {
@@ -68,7 +92,31 @@
             "selection"
           ]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "name": {
+                "const": "coding_session"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "then": {
+            "required": [
+              "args"
+            ],
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/codingSessionArguments"
+              }
+            }
+          }
+        }
+      ]
     }
   },
   "required": [
@@ -90,5 +138,88 @@
         ]
       }
     }
-  ]
+  ],
+  "$defs": {
+    "codingSessionArguments": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "const": "start"
+            },
+            "directory": {
+              "type": "string",
+              "minLength": 1
+            },
+            "task": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "operation",
+            "directory",
+            "task"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "const": "resume"
+            },
+            "sessionID": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "task": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "operation",
+            "sessionID",
+            "task"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "const": "status"
+            },
+            "sessionID": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "required": [
+            "operation"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "const": "cancel"
+            },
+            "sessionID": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "required": [
+            "operation",
+            "sessionID"
+          ]
+        }
+      ]
+    }
+  }
 }

@@ -738,6 +738,8 @@ final class PaceActionExecutor {
     /// stop. The closure returns a short user-facing summary the
     /// executor folds into its observation. Default no-op preserves
     /// dry-run / unit-test behavior.
+    var executeCodingSession: ((PaceCodingSessionCommand) async -> PaceActionExecutionObservation)?
+
     var startFlowRecordingCallback: (String) -> String = { flowName in
         "Ready to record flow \"\(flowName)\". Recorder hook isn't wired."
     }

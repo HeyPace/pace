@@ -35,6 +35,7 @@
     {"kind": "clearAnnotations", "tool": "clear_annotations", "aliases": ["clear_drawing", "wipe_annotations"], "risk": "readOnly", "exampleUtterance": "clear the annotations", "schemaExample": {"tool": "clear_annotations"}},
     {"kind": "screenCapture", "tool": "screen_capture", "aliases": [], "risk": "appOrSystemMutation", "exampleUtterance": "open screen recording controls", "schemaExample": {"tool": "screen_capture", "mode": "screenshot"}},
     {"kind": "meeting", "tool": "meeting", "aliases": [], "risk": "appOrSystemMutation", "exampleUtterance": "start meeting recording", "schemaExample": {"tool": "meeting", "action": "start"}},
-    {"kind": "codexSession", "tool": "codex_session", "aliases": [], "risk": "appOrSystemMutation", "exampleUtterance": "start Codex in ~/projects/my-app", "schemaExample": {"tool": "codex_session", "directory": "~/projects/my-app"}}
+    {"kind": "codexSession", "tool": "codex_session", "aliases": [], "risk": "appOrSystemMutation", "exampleUtterance": "start Codex in ~/projects/my-app", "schemaExample": {"tool": "codex_session", "directory": "~/projects/my-app"}},
+    {"kind": "codingSession", "tool": "coding_session", "aliases": [], "risk": "externalIntegration", "exampleUtterance": "work on ~/projects/my-app with Codex and fix the failing test", "schemaExample": {"tool": "coding_session", "operation": "start", "directory": "~/projects/my-app", "task": "Fix the failing test"}}
   ]
 }

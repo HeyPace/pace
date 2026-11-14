@@ -173,6 +173,7 @@ nonisolated enum PaceParsedAction {
     case openBrowser(PaceBrowserOpenRequest)
     case screenCapture(PaceScreenCaptureKind)
     case meeting(PaceMeetingModeCommand)
+    case codingSession(PaceCodingSessionCommand)
     case codexSession(PaceCodexSessionRequest)
     case controlMusic(PaceMusicCommand)
     case adjustVolume(PaceSystemAdjustment)
@@ -224,6 +225,7 @@ nonisolated enum PaceParsedAction {
         case .openBrowser: return "open_browser"
         case .screenCapture: return "screen_capture"
         case .meeting: return "meeting"
+        case .codingSession: return "coding_session"
         case .codexSession: return "codex_session"
         case .controlMusic: return "music"
         case .adjustVolume: return "volume"
@@ -264,6 +266,7 @@ nonisolated enum PaceParsedAction {
             return request.browserName
         case .screenCapture(let kind):
             return kind.rawValue
+        case .codingSession: return "codex.app-server"
         case .codexSession(let request):
             return request.directory
         case .meeting:
@@ -357,6 +360,7 @@ nonisolated enum PaceParsedAction {
                 "Open \(request.browserName)\(request.chromeProfile.map { " (\($0) profile)" } ?? "")\(request.url.map { ": \($0)" } ?? "")"
         case .screenCapture(let kind):
             return kind.actionDescription
+        case .codingSession(let command): return command.summary
         case .codexSession(let request):
             return "Start Codex in Warp at \(request.directory)"
         case .meeting:

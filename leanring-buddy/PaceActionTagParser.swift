@@ -666,6 +666,8 @@ nonisolated enum PaceActionTagParser {
                 return .openBrowser(.init(browserName: "Google Chrome", url: urlString, chromeProfile: profile))
             }
             return .openURL(urlString)
+        case "coding.session":
+            return PaceCodingSessionCommand.parse(arguments).map { .codingSession($0) }
         case "codex.session":
             return parseCodexSessionArguments(arguments)
         case "screen.capture":
@@ -850,6 +852,8 @@ nonisolated enum PaceActionTagParser {
             if !hasNonEmptyString(for: ["url", "text"], in: arguments) {
                 issues.append("requires url")
             }
+        case "coding.session":
+            if PaceCodingSessionCommand.parse(arguments) == nil { issues.append("requires a strict coding command") }
         case "codex.session":
             if parseCodexSessionArguments(arguments) == nil { issues.append("requires directory path") }
         case "screen.capture":
@@ -1391,6 +1395,8 @@ nonisolated enum PaceActionTagParser {
                     .init(browserName: browser, url: toolCall.url ?? toolCall.text, chromeProfile: profile))
             }
             return parseOpenURLPayload(toolCall.url ?? toolCall.text ?? "")
+        case .codingSession:
+            return PaceCodingSessionCommand.parse(mergeMCPArguments(from: toolCall)).map { .codingSession($0) }
         case .codexSession:
             return parseCodexSessionArguments(mergeMCPArguments(from: toolCall))
         case .screenCapture:
@@ -1651,6 +1657,8 @@ nonisolated enum PaceActionTagParser {
             if parseDrawAnnotationRequest(from: mergedArguments) == nil {
                 issues.append("requires at least one valid shape")
             }
+        case .codingSession:
+            if PaceCodingSessionCommand.parse(mergedArguments) == nil { issues.append("requires a strict coding start/resume/status/cancel command") }
         case .codexSession:
             if parseCodexSessionArguments(mergedArguments) == nil { issues.append("requires directory path") }
         case .screenCapture:

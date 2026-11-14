@@ -275,4 +275,21 @@ struct PaceVisualFindOwnershipTests {
             #expect(rectangle.minY == 568)
         } else { Issue.record("expected a rectangle") }
     }
+    @Test func plannerCaptureNumberKeepsSourceDisplayWhenCaptureOrderDiffersFromOverlayOrder() throws {
+        let target = capture(identifier: 42)
+        let primary = capture(identifier: 99, origin: .zero)
+        let parsed = PaceActionTagParser.parseActions(from: #"{"spokenText":"Marked","intent":"action","payload":{"name":"draw_annotation","args":{"screen":1,"shapes":[{"kind":"rect","x":20,"y":40,"width":100,"height":20}]}}}"#)
+        let overlay = PaceAnnotationOverlayController()
+        _ = PaceAnnotationActionDrainer.drain(parseResult: parsed, into: overlay, screenCaptures: [target, primary])
+        let annotation = try #require(overlay.activeAnnotations.first)
+        #expect(annotation.sourceDisplayIdentifier == 42)
+        #expect(annotation.screenIndex == 1)
+        #expect(annotation.belongsToDisplay(identifier: 42, frame: target.displayFrame, legacyScreenIndex: 2))
+        #expect(!annotation.belongsToDisplay(identifier: 99, frame: primary.displayFrame, legacyScreenIndex: 1))
+        if case .rect(let rectangle) = annotation.geometry {
+            #expect(rectangle.minX == -990)
+            #expect(rectangle.minY == 570)
+        } else { Issue.record("expected a rectangle") }
+    }
+
 }

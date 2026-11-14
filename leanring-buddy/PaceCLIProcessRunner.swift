@@ -63,7 +63,7 @@ nonisolated final class PaceCLIProcessControl: @unchecked Sendable {
         }
     }
 
-    fileprivate func waitForStoppedProcessGroup() {
+    func waitForStoppedProcessGroup() {
         lock.lock()
         let processGroup = ownedProcessGroup
         let stopDeadline = stopStartedAt.map { $0 + 1 }
@@ -102,7 +102,7 @@ nonisolated final class PaceCLIProcessControl: @unchecked Sendable {
         }
     }
 
-    fileprivate func finished() {
+    func finished() {
         lock.lock()
         hasFinished = true
         ownedProcessGroup = nil

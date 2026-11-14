@@ -348,6 +348,10 @@ extension CompanionManager {
         // parser does. Defaults are no-ops; we set them once here per
         // CompanionManager lifecycle so dry-run/unit-test code stays
         // unaffected.
+        actionExecutor.executeCodingSession = { [weak self] command in
+            guard let self else { return .init(toolName: "coding_session", summary: "Coding is unavailable.") }
+            return await self.executeRetainedCoding(command)
+        }
         actionExecutor.startFlowRecordingCallback = { [weak self] flowName in
             guard let self else {
                 return "Ready to record flow \"\(flowName)\"."
@@ -783,6 +787,8 @@ extension CompanionManager {
     }
 
     func stop() {
+        dismissCodingApprovals()
+        Task { await codingSessionCoordinator.shutdown() }
         stopWatchRuntime()
         imageOverlayController.dismiss()
         diagramOverlayController.dismiss()

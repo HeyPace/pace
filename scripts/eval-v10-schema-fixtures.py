@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,16 @@ SCHEMA_PATH = REPO_ROOT / "leanring-buddy" / "Resources" / "v10-actions" / "pace
 FIXTURE_DIR = REPO_ROOT / "evals" / "v10-schema-fixtures"
 
 
-def validate_value(value: Any, schema: dict[str, Any], path: str = "$") -> list[str]:
+def validate_value(value: Any, schema: dict[str, Any], path: str = "$", root_schema: dict[str, Any] | None = None) -> list[str]:
+    root_schema = root_schema or schema
+    if "$ref" in schema:
+        target = root_schema
+        for component in schema["$ref"].removeprefix("#/").split("/"):
+            target = target[component]
+        return validate_value(value, target, path, root_schema)
+    if "oneOf" in schema:
+        matches = sum(not validate_value(value, option, path, root_schema) for option in schema["oneOf"])
+        return [] if matches == 1 else [f"{path} must match exactly one command variant"]
     issues: list[str] = []
 
     expected_type = schema.get("type")
@@ -34,21 +44,29 @@ def validate_value(value: Any, schema: dict[str, Any], path: str = "$") -> list[
     if "const" in schema and value != schema["const"]:
         issues.append(f"{path} must be {schema['const']}")
 
+    if isinstance(value, str):
+        if len(value) < schema.get("minLength", 0):
+            issues.append(f"{path} is too short")
+        if schema.get("format") == "uuid":
+            try:
+                uuid.UUID(value)
+            except ValueError:
+                issues.append(f"{path} must be a UUID")
     if isinstance(value, dict):
-        issues.extend(validate_object(value, schema, path))
+        issues.extend(validate_object(value, schema, path, root_schema))
     elif isinstance(value, list):
-        issues.extend(validate_array(value, schema, path))
+        issues.extend(validate_array(value, schema, path, root_schema))
 
     for conditional_schema in schema.get("allOf", []):
         if_schema = conditional_schema.get("if")
         then_schema = conditional_schema.get("then")
-        if if_schema and then_schema and conditional_matches(value, if_schema):
-            issues.extend(validate_value(value, then_schema, path))
+        if if_schema and then_schema and conditional_matches(value, if_schema, root_schema):
+            issues.extend(validate_value(value, then_schema, path, root_schema))
 
     return issues
 
 
-def validate_object(value: dict[str, Any], schema: dict[str, Any], path: str) -> list[str]:
+def validate_object(value: dict[str, Any], schema: dict[str, Any], path: str, root_schema: dict[str, Any]) -> list[str]:
     issues: list[str] = []
     properties = schema.get("properties", {})
     required = schema.get("required", [])
@@ -63,19 +81,19 @@ def validate_object(value: dict[str, Any], schema: dict[str, Any], path: str) ->
 
     for key, property_schema in properties.items():
         if key in value:
-            issues.extend(validate_value(value[key], property_schema, f"{path}.{key}"))
+            issues.extend(validate_value(value[key], property_schema, f"{path}.{key}", root_schema))
 
     return issues
 
 
-def validate_array(value: list[Any], schema: dict[str, Any], path: str) -> list[str]:
+def validate_array(value: list[Any], schema: dict[str, Any], path: str, root_schema: dict[str, Any]) -> list[str]:
     item_schema = schema.get("items")
     if not item_schema:
         return []
 
     issues: list[str] = []
     for index, item in enumerate(value):
-        issues.extend(validate_value(item, item_schema, f"{path}[{index}]"))
+        issues.extend(validate_value(item, item_schema, f"{path}[{index}]", root_schema))
     return issues
 
 
@@ -97,7 +115,7 @@ def value_matches_type(value: Any, expected_type: str) -> bool:
     return False
 
 
-def conditional_matches(value: Any, schema: dict[str, Any]) -> bool:
+def conditional_matches(value: Any, schema: dict[str, Any], root_schema: dict[str, Any]) -> bool:
     if not isinstance(value, dict):
         return False
 
@@ -105,7 +123,7 @@ def conditional_matches(value: Any, schema: dict[str, Any]) -> bool:
     for key, property_schema in properties.items():
         if key not in value:
             return False
-        if validate_value(value[key], property_schema, f"$.{key}"):
+        if validate_value(value[key], property_schema, f"$.{key}", root_schema):
             return False
     return True
 

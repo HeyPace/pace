@@ -52,6 +52,8 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     // commands and drain them once launch completes.
     private var pendingDeepLinkCommands: [PaceDeepLinkCommand] = []
     private var hasFinishedLaunching = false
+    private var codingTerminationTask: Task<Void, Never>?
+    private var codingShutdownCompleted = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         PaceToolRegistry.validateForAppStartup()
@@ -228,6 +230,20 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         case .sendChatMessage(let text):
             companionManager.submitChatTranscriptFromDeepLink(text)
         }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !isRunningAsUnitTestHost, !codingShutdownCompleted else { return .terminateNow }
+        if codingTerminationTask == nil {
+            companionManager.dismissCodingApprovals()
+            codingTerminationTask = Task { [weak self] in
+                guard let self else { sender.reply(toApplicationShouldTerminate: true); return }
+                await companionManager.codingSessionCoordinator.shutdown()
+                codingShutdownCompleted = true
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {

@@ -114,6 +114,10 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
     private(set) var lastAnswerSource: AnswerSource?
     let everydaySystemPrompt: String
 
+    var completedAnswerSystemPrompt: String {
+        everydayClient == nil ? everydaySystemPrompt + "\n\n" + Self.answerInstructions : everydaySystemPrompt
+    }
+
     enum EscalationReason: String {
         case requestedStrongerPlanner
         case emptyAnswer

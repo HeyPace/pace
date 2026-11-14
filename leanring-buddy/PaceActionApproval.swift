@@ -9,12 +9,12 @@
 
 import Foundation
 
-nonisolated enum PaceActionApprovalDecision: Equatable {
+nonisolated enum PaceActionApprovalDecision: Equatable, Sendable {
     case allowOnce
     case cancel
 }
 
-nonisolated struct PaceActionApprovalRequest: Equatable {
+nonisolated struct PaceActionApprovalRequest: Equatable, Sendable {
     let approvalSummary: String
     let preflightSummary: String?
 
@@ -158,6 +158,7 @@ nonisolated enum PaceActionApprovalPolicy {
              .composeMail, .createThingsToDo, .runShortcut, .downloadFile,
              .recordFlow, .runFlow, .mcp:
             return true
+        case .codingSession(let command): return command.requiresExecutionConsent
         case .openMessages(let messageRequest):
             return messageRequest.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         case .click, .doubleClick, .clickCandidates, .type, .setTextValue, .editSelectedText,
@@ -186,6 +187,7 @@ nonisolated enum PaceActionApprovalPolicy {
              .composeMail, .createThingsToDo, .runShortcut, .downloadFile,
              .recordFlow, .runFlow, .mcp, .setTextValue, .editSelectedText:
             return true
+        case .codingSession: return false
         case .openMessages(let messageRequest):
             // Messages with body text creates a visible Messages draft;
             // opening Messages without body text doesn't.
@@ -254,6 +256,7 @@ nonisolated enum PaceActionApprovalPolicy {
             .dismissDiagram, .clearAnnotations:
             // clearAnnotations: pure overlay cleanup, no speech needed.
             return true
+        case .codingSession: return false
         case .openMessages(let messageRequest):
             return messageRequest.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
         case .createCalendarEvent, .createReminder, .createNote, .appendNote,

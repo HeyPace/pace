@@ -61,7 +61,11 @@ extension CompanionManager {
         smokeAutoCancelAfter: TimeInterval? = nil
     ) -> Bool {
         let hasBlockingPreflightIssue = preflightIssues.contains { $0.severity == .blocking }
-        let shouldRequestApproval = hasBlockingPreflightIssue
+        let startsCoding = actionExecutionPlan.flattenedActions.contains {
+            if case .codingSession(let command) = $0 { return command.requiresExecutionConsent }
+            return false
+        }
+        let shouldRequestApproval = startsCoding || hasBlockingPreflightIssue
             || (
                 requiresActionApproval
                     && PaceActionApprovalPolicy.requiresExplicitApproval(
@@ -80,6 +84,11 @@ extension CompanionManager {
             )
         }
 
+        return presentActionApproval(approvalRequest, smokeAutoCancelAfter: smokeAutoCancelAfter)
+    }
+
+    func presentActionApproval(_ approvalRequest: PaceActionApprovalRequest, smokeAutoCancelAfter: TimeInterval? = nil) -> Bool {
+        if let actionApprovalPresentationOverride { return actionApprovalPresentationOverride(approvalRequest) == .allowOnce }
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = approvalRequest.messageText

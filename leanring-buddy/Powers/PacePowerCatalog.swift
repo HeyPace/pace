@@ -46,6 +46,7 @@ nonisolated struct PacePowerCatalog {
         PaceProductivityPower.definition,
         PaceAutomationPower.definition,
         PaceIntegrationPower.definition,
+        PaceCodingPower.definition,
     ])
 
     let powers: [PacePowerDefinition]

@@ -174,6 +174,14 @@ extension PaceActionExecutor {
             return await openURL(urlString)
         case .openBrowser(let request):
             return await openBrowser(request)
+        case .codingSession(let command):
+            guard !command.requiresExecutionConsent || actionsAreEnabled else {
+                return .init(toolName: "coding_session", summary: "Coding not started. EnableActions is disabled.")
+            }
+            guard let executeCodingSession else {
+                return .init(toolName: "coding_session", summary: "Coding is unavailable. The lifecycle binding is missing.")
+            }
+            return await executeCodingSession(command)
         case .codexSession(let request):
             return startCodexSession(request)
         case .screenCapture(let kind):

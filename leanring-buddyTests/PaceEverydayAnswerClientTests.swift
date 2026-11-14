@@ -144,6 +144,12 @@ struct PaceEverydayAnswerClientTests {
         }
     }
 
+    @Test func fixedInstructionsAcknowledgeMessagesWithoutInventingMicrophoneOrScreenStatus() {
+        #expect(PaceOpenAIResponsesEverydayClient.instructions.contains("may come from on-device speech transcription or typing"))
+        #expect(PaceOpenAIResponsesEverydayClient.instructions.contains("acknowledge receiving their message"))
+        #expect(PaceOpenAIResponsesEverydayClient.instructions.contains("do not claim live microphone or screen status"))
+    }
+
     @Test func optInDefaultsFalseAndUsesNormalSetter() {
         let name = "PaceEverydayAnswerTests-" + UUID().uuidString
         let defaults = UserDefaults(suiteName: name)!

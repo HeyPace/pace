@@ -259,6 +259,17 @@ final class CompanionManager: ObservableObject {
         return pipeline
     }()
 
+    var codingSetupCallCount = 0
+    var codingSessionsInFlight: Set<PaceCodingSessionID> = []
+    var codingApprovalIsPresented = false
+    var actionApprovalPresentationOverride: ((PaceActionApprovalRequest) -> PaceActionApprovalDecision)?
+    lazy var codingSessionCoordinator = PaceCodingSessionCoordinator(
+        eventSink: { [weak self] event in await self?.handleCodingSessionEvent(event) },
+        approve: { [weak self] request in
+            guard let self else { return .cancel }
+            return await self.requestCodingApproval(request)
+        })
+
     /// Backing store for the in-window chat transcript. Lazy so it
     /// only builds the local history reader on first use (the main
     /// window opens on demand, not at launch). Persistence runs
@@ -1104,7 +1115,7 @@ final class CompanionManager: ObservableObject {
             activePacePadTurnUsesOffDevicePlanner = true
         }
         isOffDeviceTurnInFlight = foregroundOffDeviceTurnInFlight || hostedMCPOffDeviceTurnInFlight
-            || headlessOffDevicePlannerCallCount > 0 || !screenSuggestionDisclosureLeases.isEmpty
+            || headlessOffDevicePlannerCallCount > 0 || !screenSuggestionDisclosureLeases.isEmpty || !codingSessionsInFlight.isEmpty || codingSetupCallCount > 0
     }
 
     /// Count of HEADLESS planner calls (background agents, subagents,

@@ -930,8 +930,7 @@ extension CompanionManager {
                 if !qualityReRouted,
                     let boundedPlanner = plannerForTextOnlyTurn as? PaceBoundedTextAnswerPlanner,
                     boundedPlanner.lastAnswerSource == .everyday {
-                    completedAnswerSystemPrompt = boundedPlanner.everydaySystemPrompt
-                        + "\n\n" + PaceBoundedTextAnswerPlanner.answerInstructions
+                    completedAnswerSystemPrompt = boundedPlanner.completedAnswerSystemPrompt
                 } else {
                     completedAnswerSystemPrompt = selectedSystemPromptForTurn
                 }
@@ -1395,6 +1394,7 @@ extension CompanionManager {
 
     func handleExplanationDismissal(_ intent: PaceExplanationDismissalIntent) {
         guard intent == .userInitiated else { return }
+        dismissCodingApprovals()
         streamingSentenceTTSPipeline.stopForUserDismissal()
         ossCommandSpeechClient?.stopPlayback()
         queuedChatTurnDrainTask?.cancel()
@@ -1448,6 +1448,16 @@ extension CompanionManager {
             recordConversationTurn(userTranscript: transcript, assistantResponse: "Diagram closed.")
             currentTurnHUDState = .done("diagram closed")
             voiceState = .idle
+            return
+        }
+
+        if let codingControl = PaceCodingSessionCommand.localControl(transcript) {
+            await handleLocalCodingControl(codingControl, transcript: transcript, turnLease: turnLease)
+            return
+        }
+
+        if PaceCodingPower.requestsRetainedCoding(transcript) {
+            await handleRetainedCodingRequest(transcript: transcript, turnLease: turnLease)
             return
         }
 
@@ -2691,7 +2701,11 @@ extension CompanionManager {
                             break agentStepLoop
                         }
 
-                        if actionExecutor.actionsAreEnabled {
+                        let onlyCodingControls = actionParseResult.actions.allSatisfy {
+                            if case .codingSession(let command) = $0 { return !command.requiresExecutionConsent }
+                            return false
+                        }
+                        if actionExecutor.actionsAreEnabled || onlyCodingControls {
                             if requestUserApprovalForActionPlan(
                                 actionParseResult.executionPlan,
                                 preflightIssues: preflightIssues

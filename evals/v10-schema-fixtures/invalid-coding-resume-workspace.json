@@ -1,0 +1,16 @@
+{
+  "valid": false,
+  "response": {
+    "spokenText": "Coding",
+    "intent": "action",
+    "payload": {
+      "name": "coding_session",
+      "args": {
+        "operation": "resume",
+        "sessionID": "c80e9056-8f17-4457-8da9-a0302f12a8b8",
+        "task": "Continue",
+        "directory": "/tmp/other"
+      }
+    }
+  }
+}
