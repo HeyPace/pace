@@ -696,6 +696,33 @@ extension CompanionManager {
                 plannerForTextOnlyTurn.resetForNewTurn()
                 print("🧠 Text-only planner: using \(plannerForTextOnlyTurn.displayName)")
 
+                var earlyPreviewOwnership: (template: PaceFigureScene.Template, generation: UUID)?
+                let directSpawnAvailable = teachingPreviewDirectSpawnAvailability?()
+                    ?? (PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent()
+                        && PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+                        && PaceLocalCLIPlannerClient.isUpstreamBinaryOnPath(.codex))
+                if isActiveTurn(turnLease), activePacePadTurnIdentifier == nil,
+                   screenSuggestionContext == nil, activeConversationScreenSuggestionContext == nil,
+                   diagramOverlayController.document == nil, imageOverlayController.state == .idle,
+                   imageOverlayController.lastSuccessfulArtifact == nil,
+                   activePlannerTier == .cliDirect, activePlannerTierCLIDirectUpstream == .codex,
+                   directSpawnAvailable,
+                   let template = PaceTeachingPower.earlyNativePreviewTemplate(for: transcript),
+                   var previewDocument = PaceTeachingTemplateCatalog.lessonDocument(for: template) {
+                    previewDocument.lesson = nil
+                    previewDocument.figure?.focusNodeID = template == .liftSystem ? "lift-fan" : "board"
+                    let previewStartedAt = Date()
+                    if diagramOverlayController.present(previewDocument,
+                        expectedDismissalGeneration: diagramDismissalGeneration) {
+                        earlyPreviewOwnership = (template, diagramOverlayController.lessonPlaybackGeneration)
+                        PaceAPIAuditLog.shared.record(subsystem: "teaching", operation: "native_preview",
+                            target: template.rawValue,
+                            durationMilliseconds: Int(Date().timeIntervalSince(previewStartedAt) * 1000),
+                            outcome: "presented")
+                    }
+                }
+                let hasEarlyNativePreview = earlyPreviewOwnership != nil
+
                 let plannerStartedAt = Date()
                 PaceLatencyBudget.shared.mark(.plannerStart)
 
@@ -707,6 +734,7 @@ extension CompanionManager {
                     onTextChunk: { [weak self] accumulatedPlannerText in
                         guard let self, self.isActiveTurn(turnLease) else { return }
                         PaceLatencyBudget.shared.mark(.plannerFirstToken)
+                        guard !hasEarlyNativePreview else { return }
                         self.updateAssistantStreamingText(
                             Self.streamedPlannerTextIsStructuredEnvelope(accumulatedPlannerText)
                                 ? "…" : accumulatedPlannerText
@@ -782,7 +810,7 @@ extension CompanionManager {
                                 conversationHistory: historyForPlanner,
                                 userPrompt: userPromptForPlanner,
                                 onTextChunk: { [weak self] accumulatedText in
-                                    guard let self, self.isActiveTurn(turnLease) else { return }
+                                    guard let self, self.isActiveTurn(turnLease), !hasEarlyNativePreview else { return }
                                     self.updateAssistantStreamingText(
                                         Self.streamedPlannerTextIsStructuredEnvelope(accumulatedText)
                                             ? "…" : accumulatedText
@@ -814,6 +842,22 @@ extension CompanionManager {
                         print(
                             "🔍 Response quality inadequate (\(reason)) — but no stronger planner available, keeping response"
                         )
+                    }
+                }
+
+                guard isActiveTurn(turnLease) else { return }
+                if let earlyPreviewOwnership {
+                    let ownershipUnchanged = diagramOverlayController.dismissalGeneration == diagramDismissalGeneration
+                        && diagramOverlayController.lessonPlaybackGeneration == earlyPreviewOwnership.generation
+                    let authoredVisualMatches = PaceTeachingPower.preservesEarlyNativePreview(
+                        actionParseResult, template: earlyPreviewOwnership.template)
+                    guard ownershipUnchanged, authoredVisualMatches else {
+                        // Lifecycle events have no timed operation; zero is not a latency measurement.
+                        PaceAPIAuditLog.shared.record(subsystem: "teaching", operation: "native_preview",
+                            target: earlyPreviewOwnership.template.rawValue, durationMilliseconds: 0,
+                            outcome: ownershipUnchanged ? "rejected_unmatched_plan" : "cancelled_interaction")
+                        cancelCurrentTurnFromPanel()
+                        return
                     }
                 }
 

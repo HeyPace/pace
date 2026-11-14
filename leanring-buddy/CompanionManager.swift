@@ -175,6 +175,7 @@ final class CompanionManager: ObservableObject {
     /// timer. See PRD tuition-mode annotations.
     let annotationOverlayController = PaceAnnotationOverlayController()
     let diagramOverlayController: PaceDiagramOverlayController
+    let teachingPreviewDirectSpawnAvailability: (() -> Bool)?
     let imageOverlayController = PaceImageOverlayController()
 
     let buddyDictationManager = PacePushToTalkManager()
@@ -1287,9 +1288,11 @@ final class CompanionManager: ObservableObject {
         recordsDerivedConversationMemory: Bool = true,
         persistsDebugTraces: Bool = true,
         diagramOverlayController: PaceDiagramOverlayController? = nil,
-        threadMemoryStore: PaceThreadMemoryStore? = nil
+        threadMemoryStore: PaceThreadMemoryStore? = nil,
+        teachingPreviewDirectSpawnAvailability: (() -> Bool)? = nil
     ) {
         self.diagramOverlayController = diagramOverlayController ?? PaceDiagramOverlayController()
+        self.teachingPreviewDirectSpawnAvailability = teachingPreviewDirectSpawnAvailability
         self.threadMemoryStore = threadMemoryStore ?? PaceThreadMemoryStore()
         self.persistsDebugTraces = persistsDebugTraces
         self.recordsDerivedConversationMemory = recordsDerivedConversationMemory

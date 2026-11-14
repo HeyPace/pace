@@ -15,6 +15,40 @@ nonisolated enum PaceTeachingPower {
         return normalized.range(of: teachingForms, options: .regularExpression) != nil
     }
 
+    static func earlyNativePreviewTemplate(for transcript: String) -> PaceFigureScene.Template? {
+        guard prefersVisualExplanation(transcript) else { return nil }
+        var request = transcript.lowercased()
+            .replacingOccurrences(of: "[‐‑–—]", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "[.!?]+$", with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        request = request.replacingOccurrences(
+            of: #",? (?:briefly|in (?:[1-9]|1[0-2]|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve) (?:brief )?steps?)$"#,
+            with: "", options: .regularExpression)
+        request = request.replacingOccurrences(
+            of: #"^(?:please )?(?:(?:can|could|would) you (?:please )?)?(?:explain|teach me|walk me through|help me understand|show me) "#,
+            with: "", options: .regularExpression)
+        // Full-request matching excludes screen references, follow-ups and mixed subjects.
+        let liftSystemRequest = #"^(?:(?:how (?:does|can) (?:the )?f[- ]?35b hover)|(?:how (?:the )?f[- ]?35b (?:hovers|achieves vertical lift))|(?:(?:the )?f[- ]?35b(?:'s)? (?:hover(?:ing)?(?: mechanism)?|vertical lift(?: system)?|lift system)(?: works)?))$"#
+        if request.range(of: liftSystemRequest, options: .regularExpression) != nil { return .liftSystem }
+        let piCameraRequest = #"^(?:(?:(?:how (?:do i|to) )?(?:connect|attach|install) (?:a |the )?(?:camera(?: module)?(?: ribbon)?(?: cable)?|ribbon cable) (?:to|on) (?:a |the )?(?:raspberry )?pi ?5)|(?:(?:how )?(?:the |a )?(?:raspberry )?pi ?5 (?:camera(?: connector| connection| ribbon(?: cable)?)?|ribbon cable)(?: works)?))$"#
+        if request.range(of: piCameraRequest, options: .regularExpression) != nil { return .piCamera }
+        return nil
+    }
+
+    static func preservesEarlyNativePreview(
+        _ parseResult: PaceActionTagParseResult, template: PaceFigureScene.Template
+    ) -> Bool {
+        let plannedActions = parseResult.actions + parseResult.executionPlan.flattenedActions
+        return plannedActions.allSatisfy { action in
+            switch action {
+            case .showDiagram(let document): return document.figure?.template == template
+            case .dismissDiagram, .generateImage: return false
+            default: return true
+            }
+        }
+    }
+
     static let definition = PacePowerDefinition(
         identifier: "pace.teaching",
         title: "Teaching",
