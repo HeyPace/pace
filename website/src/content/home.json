@@ -75,7 +75,7 @@
     "layout": "split",
     "eyebrow": "private voice agent · apple silicon mac",
     "title": "a voice assistant that *sees your Mac.*",
-    "lede": "Start with a text request about the screen in front of you, then check the answer or approved action. Choose local processing or an explicitly consented cloud planner. No account required. Voice and hotkey acceptance remain unverified in the public release.",
+    "lede": "Start with a text request about the screen in front of you, then check the answer or approved action. Choose local processing or an explicitly consented cloud planner. No account required. Voice input and the hotkey are experimental.",
     "primary": {
       "label": "download the free preview",
       "href": "/download"
@@ -93,7 +93,7 @@
       "height": 987,
       "chrome": "none"
     },
-    "caption": "Current development capture. The public release is text-first; voice accuracy and hotkey acceptance remain unverified."
+    "caption": "Current development capture. The current preview is text-first. Voice input and the hotkey are experimental."
   },
   "sections": [
     {
