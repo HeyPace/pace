@@ -2295,7 +2295,8 @@ extension CompanionManager {
                             route: intentPrediction.route,
                             screenCaptures: screenCaptures,
                             prewarmedContext: prewarmedContextForStep,
-                            turnLease: turnLease
+                            turnLease: turnLease,
+                            includesConfiguredToolContext: !usesPassiveScreenPrompt
                         )
                         guard !Task.isCancelled else { return }
                         if raceWiringResult.bothPlannersFailed {
@@ -3159,7 +3160,8 @@ extension CompanionManager {
         route: PaceIntentRoute,
         screenCaptures: [CompanionScreenCapture],
         prewarmedContext: PaceScreenContextPrewarmedSnapshot?,
-        turnLease: PaceTurnLease
+        turnLease: PaceTurnLease,
+        includesConfiguredToolContext: Bool = true
     ) async -> PaceFirstStepRaceWiringResult {
         let fullClient = plannerClient
         let liteClient = textOnlyPlannerClient
@@ -3189,8 +3191,14 @@ extension CompanionManager {
                 screenCaptures: screenCaptures,
                 prewarmedContext: prewarmedContext
             )
+            let userPromptWithConfiguredTools: String
+            if includesConfiguredToolContext {
+                userPromptWithConfiguredTools = await self.appendConfiguredMCPContext(to: screenContextPrompt)
+            } else {
+                userPromptWithConfiguredTools = screenContextPrompt
+            }
             let userPromptForPlanner = await self.appendLocalRetrievalContext(
-                to: await self.appendConfiguredMCPContext(to: screenContextPrompt),
+                to: userPromptWithConfiguredTools,
                 query: transcript,
                 route: route,
                 isFirstPlannerStep: true
