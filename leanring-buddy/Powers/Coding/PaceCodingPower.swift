@@ -22,7 +22,9 @@ nonisolated enum PaceCodingPower {
         while let prefix = courtesyPrefixes.first(where: text.hasPrefix) {
             text = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        if text.hasPrefix("open ") || text.hasPrefix("launch ") { return false }
+        let terminalIntentText = text.replacingOccurrences(of: #"(\"|')(?:~/|/).*?\1|(?:^|\s)(?:~/|/)[^\s]+"#, with: " ", options: .regularExpression)
+        if text.hasPrefix("open ") || text.hasPrefix("launch ")
+            || terminalIntentText.range(of: #"\bwarp\b"#, options: .regularExpression) != nil { return false }
         if text.range(of: #"^(?:resume|continue) (?:the |my |that )?coding (?:task|session)\b"#, options: .regularExpression) != nil { return true }
         if text.range(of: #"^start (?:a )?(?:retained )?coding (?:task|session)\b"#, options: .regularExpression) != nil { return true }
         let hasExplicitPath = text.range(of: #"(?:^|[\s\"'])(?:~/|/)[^\s]+"#, options: .regularExpression) != nil

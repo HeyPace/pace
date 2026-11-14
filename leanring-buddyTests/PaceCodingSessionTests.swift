@@ -7,6 +7,11 @@ private actor CodingEventCollector {
     var approvals: [PaceActionApprovalRequest] = []
     var shouldSuspendProgress = false
     var shouldSuspendFinal = false
+    var shouldSuspendReady = false
+    var readyContinuation: CheckedContinuation<Void, Never>?
+    var isReadySuspended: Bool { readyContinuation != nil }
+    func suspendReady() { shouldSuspendReady = true }
+    func resumeReady() { readyContinuation?.resume(); readyContinuation = nil }
     var finalContinuation: CheckedContinuation<Void, Never>?
     var isFinalSuspended: Bool { finalContinuation != nil }
     func suspendFinal() { shouldSuspendFinal = true }
@@ -17,6 +22,9 @@ private actor CodingEventCollector {
     func resumeProgress() { progressContinuation?.resume(); progressContinuation = nil }
     func record(_ event: PaceCodingSessionEvent) async {
         events.append(event)
+        if shouldSuspendReady, case .changed(let session) = event, session.state == .ready {
+            await withCheckedContinuation { readyContinuation = $0 }
+        }
         if shouldSuspendFinal, case .conversation(let message) = event, message.eventID.hasPrefix("coding-final-") {
             await withCheckedContinuation { finalContinuation = $0 }
         }
@@ -48,6 +56,11 @@ private actor CodingFixtureTransport: PaceCodingTransport {
     var isThreadStartSuspended: Bool { suspendedThreadStart != nil }
     func suspendThreadStart() { shouldSuspendThreadStart = true }
     func resumeThreadStart() { suspendedThreadStart?.resume(); suspendedThreadStart = nil }
+    var suspendedThreadRead: CheckedContinuation<Void, Never>?
+    var shouldSuspendThreadRead = false
+    var isThreadReadSuspended: Bool { suspendedThreadRead != nil }
+    func suspendThreadRead() { shouldSuspendThreadRead = true }
+    func resumeThreadRead() { suspendedThreadRead?.resume(); suspendedThreadRead = nil }
     var suspendedOpen: CheckedContinuation<Void, Never>?
     var shouldSuspendOpen = false
     var isOpenSuspended: Bool { suspendedOpen != nil }
@@ -95,7 +108,9 @@ private actor CodingFixtureTransport: PaceCodingTransport {
                 "thread": .object(["id": .string(threadID)]), "sandbox": .object([
                     "type": .string(unsafePolicy ? "dangerFullAccess" : "workspaceWrite"), "writableRoots": .array([.string(cwd)]),
                     "networkAccess": .bool(false), "excludeTmpdirEnvVar": .bool(true), "excludeSlashTmp": .bool(true)])])
-        case "thread/read": return .object(["thread": .object(["id": .string(threadID), "cwd": .string(cwd), "turns": .array([])])])
+        case "thread/read":
+            if shouldSuspendThreadRead { await withCheckedContinuation { suspendedThreadRead = $0 } }
+            return .object(["thread": .object(["id": .string(threadID), "cwd": .string(cwd), "turns": .array([])])])
         case "turn/start":
             turnNumber += 1
             if shouldSuspendTurnStart { await withCheckedContinuation { suspendedTurnStart = $0 } }
@@ -243,6 +258,49 @@ struct PaceCodingSessionTests {
 
 
 
+
+
+    @Test func pendingResumeByIDShowsOneResumingRowAndCanBeCancelledBeforeTurnStart() async throws {
+        let (directory, store, transport, _, coordinator) = try fixture()
+        let canonical = try PaceCodingSessionCoordinator.workspace(directory.path)
+        let saved = PaceCodingSessionSnapshot(id: .init(), directory: canonical, threadID: .init(rawValue: "thread-owned"),
+            lastTurnID: nil, conversationTurnIdentifier: nil, state: .completed, updatedAt: Date())
+        try store.save([saved])
+        await transport.setCwd(canonical.path)
+        await transport.suspendThreadRead()
+        let resuming = Task { try await coordinator.execute(.resume(sessionID: saved.id, task: "New work"), conversationTurnIdentifier: "resume", authorized: true) }
+        try await waitUntil { await transport.isThreadReadSuspended }
+        let status = try await coordinator.execute(.status(sessionID: saved.id), conversationTurnIdentifier: nil, authorized: false)
+        #expect(status.contains(" · resuming"))
+        #expect(!status.contains("completed"))
+        let allStatus = try await coordinator.execute(.status(sessionID: nil), conversationTurnIdentifier: nil, authorized: false)
+        #expect(allStatus.components(separatedBy: "\n").count == 1)
+        #expect(!allStatus.contains("Coding setup in"))
+        let cancellation = try await coordinator.execute(.cancel(sessionID: saved.id), conversationTurnIdentifier: nil, authorized: false)
+        #expect(cancellation.contains("Stopped coding resume"))
+        await transport.resumeThreadRead()
+        do { _ = try await resuming.value; Issue.record("cancelled resume must never start a new turn") } catch {}
+        #expect(await transport.requests.filter { $0.0 == "turn/start" }.isEmpty)
+        #expect(await transport.requests.filter { $0.0 == "thread/resume" }.isEmpty)
+        await coordinator.shutdown()
+    }
+
+    @Test func readyThreadPreparationHasOneCatalogRowAndExplicitIDCancellation() async throws {
+        let (directory, store, transport, collector, coordinator) = try fixture()
+        await collector.suspendReady()
+        let starting = Task { try await coordinator.execute(.start(directory: directory.path, task: "New work"), conversationTurnIdentifier: "start", authorized: true) }
+        try await waitUntil { await collector.isReadySuspended }
+        let session = try #require(store.load().first)
+        let status = try await coordinator.execute(.status(sessionID: nil), conversationTurnIdentifier: nil, authorized: false)
+        #expect(status.components(separatedBy: "\n").count == 1)
+        #expect(status.contains(" · preparing"))
+        #expect(!status.contains("Coding setup in"))
+        _ = try await coordinator.execute(.cancel(sessionID: session.id), conversationTurnIdentifier: nil, authorized: false)
+        await collector.resumeReady()
+        do { _ = try await starting.value; Issue.record("cancelled preparation must never start a turn") } catch {}
+        #expect(await transport.requests.filter { $0.0 == "turn/start" }.isEmpty)
+        await coordinator.shutdown()
+    }
 
     @Test func multipleOpeningWorkspacesRemainAmbiguousToLocalCancel() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PacePendingOwners-" + UUID().uuidString)
@@ -653,10 +711,10 @@ struct PaceCodingManagerTests {
     }
 
     @Test func routingKeepsQuestionsAndWarpLaunchesOnTheirExistingPaths() {
-        for request in ["work on ~/projects/app with Codex and fix tests", "start a retained coding session in /tmp/app and add tests", "resume the coding task and add tests", "please continue my coding session with a new test", "can you please resume the coding task and add tests", "could you please can you resume the coding session and add tests", "work on ~/src/warpdrive with codex and fix tests", "work on ~/src/warp with codex and fix tests", "use codex to fix tests in ~/app"] {
+        for request in ["work on ~/projects/app with Codex and fix tests", "start a retained coding session in /tmp/app and add tests", "resume the coding task and add tests", "please continue my coding session with a new test", "can you please resume the coding task and add tests", "could you please can you resume the coding session and add tests", "work on ~/src/warpdrive with codex and fix tests", "work on ~/src/warp with codex and fix tests", "use codex to fix tests in ~/app", "work on \"~/my warp/app\" with codex and fix tests"] {
             #expect(PaceCodingPower.requestsRetainedCoding(request))
         }
-        for request in ["How do I fix a corrupted git repository?", "change my GitHub repository visibility", "What is a coding session?", "show the coding task on my screen", "open a codex session to fix tests in ~/proj", "start Codex in ~/projects/app", "launch Codex in Warp", "Start a Codex session in /tmp/app and fix tests", "Code in /Users/me/app crashes when I run it, how do I fix it?"] {
+        for request in ["How do I fix a corrupted git repository?", "change my GitHub repository visibility", "What is a coding session?", "show the coding task on my screen", "open a codex session to fix tests in ~/proj", "start Codex in ~/projects/app", "launch Codex in Warp", "Start a Codex session in /tmp/app and fix tests", "Code in /Users/me/app crashes when I run it, how do I fix it?", "start a coding session in Warp", "resume my coding session in Warp", "use codex to fix tests in ~/app in Warp", "work on ~/app with codex in Warp"] {
             #expect(!PaceCodingPower.requestsRetainedCoding(request))
         }
     }
@@ -807,6 +865,30 @@ struct PaceCodingManagerTests {
         catch { #expect(error.localizedDescription.contains("current Codex off-device consent")) }
         #expect(await transport.requests.isEmpty)
         await manager.codingSessionCoordinator.shutdown()
+    }
+
+    @Test func nestedDismissalCancelsOuterAndInnerEvenIfBothLaterReturnAllowOnce() {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let outer = PaceActionApprovalRequest(approvalSummary: "outer initial scope", requiresActionApproval: true)!
+        let inner = PaceActionApprovalRequest(approvalSummary: "inner runtime checkpoint", requiresActionApproval: true)!
+        var abortCount = 0
+        manager.codingApprovalAbortOverride = { abortCount += 1 }
+        manager.actionApprovalPresentationOverride = { request in
+            if request.approvalSummary == outer.approvalSummary {
+                #expect(manager.presentCodingApproval(inner) == .cancel)
+                #expect(manager.codingApprovalIsPresented)
+                manager.abortDismissedCodingApprovalModals()
+                #expect(abortCount >= 2)
+                return .allowOnce
+            }
+            #expect(manager.presentedCodingApprovalTokens.count == 2)
+            manager.dismissCodingApprovals()
+            #expect(manager.dismissedCodingApprovalTokens.count == 2)
+            return .allowOnce
+        }
+        #expect(manager.presentCodingApproval(outer) == .cancel)
+        #expect(manager.presentedCodingApprovalTokens.isEmpty)
+        #expect(manager.dismissedCodingApprovalTokens.isEmpty)
     }
 
 }

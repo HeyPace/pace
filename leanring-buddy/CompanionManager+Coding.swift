@@ -125,6 +125,8 @@ extension CompanionManager {
             return "Coding setup in \(URL(fileURLWithPath: path).lastPathComponent) is opening."
         }
         if message.hasPrefix("Stopped coding setup in ") { return "Coding setup stopped." }
+        if message.hasPrefix("Stopped coding resume in ") { return "Coding resume stopped." }
+        if message.hasPrefix("Stopped coding preparation in ") { return "Coding preparation stopped." }
         if summaries.count > 1 { return "You have \(summaries.count) retained coding sessions. Their details are in chat." }
         guard let summary = summaries.first else { return message }
         let fields = summary.components(separatedBy: " · ")
@@ -148,12 +150,34 @@ extension CompanionManager {
 
     func presentCodingApproval(_ request: PaceActionApprovalRequest) -> PaceActionApprovalDecision {
         let token = UUID()
+        let dismissalGeneration = codingApprovalDismissalGeneration
         presentedCodingApprovalTokens.insert(token)
-        defer { presentedCodingApprovalTokens.remove(token) }
-        return presentActionApproval(request) ? .allowOnce : .cancel
+        defer {
+            presentedCodingApprovalTokens.remove(token)
+            dismissedCodingApprovalTokens.remove(token)
+        }
+        let allowed = presentActionApproval(request)
+        guard dismissalGeneration == codingApprovalDismissalGeneration, !dismissedCodingApprovalTokens.contains(token) else { return .cancel }
+        return allowed ? .allowOnce : .cancel
     }
 
     func dismissCodingApprovals() {
-        if codingApprovalIsPresented { NSApp.abortModal() }
+        codingApprovalDismissalGeneration &+= 1
+        dismissedCodingApprovalTokens.formUnion(presentedCodingApprovalTokens)
+        abortDismissedCodingApprovalModals()
     }
+
+    func abortDismissedCodingApprovalModals() {
+        guard !presentedCodingApprovalTokens.isDisjoint(with: dismissedCodingApprovalTokens) else { return }
+        if let codingApprovalAbortOverride { codingApprovalAbortOverride() }
+        else { NSApp.abortModal() }
+        guard !codingApprovalAbortIsScheduled else { return }
+        codingApprovalAbortIsScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { [weak self] in
+            guard let self else { return }
+            self.codingApprovalAbortIsScheduled = false
+            self.abortDismissedCodingApprovalModals()
+        }
+    }
+
 }
