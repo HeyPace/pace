@@ -84,7 +84,7 @@
       "label": "see the $29 local stack",
       "href": "/pricing"
     },
-    "note": "Free with Apple Foundation Models on macOS 26 · bundled local models are $29 once.",
+    "note": "Free with Apple Foundation Models on macOS 26 · bundled local models are $29 once. Start with a read-only text request.",
     "window": {
       "title": "Pace · Command Center",
       "src": "/images/command-center.webp",
@@ -93,7 +93,7 @@
       "height": 987,
       "chrome": "none"
     },
-    "caption": "Current development capture. The public 0.3.19 preview may differ; it is ad-hoc signed and not notarized."
+    "caption": "Current development capture. The public release is text-first; voice accuracy and hotkey acceptance remain unverified."
   },
   "sections": [
     {
@@ -205,7 +205,7 @@
             "label": "see purchase details",
             "href": "/pricing"
           },
-          "note": "Apple Silicon only. The public preview is ad-hoc signed and not notarized; see the download page for installation steps."
+          "note": "Apple Silicon only. Review the current release notes and installation steps on the download page."
         }
       ]
     },
@@ -218,7 +218,7 @@
           "items": [
             {
               "q": "Does it really run with no network?",
-              "a": "Yes, in local mode. Voice, screen reading, planning, and TTS run on your Mac. The download_file tool fetches a URL only when you ask. Downloads and update checks are separate; an opt-in off-device planner turns the capsule amber and writes an audit entry. The in-app Privacy dashboard shows the exact byte count by surface."
+              "a": "Local model paths are available. Verify the selected speech provider and language before treating the full voice loop as offline. Model downloads, update checks, external integrations and consented cloud planners use the network. The Privacy dashboard covers requests recorded by its local audit log; review the privacy page and evaluation checklist for the boundaries."
             },
             {
               "q": "Where do my meeting recordings go?",
@@ -230,7 +230,7 @@
             },
             {
               "q": "What Macs?",
-              "a": "The current 0.3.19 preview requires macOS 26 on an Apple Silicon Mac. Intel Macs aren't supported and there's no plan to add them — MLX is Metal-backed, and the on-device story is the product boundary. The shipped archive's Info.plist is the source of truth for this requirement."
+              "a": "The current release requires macOS 26 on an Apple Silicon Mac. Intel Macs aren't supported and there's no plan to add them — MLX is Metal-backed, and the on-device story is the product boundary. The shipped archive's Info.plist is the source of truth for this requirement."
             },
             {
               "q": "iPhone? Windows?",

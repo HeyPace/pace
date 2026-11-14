@@ -46,7 +46,7 @@ export function changelogMarkdown() {
 export function downloadMarkdown() {
   const { latest, releases, releasesPageURL } = releaseInfo;
   const lines = [fragmentMarkdown("download-intro", { version: latest?.version ?? "" })];
-  if (latest) lines.push(`[Download Pace ${latest.version}](${latest.downloadURL})`, `${latest.lengthMB} MB · zip`, `macOS ${latest.minimumSystemVersion}+ · Apple Silicon`, `Released ${latest.displayDate}`, fragmentMarkdown("download-offer"));
+  if (latest) lines.push(`[Download Pace ${latest.version}](${latest.downloadURL})`, `${latest.lengthMB} MB · DMG`, `macOS ${latest.minimumSystemVersion}+ · Apple Silicon`, `Released ${latest.displayDate}`, fragmentMarkdown("download-offer"));
   lines.push(fragmentMarkdown("download-install", { version: latest?.version ?? "" }));
   if (releases.length) lines.push("## Recent releases", `[All releases](${releasesPageURL})`, ...releases.map((release) => `- [${release.version}](${release.downloadURL}): ${release.displayDate}; ${release.lengthMB} MB`));
   lines.push(fragmentMarkdown("download-outro"));

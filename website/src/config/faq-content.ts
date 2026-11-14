@@ -1,7 +1,7 @@
 export const qas = [
   {
     q: "Does it really run with no network?",
-    a: "Yes. Voice, screen reading, the planner, TTS — all on your Mac. The one exception is `download_file`, which fetches a URL only when you explicitly tell Pace to. The Privacy dashboard inside the app shows the exact byte count, broken out by surface.",
+    a: "Local model paths are available. Verify the selected speech provider and language before treating the full voice loop as offline. Model downloads, update checks, external integrations and consented cloud planners use the network. The Privacy dashboard covers requests recorded by its local audit log; review the privacy page and evaluation checklist for the boundaries.",
   },
   {
     q: "Where do my meeting recordings go?",
@@ -13,7 +13,7 @@ export const qas = [
   },
   {
     q: "What Macs?",
-    a: "The current 0.3.19 preview requires macOS 26 on an Apple Silicon Mac. Intel Macs aren't supported and there's no plan to add them — MLX is Metal-backed, and the on-device story is the product boundary. The shipped archive's Info.plist is the source of truth for this requirement.",
+    a: "The current release requires macOS 26 on an Apple Silicon Mac. Intel Macs aren't supported and there's no plan to add them — MLX is Metal-backed, and the on-device story is the product boundary. The shipped archive's Info.plist is the source of truth for this requirement.",
   },
   {
     q: "iPhone? Windows?",
@@ -45,7 +45,7 @@ export const qas = [
   },
   {
     q: "Can it tell me what I did today?",
-    a: "Yes, from passive local journals. Watch mode logs when your screen meaningfully changes; a separate app-usage journal tracks which apps had focus and for how long, using notifications macOS hands out without any extra permission. Research turns get their own history. Ask \"what did I do today?\" or \"what did I research about X?\" and Pace answers from those journals — all on disk, 7-day retention for the screen/app logs, per-source enable and clear in Settings. Nothing is uploaded.",
+    a: "Yes, from passive local journals. Watch mode logs when your screen meaningfully changes; a separate app-usage journal tracks which apps had focus and for how long, using notifications macOS hands out without any extra permission. Research turns get their own history. Ask \"what did I do today?\" or \"what did I research about X?\" and Pace answers from those journals — all on disk, 7-day retention for the screen/app logs, per-source enable and clear in Settings. In local mode these sources stay on the Mac; a consented external planner can receive turn context.",
   },
   {
     q: "Can I trigger it from Raycast or Shortcuts?",
