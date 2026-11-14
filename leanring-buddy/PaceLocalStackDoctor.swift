@@ -481,7 +481,9 @@ final class PaceLocalStackDoctor {
             .boolWithInfoPlistSeed(.useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext")
 
         let ttsServerBaseURL = Self.configString("LocalTTSServerBaseURL", fallback: "http://127.0.0.1:8880/v1")
-        let ttsProvider = Self.configString("TTSProvider", fallback: "apple")
+        let ttsProvider = BuddyTTSClientFactory.selectedProvider(
+            configuredProvider: AppBundleConfiguration.stringValue(forKey: "TTSProvider"),
+            useBundledQwen3: PaceBundledModelsSettings.isUsingQwen3TTSInProcess())
 
         let urlSession = suppliedURLSession ?? Self.makeShortTimeoutSession()
 
@@ -524,7 +526,9 @@ final class PaceLocalStackDoctor {
         // 4. VLM loaded — only when the Read My Screen toggle is on.
         if useLocalVLMForScreenContext && selectedTier == .cliDirect {
             checks.append(PaceDoctorCheck(title: "Screen reading", status: .info,
-                detail: "Native accessibility and text recognition provide screen context. The selected CLI can receive captured images when Read My Screen is enabled; a local VLM is not required. Permissions and capture are checked during use.", fixHint: nil))
+                detail: selectedUpstream == .codex
+                    ? "Screen questions can send captured images to Codex with screen permission and planning consent. This route skips local VLM and native OCR."
+                    : "Screen questions use accessibility and on-device text recognition for text-only context sent to Claude. Captured images are not sent by this planner; local VLM is skipped.", fixHint: nil))
         } else if useLocalVLMForScreenContext && PaceBundledModelsSettings.isUsingMLXInProcessVLM() {
             checks.append(PaceDoctorCheck(title: "Screen reading", status: .info,
                 detail: "On-device vision selected; no LM Studio vision service is required. Model readiness is checked during screen analysis.", fixHint: nil))
@@ -538,7 +542,7 @@ final class PaceLocalStackDoctor {
         }
 
         // 5. TTS sidecar — only when the sidecar TTS provider is selected.
-        if ttsProvider == "localServer" {
+        if ttsProvider == .localServer {
             let ttsCheck = await Self.checkTTSSidecar(
                 ttsServerBaseURL: ttsServerBaseURL,
                 urlSession: urlSession

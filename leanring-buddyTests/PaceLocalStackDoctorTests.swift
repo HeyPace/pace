@@ -38,6 +38,18 @@ struct PaceLocalStackDoctorTests {
             #expect(checks.contains { $0.title == "\(upstream.displayLabel) planner" })
             #expect(!checks.contains { ["LM Studio server", "Planner model loaded", "VLM loaded (Read My Screen)"].contains($0.title) })
             #expect(checks.contains { $0.title == "Screen reading" && $0.status == .info })
+            let screenDetail = checks.first { $0.title == "Screen reading" }?.detail ?? ""
+            if upstream == .codex {
+                #expect(screenDetail.contains("captured images to Codex"))
+                #expect(screenDetail.contains("skips local VLM and native OCR"))
+            } else {
+                #expect(screenDetail.contains("text-only context sent to Claude"))
+                #expect(screenDetail.contains("Captured images are not sent"))
+            }
+            let expectedSpeechProvider = BuddyTTSClientFactory.selectedProvider(
+                configuredProvider: AppBundleConfiguration.stringValue(forKey: "TTSProvider"),
+                useBundledQwen3: PaceBundledModelsSettings.isUsingQwen3TTSInProcess())
+            #expect(checks.contains { $0.title == "TTS sidecar" } == (expectedSpeechProvider == .localServer))
             let recall = checks.first { $0.title.hasPrefix("Semantic recall") }
             #expect(recall != nil && recall?.status != .fail)
             if recall?.status == .warn {
