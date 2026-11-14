@@ -60,20 +60,17 @@ extension CompanionManager {
         preflightIssues: [PaceToolPreflightIssue] = [],
         smokeAutoCancelAfter: TimeInterval? = nil
     ) -> Bool {
-        let hasBlockingPreflightIssue = preflightIssues.contains { $0.severity == .blocking }
-        let startsCoding = actionExecutionPlan.flattenedActions.contains {
-            if case .codingSession(let command) = $0 { return command.requiresExecutionConsent }
-            return false
+        let otherSteps = actionExecutionPlan.steps.compactMap { step -> PaceActionExecutionStep? in
+            let actions = step.actions.filter { action in if case .codingSession = action { return false }; return true }
+            return actions.isEmpty ? nil : PaceActionExecutionStep(actions: actions)
         }
-        let shouldRequestApproval = startsCoding || hasBlockingPreflightIssue
-            || (
-                requiresActionApproval
-                    && PaceActionApprovalPolicy.requiresExplicitApproval(
-                        for: actionExecutionPlan
-                    )
-            )
+        let approvalPlan = PaceActionExecutionPlan(steps: otherSteps)
+        guard !approvalPlan.flattenedActions.isEmpty else { return true }
+        let hasBlockingPreflightIssue = preflightIssues.contains { $0.severity == .blocking }
+        let shouldRequestApproval = hasBlockingPreflightIssue
+            || (requiresActionApproval && PaceActionApprovalPolicy.requiresExplicitApproval(for: approvalPlan))
         let approvalRequest = PaceActionApprovalRequest(
-            approvalSummary: actionExecutionPlan.approvalSummary,
+            approvalSummary: approvalPlan.approvalSummary,
             preflightSummary: PaceToolPreflightIssue.formatForApproval(preflightIssues),
             requiresActionApproval: shouldRequestApproval
         )

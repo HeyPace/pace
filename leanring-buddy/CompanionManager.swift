@@ -261,7 +261,8 @@ final class CompanionManager: ObservableObject {
 
     var codingSetupCallCount = 0
     var codingSessionsInFlight: Set<PaceCodingSessionID> = []
-    var codingApprovalIsPresented = false
+    var presentedCodingApprovalTokens: Set<UUID> = []
+    var codingApprovalIsPresented: Bool { !presentedCodingApprovalTokens.isEmpty }
     var actionApprovalPresentationOverride: ((PaceActionApprovalRequest) -> PaceActionApprovalDecision)?
     lazy var codingSessionCoordinator = PaceCodingSessionCoordinator(
         eventSink: { [weak self] event in await self?.handleCodingSessionEvent(event) },

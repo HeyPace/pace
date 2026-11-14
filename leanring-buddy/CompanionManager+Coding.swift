@@ -20,18 +20,8 @@ extension CompanionManager {
             let parsed = PaceActionTagParser.parseActions(from: response.text)
             let message: String
             if parsed.actions.count == 1, case .codingSession(let command) = parsed.actions[0] {
-                var approved = true
-                if command.requiresExecutionConsent {
-                    codingApprovalIsPresented = true
-                    approved = requestUserApprovalForActionPlan(parsed.executionPlan)
-                    codingApprovalIsPresented = false
-                }
                 guard isActiveTurn(turnLease), !Task.isCancelled else { return }
-                if !approved {
-                    message = "Coding request cancelled."
-                } else {
-                    message = await actionExecutor.executeSingleAction(.codingSession(command), screenCaptures: [])?.summary ?? "Coding is unavailable."
-                }
+                message = await actionExecutor.executeSingleAction(.codingSession(command), screenCaptures: [])?.summary ?? "Coding is unavailable."
             } else if parsed.actions.isEmpty, !parsed.spokenText.isEmpty {
                 message = parsed.spokenText
             } else { message = "Specify the existing coding workspace, the task, or an exact retained session ID." }
@@ -59,24 +49,45 @@ extension CompanionManager {
 
     func executeRetainedCoding(_ command: PaceCodingSessionCommand) async -> PaceActionExecutionObservation {
         let turnIdentifier = activeConversationUserEvent?.eventID
-        let authorized = actionExecutor.actionsAreEnabled && PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent()
-            && PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+        let turnLease = turnLeaseRegistry.currentLease
+        let isAuthorized = { self.actionExecutor.actionsAreEnabled && PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent()
+            && PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date()) }
         if command.requiresExecutionConsent { codingSetupCallCount += 1; refreshOffDeviceIndicator() }
         defer {
             if command.requiresExecutionConsent { codingSetupCallCount -= 1; refreshOffDeviceIndicator() }
         }
         do {
-            let result = try await performOwnedCodingCommand(command, conversationTurnIdentifier: turnIdentifier, authorized: authorized)
+            var approvedScope: PaceCodingApprovalScope?
+            if command.requiresExecutionConsent {
+                guard let scope = try await prepareScopedCodingApproval(command, turnLease: turnLease, isAuthorized: isAuthorized) else {
+                    return .init(toolName: "coding_session", summary: "Coding request cancelled.")
+                }
+                approvedScope = scope
+            }
+            if command.requiresExecutionConsent { guard isActiveTurn(turnLease), !Task.isCancelled else { throw CancellationError() } }
+            let result = try await performOwnedCodingCommand(approvedScope?.command ?? command, conversationTurnIdentifier: turnIdentifier,
+                authorized: isAuthorized(), expectedApprovalScope: approvedScope)
             return .init(toolName: "coding_session", summary: result)
         } catch {
             return .init(toolName: "coding_session", summary: "Coding failed: " + error.localizedDescription)
         }
     }
 
-    func performOwnedCodingCommand(_ command: PaceCodingSessionCommand, conversationTurnIdentifier: String?, authorized: Bool) async throws -> String {
+    func prepareScopedCodingApproval(_ command: PaceCodingSessionCommand, turnLease: PaceTurnLease,
+        isAuthorized: () -> Bool) async throws -> PaceCodingApprovalScope? {
+        guard isAuthorized() else { throw PaceCodingError.permissionDenied }
+        let scope = try await codingSessionCoordinator.approvalScope(for: command)
+        guard isActiveTurn(turnLease), !Task.isCancelled else { throw CancellationError() }
+        guard presentCodingApproval(scope.approvalRequest) == .allowOnce else { return nil }
+        guard isActiveTurn(turnLease), !Task.isCancelled else { throw CancellationError() }
+        guard isAuthorized() else { throw PaceCodingError.permissionDenied }
+        return scope
+    }
+
+    func performOwnedCodingCommand(_ command: PaceCodingSessionCommand, conversationTurnIdentifier: String?, authorized: Bool, expectedApprovalScope: PaceCodingApprovalScope? = nil) async throws -> String {
         let coordinator = codingSessionCoordinator
         let operation = Task {
-            try await coordinator.execute(command, conversationTurnIdentifier: conversationTurnIdentifier, authorized: authorized)
+            try await coordinator.execute(command, conversationTurnIdentifier: conversationTurnIdentifier, authorized: authorized, expectedApprovalScope: expectedApprovalScope)
         }
         return try await operation.value
     }
@@ -105,7 +116,15 @@ extension CompanionManager {
     }
 
     nonisolated static func shortCodingAcknowledgement(_ message: String) -> String {
-        let summaries = message.components(separatedBy: "\n").filter { $0.hasPrefix("Coding session ") }
+        let lines = message.components(separatedBy: "\n")
+        let setups = lines.filter { $0.hasPrefix("Coding setup in ") }
+        let summaries = lines.filter { $0.hasPrefix("Coding session ") }
+        if !setups.isEmpty {
+            if setups.count + summaries.count > 1 { return "There are \(setups.count + summaries.count) coding sessions or setups. Their details are in chat." }
+            let path = String(setups[0].dropFirst("Coding setup in ".count)).components(separatedBy: " · ")[0]
+            return "Coding setup in \(URL(fileURLWithPath: path).lastPathComponent) is opening."
+        }
+        if message.hasPrefix("Stopped coding setup in ") { return "Coding setup stopped." }
         if summaries.count > 1 { return "You have \(summaries.count) retained coding sessions. Their details are in chat." }
         guard let summary = summaries.first else { return message }
         let fields = summary.components(separatedBy: " · ")
@@ -124,8 +143,13 @@ extension CompanionManager {
         guard !Task.isCancelled, actionExecutor.actionsAreEnabled,
               PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
               PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date()) else { return .cancel }
-        codingApprovalIsPresented = true
-        defer { codingApprovalIsPresented = false }
+        return presentCodingApproval(request)
+    }
+
+    func presentCodingApproval(_ request: PaceActionApprovalRequest) -> PaceActionApprovalDecision {
+        let token = UUID()
+        presentedCodingApprovalTokens.insert(token)
+        defer { presentedCodingApprovalTokens.remove(token) }
         return presentActionApproval(request) ? .allowOnce : .cancel
     }
 

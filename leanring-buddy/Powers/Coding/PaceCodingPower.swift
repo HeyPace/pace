@@ -18,17 +18,19 @@ nonisolated enum PaceCodingPower {
 
     static func requestsRetainedCoding(_ transcript: String) -> Bool {
         var text = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.hasPrefix("please ") { text = String(text.dropFirst(7)) }
-        if text.hasPrefix("can you ") { text = String(text.dropFirst(8)) }
-        if text.hasPrefix("could you ") { text = String(text.dropFirst(10)) }
-        if text.hasPrefix("open ") || text.hasPrefix("launch ") || text.contains("warp") { return false }
+        let courtesyPrefixes = ["please ", "can you ", "could you ", "would you "]
+        while let prefix = courtesyPrefixes.first(where: text.hasPrefix) {
+            text = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if text.hasPrefix("open ") || text.hasPrefix("launch ") { return false }
         if text.range(of: #"^(?:resume|continue) (?:the |my |that )?coding (?:task|session)\b"#, options: .regularExpression) != nil { return true }
         if text.range(of: #"^start (?:a )?(?:retained )?coding (?:task|session)\b"#, options: .regularExpression) != nil { return true }
         let hasExplicitPath = text.range(of: #"(?:^|[\s\"'])(?:~/|/)[^\s]+"#, options: .regularExpression) != nil
         guard hasExplicitPath else { return false }
         return text.range(of: #"^work on\s.+\bwith codex\b"#, options: .regularExpression) != nil
             || text.range(of: #"^start (?:a )?retained codex session\b"#, options: .regularExpression) != nil
-            || text.range(of: #"^(?:start coding|code) in\s"#, options: .regularExpression) != nil
+            || text.range(of: #"^use codex to\s"#, options: .regularExpression) != nil
+            || text.range(of: #"^start coding in\s"#, options: .regularExpression) != nil
     }
 
     static let tools = [PaceLocalToolDefinition(kind: .codingSession, canonicalName: "coding_session", aliases: [],

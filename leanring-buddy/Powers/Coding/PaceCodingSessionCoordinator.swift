@@ -46,16 +46,31 @@ actor PaceCodingSessionCoordinator {
         self.approve = approve
     }
 
-    func execute(_ command: PaceCodingSessionCommand, conversationTurnIdentifier: String?, authorized: Bool) async throws -> String {
+    func execute(_ command: PaceCodingSessionCommand, conversationTurnIdentifier: String?, authorized: Bool, expectedApprovalScope: PaceCodingApprovalScope? = nil) async throws -> String {
         guard !isClosed else { throw PaceCodingError.disconnected }
         try loadIfNeeded()
         if command.requiresExecutionConsent, !authorized { throw PaceCodingError.permissionDenied }
+        if let expectedApprovalScope {
+            guard try approvalScope(for: command) == expectedApprovalScope else { throw PaceCodingError.approvalChanged }
+        }
         switch command {
         case .status(let identifier):
             let matches = identifier.map { identifier in sessions.values.filter { $0.id == identifier } } ?? Array(sessions.values)
-            guard !matches.isEmpty else { return "No retained coding sessions." }
-            return matches.sorted { $0.updatedAt > $1.updatedAt }.map(\.summary).joined(separator: "\n")
+            let pending = identifier == nil ? pendingSetupWorkspaces() : []
+            let lines = matches.sorted { $0.updatedAt > $1.updatedAt }.map(\.summary)
+                + pending.map { "Coding setup in " + $0.path + " · opening" }
+            return lines.isEmpty ? "No retained coding sessions." : lines.joined(separator: "\n")
         case .cancel(let identifier):
+            if identifier == nil {
+                let pending = pendingSetupWorkspaces()
+                let activeCount = sessions.values.filter { $0.state.isBusy }.count + pending.count
+                guard activeCount > 0 else { throw PaceCodingError.missingSession }
+                guard activeCount == 1 else { throw PaceCodingError.ambiguousSession }
+                if let workspace = pending.first, let slot = slots[workspace] {
+                    await closeSlot(workspace, generation: slot.generation)
+                    return "Stopped coding setup in " + workspace.path + "."
+                }
+            }
             let session = try resolve(identifier, busyOnly: identifier == nil)
             guard session.state.isBusy else { return session.summary + ". No owned job is running." }
             if session.state == .starting || startingThreads.contains(session.threadID) {
@@ -80,7 +95,8 @@ actor PaceCodingSessionCoordinator {
         case .start(let directory, let task):
             guard sessions.count < 200 else { throw PaceCodingError.catalogCapacity }
             let workspace = try Self.workspace(directory)
-            guard !reservedWorkspaces.contains(workspace), !closingWorkspaces.contains(workspace), !sessions.values.contains(where: { $0.directory == workspace && $0.state.isBusy }) else { throw PaceCodingError.busy }
+            guard !closingWorkspaces.contains(workspace) else { throw PaceCodingError.workspaceClosing }
+            guard !reservedWorkspaces.contains(workspace), !sessions.values.contains(where: { $0.directory == workspace && $0.state.isBusy }) else { throw PaceCodingError.busy }
             reservedWorkspaces.insert(workspace)
             var reservedGeneration: UUID?
             defer {
@@ -109,7 +125,8 @@ actor PaceCodingSessionCoordinator {
             }
         case .resume(let identifier, let task):
             var session = try resolve(identifier)
-            guard !session.state.isBusy, !reservedWorkspaces.contains(session.directory), !closingWorkspaces.contains(session.directory),
+            guard !closingWorkspaces.contains(session.directory) else { throw PaceCodingError.workspaceClosing }
+            guard !session.state.isBusy, !reservedWorkspaces.contains(session.directory),
                   !sessions.values.contains(where: { $0.id != identifier && $0.directory == session.directory && $0.state.isBusy }) else { throw PaceCodingError.busy }
             guard try Self.workspace(session.directory.path) == session.directory else { throw PaceCodingError.workspaceChanged }
             let workspace = session.directory
@@ -146,6 +163,12 @@ actor PaceCodingSessionCoordinator {
         }
     }
 
+    private func pendingSetupWorkspaces() -> [URL] {
+        reservedWorkspaces.filter { workspace in
+            slots[workspace] != nil && !sessions.values.contains { $0.directory == workspace && $0.state.isBusy }
+        }.sorted { $0.path < $1.path }
+    }
+
     private func loadIfNeeded() throws {
         guard !loaded else { return }
         var stored = try store.load()
@@ -176,7 +199,7 @@ actor PaceCodingSessionCoordinator {
 
     private func ensureSlot(cwd: URL) async throws -> Slot {
         guard !isClosed else { throw PaceCodingError.disconnected }
-        guard !closingWorkspaces.contains(cwd) else { throw PaceCodingError.busy }
+        guard !closingWorkspaces.contains(cwd) else { throw PaceCodingError.workspaceClosing }
         if let slot = slots[cwd] {
             if let opening = slot.opening { try await opening.value }
             guard slotIsCurrent(cwd, generation: slot.generation) else { throw PaceCodingError.disconnected }
@@ -459,6 +482,35 @@ actor PaceCodingSessionCoordinator {
         shutdownHasFinished = true
         for waiter in shutdownWaiters { waiter.resume() }
         shutdownWaiters.removeAll()
+    }
+
+    func approvalScope(for command: PaceCodingSessionCommand) throws -> PaceCodingApprovalScope {
+        guard !isClosed else { throw PaceCodingError.disconnected }
+        try loadIfNeeded()
+        let directory: URL
+        let state: PaceCodingSessionState?
+        let lastTurnID: PaceCodexTurnID?
+        let scopedCommand: PaceCodingSessionCommand
+        switch command {
+        case .start(let path, let task):
+            guard sessions.count < 200 else { throw PaceCodingError.catalogCapacity }
+            directory = try Self.workspace(path)
+            state = nil
+            lastTurnID = nil
+            scopedCommand = .start(directory: directory.path, task: task)
+        case .resume(let identifier, _):
+            let session = try resolve(identifier)
+            directory = try Self.workspace(session.directory.path)
+            guard directory == session.directory else { throw PaceCodingError.workspaceChanged }
+            guard !session.state.isBusy else { throw PaceCodingError.busy }
+            state = session.state
+            lastTurnID = session.lastTurnID
+            scopedCommand = command
+        case .status, .cancel: throw PaceCodingError.invalidProtocol
+        }
+        guard !closingWorkspaces.contains(directory) else { throw PaceCodingError.workspaceClosing }
+        guard !reservedWorkspaces.contains(directory), !sessions.values.contains(where: { $0.directory == directory && $0.state.isBusy }) else { throw PaceCodingError.busy }
+        return PaceCodingApprovalScope(command: scopedCommand, directory: directory, state: state, lastTurnID: lastTurnID)
     }
 
     func plannerSessionMetadata() throws -> String {

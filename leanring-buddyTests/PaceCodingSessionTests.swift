@@ -52,6 +52,10 @@ private actor CodingFixtureTransport: PaceCodingTransport {
     var shouldSuspendOpen = false
     var isOpenSuspended: Bool { suspendedOpen != nil }
     var shutdownCount = 0
+    var shouldSuspendShutdown = false
+    var suspendedShutdown: CheckedContinuation<Void, Never>?
+    func suspendShutdown() { shouldSuspendShutdown = true }
+    func resumeShutdown() { suspendedShutdown?.resume(); suspendedShutdown = nil }
     func suspendOpen() { shouldSuspendOpen = true }
     func resumeOpen() { suspendedOpen?.resume(); suspendedOpen = nil }
     var suspendedTurnStart: CheckedContinuation<Void, Never>?
@@ -64,7 +68,11 @@ private actor CodingFixtureTransport: PaceCodingTransport {
         if shouldSuspendOpen { await withCheckedContinuation { suspendedOpen = $0 } }
     }
     func events() -> AsyncStream<PaceCodingTransportEvent> { stream }
-    func shutdown() { shutdownCount += 1; continuation.yield(.disconnected); continuation.finish() }
+    func shutdown() async {
+        shutdownCount += 1
+        if shouldSuspendShutdown { await withCheckedContinuation { suspendedShutdown = $0 } }
+        continuation.yield(.disconnected); continuation.finish()
+    }
     func reply(id: PaceMCPJSONValue, result: PaceMCPJSONValue?, error: String?) { replies.append((id, result, error)) }
     func send(_ method: String, params: [String: PaceMCPJSONValue], id: PaceMCPJSONValue? = nil) {
         var message: [String: PaceMCPJSONValue] = ["method": .string(method), "params": .object(params)]
@@ -233,6 +241,97 @@ struct PaceCodingSessionTests {
 
 
 
+
+
+
+    @Test func multipleOpeningWorkspacesRemainAmbiguousToLocalCancel() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PacePendingOwners-" + UUID().uuidString)
+        let firstPath = directory.appendingPathComponent("first").path, secondPath = directory.appendingPathComponent("second").path
+        try FileManager.default.createDirectory(atPath: firstPath, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: secondPath, withIntermediateDirectories: true)
+        let canonicalFirst = try PaceCodingSessionCoordinator.workspace(firstPath)
+        let first = CodingFixtureTransport(), second = CodingFixtureTransport()
+        await first.suspendOpen(); await second.suspendOpen()
+        let coordinator = PaceCodingSessionCoordinator(store: .init(directory: directory.appendingPathComponent("state")),
+            transportFactory: { $0.path == canonicalFirst.path ? first : second }, eventSink: { _ in }, approve: { _ in .cancel })
+        let firstStart = Task { try await coordinator.execute(.start(directory: firstPath, task: "First"), conversationTurnIdentifier: nil, authorized: true) }
+        let secondStart = Task { try await coordinator.execute(.start(directory: secondPath, task: "Second"), conversationTurnIdentifier: nil, authorized: true) }
+        try await waitUntil {
+            let firstWaiting = await first.isOpenSuspended
+            let secondWaiting = await second.isOpenSuspended
+            return firstWaiting && secondWaiting
+        }
+        do { _ = try await coordinator.execute(.cancel(sessionID: nil), conversationTurnIdentifier: nil, authorized: false); Issue.record("multiple owners must not be guessed") }
+        catch { #expect(error.localizedDescription.contains("More than one")) }
+        #expect(await first.shutdownCount == 0)
+        #expect(await second.shutdownCount == 0)
+        let quitting = Task { await coordinator.shutdown() }
+        try await waitUntil {
+            let firstCount = await first.shutdownCount
+            let secondCount = await second.shutdownCount
+            return firstCount + secondCount > 0
+        }
+        await first.resumeOpen(); await second.resumeOpen()
+        _ = try? await firstStart.value; _ = try? await secondStart.value
+        await quitting.value
+        #expect(await first.requests.isEmpty)
+        #expect(await second.requests.isEmpty)
+    }
+
+    @Test func changedResumeStateCannotReuseAnEarlierApprovalScope() async throws {
+        let (directory, store, transport, _, coordinator) = try fixture()
+        let canonical = try PaceCodingSessionCoordinator.workspace(directory.path)
+        let saved = PaceCodingSessionSnapshot(id: .init(), directory: canonical, threadID: .init(rawValue: "thread-owned"),
+            lastTurnID: nil, conversationTurnIdentifier: nil, state: .completed, updatedAt: Date())
+        try store.save([saved])
+        await transport.setCwd(canonical.path)
+        let command = PaceCodingSessionCommand.resume(sessionID: saved.id, task: "Approved task")
+        let approved = try await coordinator.approvalScope(for: command)
+        _ = try await coordinator.execute(.resume(sessionID: saved.id, task: "Intervening task"), conversationTurnIdentifier: nil, authorized: true)
+        await transport.send("turn/completed", params: ["threadId": .string("thread-owned"), "turn": .object(["id": .string("turn-1"), "status": .string("interrupted")])])
+        try await waitUntil { await transport.shutdownCount > 0 }
+        try await Task.sleep(for: .milliseconds(10))
+        let requestCount = await transport.requests.count
+        do { _ = try await coordinator.execute(command, conversationTurnIdentifier: nil, authorized: true, expectedApprovalScope: approved); Issue.record("old scope must be re-approved") }
+        catch { #expect(error.localizedDescription.contains("changed during approval")) }
+        #expect(await transport.requests.count == requestCount)
+        await coordinator.shutdown()
+    }
+
+    @Test func localStatusAndCancelOwnAUniqueOpeningWorkspaceBeforeThreadCreation() async throws {
+        let (directory, store, transport, _, coordinator) = try fixture()
+        await transport.suspendOpen()
+        let startup = Task { try await coordinator.execute(.start(directory: directory.path, task: "Task"), conversationTurnIdentifier: "source", authorized: true) }
+        try await waitUntil { await transport.isOpenSuspended }
+        let status = try await coordinator.execute(.status(sessionID: nil), conversationTurnIdentifier: nil, authorized: false)
+        #expect(status.contains("Coding setup in"))
+        #expect(status.contains(directory.lastPathComponent))
+        let cancellation = Task { try await coordinator.execute(.cancel(sessionID: nil), conversationTurnIdentifier: nil, authorized: false) }
+        try await waitUntil { await transport.shutdownCount > 0 }
+        await transport.resumeOpen()
+        #expect(try await cancellation.value.contains("Stopped coding setup"))
+        do { _ = try await startup.value; Issue.record("cancelled setup cannot start a thread") } catch {}
+        #expect(await transport.requests.isEmpty)
+        #expect(try store.load().isEmpty)
+        await coordinator.shutdown()
+    }
+
+    @Test func teardownHasDistinctErrorForImmediateStartAndResume() async throws {
+        let (directory, store, transport, collector, coordinator) = try fixture()
+        _ = try await coordinator.execute(.start(directory: directory.path, task: "Task"), conversationTurnIdentifier: "source", authorized: true)
+        let session = try #require(store.load().first)
+        await transport.suspendShutdown()
+        await transport.send("turn/completed", params: ["threadId": .string("thread-owned"), "turn": .object(["id": .string("turn-1"), "status": .string("completed")])])
+        try await waitUntil { await transport.shutdownCount > 0 }
+        #expect(try store.load().first?.state == .completed)
+        for command in [PaceCodingSessionCommand.start(directory: directory.path, task: "Next"), .resume(sessionID: session.id, task: "Next")] {
+            do { _ = try await coordinator.execute(command, conversationTurnIdentifier: nil, authorized: true); Issue.record("teardown must finish before execution") }
+            catch { #expect(error.localizedDescription.contains("still shutting down")); #expect(!error.localizedDescription.contains("explicitly cancel")) }
+        }
+        #expect(await collector.conversationEvents.count == 1)
+        await transport.resumeShutdown()
+        await coordinator.shutdown()
+    }
 
     @Test func distinctWorkspaceSourcesCannotSpoofThreadsAndMayReuseServerApprovalIDs() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PaceCodingSources-" + UUID().uuidString)
@@ -466,7 +565,7 @@ private final class CodingRoutingPlanner: BuddyPlannerClient {
 
 @MainActor @Suite(.serialized)
 struct PaceCodingManagerTests {
-    @Test func naturalStartReachesSelectedPlannerApprovalAndExecutorWhileControlsNeedNoPlanner() async throws {
+    @Test func naturalStartReachesSelectedPlannerAndExecutorWhileControlsNeedNoPlanner() async throws {
         let (manager, _, speech) = PaceConversationRecorderTests().makeDismissalFixture()
         let planner = CodingRoutingPlanner()
         planner.response = #"{"spokenText":"Starting coding","intent":"action","payload":{"name":"coding_session","args":{"operation":"start","directory":"/tmp/fixture-repo","task":"Fix the test"}}}"#
@@ -491,7 +590,7 @@ struct PaceCodingManagerTests {
         }
         #expect(planner.calls == 2)
         #expect(commands.count == 2)
-        #expect(approvalCount == 2)
+        #expect(approvalCount == 0)
         #expect(!speech.spokenTexts.isEmpty)
         // No selected planner is needed to inspect owned work when actions are revoked.
         let collector = CodingEventCollector()
@@ -507,26 +606,19 @@ struct PaceCodingManagerTests {
         #expect(manager.chatSession.messages.last?.body == "No retained coding sessions.")
     }
 
-    @Test func closingDuringInitialApprovalCannotLaunchNewCodingJob() async throws {
+    @Test func closingDuringScopedApprovalCannotLaunchNewCodingJob() async throws {
         let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
-        let planner = CodingRoutingPlanner()
-        planner.response = #"{"spokenText":"Starting","intent":"action","payload":{"name":"coding_session","args":{"operation":"start","directory":"/tmp/fixture-repo","task":"Fix test"}}}"#
-        manager.plannerClient = planner
-        manager.codingSessionCoordinator = PaceCodingSessionCoordinator(store: PaceCodingSessionStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
-            eventSink: { _ in }, approve: { _ in .cancel })
-        manager.activePlannerTier = .local
-        manager.actionExecutor = PaceActionExecutor(actionsAreEnabledOverride: true)
-        var executions = 0
-        manager.actionExecutor.executeCodingSession = { _ in executions += 1; return .init(toolName: "coding_session", summary: "must not run") }
-        manager.actionApprovalPresentationOverride = { _ in
-            manager.turnLeaseRegistry.invalidateCurrentTurn()
-            return .allowOnce
-        }
-        let transcript = "work on /tmp/fixture-repo with Codex and fix test"
-        manager.beginConversationRequest(transcript)
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("PaceApprovalClose-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        let transport = CodingFixtureTransport()
+        manager.codingSessionCoordinator = PaceCodingSessionCoordinator(store: .init(directory: workspace.appendingPathComponent("state")),
+            transportFactory: { _ in transport }, eventSink: { _ in }, approve: { _ in .cancel })
+        manager.actionApprovalPresentationOverride = { _ in manager.turnLeaseRegistry.invalidateCurrentTurn(); return .allowOnce }
         let lease = manager.turnLeaseRegistry.beginTurn()
-        await manager.sendTranscriptToPlannerWithScreenshotAsync(transcript: transcript, turnLease: lease)
-        #expect(executions == 0)
+        do { _ = try await manager.prepareScopedCodingApproval(.start(directory: workspace.path, task: "Fix test"), turnLease: lease, isAuthorized: { true }); Issue.record("revoked turn cannot approve a new job") }
+        catch { #expect(error is CancellationError) }
+        #expect(await transport.requests.isEmpty)
+        await manager.codingSessionCoordinator.shutdown()
     }
     @Test func foregroundCodingReplyRespectsMuteAndRevokedTurnWhileBackgroundFinalStaysWritten() async throws {
         let (manager, persister, speech) = PaceConversationRecorderTests().makeDismissalFixture()
@@ -561,10 +653,10 @@ struct PaceCodingManagerTests {
     }
 
     @Test func routingKeepsQuestionsAndWarpLaunchesOnTheirExistingPaths() {
-        for request in ["work on ~/projects/app with Codex and fix tests", "start a retained coding session in /tmp/app and add tests", "resume the coding task and add tests", "please continue my coding session with a new test"] {
+        for request in ["work on ~/projects/app with Codex and fix tests", "start a retained coding session in /tmp/app and add tests", "resume the coding task and add tests", "please continue my coding session with a new test", "can you please resume the coding task and add tests", "could you please can you resume the coding session and add tests", "work on ~/src/warpdrive with codex and fix tests", "work on ~/src/warp with codex and fix tests", "use codex to fix tests in ~/app"] {
             #expect(PaceCodingPower.requestsRetainedCoding(request))
         }
-        for request in ["How do I fix a corrupted git repository?", "change my GitHub repository visibility", "What is a coding session?", "show the coding task on my screen", "open a codex session to fix tests in ~/proj", "start Codex in ~/projects/app", "launch Codex in Warp", "Start a Codex session in /tmp/app and fix tests"] {
+        for request in ["How do I fix a corrupted git repository?", "change my GitHub repository visibility", "What is a coding session?", "show the coding task on my screen", "open a codex session to fix tests in ~/proj", "start Codex in ~/projects/app", "launch Codex in Warp", "Start a Codex session in /tmp/app and fix tests", "Code in /Users/me/app crashes when I run it, how do I fix it?"] {
             #expect(!PaceCodingPower.requestsRetainedCoding(request))
         }
     }
@@ -637,6 +729,83 @@ struct PaceCodingManagerTests {
         #expect(try store.load().first?.state == .awaitingApproval)
         #expect(await transport.requests.filter { $0.0 == "turn/interrupt" }.isEmpty)
         await approval.cancel()
+        await manager.codingSessionCoordinator.shutdown()
+    }
+
+    @Test func nestedCodingApprovalTokensKeepOuterPresentationVisible() {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let outer = PaceActionApprovalRequest(approvalSummary: "outer initial scope", requiresActionApproval: true)!
+        let inner = PaceActionApprovalRequest(approvalSummary: "inner runtime checkpoint", requiresActionApproval: true)!
+        manager.actionApprovalPresentationOverride = { request in
+            #expect(manager.codingApprovalIsPresented)
+            if request.approvalSummary == outer.approvalSummary {
+                #expect(manager.presentedCodingApprovalTokens.count == 1)
+                #expect(manager.presentCodingApproval(inner) == .cancel)
+                #expect(manager.codingApprovalIsPresented)
+                #expect(manager.presentedCodingApprovalTokens.count == 1)
+                return .allowOnce
+            }
+            #expect(manager.presentedCodingApprovalTokens.count == 2)
+            return .cancel
+        }
+        #expect(manager.presentCodingApproval(outer) == .allowOnce)
+        #expect(!manager.codingApprovalIsPresented)
+        #expect(manager.presentedCodingApprovalTokens.isEmpty)
+    }
+
+    @Test func resumeApprovalResolvesCanonicalScopeBeforeModalAndUnknownIDNeverPrompts() async throws {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PaceApprovalScope-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let canonical = try PaceCodingSessionCoordinator.workspace(directory.path)
+        let store = PaceCodingSessionStore(directory: directory.appendingPathComponent("state"))
+        let saved = PaceCodingSessionSnapshot(id: .init(), directory: canonical, threadID: .init(rawValue: "owned"), lastTurnID: nil,
+            conversationTurnIdentifier: nil, state: .completed, updatedAt: Date())
+        try store.save([saved])
+        manager.codingSessionCoordinator = PaceCodingSessionCoordinator(store: store, eventSink: { _ in }, approve: { _ in .cancel })
+        var prompts = 0
+        manager.actionApprovalPresentationOverride = { request in
+            prompts += 1
+            #expect(request.approvalSummary.contains(canonical.path))
+            #expect(request.approvalSummary.contains("Current state: completed"))
+            #expect(request.approvalSummary.contains("Add tests"))
+            return .allowOnce
+        }
+        let command = PaceCodingSessionCommand.resume(sessionID: saved.id, task: "Add tests")
+        #expect(manager.requestUserApprovalForActionPlan(.serial(actions: [.codingSession(command)])))
+        #expect(prompts == 0)
+        let lease = manager.turnLeaseRegistry.beginTurn()
+        manager.actionExecutor = PaceActionExecutor(actionsAreEnabledOverride: true)
+        var approvedScope: PaceCodingApprovalScope?
+        manager.actionExecutor.executeCodingSession = { request in
+            approvedScope = try? await manager.prepareScopedCodingApproval(request, turnLease: lease, isAuthorized: { true })
+            return .init(toolName: "coding_session", summary: "Scoped callback reached")
+        }
+        let observation = await manager.actionExecutor.executeSingleAction(.codingSession(command), screenCaptures: [])
+        #expect(observation?.summary == "Scoped callback reached")
+        let scope = try #require(approvedScope)
+        #expect(scope.directory == canonical)
+        #expect(prompts == 1)
+        do { _ = try await manager.prepareScopedCodingApproval(.resume(sessionID: .init(), task: "Unknown"), turnLease: lease, isAuthorized: { true }); Issue.record("unknown session must fail") }
+        catch { #expect(error is PaceCodingError) }
+        #expect(prompts == 1)
+        await manager.codingSessionCoordinator.shutdown()
+    }
+
+    @Test func consentRevocationDuringScopedModalCannotAuthorizeStartup() async throws {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PaceConsentModal-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let transport = CodingFixtureTransport()
+        manager.codingSessionCoordinator = PaceCodingSessionCoordinator(store: .init(directory: directory.appendingPathComponent("state")),
+            transportFactory: { _ in transport }, eventSink: { _ in }, approve: { _ in .cancel })
+        var authorized = true
+        manager.actionApprovalPresentationOverride = { _ in authorized = false; return .allowOnce }
+        let lease = manager.turnLeaseRegistry.beginTurn()
+        do { _ = try await manager.prepareScopedCodingApproval(.start(directory: directory.path, task: "Task"), turnLease: lease,
+            isAuthorized: { authorized }); Issue.record("revoked consent cannot authorize startup") }
+        catch { #expect(error.localizedDescription.contains("current Codex off-device consent")) }
+        #expect(await transport.requests.isEmpty)
         await manager.codingSessionCoordinator.shutdown()
     }
 

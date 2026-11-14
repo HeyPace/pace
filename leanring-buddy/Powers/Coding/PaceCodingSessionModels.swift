@@ -90,13 +90,28 @@ nonisolated struct PaceCodingSessionSnapshot: Codable, Equatable, Sendable {
     }
 }
 
+nonisolated struct PaceCodingApprovalScope: Equatable, Sendable {
+    let command: PaceCodingSessionCommand
+    let directory: URL
+    let state: PaceCodingSessionState?
+    let lastTurnID: PaceCodexTurnID?
+
+    var approvalRequest: PaceActionApprovalRequest {
+        let stateDescription = state?.rawValue ?? "idle workspace, new session"
+        return PaceActionApprovalRequest(approvalSummary: command.summary + "\nWorkspace: " + directory.path
+            + "\nCurrent state: " + stateDescription,
+            preflightSummary: "Only this canonical workspace is writable. Network remains disabled. No session-wide permission is granted.",
+            requiresActionApproval: true)!
+    }
+}
+
 nonisolated enum PaceCodingSessionEvent: Sendable {
     case changed(PaceCodingSessionSnapshot)
     case conversation(ConversationEvent)
 }
 
 nonisolated enum PaceCodingError: Error, LocalizedError {
-    case unavailable, invalidWorkspace, workspaceChanged, busy, missingSession, ambiguousSession, invalidProtocol, unsafePolicy, disconnected, timedOut, permissionDenied, persistence, catalogCapacity, workspaceCapacity
+    case unavailable, invalidWorkspace, workspaceChanged, busy, missingSession, ambiguousSession, invalidProtocol, unsafePolicy, disconnected, timedOut, permissionDenied, persistence, catalogCapacity, workspaceCapacity, workspaceClosing, approvalChanged
     var errorDescription: String? {
         switch self {
         case .unavailable: return "Codex is not available on PATH."
@@ -111,6 +126,8 @@ nonisolated enum PaceCodingError: Error, LocalizedError {
         case .timedOut: return "Codex did not confirm completion in time. Check status before resuming."
         case .permissionDenied: return "Coding requires EnableActions and current Codex off-device consent."
         case .catalogCapacity: return "The 200-session coding catalog is full. Resume an existing session; saved history has been preserved."
+        case .workspaceClosing: return "The previous coding process for this workspace is still shutting down. Try again when teardown finishes."
+        case .approvalChanged: return "The coding workspace or session state changed during approval. Ask again to review its current scope."
         case .workspaceCapacity: return "Four coding workspaces are already active. Wait for one to finish or explicitly cancel it."
         case .persistence: return "Coding session state could not be saved safely. No further task was started."
         }
