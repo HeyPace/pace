@@ -47,7 +47,7 @@ const staticSurfaces: PublicSurface[] = [
     path: "/compared",
     markdownPath: "/compared.md",
     kind: "collection",
-    title: "Mac AI agents that see your screen — 17 compared",
+    title: "17 Mac AI assistants compared | HeyPace",
     description:
       "Compare 17 macOS AI agents by screen access, inference location, actions, approval model, license, and where Pace is honestly behind.",
     priority: "0.8",
@@ -58,9 +58,9 @@ const staticSurfaces: PublicSurface[] = [
     path: "/download",
     markdownPath: "/download.md",
     kind: "static",
-    title: "Download Pace",
+    title: "Download HeyPace for Mac — voice, screen context and actions",
     description:
-      "Download the on-device macOS voice companion and review its installation and update requirements.",
+      "Download the HeyPace preview for Apple Silicon Macs on macOS 26. Review installation, permissions, local model setup and optional cloud planning before use.",
     priority: "0.9",
     markdown: downloadMarkdown(),
   },
@@ -122,7 +122,7 @@ const staticSurfaces: PublicSurface[] = [
 ];
 
 const comparisonSurfaces: PublicSurface[] = competitors.map((competitor) => ({
-  id: `compared-${competitor.slug}`, path: `/compared/${competitor.slug}`, markdownPath: `/compared/${competitor.slug}.md`, kind: "detail", title: `${competitor.name} vs Pace — macOS voice agent comparison`, description: `${competitor.name} vs Pace for macOS: ${competitor.paceDiffers} Screen-aware voice agents compared, including where Pace is behind.`, priority: "0.6", markdown: comparisonMarkdown(competitor),
+  id: `compared-${competitor.slug}`, path: `/compared/${competitor.slug}`, markdownPath: `/compared/${competitor.slug}.md`, kind: "detail", title: `${competitor.name} vs HeyPace — macOS voice agent comparison`, description: `${competitor.name} vs HeyPace for macOS: ${competitor.paceDiffers} Screen-aware voice agents compared, including where Pace is behind.`, priority: "0.6", markdown: comparisonMarkdown(competitor),
 }));
 export const publicSurfaces: PublicSurface[] = [
   ...staticSurfaces,
