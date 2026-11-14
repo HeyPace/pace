@@ -75,7 +75,8 @@ final class PaceMenuBarOccupancyMonitor {
 
     func refresh() {
         guard refreshTask == nil,
-              let targetScreen = PaceLivingNotchScreenGeometryResolver.targetScreen(),
+              let targetScreen = PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
+                preferredScreen: PaceLivingNotchScreenGeometryResolver.targetScreen()),
               PaceLivingNotchScreenGeometryResolver.geometry(for: targetScreen, displayMode: .resting) != nil,
               let application = NSWorkspace.shared.menuBarOwningApplication,
               let primaryScreen = NSScreen.screens.first else { return }

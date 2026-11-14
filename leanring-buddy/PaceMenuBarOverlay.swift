@@ -33,6 +33,14 @@ enum PaceLivingNotchScreenGeometryResolver {
         PaceActiveDisplayCoordinator.shared.targetScreen
     }
 
+    static func ambientTargetScreen(preferredScreen: NSScreen?) -> NSScreen? {
+        if let preferredScreen, geometry(for: preferredScreen, displayMode: .resting) != nil {
+            return preferredScreen
+        }
+        // The conversation follows the working display; the real camera housing remains an entry point.
+        return NSScreen.screens.first { geometry(for: $0, displayMode: .resting) != nil }
+    }
+
     static func geometry(
         for screen: NSScreen,
         displayMode: PaceLivingNotchDisplayMode
@@ -168,8 +176,10 @@ final class PaceMenuBarOverlayManager {
                 self.hoverOpenTask?.cancel()
                 self.isNotchConversationVisible = isVisible
                 self.isHovering = false
-                let restingFrame = PaceLivingNotchScreenGeometryResolver.geometry(displayMode: .resting)?
-                    .presentationFrame
+                let restingFrame = PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
+                    preferredScreen: self.activeDisplayCoordinator.targetScreen).flatMap {
+                        PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: .resting)
+                    }?.presentationFrame
                 self.canOpenConversationOnHover = !isVisible && restingFrame?.contains(NSEvent.mouseLocation) != true
                 self.refreshPresentation(animated: false)
             }
@@ -291,7 +301,8 @@ final class PaceMenuBarOverlayManager {
                 || companionManager.isOffDeviceTurnInFlight
         )
 
-        let geometry = activeDisplayCoordinator.targetScreen.flatMap {
+        let geometry = PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
+            preferredScreen: activeDisplayCoordinator.targetScreen).flatMap {
             PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: displayMode)
         }
         let ambientHomePresentation = PaceAmbientHomePresentation.resolve(
@@ -430,6 +441,9 @@ final class PaceMenuBarOverlayManager {
                 self.overlayPanel?.frame.contains(NSEvent.mouseLocation) == true
             else { return }
             self.canOpenConversationOnHover = false
+            if let frame = self.overlayPanel?.frame {
+                self.activeDisplayCoordinator.selectDisplay(containing: frame)
+            }
             NotificationCenter.default.post(
                 name: .paceShowPanel, object: PaceConversationPanelPresentationIntent.preview)
         }

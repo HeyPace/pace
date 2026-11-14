@@ -10,6 +10,22 @@ import XCTest
 
 final class PaceNativeInterfaceModelTests: XCTestCase {
     @MainActor
+    func testPhysicalNotchRemainsAvailableWhenWorkingOnExternalDisplay() throws {
+        guard let notchedScreen = NSScreen.screens.first(where: {
+            PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: .resting) != nil
+        }) else { throw XCTSkip("Requires a display with a physical camera notch.") }
+        let externalScreen = NSScreen.screens.first {
+            PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: .resting) == nil
+        }
+        XCTAssertTrue(PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
+            preferredScreen: externalScreen) === notchedScreen)
+        XCTAssertTrue(PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
+            preferredScreen: notchedScreen) === notchedScreen)
+        XCTAssertTrue(PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
+            preferredScreen: nil) === notchedScreen)
+    }
+
+    @MainActor
     func testNativeMenuBarEntryStaysVisibleWhenNotchBecomesAvailableAgain() {
         let companionManager = CompanionManager()
         let overlayManager = PaceMenuBarOverlayManager(companionManager: companionManager) { _ in }

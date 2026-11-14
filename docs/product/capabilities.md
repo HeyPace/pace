@@ -37,7 +37,9 @@ camera housing and adds compact state and signal wings beside it on hover or
 while Pace is active. On click, the same clipped surface extends equally left,
 right, and downward to reveal the complete quick panel. Pace
 does not draw a fake notch on other displays; the global shortcut still opens
-the centered quick panel. Everyday use stays in the notch and present-turn quick panel. Durable work,
+the centered quick panel. The physical camera-notch controls remain available
+when work moves to an external display; chat follows the selected working display.
+Everyday use stays in the notch and present-turn quick panel. Durable work,
 history, privacy, customization, and help live in one searchable, resizable
 Command Center that shows at most four primary choices per group and places
 advanced integrations behind progressive disclosure. It remembers the last destination. Blue means the active turn
