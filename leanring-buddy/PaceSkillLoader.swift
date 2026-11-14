@@ -134,14 +134,15 @@ enum PaceSkillLoader {
         requestedName: String,
         in skills: [PaceSkillFile]
     ) -> PaceSkillFile? {
+        let lowercasedRequestedSlug = requestedSlug.lowercased()
         let lowercasedRequestedName = requestedName.lowercased()
         if let exactMatch = skills.first(where: {
-            $0.slug == requestedSlug || $0.name.lowercased() == lowercasedRequestedName
+            $0.slug.lowercased() == lowercasedRequestedSlug || $0.name.lowercased() == lowercasedRequestedName
         }) {
             return exactMatch
         }
         let fuzzyMatches = skills.filter { skill in
-            skill.slug.hasPrefix(requestedSlug)
+            skill.slug.lowercased().hasPrefix(lowercasedRequestedSlug)
                 || skill.name.lowercased().contains(lowercasedRequestedName)
         }
         return fuzzyMatches.count == 1 ? fuzzyMatches.first : nil

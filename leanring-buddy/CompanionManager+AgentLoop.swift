@@ -3620,7 +3620,7 @@ extension CompanionManager {
             // Skills are auto-discovered from the skills directory; no
             // explicit install needed. Just confirm availability.
             let skills = PaceSkillLoader.loadAllSkills()
-            if skills.contains(where: { $0.slug == slug || $0.name.lowercased() == name.lowercased() }) {
+            if skills.contains(where: { $0.slug.lowercased() == slug.lowercased() || $0.name.lowercased() == name.lowercased() }) {
                 Task {
                     await publishCommandFeedback(transcript: transcript, spokenText: "The \(name) skill is available.")
                     voiceState = .idle
