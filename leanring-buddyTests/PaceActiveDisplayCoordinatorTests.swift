@@ -615,9 +615,10 @@ private actor FocusReadGate {
     }
 
     func waitForReadCount(_ expectedCount: Int) async throws {
-        for _ in 0..<1000 {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < deadline {
             if readCount >= expectedCount { return }
-            await Task.yield()
+            try await Task.sleep(for: .milliseconds(1))
         }
         throw NSError(domain: "PaceActiveDisplayCoordinatorTests", code: 1,
                       userInfo: [NSLocalizedDescriptionKey: "Focused-window read did not start"])

@@ -750,6 +750,7 @@ extension CompanionManager {
                 let plannerStartedAt = Date()
                 PaceLatencyBudget.shared.mark(.plannerStart)
 
+                guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
                 let (fullResponseText, _) = try await plannerForTextOnlyTurn.generateResponseStreaming(
                     images: [],
                     systemPrompt: selectedSystemPromptForTurn,
