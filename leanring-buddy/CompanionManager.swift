@@ -176,6 +176,13 @@ final class CompanionManager: ObservableObject {
     let annotationOverlayController = PaceAnnotationOverlayController()
     let diagramOverlayController: PaceDiagramOverlayController
     let teachingPreviewDirectSpawnAvailability: (() -> Bool)?
+    struct PendingTeachingPreviewOwnership {
+        let turnLease: PaceTurnLease
+        let template: PaceFigureScene.Template
+        let generation: UUID
+        let dismissalGeneration: Int
+    }
+    var pendingTeachingPreviewOwnership: PendingTeachingPreviewOwnership?
     let imageOverlayController = PaceImageOverlayController()
 
     let buddyDictationManager = PacePushToTalkManager()

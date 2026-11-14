@@ -157,6 +157,7 @@ nonisolated enum PaceCLIProcessRunner {
             if process.isRunning { processControl.stop() }
             process.waitUntilExit()
             try? inputPipe.fileHandleForWriting.close()
+            try? outputPipe.fileHandleForReading.close()
         }
 
         try inputPipe.fileHandleForWriting.write(contentsOf: Data(stdinPayload.utf8))
@@ -164,6 +165,21 @@ nonisolated enum PaceCLIProcessRunner {
         var pendingBytes = Data()
         while true {
             try processControl.checkCancellation()
+            // A descendant can retain stdout after the owned root is stopped.
+            // Poll wakes immediately for bytes but keeps that inherited pipe cancellable.
+            var descriptor = pollfd(fd: outputPipe.fileHandleForReading.fileDescriptor,
+                events: Int16(POLLIN | POLLHUP), revents: 0)
+            let readiness = Darwin.poll(&descriptor, 1, 50)
+            if readiness < 0 {
+                if errno == EINTR { continue }
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            try processControl.checkCancellation()
+            if readiness == 0 { continue }
+            if descriptor.revents & Int16(POLLERR | POLLNVAL) != 0 {
+                throw POSIXError(.EIO)
+            }
+            guard descriptor.revents & Int16(POLLIN | POLLHUP) != 0 else { continue }
             let availableBytes = outputPipe.fileHandleForReading.availableData
             if availableBytes.isEmpty { break }
             pendingBytes.append(availableBytes)

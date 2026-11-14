@@ -75,7 +75,7 @@ nonisolated enum PaceTeachingPower {
             executionSummary:
                 "Displays an interactive native diagram over the screen without changing other applications.",
             observationSummary: "The user can select a part, read its explanation, and ask Pace about it.",
-            exampleUtterance: "show me a rotatable 3D airplane and explain its parts"
+            exampleUtterance: "explain how the F-35B hovers"
         ),
         PaceLocalToolDefinition(
             kind: .dismissDiagram,
@@ -135,6 +135,8 @@ nonisolated enum PaceTeachingPower {
     case C applies ONLY to on-screen UI elements — buttons, menus, links, fields the user pointed at. it does NOT apply to opening apps or websites. "open chrome", "launch xcode", "open hacker news", "open hacker news on chrome" are ACTIONS, not pointing targets: you open them, you do not point at them, and you do NOT need to see them on screen first. NEVER answer an open-or-launch request with "i can't see it on screen". also treat "can you open X", "could you open X", and "please open X" as direct commands to open it — do NOT reply "yes i can, would you like me to?"; just emit the open action (see agent mode below).
     """
 
+    static let genericDiagramExample = #"{"spokenText":"water vapor cools into droplets.","intent":"action","payload":{"name":"show_diagram","args":{"title":"Condensation","summary":"Cooling water vapor forms liquid droplets.","nodes":[{"id":"vapor","label":"Water vapor","detail":"Water enters the air as an invisible gas.","x":80,"y":220,"width":300,"height":150,"shape":"rectangle","role":"input"},{"id":"droplets","label":"Liquid droplets","detail":"When the vapor cools, it condenses into liquid droplets.","x":580,"y":220,"width":300,"height":150,"shape":"rectangle","role":"output"}],"connections":[{"source":"vapor","target":"droplets","label":"cooling"}]}}}"#
+
     static let diagramRules = """
     INTERACTIVE VISUAL EXPLANATIONS
     Teach visually by default when explaining a mechanism, physical object, system, process or spatial relationship. A plain request such as "explain how a turbofan engine works" should include a useful labeled native figure without requiring the user to ask for a diagram. Present the figure early in the same response, then keep spokenText brief and tied to the highlighted part. Show how things work through recognizable geometry, purposeful detail, cutaways and anchored labels rather than a wall of text. Reuse an appropriate active figure for follow-ups; update its highlighted part or view only when it helps. Do not generate another visual for a short factual answer, arithmetic, a simple definition or an explicit text-only/one-sentence request. Prefer show_diagram for these teaching visuals so no separate image-generation round trip is needed.
@@ -152,6 +154,7 @@ nonisolated enum PaceTeachingPower {
     Native detailed teaching templates are available. Prefer them for the matching subject instead of generating approximate custom geometry:
     \(PaceTeachingTemplateCatalog.prompt)
     For lift_system and pi_camera, prefer compact output: omit nodes and connections entirely. Pace supplies all canonical labels and detailed part explanations locally. Author only title, summary, figure presentation and the requested lesson steps/narration using the stable IDs above. Do not repeat catalog part text. Explicit nodes remain supported for intentional replacement explanations and must supply every semantic part; explicit connections must be []. Do not combine these templates with illustration or custom parts. Omitted nodes never creates a default lesson or replaces your narration. They support the same focus, viewpoint and optional normalized controlDeflection on the listed moving assembly. The F-35B cutaway and Pi5 board are conceptual, not exact CAD. Do not invent dimensions or certify physical connector orientation from this model. Before camera hardware instructions, tell the user to shut down and disconnect power. The Pi5 uses22-pin connectors and a Standard-to-Mini camera cable. Describe the swivel nozzle motion as an illustration of the three-bearing mechanism.
+    Other figures require the complete nodes and connections contract. Full 2D example: \(genericDiagramExample)
     \(tools.first(where: { $0.canonicalName == "show_diagram" })!.promptLine)
     \(tools.first(where: { $0.canonicalName == "dismiss_diagram" })!.promptLine)
     """

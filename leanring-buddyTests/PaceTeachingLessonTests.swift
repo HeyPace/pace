@@ -439,6 +439,88 @@ struct PaceTeachingLessonTests {
         #expect(document.lesson?.steps.count == 2)
     }
 
+    @Test func fullGenericAndCompactCatalogPromptExamplesBothParse() throws {
+        let examples = [PaceTeachingPower.genericDiagramExample,
+                        try #require(PaceToolRegistry.definition(forToolName: "show_diagram")?.schemaExample)]
+        for (index, example) in examples.enumerated() {
+            let parsed = PaceActionTagParser.parseActions(from: example)
+            try #require(parsed.actions.count == 1)
+            guard case .showDiagram(let document) = parsed.actions[0] else {
+                Issue.record("Prompt example must produce a valid diagram")
+                continue
+            }
+            #expect(document.validationIssue == nil)
+            #expect(PaceTeachingPower.diagramRules.contains(example))
+            if index == 0 {
+                #expect(document.figure == nil && document.illustration == nil)
+                #expect(Set(document.nodes.map(\.id)) == ["vapor", "droplets"])
+                #expect(document.connections.count == 1)
+            } else {
+                #expect(document.figure?.template == .liftSystem)
+                #expect(document.nodes == PaceTeachingTemplateCatalog.liftSystem.nodes)
+            }
+        }
+        #expect(PaceToolRegistry.definition(forToolName: "show_diagram")?.exampleUtterance == "explain how the F-35B hovers")
+    }
+
+    private func generalTeachingValidityReasons(_ text: String, expectsAirplane: Bool) -> [String] {
+        let parsed = PaceActionTagParser.parseActions(from: text)
+        guard parsed.actions.count == 1, parsed.executionPlan.flattenedActions.count == 1,
+              case .showDiagram(let document) = parsed.actions[0] else {
+            return ["Expected exactly one valid show_diagram action"]
+        }
+        var reasons: [String] = []
+        if let issue = document.validationIssue { reasons.append(issue) }
+        if document.nodes.contains(where: { $0.detail.count < 20 }) { reasons.append("Every stage or part needs a useful explanation") }
+        if expectsAirplane {
+            if document.figure?.template != .airplane { reasons.append("Expected generic airplane template") }
+            if Set(document.nodes.map(\.id)) != ["fuselage", "cockpit", "wings", "engines", "ailerons", "elevators", "rudder", "flaps"] {
+                reasons.append("Expected all eight airplane explanation nodes")
+            }
+        } else {
+            if document.figure != nil || document.illustration != nil { reasons.append("Expected a 2D flowchart") }
+            let labels = document.nodes.map { $0.label.lowercased() }
+            if labels.count != 4 || ["evaporation", "condensation", "precipitation", "collection"].contains(where: { stage in !labels.contains(where: { $0.contains(stage) }) }) {
+                reasons.append("Expected four named water-cycle stages")
+            }
+            if document.connections.count < 3 { reasons.append("Expected connected process stages") }
+        }
+        return reasons
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["PACE_SPEED_GENERAL_RESULT_PATH"] != nil))
+    func probeNoncatalogTeachingWhenRequested() async throws {
+        let resultPath = try #require(ProcessInfo.processInfo.environment["PACE_SPEED_GENERAL_RESULT_PATH"])
+        let systemPrompt = CompanionSystemPrompt.buildTextOnly(includeInteractiveDiagrams: true)
+        let requests = ["Show a generic rotatable passenger airplane and explain its eight physical parts using the airplane template.",
+                        "Show an explicit 2D water-cycle flowchart with four named useful stages: evaporation, condensation, precipitation and collection."]
+        var samples: [[String: Any]] = []
+        func save() throws {
+            let report: [String: Any] = ["systemPrompt": systemPrompt, "model": "cli_default",
+                "requestTimeoutSeconds": 45, "samples": samples]
+            try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+                .write(to: URL(fileURLWithPath: resultPath), options: .atomic)
+        }
+        try save()
+        for (index, request) in requests.enumerated() {
+            var sample: [String: Any] = ["userRequest": request]
+            var rawResponse = ""
+            do {
+                let planner = PaceLocalCLIPlannerClient(upstream: .codex, modelIdentifier: nil, requestTimeout: 45)
+                let response = try await planner.generateResponseStreaming(images: [], systemPrompt: systemPrompt,
+                    conversationHistory: [], userPrompt: request, onTextChunk: { rawResponse = $0 })
+                rawResponse = response.text
+            } catch is CancellationError { throw CancellationError() }
+            catch { sample["error"] = String(describing: error) }
+            let reasons = generalTeachingValidityReasons(rawResponse, expectsAirplane: index == 0)
+            sample["rawResponse"] = rawResponse
+            sample["validityReasons"] = reasons
+            samples.append(sample)
+            try save()
+            #expect(sample["error"] == nil && reasons.isEmpty, "General teaching results are recorded in the private probe report")
+        }
+    }
+
     private struct TeachingSpeedCondition {
         let name: String
         let prompt: String

@@ -144,6 +144,37 @@ struct PaceCLIProcessRunnerTests {
     }
 
     @MainActor
+    @Test func cancellationReturnsAndReapsRootWhileDescendantStillHoldsStdout() async throws {
+        let directory = try makePlannerFixture(lines: [codexMessage, codexCompletion], sealDelay: 3,
+            cleanupDelay: 3, ignoresTermination: true, inheritsStdoutInDescendant: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let planner = fixturePlanner(directory: directory)
+        var receivedMessage = false
+        let consumer = Task {
+            try await planner.generateResponseStreaming(images: [], systemPrompt: "Synthetic",
+                conversationHistory: [], userPrompt: "Synthetic", onTextChunk: { _ in receivedMessage = true })
+        }
+        for _ in 0..<100 {
+            if receivedMessage { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(receivedMessage)
+        let descendantIdentifier = try #require(Int32(String(contentsOf:
+            directory.appendingPathComponent("descendant-pid"), encoding: .utf8)))
+        defer { kill(descendantIdentifier, SIGKILL) }
+        let cancelledAt = ProcessInfo.processInfo.systemUptime
+        consumer.cancel()
+        do {
+            _ = try await consumer.value
+            Issue.record("A cancelled turn must not succeed")
+        } catch is CancellationError {}
+        #expect(ProcessInfo.processInfo.systemUptime - cancelledAt < 2.5)
+        try expectPlannerExitedAndWorkDirectoryRemoved(directory)
+        #expect(kill(descendantIdentifier, 0) == 0, "The known descendant still owns stdout until fixture cleanup")
+        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("late-cleanup").path))
+    }
+
+    @MainActor
     @Test func claudeAndExplicitProcessExitPolicyKeepNormalCleanup() async throws {
         for upstream in [PaceLocalCLIUpstream.claude, .codex] {
             let lines = upstream == .claude
@@ -184,7 +215,7 @@ struct PaceCLIProcessRunnerTests {
 
     private func makePlannerFixture(
         lines: [String], sealDelay: Double = 0, cleanupDelay: Double, exitStatus: Int = 17,
-        ignoresTermination: Bool = false
+        ignoresTermination: Bool = false, inheritsStdoutInDescendant: Bool = false
     ) throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -199,6 +230,12 @@ struct PaceCLIProcessRunnerTests {
         if \(ignoresTermination ? "True" : "False"):
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
         sys.stdin.read()
+        if \(inheritsStdoutInDescendant ? "True" : "False"):
+            descendant = os.fork()
+            if descendant == 0:
+                time.sleep(4)
+                os._exit(0)
+            (directory / 'descendant-pid').write_text(str(descendant))
         lines = json.loads(base64.b64decode('\(encodedLines)'))
         for index, line in enumerate(lines):
             if index > 0:

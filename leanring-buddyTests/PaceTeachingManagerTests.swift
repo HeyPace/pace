@@ -37,6 +37,11 @@ struct PaceTeachingManagerTests {
             let response = try await withCheckedThrowingContinuation { completion = $0 }
             return (response, 0)
         }
+        func fail() {
+            let pending = completion
+            completion = nil
+            pending?.resume(throwing: URLError(.cannotLoadFromNetwork))
+        }
         func resolve(_ response: String) {
             let pending = completion
             completion = nil
@@ -390,25 +395,131 @@ struct PaceTeachingManagerTests {
         #expect(remote.responses.first?.text.isEmpty == false)
     }
 
-    @Test func manualPreviewExplorationCancelsLateAuthoredReplacementWithoutAssistantHistory() async throws {
-        for interaction in ["selection", "orbit", "close"] {
-            let (manager, persister, speech, planner) = try prepareEarlyPreviewTurn()
-            startTextTurn(manager, muted: false, transcript: "Explain how the F-35B hovers")
-            let responseTask = manager.currentResponseTask
-            try await waitUntil { planner.completion != nil }
-            let user = try #require(manager.activeConversationUserEvent)
-            if interaction == "selection" { manager.diagramOverlayController.selectNode(id: "engine") }
-            else if interaction == "orbit" { manager.diagramOverlayController.pauseLesson() }
-            else { manager.diagramOverlayController.dismiss() }
-            planner.resolve(try twoStepResponse(template: .liftSystem))
-            await responseTask?.value
-            #expect(manager.diagramOverlayController.document?.lesson == nil)
-            #expect(interaction != "close" || manager.diagramOverlayController.document == nil)
-            #expect(interaction != "selection" || manager.diagramOverlayController.selectedNodeID == "engine")
-            #expect(speech.exactTexts.isEmpty && speech.spokenTexts.isEmpty)
-            #expect(persister.events[user.eventID]?.deliveryState == .cancelled)
-            #expect(persister.events.values.filter { $0.role == .pace }.isEmpty)
+    @Test func manualPreviewExplorationKeepsItsExactViewAndDeliversAuthoredAnswerOnce() async throws {
+        for muted in [false, true] {
+            for interaction in ["selection", "orbit", "controls", "replacement", "outerSpeech", "outerAcknowledgement"] {
+                let (manager, persister, speech, planner) = try prepareEarlyPreviewTurn(derivedMemory: true)
+                startTextTurn(manager, muted: muted, transcript: "Explain how the F-35B hovers")
+                let responseTask = manager.currentResponseTask
+                try await waitUntil { planner.completion != nil }
+                let user = try #require(manager.activeConversationUserEvent)
+                manager.extractedConversationUserEventIdentifiers.insert(user.eventID)
+                if interaction == "selection" { manager.diagramOverlayController.selectNode(id: "engine") }
+                else if interaction == "controls" { manager.diagramOverlayController.setControlDeflection(0.6) }
+                else if interaction == "replacement" {
+                    var replacement = try #require(PaceTeachingTemplateCatalog.lessonDocument(for: .piCamera))
+                    replacement.lesson = nil
+                    manager.diagramOverlayController.present(replacement)
+                } else { manager.diagramOverlayController.pauseLesson() }
+                let preview = manager.diagramOverlayController.document
+                let selectedNodeID = manager.diagramOverlayController.selectedNodeID
+                let controlDeflection = manager.diagramOverlayController.controlDeflection
+                let playbackGeneration = manager.diagramOverlayController.lessonPlaybackGeneration
+                let revision = manager.diagramOverlayController.revision
+                var response = try twoStepResponse(template: .liftSystem)
+                var expectedAnswer = try #require(PaceActionTagParser.parseActions(from: response).actions.first.flatMap {
+                    if case .showDiagram(let document) = $0 { return document.lesson?.writtenExplanation }
+                    return nil
+                })
+                if interaction == "outerSpeech" || interaction == "outerAcknowledgement" {
+                    var envelope = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+                    if interaction == "outerSpeech" {
+                        expectedAnswer = "The lift fan and rear nozzle balance the aircraft in hover."
+                        var payload = try #require(envelope["payload"] as? [String: Any])
+                        var arguments = try #require(payload["args"] as? [String: Any])
+                        arguments.removeValue(forKey: "lesson")
+                        payload["args"] = arguments
+                        envelope["payload"] = payload
+                        envelope["spokenText"] = expectedAnswer
+                    } else {
+                        envelope["spokenText"] = "Let's look at it."
+                    }
+                    response = String(decoding: try JSONSerialization.data(withJSONObject: envelope), as: UTF8.self)
+                }
+                planner.resolve(response)
+                await responseTask?.value
+                #expect(manager.diagramOverlayController.document == preview)
+                #expect(manager.diagramOverlayController.selectedNodeID == selectedNodeID)
+                #expect(manager.diagramOverlayController.controlDeflection == controlDeflection)
+                #expect(manager.diagramOverlayController.lessonPlaybackGeneration == playbackGeneration)
+                #expect(manager.diagramOverlayController.revision == revision)
+                #expect(manager.pendingTeachingPreviewOwnership == nil)
+                #expect(speech.exactTexts.isEmpty)
+                #expect(speech.spokenTexts == (muted ? [] : [expectedAnswer]))
+                #expect(persister.events[user.eventID]?.deliveryState == .completed)
+                #expect(persister.events.values.filter { $0.role == .pace }.map(\.text) == [expectedAnswer])
+                #expect(manager.conversationHistory.map(\.assistantResponse) == [expectedAnswer])
+            }
         }
+    }
+
+    @Test func closingPreviewCancelsLateAnswerWithoutSpeechOrHistory() async throws {
+        let (manager, persister, speech, planner) = try prepareEarlyPreviewTurn()
+        startTextTurn(manager, muted: false, transcript: "Explain how the F-35B hovers")
+        let responseTask = manager.currentResponseTask
+        try await waitUntil { planner.completion != nil }
+        let user = try #require(manager.activeConversationUserEvent)
+        manager.diagramOverlayController.dismiss(intent: .userInitiated)
+        planner.resolve(try twoStepResponse(template: .liftSystem))
+        await responseTask?.value
+        #expect(manager.diagramOverlayController.document == nil)
+        #expect(speech.exactTexts.isEmpty && speech.spokenTexts.isEmpty)
+        #expect(persister.events[user.eventID]?.deliveryState == .cancelled)
+        #expect(persister.events.values.filter { $0.role == .pace }.isEmpty)
+    }
+
+    @Test func plannerFailureAndPanelCancelWithdrawOnlyUnmodifiedOwnedPreview() async throws {
+        for ending in ["failure", "panel"] {
+            for interaction in ["untouched", "selection", "newerFigure"] {
+                let (manager, _, speech, planner) = try prepareEarlyPreviewTurn()
+                startTextTurn(manager, muted: false, transcript: "Explain how the F-35B hovers")
+                let responseTask = manager.currentResponseTask
+                try await waitUntil { planner.completion != nil }
+                if interaction == "selection" { manager.diagramOverlayController.selectNode(id: "engine") }
+                if interaction == "newerFigure" {
+                    manager.diagramOverlayController.present(PaceTeachingArrayIllustration.nextTokenExample)
+                }
+                let currentDocument = manager.diagramOverlayController.document
+                let selectedNodeID = manager.diagramOverlayController.selectedNodeID
+                if ending == "panel" { manager.cancelCurrentTurnFromPanel() }
+                planner.fail()
+                await responseTask?.value
+                #expect(manager.pendingTeachingPreviewOwnership == nil)
+                #expect(manager.diagramOverlayController.document == (interaction == "untouched" ? nil : currentDocument))
+                if interaction != "untouched" { #expect(manager.diagramOverlayController.selectedNodeID == selectedNodeID) }
+                #expect(speech.exactTexts.isEmpty && speech.spokenTexts.isEmpty)
+            }
+        }
+    }
+
+    @Test func oldThrowingPlannerCannotClearOrDismissANewerPendingPreview() async throws {
+        let (manager, persister, speech, oldPlanner) = try prepareEarlyPreviewTurn()
+        startTextTurn(manager, muted: false, transcript: "Explain how the F-35B hovers")
+        let oldTask = manager.currentResponseTask
+        try await waitUntil { oldPlanner.completion != nil }
+        manager.cancelCurrentTurnFromPanel()
+        let newPlanner = SuspendedPlanner()
+        manager.plannerClient = newPlanner
+        manager.textOnlyPlannerClient = newPlanner
+        startTextTurn(manager, muted: false, transcript: "Explain the Pi5 camera connector")
+        let newTask = manager.currentResponseTask
+        try await waitUntil { newPlanner.completion != nil }
+        let newLease = manager.turnLeaseRegistry.currentLease
+        let newUser = try #require(manager.activeConversationUserEvent)
+        let newPreview = manager.diagramOverlayController.document
+        #expect(manager.foregroundOffDeviceTurnInFlight && manager.isOffDeviceTurnInFlight)
+        oldPlanner.fail()
+        await oldTask?.value
+        #expect(manager.pendingTeachingPreviewOwnership?.turnLease == newLease)
+        #expect(manager.foregroundOffDeviceTurnInFlight && manager.isOffDeviceTurnInFlight)
+        #expect(manager.diagramOverlayController.document == newPreview)
+        #expect(persister.events[newUser.eventID]?.deliveryState == .accepted)
+        #expect(manager.turnLeaseRegistry.isCurrent(newLease))
+        #expect(speech.exactTexts.isEmpty && speech.spokenTexts.isEmpty)
+        manager.cancelCurrentTurnFromPanel()
+        #expect(!manager.foregroundOffDeviceTurnInFlight)
+        newPlanner.resolve("Done.")
+        await newTask?.value
     }
 
     @Test func latePreviewResponseCannotReplaceOrCancelANewerTurn() async throws {
@@ -498,48 +609,60 @@ struct PaceTeachingManagerTests {
         await responseTask?.value
     }
 
-    @Test func matchingTemplateFollowedByDismissalCannotReplaceThePreviewOrWriteLessonHistory() async throws {
+    @Test func untouchedPreviewAllowsTheAuthoredPlanIncludingItsDismissal() async throws {
         let (manager, persister, speech, planner) = try prepareEarlyPreviewTurn()
         startTextTurn(manager, muted: false, transcript: "Explain how the F-35B hovers in two steps")
         let responseTask = manager.currentResponseTask
         try await waitUntil { planner.completion != nil }
         let user = try #require(manager.activeConversationUserEvent)
-        let preview = manager.diagramOverlayController.document
-        let authoredDocument = try #require(PaceTeachingTemplateCatalog.lessonDocument(for: .liftSystem))
+        var authoredDocument = try #require(PaceTeachingTemplateCatalog.lessonDocument(for: .liftSystem))
+        authoredDocument.lesson = nil
         var arguments = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(authoredDocument)) as? [String: Any])
         arguments["tool"] = "show_diagram"
         let data = try JSONSerialization.data(withJSONObject: [[arguments], [["tool": "dismiss_diagram"]]])
-        let response = "<tool_calls>" + String(decoding: data, as: UTF8.self) + "</tool_calls>"
+        let answer = "The nozzle turns engine thrust downward."
+        let response = answer + " <tool_calls>" + String(decoding: data, as: UTF8.self) + "</tool_calls>"
         #expect(PaceActionTagParser.parseActions(from: response).executionPlan.flattenedActions.count == 2)
         planner.resolve(response)
         await responseTask?.value
-        #expect(manager.diagramOverlayController.document == preview)
-        #expect(persister.events[user.eventID]?.deliveryState == .cancelled)
-        #expect(persister.events.values.filter { $0.role == .pace }.isEmpty)
-        #expect(speech.exactTexts.isEmpty && speech.spokenTexts.isEmpty)
+        #expect(manager.diagramOverlayController.document == nil)
+        #expect(manager.pendingTeachingPreviewOwnership == nil)
+        #expect(persister.events[user.eventID]?.deliveryState == .completed)
+        #expect(persister.events.values.filter { $0.role == .pace }.count == 1)
+        #expect(speech.exactTexts.isEmpty)
+        #expect(speech.spokenTexts == [answer])
     }
 
-    @Test func unmatchedOrCustomAuthoredVisualKeepsTrustedPreviewAndCancelsRequest() async throws {
+    @Test func untouchedPreviewYieldsToUnmatchedAndCustomAuthoredVisuals() async throws {
         let customDocument = PaceDiagramDocument(title: "Custom body", summary: "A custom replacement.",
             nodes: [.init(id: "body", label: "Body", detail: "A custom solid.", x: 0, y: 0,
                           width: 220, height: 130, shape: nil, role: nil, subtitle: nil)], connections: [],
             figure: .init(parts: [.init(id: "body-solid", nodeID: "body", geometry: .box,
                                        position: [0, 0, 0], size: [1, 1, 1])]))
         #expect(customDocument.validationIssue == nil)
-        for unmatchedDocument in [try #require(PaceTeachingTemplateCatalog.lessonDocument(for: .piCamera)),
-                                  customDocument] {
-            let (manager, persister, speech, planner) = try prepareEarlyPreviewTurn()
+        for var authoredDocument in [try #require(PaceTeachingTemplateCatalog.lessonDocument(for: .piCamera)),
+                                    customDocument] {
+            authoredDocument.lesson = nil
+            let (manager, persister, speech, planner) = try prepareEarlyPreviewTurn(derivedMemory: true)
             startTextTurn(manager, muted: false, transcript: "Explain how the F-35B hovers")
             let responseTask = manager.currentResponseTask
             try await waitUntil { planner.completion != nil }
             let user = try #require(manager.activeConversationUserEvent)
-            let preview = manager.diagramOverlayController.document
-            planner.resolve(try Planner(document: unmatchedDocument).response)
+            manager.extractedConversationUserEventIdentifiers.insert(user.eventID)
+            let initialDismissalGeneration = manager.diagramOverlayController.dismissalGeneration
+            var envelope = try #require(JSONSerialization.jsonObject(with: Data(Planner(document: authoredDocument).response.utf8)) as? [String: Any])
+            let answer = "Here is the authored explanation."
+            envelope["spokenText"] = answer
+            planner.resolve(String(decoding: try JSONSerialization.data(withJSONObject: envelope), as: UTF8.self))
             await responseTask?.value
-            #expect(manager.diagramOverlayController.document == preview)
-            #expect(persister.events[user.eventID]?.deliveryState == .cancelled)
-            #expect(persister.events.values.filter { $0.role == .pace }.isEmpty)
-            #expect(speech.exactTexts.isEmpty && speech.spokenTexts.isEmpty)
+            #expect(manager.diagramOverlayController.document == authoredDocument)
+            #expect(manager.diagramOverlayController.dismissalGeneration == initialDismissalGeneration + 1)
+            #expect(manager.pendingTeachingPreviewOwnership == nil)
+            #expect(persister.events[user.eventID]?.deliveryState == .completed)
+            #expect(persister.events.values.filter { $0.role == .pace }.map(\.text) == [answer])
+            #expect(speech.exactTexts.isEmpty)
+            #expect(speech.spokenTexts == [answer])
+            #expect(manager.conversationHistory.map(\.assistantResponse) == [answer])
         }
     }
 

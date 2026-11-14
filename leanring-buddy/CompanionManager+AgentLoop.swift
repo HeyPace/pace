@@ -18,14 +18,29 @@ extension CompanionManager {
     /// active lease. Routing and response tasks are separate because routing
     /// can suspend before a response task exists.
     func cancelActiveTurnTasks(preservingConversationRequest: Bool = false) {
+        if let ownership = pendingTeachingPreviewOwnership {
+            finishPendingTeachingPreview(for: ownership.turnLease, dismissIfOwned: true)
+        }
         diagramOverlayController.cancelLessonPlayback()
         cancelWatchSuggestionSpeech()
         if !preservingConversationRequest { interruptConversationRequest() }
+        foregroundOffDeviceTurnInFlight = false
         turnLeaseRegistry.invalidateCurrentTurn()
         currentTurnDispatchTask?.cancel()
         currentTurnDispatchTask = nil
         currentResponseTask?.cancel()
         currentResponseTask = nil
+    }
+
+    func finishPendingTeachingPreview(for turnLease: PaceTurnLease, dismissIfOwned: Bool) {
+        guard let ownership = pendingTeachingPreviewOwnership, ownership.turnLease == turnLease else { return }
+        pendingTeachingPreviewOwnership = nil
+        guard dismissIfOwned, turnLeaseRegistry.isCurrent(turnLease),
+              diagramOverlayController.dismissalGeneration == ownership.dismissalGeneration,
+              diagramOverlayController.lessonPlaybackGeneration == ownership.generation else { return }
+        diagramOverlayController.dismiss(intent: .automatic)
+        PaceAPIAuditLog.shared.record(subsystem: "teaching", operation: "native_preview",
+            target: ownership.template.rawValue, durationMilliseconds: 0, outcome: "withdrawn_owned_preview")
     }
 
     func isActiveTurn(_ turnLease: PaceTurnLease) -> Bool {
@@ -649,7 +664,10 @@ extension CompanionManager {
             voiceState = .processing
             let usesOffDeviceTextPlanner = activePlannerTierIsOffDevice
             foregroundOffDeviceTurnInFlight = usesOffDeviceTextPlanner
-            defer { foregroundOffDeviceTurnInFlight = false }
+            defer {
+                if turnLeaseRegistry.isCurrent(turnLease) { foregroundOffDeviceTurnInFlight = false }
+                finishPendingTeachingPreview(for: turnLease, dismissIfOwned: true)
+            }
 
             do {
                 if !usesOffDeviceTextPlanner, let textOnlyPlannerWarmupTask {
@@ -696,7 +714,7 @@ extension CompanionManager {
                 plannerForTextOnlyTurn.resetForNewTurn()
                 print("🧠 Text-only planner: using \(plannerForTextOnlyTurn.displayName)")
 
-                var earlyPreviewOwnership: (template: PaceFigureScene.Template, generation: UUID)?
+                var earlyPreviewOwnership: PendingTeachingPreviewOwnership?
                 let directSpawnAvailable = teachingPreviewDirectSpawnAvailability?()
                     ?? (PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent()
                         && PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
@@ -714,7 +732,11 @@ extension CompanionManager {
                     let previewStartedAt = Date()
                     if diagramOverlayController.present(previewDocument,
                         expectedDismissalGeneration: diagramDismissalGeneration) {
-                        earlyPreviewOwnership = (template, diagramOverlayController.lessonPlaybackGeneration)
+                        let ownership = PendingTeachingPreviewOwnership(turnLease: turnLease, template: template,
+                            generation: diagramOverlayController.lessonPlaybackGeneration,
+                            dismissalGeneration: diagramDismissalGeneration)
+                        earlyPreviewOwnership = ownership
+                        pendingTeachingPreviewOwnership = ownership
                         PaceAPIAuditLog.shared.record(subsystem: "teaching", operation: "native_preview",
                             target: template.rawValue,
                             durationMilliseconds: Int(Date().timeIntervalSince(previewStartedAt) * 1000),
@@ -847,17 +869,39 @@ extension CompanionManager {
 
                 guard isActiveTurn(turnLease) else { return }
                 if let earlyPreviewOwnership {
-                    let ownershipUnchanged = diagramOverlayController.dismissalGeneration == diagramDismissalGeneration
-                        && diagramOverlayController.lessonPlaybackGeneration == earlyPreviewOwnership.generation
-                    let authoredVisualMatches = PaceTeachingPower.preservesEarlyNativePreview(
-                        actionParseResult, template: earlyPreviewOwnership.template)
-                    guard ownershipUnchanged, authoredVisualMatches else {
-                        // Lifecycle events have no timed operation; zero is not a latency measurement.
+                    guard diagramOverlayController.dismissalGeneration == earlyPreviewOwnership.dismissalGeneration else {
                         PaceAPIAuditLog.shared.record(subsystem: "teaching", operation: "native_preview",
                             target: earlyPreviewOwnership.template.rawValue, durationMilliseconds: 0,
-                            outcome: ownershipUnchanged ? "rejected_unmatched_plan" : "cancelled_interaction")
+                            outcome: "cancelled_dismissal")
                         cancelCurrentTurnFromPanel()
                         return
+                    }
+                    let ownershipUnchanged = diagramOverlayController.lessonPlaybackGeneration == earlyPreviewOwnership.generation
+                    let authoredVisualMatches = PaceTeachingPower.preservesEarlyNativePreview(
+                        actionParseResult, template: earlyPreviewOwnership.template)
+                    if !ownershipUnchanged {
+                        // Exploration owns the current view; the authored answer still belongs to this turn.
+                        let lessonExplanation = actionParseResult.executionPlan.flattenedActions.compactMap { action -> String? in
+                            guard case .showDiagram(let document) = action else { return nil }
+                            return document.lesson?.writtenExplanation
+                        }.joined(separator: "\n\n")
+                        let authoredExplanation = lessonExplanation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? spokenText : lessonExplanation
+                        spokenText = authoredExplanation
+                        actionParseResult = .init(spokenText: authoredExplanation, actions: [],
+                            executionPlan: .serial(actions: []), firstClickVisualisationLocation: nil)
+                        finishPendingTeachingPreview(for: turnLease, dismissIfOwned: false)
+                        PaceAPIAuditLog.shared.record(subsystem: "teaching", operation: "native_preview",
+                            target: earlyPreviewOwnership.template.rawValue, durationMilliseconds: 0,
+                            outcome: "answered_preserving_exploration")
+                    } else if !authoredVisualMatches {
+                        finishPendingTeachingPreview(for: turnLease, dismissIfOwned: true)
+                        diagramDismissalGeneration = diagramOverlayController.dismissalGeneration
+                        PaceAPIAuditLog.shared.record(subsystem: "teaching", operation: "native_preview",
+                            target: earlyPreviewOwnership.template.rawValue, durationMilliseconds: 0,
+                            outcome: "authored_plan_replaces_preview")
+                    } else {
+                        finishPendingTeachingPreview(for: turnLease, dismissIfOwned: false)
                     }
                 }
 
@@ -934,6 +978,7 @@ extension CompanionManager {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
+                guard isActiveTurn(turnLease) else { return }
                 print("⚠️ Text-only planner fast path failed: \(error.localizedDescription)")
                 recordConversationTurn(userTranscript: transcript, assistantResponse: "Planner failed: \(error.localizedDescription)")
                 responseOverlayManager.updateStreamingText("Planner failed: \(error.localizedDescription)")
