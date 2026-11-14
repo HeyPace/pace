@@ -155,8 +155,11 @@ extension CompanionManager {
         defer {
             presentedCodingApprovalTokens.remove(token)
             dismissedCodingApprovalTokens.remove(token)
+            presentedCodingApprovalWindows.removeValue(forKey: token)
         }
-        let allowed = presentActionApproval(request)
+        let allowed = presentActionApproval(request, willPresent: { [weak self] window in
+            self?.presentedCodingApprovalWindows[token] = window
+        })
         guard dismissalGeneration == codingApprovalDismissalGeneration, !dismissedCodingApprovalTokens.contains(token) else { return .cancel }
         return allowed ? .allowOnce : .cancel
     }
@@ -169,8 +172,15 @@ extension CompanionManager {
 
     func abortDismissedCodingApprovalModals() {
         guard !presentedCodingApprovalTokens.isDisjoint(with: dismissedCodingApprovalTokens) else { return }
-        if let codingApprovalAbortOverride { codingApprovalAbortOverride() }
-        else { NSApp.abortModal() }
+        let modalToken: UUID?
+        if let codingModalTokenOverride { modalToken = codingModalTokenOverride() }
+        else if let modalWindow = NSApp.modalWindow {
+            modalToken = presentedCodingApprovalWindows.first { $0.value === modalWindow }?.key
+        } else { modalToken = nil }
+        if let modalToken, dismissedCodingApprovalTokens.contains(modalToken) {
+            if let codingApprovalAbortOverride { codingApprovalAbortOverride() }
+            else { NSApp.abortModal() }
+        }
         guard !codingApprovalAbortIsScheduled else { return }
         codingApprovalAbortIsScheduled = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { [weak self] in

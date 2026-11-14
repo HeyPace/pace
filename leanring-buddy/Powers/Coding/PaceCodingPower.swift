@@ -24,7 +24,7 @@ nonisolated enum PaceCodingPower {
         }
         let terminalIntentText = text.replacingOccurrences(of: #"(\"|')(?:~/|/).*?\1|(?:^|\s)(?:~/|/)[^\s]+"#, with: " ", options: .regularExpression)
         if text.hasPrefix("open ") || text.hasPrefix("launch ")
-            || terminalIntentText.range(of: #"\bwarp\b"#, options: .regularExpression) != nil { return false }
+            || terminalIntentText.range(of: #"\b(?:in|using|via|with)\s+(?:the\s+)?warp\b|\bwarp\s+terminal\b"#, options: .regularExpression) != nil { return false }
         if text.range(of: #"^(?:resume|continue) (?:the |my |that )?coding (?:task|session)\b"#, options: .regularExpression) != nil { return true }
         if text.range(of: #"^start (?:a )?(?:retained )?coding (?:task|session)\b"#, options: .regularExpression) != nil { return true }
         let hasExplicitPath = text.range(of: #"(?:^|[\s\"'])(?:~/|/)[^\s]+"#, options: .regularExpression) != nil

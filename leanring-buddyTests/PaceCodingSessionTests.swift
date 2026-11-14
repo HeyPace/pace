@@ -711,7 +711,7 @@ struct PaceCodingManagerTests {
     }
 
     @Test func routingKeepsQuestionsAndWarpLaunchesOnTheirExistingPaths() {
-        for request in ["work on ~/projects/app with Codex and fix tests", "start a retained coding session in /tmp/app and add tests", "resume the coding task and add tests", "please continue my coding session with a new test", "can you please resume the coding task and add tests", "could you please can you resume the coding session and add tests", "work on ~/src/warpdrive with codex and fix tests", "work on ~/src/warp with codex and fix tests", "use codex to fix tests in ~/app", "work on \"~/my warp/app\" with codex and fix tests"] {
+        for request in ["work on ~/projects/app with Codex and fix tests", "start a retained coding session in /tmp/app and add tests", "resume the coding task and add tests", "please continue my coding session with a new test", "can you please resume the coding task and add tests", "could you please can you resume the coding session and add tests", "work on ~/src/warpdrive with codex and fix tests", "work on ~/src/warp with codex and fix tests", "use codex to fix tests in ~/app", "work on \"~/my warp/app\" with codex and fix tests", "use codex to fix warp animation tests in ~/game"] {
             #expect(PaceCodingPower.requestsRetainedCoding(request))
         }
         for request in ["How do I fix a corrupted git repository?", "change my GitHub repository visibility", "What is a coding session?", "show the coding task on my screen", "open a codex session to fix tests in ~/proj", "start Codex in ~/projects/app", "launch Codex in Warp", "Start a Codex session in /tmp/app and fix tests", "Code in /Users/me/app crashes when I run it, how do I fix it?", "start a coding session in Warp", "resume my coding session in Warp", "use codex to fix tests in ~/app in Warp", "work on ~/app with codex in Warp"] {
@@ -873,6 +873,7 @@ struct PaceCodingManagerTests {
         let inner = PaceActionApprovalRequest(approvalSummary: "inner runtime checkpoint", requiresActionApproval: true)!
         var abortCount = 0
         manager.codingApprovalAbortOverride = { abortCount += 1 }
+        manager.codingModalTokenOverride = { manager.presentedCodingApprovalTokens.intersection(manager.dismissedCodingApprovalTokens).first }
         manager.actionApprovalPresentationOverride = { request in
             if request.approvalSummary == outer.approvalSummary {
                 #expect(manager.presentCodingApproval(inner) == .cancel)
@@ -889,6 +890,40 @@ struct PaceCodingManagerTests {
         #expect(manager.presentCodingApproval(outer) == .cancel)
         #expect(manager.presentedCodingApprovalTokens.isEmpty)
         #expect(manager.dismissedCodingApprovalTokens.isEmpty)
+    }
+
+    @Test func revokedModalWaitsBehindFreshOrUnrelatedModalWithoutAbortingIt() {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let revoked = PaceActionApprovalRequest(approvalSummary: "revoked A", requiresActionApproval: true)!
+        let fresh = PaceActionApprovalRequest(approvalSummary: "fresh B", requiresActionApproval: true)!
+        var modalToken: UUID?
+        var revokedToken: UUID?
+        var abortCount = 0
+        manager.codingModalTokenOverride = { modalToken }
+        manager.codingApprovalAbortOverride = { abortCount += 1 }
+        manager.actionApprovalPresentationOverride = { request in
+            if request.approvalSummary == revoked.approvalSummary {
+                revokedToken = manager.presentedCodingApprovalTokens.first
+                modalToken = revokedToken
+                manager.dismissCodingApprovals()
+                #expect(abortCount == 1)
+                #expect(manager.presentCodingApproval(fresh) == .allowOnce)
+                modalToken = nil
+                manager.abortDismissedCodingApprovalModals()
+                #expect(abortCount == 1)
+                modalToken = revokedToken
+                manager.abortDismissedCodingApprovalModals()
+                #expect(abortCount == 2)
+                return .allowOnce
+            }
+            modalToken = manager.presentedCodingApprovalTokens.subtracting([revokedToken!]).first
+            manager.abortDismissedCodingApprovalModals()
+            #expect(abortCount == 1)
+            return .allowOnce
+        }
+        #expect(manager.presentCodingApproval(revoked) == .cancel)
+        #expect(manager.presentedCodingApprovalTokens.isEmpty)
+        #expect(manager.presentedCodingApprovalWindows.isEmpty)
     }
 
 }

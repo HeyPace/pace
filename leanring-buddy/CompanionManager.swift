@@ -266,6 +266,8 @@ final class CompanionManager: ObservableObject {
     var codingApprovalDismissalGeneration: UInt64 = 0
     var codingApprovalAbortIsScheduled = false
     var codingApprovalAbortOverride: (() -> Void)?
+    var codingModalTokenOverride: (() -> UUID?)?
+    var presentedCodingApprovalWindows: [UUID: NSWindow] = [:]
     var codingApprovalIsPresented: Bool { !presentedCodingApprovalTokens.isEmpty }
     var actionApprovalPresentationOverride: ((PaceActionApprovalRequest) -> PaceActionApprovalDecision)?
     lazy var codingSessionCoordinator = PaceCodingSessionCoordinator(

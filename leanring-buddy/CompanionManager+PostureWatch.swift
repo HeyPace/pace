@@ -84,7 +84,8 @@ extension CompanionManager {
         return presentActionApproval(approvalRequest, smokeAutoCancelAfter: smokeAutoCancelAfter)
     }
 
-    func presentActionApproval(_ approvalRequest: PaceActionApprovalRequest, smokeAutoCancelAfter: TimeInterval? = nil) -> Bool {
+    func presentActionApproval(_ approvalRequest: PaceActionApprovalRequest, smokeAutoCancelAfter: TimeInterval? = nil,
+        willPresent: ((NSWindow) -> Void)? = nil) -> Bool {
         if let actionApprovalPresentationOverride { return actionApprovalPresentationOverride(approvalRequest) == .allowOnce }
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -100,6 +101,7 @@ extension CompanionManager {
             }
         }
 
+        willPresent?(alert.window)
         NSApp.activate(ignoringOtherApps: true)
         let approvalDecision: PaceActionApprovalDecision =
             alert.runModal() == .alertSecondButtonReturn ? .allowOnce : .cancel
