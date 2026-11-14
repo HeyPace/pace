@@ -374,8 +374,7 @@ extension PaceActionExecutor {
         }
 
         if mcpToolCall.serverName == "peekaboo",
-            !PaceUserPreferencesStore.boolWithInfoPlistSeed(
-                .useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext"),
+            !readMyScreenIsEnabled(),
             !(mcpToolCall.toolName == "app" && mcpToolCall.arguments["action"] == .string("list"))
         {
             return PaceActionExecutionObservation(
@@ -403,10 +402,23 @@ extension PaceActionExecutor {
         }
 
         do {
-            let resultSummary = try await mcpClient.callTool(mcpToolCall)
+            let targetedToolCall = try boundPeekabooToolCall(mcpToolCall)
+            let resultSummary = try await mcpClient.callTool(targetedToolCall)
             return PaceActionExecutionObservation(
                 toolName: toolObservationName,
                 summary: resultSummary.isEmpty ? "MCP tool completed: \(mcpToolCall.approvalDescription)" : resultSummary
+            )
+        } catch PaceMCPClientError.ambiguousApplicationTarget {
+            return PaceActionExecutionObservation(
+                toolName: toolObservationName,
+                summary: "Stopped because more than one app matched the target. I could not safely choose a window, so the remaining actions were not run. Choose the intended app instance before trying again.",
+                terminalReason: .ambiguousApplicationTarget
+            )
+        } catch PaceMCPClientError.staleApplicationTarget(let applicationName) {
+            return PaceActionExecutionObservation(
+                toolName: toolObservationName,
+                summary: "Stopped because the launched \(applicationName) process is no longer available. The remaining actions were not run. Open the intended app again before continuing.",
+                terminalReason: .staleApplicationTarget
             )
         } catch {
             return PaceActionExecutionObservation(

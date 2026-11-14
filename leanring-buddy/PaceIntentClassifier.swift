@@ -374,6 +374,12 @@ final class PaceIntentClassifier {
         "what's this all about", "lay out what's on the screen",
     ]
 
+    // Match the complete current-screen question so generic knowledge and
+    // historical screen questions keep their text-only route.
+    private static let currentScreenQuestionPattern = try? NSRegularExpression(
+        pattern: #"\Awhat(?:['’]?s| is)\s+on\s+(?:(?:my|the)\s+)?screen[.!?]*\z"#
+    )
+
     private static let largeModelHints: [String] = [
         "phone a large model", "ask the big model", "use the big model",
         "use a large model", "call the large model", "hard mode",
@@ -448,6 +454,13 @@ final class PaceIntentClassifier {
             if lowercaseTranscript.contains(journalRecallHint) {
                 return PaceIntentPrediction(intent: .pureKnowledge, confidence: 0.95)
             }
+        }
+
+        if Self.currentScreenQuestionPattern?.firstMatch(
+            in: lowercaseTranscript,
+            range: NSRange(lowercaseTranscript.startIndex..., in: lowercaseTranscript)
+        ) != nil {
+            return PaceIntentPrediction(intent: .screenDescription, confidence: 0.95)
         }
 
         // Description hints checked BEFORE action verbs because phrases

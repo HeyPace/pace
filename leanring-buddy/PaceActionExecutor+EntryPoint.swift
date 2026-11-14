@@ -27,16 +27,18 @@ extension PaceActionExecutor {
         guard !actionExecutionPlan.steps.isEmpty else { return [] }
 
         var observations: [PaceActionExecutionObservation] = []
+        let executionGeneration = applicationTargetGeneration
 
         for (stepIndex, step) in actionExecutionPlan.steps.enumerated() {
             guard !Task.isCancelled else { return observations }
             guard !step.actions.isEmpty else { continue }
 
             for (actionIndex, action) in step.actions.enumerated() {
-                guard !Task.isCancelled else { return observations }
+                guard !Task.isCancelled, executionGeneration == applicationTargetGeneration else { return observations }
 
                 if let observation = await executeSingleAction(action, screenCaptures: screenCaptures) {
                     observations.append(observation)
+                    if observation.stopsAgentLoop { return observations }
                 }
                 guard !Task.isCancelled else { return observations }
 
@@ -113,7 +115,8 @@ extension PaceActionExecutor {
     ) async -> PaceActionExecutionObservation? {
         let observation = await dispatchSingleAction(action, screenCaptures: screenCaptures)
         let outcomeText: String
-        if let observation, observation.summary.lowercased().contains("fail")
+        if let observation, observation.stopsAgentLoop
+            || observation.summary.lowercased().contains("fail")
             || observation.summary.lowercased().contains("error")
             || observation.summary.lowercased().contains("could not") {
             outcomeText = "error"

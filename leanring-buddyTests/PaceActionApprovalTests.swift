@@ -9,6 +9,36 @@ import Testing
 @testable import Pace
 
 struct PaceActionApprovalTests {
+    @Test func screenDescriptionDefaultsToObservationWithoutChangingExplicitActionIntents() {
+        for transcript in ["What's on my screen?", "Explain this checklist.", "What am I looking at?"] {
+            #expect(PaceActionApprovalPolicy.requestsObservationOnly(transcript, intent: .screenDescription))
+        }
+        #expect(!PaceActionApprovalPolicy.requestsObservationOnly("What's on my screen?"))
+        #expect(!PaceActionApprovalPolicy.requestsObservationOnly("Explain this checklist, then click Save.", intent: .screenAction))
+        for action in [
+            PaceParsedAction.openApplication("Chrome"), .type("unexpected typing"),
+            .click(.init(xInScreenshotPixels: 10, yInScreenshotPixels: 20, screenNumber: nil)),
+        ] {
+            #expect(!PaceActionApprovalPolicy.permitsObservationOnly(.serial(actions: [action])))
+        }
+        #expect(PaceActionApprovalPolicy.permitsObservationOnly(.serial(actions: [
+            .readClipboard,
+            .mcp(.init(serverName: "peekaboo", toolName: "see", arguments: ["web_focus": .bool(false)])),
+            .mcp(.init(serverName: "peekaboo", toolName: "window", arguments: ["action": .string("list")])),
+        ])))
+        let annotations = PaceActionTagParser.parseActions(from: #"{"spokenText":"Marked","intent":"action","payload":{"name":"draw_annotation","args":{"screen":1,"shapes":[{"kind":"rect","x":20,"y":40,"width":100,"height":20}]}}}"#)
+        #expect(annotations.actions.count == 1)
+        #expect(PaceActionApprovalPolicy.permitsObservationOnly(annotations.executionPlan))
+        #expect(PaceToolRegistry.definition(forToolName: "show_diagram")?.riskLevel == .readOnly)
+    }
+
+    @Test func observationOnlyRejectsSeeWhenItRequestsWebFocus() {
+        let focusedInspection = PaceParsedAction.mcp(.init(
+            serverName: "peekaboo", toolName: "see", arguments: ["app_target": .string("Safari"), "web_focus": .bool(true)]))
+        #expect(!PaceActionApprovalPolicy.permitsObservationOnly(.serial(actions: [focusedInspection])))
+        #expect(!PaceActionApprovalPolicy.needsAnswerAfterInspection(.serial(actions: [focusedInspection])))
+    }
+
     @Test func repeatedPartialInspectionKeepsBothExactRequestsAndReadEvidence() {
         let request = #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","name":"see","arguments":{"app_target":"Safari","window_id":84,"ocr":true}}}}"#
         let partialEvidence = """

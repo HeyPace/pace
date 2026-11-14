@@ -17,6 +17,24 @@ enum PaceMCPClientError: Error, LocalizedError, CustomStringConvertible {
     case requestTimedOut(String)
     case invalidResponse(String)
     case rpcError(String)
+    case ambiguousApplicationTarget(String)
+    case staleApplicationTarget(String)
+
+    static func classifyToolError(_ error: Error, toolCall: PaceMCPToolCall) -> Error {
+        guard toolCall.serverName == "peekaboo", let mcpError = error as? PaceMCPClientError,
+              case .rpcError(let message) = mcpError else { return error }
+        let applicationField: String
+        switch toolCall.toolName {
+        case "window": applicationField = "app"
+        case "see": applicationField = "app_target"
+        default: return error
+        }
+        guard case .string(let applicationTarget) = toolCall.arguments[applicationField] else { return error }
+        let diagnosticPattern = "^(?:MCP tool reported an error:\\s*)?(?:Failed to [^:\\r\\n]+:\\s*)?Multiple apps match '"
+            + NSRegularExpression.escapedPattern(for: applicationTarget) + "'\\.\\s*Did you mean:"
+        guard message.range(of: diagnosticPattern, options: [.regularExpression, .caseInsensitive]) != nil else { return error }
+        return PaceMCPClientError.ambiguousApplicationTarget(message)
+    }
 
     var errorDescription: String? { description }
 
@@ -34,6 +52,10 @@ enum PaceMCPClientError: Error, LocalizedError, CustomStringConvertible {
             return "MCP server returned an invalid response: \(message)"
         case .rpcError(let message):
             return "MCP server returned an error: \(message)"
+        case .ambiguousApplicationTarget(let message):
+            return "Could not identify one application to control: \(message)"
+        case .staleApplicationTarget(let applicationName):
+            return "The launched \(applicationName) process is no longer available."
         }
     }
 }
@@ -353,11 +375,12 @@ nonisolated struct PaceMCPStdioClient {
                     auditMCPCall(outcome: "ok", outputCharacterCount: result.count)
                     continuation.resume(returning: result)
                 } catch {
+                    let classifiedError = PaceMCPClientError.classifyToolError(error, toolCall: toolCall)
                     auditMCPCall(
                         outcome: "error",
-                        detail: String(String(describing: error).prefix(160))
+                        detail: String(String(describing: classifiedError).prefix(160))
                     )
-                    continuation.resume(throwing: error)
+                    continuation.resume(throwing: classifiedError)
                 }
             }
         }

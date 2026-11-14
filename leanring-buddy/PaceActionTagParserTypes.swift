@@ -59,8 +59,15 @@ nonisolated struct PaceSetOfMarkRecoveryRequest {
 }
 
 nonisolated struct PaceActionExecutionObservation {
+    enum TerminalReason: Equatable, Sendable {
+        case ambiguousApplicationTarget
+        case staleApplicationTarget
+    }
+
     let toolName: String
     let summary: String
+    let terminalReason: TerminalReason?
+    var stopsAgentLoop: Bool { terminalReason != nil }
     /// Non-nil only on an all-fail click, to request Set-of-Mark recovery.
     let setOfMarkRecovery: PaceSetOfMarkRecoveryRequest?
 
@@ -69,11 +76,13 @@ nonisolated struct PaceActionExecutionObservation {
     init(
         toolName: String,
         summary: String,
-        setOfMarkRecovery: PaceSetOfMarkRecoveryRequest? = nil
+        setOfMarkRecovery: PaceSetOfMarkRecoveryRequest? = nil,
+        terminalReason: TerminalReason? = nil
     ) {
         self.toolName = toolName
         self.summary = summary
         self.setOfMarkRecovery = setOfMarkRecovery
+        self.terminalReason = terminalReason
     }
 
     static func formatForPlanner(_ observations: [PaceActionExecutionObservation]) -> String {

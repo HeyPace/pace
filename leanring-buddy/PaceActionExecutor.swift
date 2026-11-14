@@ -714,6 +714,7 @@ final class PaceActionExecutor {
     /// flag set false is guaranteed not to execute anything.
     let actionsAreEnabled: Bool
     let accessibilityPermissionCheck: () -> Bool
+    let readMyScreenIsEnabled: () -> Bool
 
     /// Delay between consecutive actions when a single planner response
     /// chains several (e.g. click then type). Gives the focused app
@@ -732,6 +733,67 @@ final class PaceActionExecutor {
     let timerScheduler: PaceTimerScheduler
     var mutationLog: [PaceActionMutation] = []
     var activeStreamingMailDraftState: PaceStreamingMailDraftState?
+    private(set) var applicationTargetGeneration = UUID()
+    private var launchedApplicationTargets: [String: LaunchedApplicationTarget] = [:]
+    let runningApplicationBundleURL: (Int32) -> URL?
+
+    struct LaunchedApplicationTarget {
+        let processIdentifier: Int32
+        let bundleURL: URL
+    }
+
+    func beginUserTurn() {
+        applicationTargetGeneration = UUID()
+        launchedApplicationTargets.removeAll()
+    }
+
+    func rememberLaunchedApplication(
+        named applicationName: String,
+        processIdentifier: Int32,
+        bundleURL: URL,
+        generation: UUID
+    ) {
+        guard generation == applicationTargetGeneration, !Task.isCancelled else { return }
+        let target = LaunchedApplicationTarget(processIdentifier: processIdentifier, bundleURL: bundleURL.standardizedFileURL)
+        for name in [applicationName, bundleURL.deletingPathExtension().lastPathComponent] {
+            launchedApplicationTargets[Self.applicationTargetKey(name)] = target
+        }
+    }
+
+    func forgetLaunchedApplication(named applicationName: String) {
+        guard let target = launchedApplicationTargets[Self.applicationTargetKey(applicationName)] else { return }
+        launchedApplicationTargets = launchedApplicationTargets.filter { _, storedTarget in
+            storedTarget.processIdentifier != target.processIdentifier || storedTarget.bundleURL != target.bundleURL
+        }
+    }
+
+    private static func applicationTargetKey(_ applicationName: String) -> String {
+        let normalizedName = normalizeApplicationName(applicationName)
+        return ["chrome", "googlechrome", "comgooglechrome"].contains(normalizedName) ? "googlechrome" : normalizedName
+    }
+
+    func boundPeekabooToolCall(_ toolCall: PaceMCPToolCall) throws -> PaceMCPToolCall {
+        guard toolCall.serverName == "peekaboo" else { return toolCall }
+        // Exact receipts belong to the planner/server. Never replace them with
+        // a process inferred from an earlier launch.
+        let exactSelectors = ["pid", "window_id", "snapshot", "coordinate_reference"]
+        guard !exactSelectors.contains(where: { toolCall.arguments[$0] != nil }) else { return toolCall }
+        let applicationField: String
+        switch toolCall.toolName {
+        case "window": applicationField = "app"
+        case "see": applicationField = "app_target"
+        default: return toolCall
+        }
+        guard case .string(let applicationName) = toolCall.arguments[applicationField],
+              !applicationName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("pid:"),
+              let target = launchedApplicationTargets[Self.applicationTargetKey(applicationName)] else { return toolCall }
+        guard runningApplicationBundleURL(target.processIdentifier)?.standardizedFileURL == target.bundleURL else {
+            throw PaceMCPClientError.staleApplicationTarget(applicationName)
+        }
+        var arguments = toolCall.arguments
+        arguments[applicationField] = .string("PID:\(target.processIdentifier)")
+        return PaceMCPToolCall(serverName: toolCall.serverName, toolName: toolCall.toolName, arguments: arguments)
+    }
 
     /// Callback wired by `CompanionManager` so the planner's
     /// `record_flow` tool can kick off the live recorder + persist on
@@ -763,10 +825,20 @@ final class PaceActionExecutor {
         actionsAreEnabledOverride: Bool? = nil,
         mcpClient: PaceMCPStdioClient = PaceMCPStdioClient(),
         timerScheduler: PaceTimerScheduler? = nil,
-        accessibilityPermissionCheck: @escaping () -> Bool = { AXIsProcessTrusted() }
+        accessibilityPermissionCheck: @escaping () -> Bool = { AXIsProcessTrusted() },
+        readMyScreenIsEnabled: @escaping () -> Bool = {
+            PaceUserPreferencesStore.boolWithInfoPlistSeed(
+                .useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext")
+        },
+        runningApplicationBundleURL: @escaping (Int32) -> URL? = { processIdentifier in
+            guard let application = NSRunningApplication(processIdentifier: processIdentifier), !application.isTerminated else { return nil }
+            return application.bundleURL
+        }
     ) {
         self.mcpClient = mcpClient
         self.accessibilityPermissionCheck = accessibilityPermissionCheck
+        self.readMyScreenIsEnabled = readMyScreenIsEnabled
+        self.runningApplicationBundleURL = runningApplicationBundleURL
         // Default-construct on the MainActor init body — the
         // @MainActor-isolated initializer can't be the default arg of
         // another @MainActor init in Swift 6 concurrency checking.

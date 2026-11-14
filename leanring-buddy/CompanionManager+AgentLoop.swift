@@ -1384,6 +1384,7 @@ extension CompanionManager {
             finishPendingTeachingPreview(for: ownership.turnLease, dismissIfOwned: true)
         }
         cancelActiveTurnTasks()
+        actionExecutor.beginUserTurn()
         ttsClient.stopPlayback()
         streamingSentenceTTSPipeline.resetForNewTurn()
         clearLastSpokenReplyState()
@@ -1425,6 +1426,7 @@ extension CompanionManager {
         screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
     ) async {
         guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
+        actionExecutor.beginUserTurn()
         ttsClient.stopPlayback()
         pendingIntentClarification = nil
         // A new turn supersedes any unanswered click-target question —
@@ -2077,7 +2079,7 @@ extension CompanionManager {
         // headless CLI gets a research-shaped prompt instead of
         // Pace's agent-mode tool docs.
         let isResearchTurn: Bool = (researchTurnPlannerOverride != nil)
-        let requiresObservationOnly = PaceActionApprovalPolicy.requestsObservationOnly(transcript)
+        let requiresObservationOnly = PaceActionApprovalPolicy.requestsObservationOnly(transcript, intent: intentPrediction.intent)
 
         guard isActiveTurn(turnLease) else { return }
         currentResponseTask = Task {
@@ -2882,14 +2884,17 @@ extension CompanionManager {
                             actionParseResult.executionPlan
                         ) && !toolObservations.isEmpty
                     let exitLoop =
-                        (plannerSignaledDone && !needsInspectionAnswer)
+                        toolObservations.contains(where: \.stopsAgentLoop)
+                        || (plannerSignaledDone && !needsInspectionAnswer)
                         || actionParseResult.actions.isEmpty
                         || !actionExecutor.actionsAreEnabled
                         || userDeniedActionApproval
                         || (plannerClientForThisTurn.usesStructuredActionOutput && !needsInspectionAnswer)
                     if exitLoop {
                         plannerLoopFinished = true
-                        if plannerSignaledDone {
+                        if toolObservations.contains(where: \.stopsAgentLoop) {
+                            currentTurnHUDState = .failed("Could not identify the app to control")
+                        } else if plannerSignaledDone {
                             print("✅ Agent loop: planner signaled [DONE] at step \(stepIndex)")
                         } else if plannerClientForThisTurn.usesStructuredActionOutput {
                             print(

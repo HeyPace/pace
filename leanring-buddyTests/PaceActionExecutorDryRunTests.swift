@@ -10,6 +10,113 @@ import Testing
 
 @MainActor
 struct PaceActionExecutorDryRunTests {
+    @Test func launchedProcessBindsOnlyKnownNameSelectorsAndPreservesExactReceipts() throws {
+        let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app")
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: false, runningApplicationBundleURL: { _ in chromeURL })
+        executor.rememberLaunchedApplication(named: "Chrome", processIdentifier: 4123, bundleURL: chromeURL, generation: executor.applicationTargetGeneration)
+        for (toolName, fieldName) in [("window", "app"), ("see", "app_target")] {
+            let request = PaceMCPToolCall(serverName: "peekaboo", toolName: toolName, arguments: [fieldName: .string("Google Chrome")])
+            #expect(try executor.boundPeekabooToolCall(request).arguments[fieldName] == .string("PID:4123"))
+            for exactSelector in ["pid", "window_id", "snapshot", "coordinate_reference"] {
+                var exactArguments = request.arguments
+                exactArguments[exactSelector] = .string("explicit-receipt")
+                let exactRequest = PaceMCPToolCall(serverName: "peekaboo", toolName: toolName, arguments: exactArguments)
+                #expect(try executor.boundPeekabooToolCall(exactRequest) == exactRequest)
+            }
+            for relativeSelector in ["window_index", "window_title", "window_target"] {
+                var arguments = request.arguments
+                arguments[relativeSelector] = .string("preserved-window-selector")
+                let targetedRequest = PaceMCPToolCall(serverName: "peekaboo", toolName: toolName, arguments: arguments)
+                let boundRequest = try executor.boundPeekabooToolCall(targetedRequest)
+                #expect(boundRequest.arguments[fieldName] == .string("PID:4123"))
+                #expect(boundRequest.arguments[relativeSelector] == .string("preserved-window-selector"))
+            }
+        }
+        for request in [
+            PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("PID:9999")]),
+            PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("Safari")]),
+            PaceMCPToolCall(serverName: "peekaboo", toolName: "see", arguments: ["app": .string("Chrome")]),
+            PaceMCPToolCall(serverName: "peekaboo", toolName: "click", arguments: ["app": .string("Chrome"), "foreground": .bool(false)]),
+            PaceMCPToolCall(serverName: "other", toolName: "window", arguments: ["app": .string("Chrome")]),
+        ] {
+            #expect(try executor.boundPeekabooToolCall(request) == request)
+        }
+    }
+
+    @Test func launchedProcessCannotBeReplacedByAReusedPIDOrGuessedAfterProfileLaunch() throws {
+        let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app")
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: false, runningApplicationBundleURL: { _ in
+            URL(fileURLWithPath: "/Applications/Other.app")
+        })
+        executor.rememberLaunchedApplication(named: "Chrome", processIdentifier: 4123, bundleURL: chromeURL, generation: executor.applicationTargetGeneration)
+        let request = PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("Google Chrome")])
+        #expect(throws: PaceMCPClientError.self) { try executor.boundPeekabooToolCall(request) }
+        executor.forgetLaunchedApplication(named: "Chrome")
+        #expect(try executor.boundPeekabooToolCall(request) == request)
+    }
+
+    @Test func turnResetRejectsOldLaunchCompletionsWithoutClearingNewTargets() throws {
+        let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app")
+        let notesURL = URL(fileURLWithPath: "/System/Applications/Notes.app")
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: false, runningApplicationBundleURL: { processIdentifier in
+            processIdentifier == 5000 ? chromeURL : notesURL
+        })
+        let oldGeneration = executor.applicationTargetGeneration
+        executor.rememberLaunchedApplication(named: "Chrome", processIdentifier: 4000, bundleURL: chromeURL, generation: oldGeneration)
+        executor.beginUserTurn()
+        let chromeRequest = PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("Chrome")])
+        #expect(try executor.boundPeekabooToolCall(chromeRequest) == chromeRequest)
+        executor.rememberLaunchedApplication(named: "Chrome", processIdentifier: 5000, bundleURL: chromeURL, generation: executor.applicationTargetGeneration)
+        executor.rememberLaunchedApplication(named: "Notes", processIdentifier: 6000, bundleURL: notesURL, generation: executor.applicationTargetGeneration)
+        executor.rememberLaunchedApplication(named: "Chrome", processIdentifier: 4000, bundleURL: chromeURL, generation: oldGeneration)
+        #expect(try executor.boundPeekabooToolCall(chromeRequest).arguments["app"] == .string("PID:5000"))
+        let notesRequest = PaceMCPToolCall(serverName: "peekaboo", toolName: "see", arguments: ["app_target": .string("Notes")])
+        #expect(try executor.boundPeekabooToolCall(notesRequest).arguments["app_target"] == .string("PID:6000"))
+    }
+
+    @Test func browserProfileLaunchForgetsCanonicalChromeBindingAcrossAliases() async throws {
+        let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app")
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: false, runningApplicationBundleURL: { _ in chromeURL })
+        executor.rememberLaunchedApplication(named: "Google Chrome", processIdentifier: 4123, bundleURL: chromeURL, generation: executor.applicationTargetGeneration)
+        let request = PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("Chrome")])
+        #expect(try executor.boundPeekabooToolCall(request).arguments["app"] == .string("PID:4123"))
+        _ = await executor.openBrowser(.init(browserName: "Chrome", url: nil, chromeProfile: "work"))
+        #expect(try executor.boundPeekabooToolCall(request) == request)
+        let canonicalRequest = PaceMCPToolCall(serverName: "peekaboo", toolName: "see", arguments: ["app_target": .string("Google Chrome")])
+        #expect(try executor.boundPeekabooToolCall(canonicalRequest) == canonicalRequest)
+    }
+
+    @Test func cancelledLaunchCompletionDoesNotInstallTargetInCurrentTurn() async throws {
+        let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app")
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: false, runningApplicationBundleURL: { _ in chromeURL })
+        let generation = executor.applicationTargetGeneration
+        let completion = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            executor.rememberLaunchedApplication(named: "Chrome", processIdentifier: 4123, bundleURL: chromeURL, generation: generation)
+        }
+        completion.cancel()
+        await completion.value
+        let request = PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("Chrome")])
+        #expect(try executor.boundPeekabooToolCall(request) == request)
+    }
+
+    @Test func terminalObservationStopsTheRestOfThePlanButUncertainDispatchCanContinue() async {
+        let terminalReasons: [PaceActionExecutionObservation.TerminalReason?] = [.ambiguousApplicationTarget, nil]
+        for terminalReason in terminalReasons {
+            let executor = PaceActionExecutor(actionsAreEnabledOverride: false)
+            var dispatchCount = 0
+            executor.executeCodingSession = { _ in
+                dispatchCount += 1
+                return .init(toolName: "test", summary: "Dispatch unverified; obtain fresh observation.", terminalReason: terminalReason)
+            }
+            let statusAction = PaceParsedAction.codingSession(.status(sessionID: nil))
+            let observations = await executor.executeActionPlan(
+                .init(steps: [.init(actions: [statusAction, statusAction]), .init(actions: [statusAction])]), screenCaptures: [])
+            #expect(dispatchCount == (terminalReason == nil ? 3 : 1))
+            #expect(observations.contains(where: \.stopsAgentLoop) == (terminalReason != nil))
+        }
+    }
+
     @Test func missingAccessibilityBlocksInputAndReturnsActionableObservations() async {
         let executor = PaceActionExecutor(
             actionsAreEnabledOverride: true,

@@ -48,6 +48,117 @@ private enum PaceMCPFixture {
 
 @Suite(.serialized)
 struct PaceMCPClientIntegrationTests {
+    @MainActor
+    @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func executorUsesLaunchedPIDAndStopsAllLaterDispatchAfterAmbiguousInspection() async throws {
+        let fixtureProgram = #"""
+        import json, sys
+        calls = 0
+        for line in sys.stdin:
+            request = json.loads(line)
+            if "id" not in request:
+                continue
+            if request["method"] == "initialize":
+                result = {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}}, "serverInfo": {"name": "dispatch-fixture", "version": "1"}}
+            else:
+                calls += 1
+                params = request["params"]
+                target = params.get("arguments", {}).get("app", "")
+                if params["name"] == "window" and target != "PID:4123":
+                    result = {"isError": True, "content": [{"type": "text", "text": "Multiple apps match 'Google Chrome'. Did you mean: PID:111 or PID:222?"}]}
+                else:
+                    result = {"content": [{"type": "text", "text": "calls=" + str(calls) + ";target=" + target}]}
+            print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
+        """#
+        let configuration = PaceMCPServerConfiguration(
+            command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3", args: ["-u", "-c", fixtureProgram])
+        let client = PaceMCPStdioClient(serverConfigurations: ["peekaboo": configuration])
+        let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app")
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, mcpClient: client,
+            readMyScreenIsEnabled: { true }, runningApplicationBundleURL: { _ in chromeURL })
+        executor.rememberLaunchedApplication(named: "Chrome", processIdentifier: 4123, bundleURL: chromeURL, generation: executor.applicationTargetGeneration)
+        let inspection = PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: ["action": .string("list"), "app": .string("Google Chrome")])
+        let boundResult = await executor.callMCPTool(inspection)
+        #expect(boundResult.summary.contains("target=PID:4123"))
+        #expect(!boundResult.stopsAgentLoop)
+
+        executor.beginUserTurn()
+        let blockedResults = await executor.executeActionPlan(.serial(actions: [
+            .mcp(inspection),
+            .mcp(.init(serverName: "peekaboo", toolName: "click", arguments: ["query": .string("should not click")])),
+            .mcp(.init(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("should not inspect")])),
+        ]), screenCaptures: [])
+        #expect(blockedResults.count == 1)
+        #expect(blockedResults.first?.terminalReason == .ambiguousApplicationTarget)
+        #expect(PaceActionExecutionObservation.formatForUserFeedback(blockedResults)?.contains("remaining actions were not run") == true)
+        let receipt = try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
+        #expect(receipt.contains("calls=3;"))
+    }
+
+    @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func ambiguousPeekabooResolutionIsTypedButUncertainDispatchRemainsRecoverable() async throws {
+        let fixtureProgram = #"""
+        import json, sys
+        for line in sys.stdin:
+            request = json.loads(line)
+            if "id" not in request:
+                continue
+            if request["method"] == "initialize":
+                result = {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}}, "serverInfo": {"name": "target-fixture", "version": "1"}}
+            else:
+                result = {"isError": True, "content": [{"type": "text", "text": request["params"]["arguments"]["failure"]}]}
+            print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
+        """#
+        let configuration = PaceMCPServerConfiguration(
+            command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3", args: ["-u", "-c", fixtureProgram])
+        let client = PaceMCPStdioClient(serverConfigurations: ["peekaboo": configuration, "other": configuration])
+        let ambiguousMessage = "Failed to list windows: Multiple apps match 'Google Chrome'. Did you mean: Google Chrome (PID:111), Google Chrome (PID:222)"
+        do {
+            _ = try await client.callTool(.init(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("Google Chrome"), "failure": .string(ambiguousMessage)]))
+            Issue.record("Ambiguous app resolution must fail")
+        } catch PaceMCPClientError.ambiguousApplicationTarget(let message) {
+            #expect(message.contains("PID:111"))
+            #expect(message.contains("PID:222"))
+        }
+        for (serverName, message) in [
+            ("other", ambiguousMessage),
+            ("peekaboo", "Dispatch outcome uncertain. Capture a fresh snapshot before retrying."),
+        ] {
+            do {
+                _ = try await client.callTool(.init(serverName: serverName, toolName: "window", arguments: ["app": .string("Google Chrome"), "failure": .string(message)]))
+                Issue.record("Expected fixture failure")
+            } catch PaceMCPClientError.rpcError(let result) {
+                #expect(result.contains(message))
+            }
+        }
+        let independentClient = PaceMCPFixture.makeFixtureClient()
+        let result = try await independentClient.callTool(.init(serverName: "fixture", toolName: "echo", arguments: ["text": .string("unrelated request preserved")]))
+        #expect(result.contains("unrelated request preserved"))
+    }
+
+    @Test func quotedAppAmbiguityOutsidePeekabooTargetResolutionIsNotTerminal() {
+        let diagnostic = "Multiple apps match 'Google Chrome'. Did you mean: Google Chrome (PID:111)"
+        for request in [
+            PaceMCPToolCall(serverName: "research", toolName: "window", arguments: ["app": .string("Google Chrome")]),
+            PaceMCPToolCall(serverName: "peekaboo", toolName: "echo", arguments: ["app": .string("Google Chrome")]),
+            PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: [:]),
+            PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("Safari")]),
+        ] {
+            let error = PaceMCPClientError.classifyToolError(PaceMCPClientError.rpcError(diagnostic), toolCall: request)
+            guard let clientError = error as? PaceMCPClientError, case .rpcError = clientError else {
+                Issue.record("Unrelated error must remain recoverable")
+                continue
+            }
+        }
+        let request = PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("Google Chrome")])
+        let quotedError = PaceMCPClientError.classifyToolError(PaceMCPClientError.rpcError("Documentation quotes: " + diagnostic), toolCall: request)
+        guard let clientError = quotedError as? PaceMCPClientError, case .rpcError = clientError else {
+            Issue.record("Quoted diagnostic is not a provider resolution failure")
+            return
+        }
+    }
+
     @Test
     func missingExecutableReportsActionableLocalizedFailure() async {
         let missingCommand = "/tmp/pace-missing-server-\(UUID())"

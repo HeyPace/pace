@@ -57,7 +57,8 @@ nonisolated enum PaceActionApprovalPolicy {
             }
     }
 
-    static func requestsObservationOnly(_ transcript: String) -> Bool {
+    static func requestsObservationOnly(_ transcript: String, intent: PaceIntent? = nil) -> Bool {
+        if intent == .screenDescription { return true }
         let normalizedTranscript = transcript.lowercased()
             .replacingOccurrences(of: "’", with: "'")
         return [
@@ -80,7 +81,7 @@ nonisolated enum PaceActionApprovalPolicy {
             if case .mcp(let toolCall) = action {
                 switch toolCall.serverName {
                 case "peekaboo":
-                    return toolCall.toolName == "see"
+                    return (toolCall.toolName == "see" && toolCall.arguments["web_focus"] != .bool(true))
                         || (["app", "window"].contains(toolCall.toolName)
                             && toolCall.arguments["action"] == .string("list"))
                 case "playwright":
