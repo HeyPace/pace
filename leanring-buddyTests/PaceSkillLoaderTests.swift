@@ -14,12 +14,9 @@ import Testing
 struct PaceSkillLoaderTests {
 
     @Test func preinstalledSkillsShipAsUsableBundleResources() throws {
-        let directory = try #require(Bundle.main.resourceURL?.appendingPathComponent("skills", isDirectory: true))
-        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-            .filter { $0.lastPathComponent.hasSuffix(".skill.md") }
-        let skills = try files.map { file in
-            try #require(PaceSkillLoader.parse(skillMarkdown: String(contentsOf: file, encoding: .utf8)))
-        }
+        let emptyUserDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pace-no-user-skills-\(UUID().uuidString)")
+        let skills = PaceSkillLoader.loadAllSkills(userSkillsDirectoryURL: emptyUserDirectory)
         let expected = Set(["standup-notes", "computer-use", "browser-use", "teach-on-screen", "coding-session", "research"])
         #expect(expected.isSubset(of: Set(skills.map(\.slug))))
         #expect(Set(skills.map(\.slug)).count == skills.count)
@@ -28,6 +25,32 @@ struct PaceSkillLoaderTests {
             #expect(PaceSkillLoader.resolveSkillForRunRequest(requestedSlug: skill.slug,
                 requestedName: skill.name, in: skills)?.slug == skill.slug)
         }
+    }
+
+    @Test func userWorkflowWinsWhenBundledSkillsShareItsIdentity() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pace-skill-precedence-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundledDirectory = root.appendingPathComponent("bundled", isDirectory: true)
+        let userDirectory = root.appendingPathComponent("user", isDirectory: true)
+        for directory in [bundledDirectory, userDirectory] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        func writeSkill(_ name: String, slug: String, instruction: String, directory: URL) throws {
+            let markdown = "---\nname: \"\(name)\"\nslug: \"\(slug)\"\n---\n\n## Steps\n\n1. \(instruction)\n"
+            try markdown.write(to: directory.appendingPathComponent(name + ".skill.md"), atomically: true, encoding: .utf8)
+        }
+        try writeSkill("Use Apps", slug: "computer-use", instruction: "Bundled task", directory: bundledDirectory)
+        try writeSkill("My Apps", slug: "computer-use", instruction: "User task", directory: userDirectory)
+        try writeSkill("Research", slug: "research", instruction: "Bundled research", directory: bundledDirectory)
+        try writeSkill("Research", slug: "my-research", instruction: "User research", directory: userDirectory)
+        let skills = PaceSkillLoader.loadAllSkills(bundledSkillsDirectoryURL: bundledDirectory,
+            userSkillsDirectoryURL: userDirectory)
+        #expect(skills.count == 3)
+        #expect(PaceSkillLoader.resolveSkillForRunRequest(requestedSlug: "computer-use",
+            requestedName: "Use Apps", in: skills)?.steps.first?.instruction == "User task")
+        #expect(PaceSkillLoader.resolveSkillForRunRequest(requestedSlug: "research",
+            requestedName: "Research", in: skills)?.steps.first?.instruction == "User research")
     }
 
     // MARK: - Parsing

@@ -159,6 +159,7 @@ workflows that are parsed into planner prompts. Voice: "run the standup skill"
 The app bundles Use Apps, Use Browser, Teach on Screen, Coding Session,
 Research and Standup Notes. They reuse the shared planner, tools, approvals
 and conversation. Additional user skills load from the local Pace skills folder.
+A user skill with the same slug takes precedence over its bundled default.
 
 **Local automation reuse** — “list my automations” builds a non-persisted local
 catalog over bundled typed automations, bounded Pace Programs, recorded flows,

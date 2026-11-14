@@ -53,20 +53,13 @@ struct PaceSkillStep: Codable, Equatable {
 enum PaceSkillLoader {
 
     /// Load all .skill.md files from bundled and user directories.
-    static func loadAllSkills() -> [PaceSkillFile] {
-        var skills: [PaceSkillFile] = []
-
-        // Bundled skills (Resources/skills/*.skill.md)
-        if let bundledSkills = loadSkillsFromDirectory(bundledSkillsDirectory()) {
-            skills.append(contentsOf: bundledSkills)
-        }
-
-        // User skills (~/Library/Application Support/Pace/skills/*.skill.md)
-        if let userSkills = loadSkillsFromDirectory(userSkillsDirectory()) {
-            skills.append(contentsOf: userSkills)
-        }
-
-        return skills
+    static func loadAllSkills(bundledSkillsDirectoryURL: URL? = nil,
+                              userSkillsDirectoryURL: URL? = nil) -> [PaceSkillFile] {
+        let userSkills = loadSkillsFromDirectory(userSkillsDirectoryURL ?? userSkillsDirectory()) ?? []
+        let bundledSkills = loadSkillsFromDirectory(bundledSkillsDirectoryURL ?? bundledSkillsDirectory()) ?? []
+        var loadedSlugs: Set<String> = []
+        // Installing new defaults must not replace a user's existing workflow.
+        return (userSkills + bundledSkills).filter { loadedSlugs.insert($0.slug.lowercased()).inserted }
     }
 
     /// Parse a single .skill.md file from its raw content.
@@ -226,7 +219,7 @@ enum PaceSkillLoader {
         ) else { return nil }
 
         var skills: [PaceSkillFile] = []
-        for entry in entries where entry.pathExtension == "md" {
+        for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) where entry.pathExtension == "md" {
             guard let content = try? String(contentsOf: entry, encoding: .utf8) else { continue }
             let fallbackSlug = entry.deletingPathExtension().lastPathComponent
             if let skill = parse(skillMarkdown: content, fallbackSlug: fallbackSlug) {
