@@ -23,9 +23,9 @@
     "docs:doctor": "blume doctor"
   },
   "devDependencies": {
-    "astro": "7.3.5",
+    "astro": "7.4.12",
     "blume": "1.4.3",
-    "jscpd": "5.0.14"
+    "jscpd": "5.4.3"
   },
   "pnpm": {
     "overrides": {
