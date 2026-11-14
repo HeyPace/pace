@@ -144,7 +144,7 @@ struct PaceCLIProcessRunnerTests {
     }
 
     @MainActor
-    @Test func cancellationReturnsAndReapsRootWhileDescendantStillHoldsStdout() async throws {
+    @Test func cancellationStopsOwnedRootAndDescendantHoldingStdout() async throws {
         let directory = try makePlannerFixture(lines: [codexMessage, codexCompletion], sealDelay: 3,
             cleanupDelay: 3, ignoresTermination: true, inheritsStdoutInDescendant: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -170,7 +170,11 @@ struct PaceCLIProcessRunnerTests {
         } catch is CancellationError {}
         #expect(ProcessInfo.processInfo.systemUptime - cancelledAt < 2.5)
         try expectPlannerExitedAndWorkDirectoryRemoved(directory)
-        #expect(kill(descendantIdentifier, 0) == 0, "The known descendant still owns stdout until fixture cleanup")
+        for _ in 0..<50 {
+            if kill(descendantIdentifier, 0) != 0 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(kill(descendantIdentifier, 0) != 0, "Cancellation must stop the owned descendant too")
         #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("late-cleanup").path))
     }
 

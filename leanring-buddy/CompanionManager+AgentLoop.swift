@@ -19,7 +19,7 @@ extension CompanionManager {
     /// can suspend before a response task exists.
     func cancelActiveTurnTasks(preservingConversationRequest: Bool = false) {
         if let ownership = pendingTeachingPreviewOwnership {
-            finishPendingTeachingPreview(for: ownership.turnLease, dismissIfOwned: true)
+            finishPendingTeachingPreview(for: ownership.turnLease, dismissIfOwned: false)
         }
         diagramOverlayController.cancelLessonPlayback()
         cancelWatchSuggestionSpeech()
@@ -887,6 +887,15 @@ extension CompanionManager {
                         }.joined(separator: "\n\n")
                         let authoredExplanation = lessonExplanation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             ? spokenText : lessonExplanation
+                        // This narrowly matched request only asks for a figure explanation.
+                        // Exploration wins over a stale plan; retain metadata about suppressed tools.
+                        let suppressedToolNames = actionParseResult.executionPlan.flattenedActions.map {
+                            PaceToolRegistry.definition(for: $0)?.canonicalName ?? "external_or_unknown"
+                        }.joined(separator: ",")
+                        if !suppressedToolNames.isEmpty {
+                            PaceAPIAuditLog.shared.record(subsystem: "teaching", operation: "native_preview_suppressed_tools",
+                                target: suppressedToolNames, durationMilliseconds: 0, outcome: "preserved_user_exploration")
+                        }
                         spokenText = authoredExplanation
                         actionParseResult = .init(spokenText: authoredExplanation, actions: [],
                             executionPlan: .serial(actions: []), firstClickVisualisationLocation: nil)
@@ -1357,6 +1366,9 @@ extension CompanionManager {
     /// completed system action is never rolled back; cancellation only prevents
     /// the remaining planner, speech, and follow-up steps from continuing.
     func cancelCurrentTurnFromPanel() {
+        if let ownership = pendingTeachingPreviewOwnership {
+            finishPendingTeachingPreview(for: ownership.turnLease, dismissIfOwned: true)
+        }
         cancelActiveTurnTasks()
         ttsClient.stopPlayback()
         streamingSentenceTTSPipeline.resetForNewTurn()

@@ -642,7 +642,7 @@ struct PaceTeachingLessonTests {
         let baselinePrompt = try String(contentsOfFile: baselinePath, encoding: .utf8)
         let compactPrompt = CompanionSystemPrompt.buildTextOnly(includeInteractiveDiagrams: true)
         let userRequest = "Explain how the F-35B hovers using the lift_system template and a two-step guided lesson. Keep each narration to one brief sentence. Show the diagram first and highlight the part being explained."
-        let conditions = [
+        let availableConditions = [
             TeachingSpeedCondition(name: "baseline-default", prompt: baselinePrompt,
                                    requiresExplicitNodesAndConnections: true),
             TeachingSpeedCondition(name: "compact-default", prompt: compactPrompt),
@@ -651,6 +651,9 @@ struct PaceTeachingLessonTests {
             TeachingSpeedCondition(name: "compact-luna-sealed", prompt: compactPrompt,
                                    modelIdentifier: "gpt-6-luna", reasoningEffort: .low,
                                    completionPolicy: .completedTurn)]
+        let conditions = ProcessInfo.processInfo.environment["PACE_SPEED_PAIR_ONLY"] == "1"
+            ? availableConditions.filter { ["baseline-default", "compact-sealed"].contains($0.name) }
+            : availableConditions
         var report = TeachingSpeedReport(userRequest: userRequest, baselinePrompt: baselinePrompt,
                                         compactPrompt: compactPrompt, requestTimeoutSeconds: 45)
         let encoder = JSONEncoder()

@@ -349,7 +349,7 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 
 | Source | Approx. lines | Purpose |
 | --- | --- | --- |
-| `PaceCLIProcessRunner.swift` | ~185 | Cancellable bounded subprocess stream with UTF-8 framing, private stderr capture and awaited owned-worker teardown. |
+| `PaceCLIProcessRunner.swift` | ~233 | Cancellable bounded subprocess stream with UTF-8 framing, private stderr capture and awaited owned-worker/process-group teardown. |
 | `PaceDesktopRequests.swift` | ~300 | Typed browser/profile, native capture, meeting control, and folder-specific interactive Codex-in-Warp actions. |
 | `PaceScreenRecordingController.swift` | ~140 | Owned native main-display recording lifecycle, bounded stop and shutdown, and saved-movie validation. |
 | `scripts/setup-whisperkit.py` | ~47 | Standard-library provisioner for pinned WhisperKit base.en assets and local tokenizer under Application Support. |

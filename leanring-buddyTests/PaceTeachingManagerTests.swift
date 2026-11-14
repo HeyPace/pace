@@ -329,7 +329,7 @@ struct PaceTeachingManagerTests {
         #expect(manager.diagramOverlayController.selectedNodeID == "lift-fan")
         #expect(speech.exactTexts.isEmpty && speech.spokenTexts.isEmpty)
         #expect(persister.events.values.filter { $0.role == .pace }.isEmpty)
-        #expect(!planner.userPrompt.contains("active_pace_diagram"))
+        #expect(!planner.userPrompt.contains("<active_diagram>"))
         let responseTask = manager.currentResponseTask
         manager.cancelCurrentTurnFromPanel()
         planner.resolve(try twoStepResponse(template: .liftSystem))
@@ -520,6 +520,34 @@ struct PaceTeachingManagerTests {
         #expect(!manager.foregroundOffDeviceTurnInFlight)
         newPlanner.resolve("Done.")
         await newTask?.value
+    }
+
+    @Test func newTurnPreamblePreservesUntouchedPreviewAndItsFollowUpContext() async throws {
+        let (manager, persister, speech, oldPlanner) = try prepareEarlyPreviewTurn(derivedMemory: true)
+        startTextTurn(manager, muted: false, transcript: "Explain how the F-35B hovers")
+        let oldTask = manager.currentResponseTask
+        try await waitUntil { oldPlanner.completion != nil }
+        let preview = try #require(manager.diagramOverlayController.document)
+        let newPlanner = SuspendedPlanner()
+        manager.cancelActiveTurnTasks()
+        #expect(manager.diagramOverlayController.document == preview)
+        #expect(manager.pendingTeachingPreviewOwnership == nil)
+        manager.plannerClient = newPlanner
+        manager.textOnlyPlannerClient = newPlanner
+        startTextTurn(manager, muted: true, transcript: "What does the swivel nozzle do?")
+        let newTask = manager.currentResponseTask
+        try await waitUntil { newPlanner.completion != nil }
+        #expect(newPlanner.userPrompt.contains("<active_diagram>"))
+        #expect(manager.diagramOverlayController.document == preview)
+        oldPlanner.fail()
+        await oldTask?.value
+        #expect(manager.diagramOverlayController.document == preview)
+        #expect(persister.events.values.filter { $0.role == .pace }.isEmpty)
+        #expect(speech.exactTexts.isEmpty && speech.spokenTexts.isEmpty)
+        newPlanner.resolve("The rear nozzle directs engine thrust downwards.")
+        await newTask?.value
+        #expect(manager.diagramOverlayController.document == preview)
+        #expect(manager.conversationHistory.last?.assistantResponse == "The rear nozzle directs engine thrust downwards.")
     }
 
     @Test func latePreviewResponseCannotReplaceOrCancelANewerTurn() async throws {

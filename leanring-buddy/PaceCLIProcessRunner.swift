@@ -20,6 +20,8 @@ nonisolated enum PaceCLIProcessError: LocalizedError {
 nonisolated final class PaceCLIProcessControl: @unchecked Sendable {
     private let lock = NSLock()
     private var process: Process?
+    private var ownedProcessGroup: pid_t?
+    private var stopStartedAt: TimeInterval?
     private var cancellationRequested = false
     private var timeoutReached = false
     private var hasFinished = false
@@ -31,6 +33,12 @@ nonisolated final class PaceCLIProcessControl: @unchecked Sendable {
         guard !cancellationRequested else { throw CancellationError() }
         self.process = process
         try process.run()
+        // Darwin Foundation launches Process in a separate group. Only retain it
+        // after checking isolation, so cancellation can never signal Pace's group.
+        let processIdentifier = process.processIdentifier
+        if getpgid(processIdentifier) == processIdentifier && processIdentifier != getpgrp() {
+            ownedProcessGroup = processIdentifier
+        }
     }
 
     func stop(timedOut: Bool = false) {
@@ -38,13 +46,36 @@ nonisolated final class PaceCLIProcessControl: @unchecked Sendable {
         cancellationRequested = true
         timeoutReached = timeoutReached || timedOut
         let runningProcess = process
+        let processGroup = ownedProcessGroup
+        let shouldScheduleEscalation = stopStartedAt == nil
+        if shouldScheduleEscalation { stopStartedAt = ProcessInfo.processInfo.systemUptime }
         lock.unlock()
-        guard let runningProcess, runningProcess.isRunning else { return }
-        runningProcess.terminate()
-        DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
-            if runningProcess.isRunning {
-                kill(runningProcess.processIdentifier, SIGKILL)
+        guard let runningProcess, shouldScheduleEscalation else { return }
+        if let processGroup { killpg(processGroup, SIGTERM) }
+        else if runningProcess.isRunning { runningProcess.terminate() }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1) { [self] in
+            lock.lock()
+            defer { lock.unlock() }
+            guard !hasFinished else { return }
+            if let processGroup { killpg(processGroup, SIGKILL) }
+            else if runningProcess.isRunning { kill(runningProcess.processIdentifier, SIGKILL) }
+        }
+    }
+
+    fileprivate func waitForStoppedProcessGroup() {
+        lock.lock()
+        let processGroup = ownedProcessGroup
+        let stopDeadline = stopStartedAt.map { $0 + 1 }
+        lock.unlock()
+        guard let processGroup, let stopDeadline else { return }
+        // Usually the whole group exits on TERM. A tool that ignores TERM must
+        // also be stopped before the worker releases its ownership/disclosure.
+        while killpg(processGroup, 0) == 0 {
+            if ProcessInfo.processInfo.systemUptime >= stopDeadline {
+                killpg(processGroup, SIGKILL)
+                return
             }
+            usleep(10_000)
         }
     }
 
@@ -156,6 +187,7 @@ nonisolated enum PaceCLIProcessRunner {
             timeoutWork.cancel()
             if process.isRunning { processControl.stop() }
             process.waitUntilExit()
+            processControl.waitForStoppedProcessGroup()
             try? inputPipe.fileHandleForWriting.close()
             try? outputPipe.fileHandleForReading.close()
         }
