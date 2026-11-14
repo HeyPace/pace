@@ -208,6 +208,11 @@ nonisolated enum PaceCodexTextDelivery {
     case completedTurn
 }
 
+nonisolated enum PaceCodexCompletionPolicy {
+    case processExit
+    case completedTurn
+}
+
 /// Per-process state: completed-turn delivery never exposes individual message items.
 nonisolated struct PaceCLITextDeliveryState {
     let codexTextDelivery: PaceCodexTextDelivery
@@ -319,6 +324,8 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
     private let codexReasoningEffort: PaceCodexReasoningEffort?
     private let codexTextDelivery: PaceCodexTextDelivery
     private let requestTimeout: TimeInterval?
+    private let codexCompletionPolicy: PaceCodexCompletionPolicy
+    private let executableResolver: @Sendable (String) -> URL?
 
     var allowsBoundedEverydayAnswers: Bool {
         upstream == .codex && modelIdentifier == nil && !isResearchTurn && codexReasoningEffort == nil
@@ -341,13 +348,17 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         isResearchTurn: Bool = false,
         codexReasoningEffort: PaceCodexReasoningEffort? = nil,
         codexTextDelivery: PaceCodexTextDelivery = .completedMessage,
-        requestTimeout: TimeInterval? = nil
+        requestTimeout: TimeInterval? = nil,
+        codexCompletionPolicy: PaceCodexCompletionPolicy = .completedTurn,
+        executableResolver: (@Sendable (String) -> URL?)? = nil
     ) {
         self.upstream = upstream
         self.isResearchTurn = isResearchTurn
         self.codexReasoningEffort = codexReasoningEffort
         self.codexTextDelivery = codexTextDelivery
         self.requestTimeout = requestTimeout
+        self.codexCompletionPolicy = codexCompletionPolicy
+        self.executableResolver = executableResolver ?? { Self.resolveExecutable(named: $0) }
         // Treat an empty / whitespace-only identifier as "no override" so
         // `--model` is only ever forwarded when the user (or a caller like
         // the research lane, whose default is now empty for Codex) actually
@@ -587,7 +598,7 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         codexTextDelivery: PaceCodexTextDelivery = .completedMessage,
         onTextChunk: @MainActor @Sendable (String) -> Void
     ) async throws -> (assembled: String, capturedSessionId: String?) {
-        guard let executableURL = Self.resolveExecutable(named: executable) else {
+        guard let executableURL = executableResolver(executable) else {
             throw PaceLocalCLIPlannerError.spawnFailed(
                 executable: executable, underlying: "not found on PATH or standard CLI install locations")
         }
@@ -606,28 +617,45 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         // though Pace owns an independent, user-requested conversation.
         environment.removeValue(forKey: "CLAUDECODE")
         var textDeliveryState = PaceCLITextDeliveryState(codexTextDelivery: codexTextDelivery)
+        var completedTurnProof = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
+        var sealedOutput: String?
         var capturedSessionId: String?
+        let processControl = PaceCLIProcessControl()
         let lines = PaceCLIProcessRunner.lines(
             executableURL: executableURL,
             arguments: arguments,
             stdinPayload: stdinPayload,
             workingDirectoryURL: directoryURL,
             environment: environment,
-            timeout: requestTimeout ?? (isResearchTurn ? 300 : 120)
+            timeout: requestTimeout ?? (isResearchTurn ? 300 : 120),
+            processControl: processControl
         )
         do {
             for try await line in lines {
                 try Task.checkCancellation()
-                if let deliveredText = textDeliveryState.consume(chunk: captureChunk(line), fromLine: line) {
+                guard sealedOutput == nil else { continue }
+                let chunk = captureChunk(line)
+                if let deliveredText = textDeliveryState.consume(chunk: chunk, fromLine: line) {
                     onTextChunk(deliveredText)
                 }
                 if capturedSessionId == nil { capturedSessionId = captureSessionIdFromLine(line) }
+                if upstream == .codex, codexCompletionPolicy == .completedTurn,
+                    completedTurnProof.consume(chunk: chunk, fromLine: line) != nil,
+                    let completedOutput = try? completedTurnProof.finishedOutput() {
+                    sealedOutput = completedOutput
+                    processControl.stop()
+                }
             }
         } catch {
+            processControl.stop()
+            await processControl.waitUntilFinished()
             try Task.checkCancellation()
+            if let sealedOutput { return (sealedOutput, capturedSessionId) }
             throw textDeliveryState.failurePreservingRejection(error)
         }
+        await processControl.waitUntilFinished()
         try Task.checkCancellation()
+        if let sealedOutput { return (sealedOutput, capturedSessionId) }
         return (try textDeliveryState.finishedOutput(), capturedSessionId)
     }
 

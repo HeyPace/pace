@@ -444,6 +444,7 @@ struct PaceTeachingLessonTests {
         let prompt: String
         var modelIdentifier: String? = nil
         var reasoningEffort: PaceCodexReasoningEffort? = nil
+        var completionPolicy: PaceCodexCompletionPolicy = .processExit
         var requiresExplicitNodesAndConnections: Bool = false
     }
 
@@ -453,6 +454,7 @@ struct PaceTeachingLessonTests {
         let condition: String
         let model: String
         let effort: String
+        let completionPolicy: String
         let systemPromptBytes: Int
         let startedAt: Date
         var firstCompletedMessageMilliseconds: Double?
@@ -562,9 +564,11 @@ struct PaceTeachingLessonTests {
             TeachingSpeedCondition(name: "baseline-default", prompt: baselinePrompt,
                                    requiresExplicitNodesAndConnections: true),
             TeachingSpeedCondition(name: "compact-default", prompt: compactPrompt),
-            TeachingSpeedCondition(name: "compact-low", prompt: compactPrompt, reasoningEffort: .low),
-            TeachingSpeedCondition(name: "compact-luna-low", prompt: compactPrompt,
-                                   modelIdentifier: "gpt-6-luna", reasoningEffort: .low)]
+            TeachingSpeedCondition(name: "compact-sealed", prompt: compactPrompt,
+                                   completionPolicy: .completedTurn),
+            TeachingSpeedCondition(name: "compact-luna-sealed", prompt: compactPrompt,
+                                   modelIdentifier: "gpt-6-luna", reasoningEffort: .low,
+                                   completionPolicy: .completedTurn)]
         var report = TeachingSpeedReport(userRequest: userRequest, baselinePrompt: baselinePrompt,
                                         compactPrompt: compactPrompt, requestTimeoutSeconds: 45)
         let encoder = JSONEncoder()
@@ -578,9 +582,11 @@ struct PaceTeachingLessonTests {
                 var sample = TeachingSpeedSample(round: round + 1, order: order + 1,
                     condition: condition.name, model: condition.modelIdentifier ?? "cli_default",
                     effort: condition.reasoningEffort?.rawValue ?? "cli_default",
+                    completionPolicy: condition.completionPolicy == .completedTurn ? "completed_turn" : "process_exit",
                     systemPromptBytes: condition.prompt.utf8.count, startedAt: Date())
                 let planner = PaceLocalCLIPlannerClient(upstream: .codex, modelIdentifier: condition.modelIdentifier,
-                    codexReasoningEffort: condition.reasoningEffort, requestTimeout: report.requestTimeoutSeconds)
+                    codexReasoningEffort: condition.reasoningEffort, requestTimeout: report.requestTimeoutSeconds,
+                    codexCompletionPolicy: condition.completionPolicy)
                 let startedAt = ProcessInfo.processInfo.systemUptime
                 do {
                     let response = try await planner.generateResponseStreaming(images: [],

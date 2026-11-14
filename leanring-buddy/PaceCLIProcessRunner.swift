@@ -22,6 +22,8 @@ nonisolated final class PaceCLIProcessControl: @unchecked Sendable {
     private var process: Process?
     private var cancellationRequested = false
     private var timeoutReached = false
+    private var hasFinished = false
+    private var completionWaiters: [CheckedContinuation<Void, Never>] = []
 
     func launch(_ process: Process) throws {
         lock.lock()
@@ -54,6 +56,28 @@ nonisolated final class PaceCLIProcessControl: @unchecked Sendable {
         if wasTimedOut { throw PaceCLIProcessError.timedOut }
         if wasCancelled { throw CancellationError() }
     }
+
+    func waitUntilFinished() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if hasFinished {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                completionWaiters.append(continuation)
+                lock.unlock()
+            }
+        }
+    }
+
+    fileprivate func finished() {
+        lock.lock()
+        hasFinished = true
+        let waiters = completionWaiters
+        completionWaiters.removeAll()
+        lock.unlock()
+        for waiter in waiters { waiter.resume() }
+    }
 }
 
 nonisolated enum PaceCLIProcessRunner {
@@ -63,11 +87,12 @@ nonisolated enum PaceCLIProcessRunner {
         stdinPayload: String,
         workingDirectoryURL: URL,
         environment: [String: String]? = nil,
-        timeout: TimeInterval = 120
+        timeout: TimeInterval = 120,
+        processControl: PaceCLIProcessControl = PaceCLIProcessControl()
     ) -> AsyncThrowingStream<String, Error> {
-        let processControl = PaceCLIProcessControl()
         return AsyncThrowingStream { continuation in
             let worker = Task.detached(priority: .userInitiated) {
+                defer { processControl.finished() }
                 do {
                     try runBlocking(
                         executableURL: executableURL,
@@ -130,6 +155,7 @@ nonisolated enum PaceCLIProcessRunner {
         defer {
             timeoutWork.cancel()
             if process.isRunning { processControl.stop() }
+            process.waitUntilExit()
             try? inputPipe.fileHandleForWriting.close()
         }
 
