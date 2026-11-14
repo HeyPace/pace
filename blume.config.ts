@@ -12,6 +12,7 @@
 //   pnpm run docs:validate  # broken-link check (also run in CI)
 //
 import { defineConfig } from "blume";
+import { orama } from "blume/search";
 
 export default defineConfig({
   // Site
@@ -44,21 +45,20 @@ export default defineConfig({
   },
 
   // Search — local, no hosted service.
-  search: {
-    provider: "orama",
-  },
+  search: orama(),
 
   // Markdown
   markdown: {
     imageZoom: true,
-    code: { icons: true, wrap: false },
-    codeBlocks: {
+    code: {
+      icons: true,
+      wrap: false,
       theme: { light: "github-light", dark: "github-dark" },
     },
   },
 
   // AI — emit llms.txt so agent crawlers can ingest the docs.
-  ai: {
+  agents: {
     llmsTxt: true,
     mcp: { enabled: false, route: "/mcp" },
   },
@@ -75,7 +75,6 @@ export default defineConfig({
   // project at heypace.app/docs. There is one canonical public origin.
   deployment: {
     base: "/docs",
-    output: "static",
     site: "https://heypace.app",
   },
 });
