@@ -25,6 +25,11 @@ final class PaceThreadMemoryStore {
     private let fileURL: URL?
 
     convenience init() {
+        // Native tests must opt into a temporary file instead of reading or clearing the user's thread.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
+            self.init(fileURL: nil)
+            return
+        }
         let applicationSupportRootURL = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first
