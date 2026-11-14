@@ -296,4 +296,328 @@ struct PaceTeachingLessonTests {
         #expect(controller.document?.title == first.title)
     }
 
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["PACE_SPEED_EXPORT_PROMPT"] != nil))
+    func exportTeachingSpeedBaselinePromptWhenRequested() throws {
+        let outputPath = try #require(ProcessInfo.processInfo.environment["PACE_SPEED_EXPORT_PROMPT"])
+        let prompt = CompanionSystemPrompt.buildTextOnly(includeInteractiveDiagrams: true)
+        try prompt.write(toFile: outputPath, atomically: true, encoding: .utf8)
+    }
+
+    private func compactArguments(for template: PaceFigureScene.Template) -> [String: PaceMCPJSONValue] {
+        ["title": .string("An authored title"), "summary": .string("An authored summary"),
+         "figure": .object(["template": .string(template.rawValue)])]
+    }
+
+    private func encodedArguments(_ document: PaceDiagramDocument) throws -> [String: PaceMCPJSONValue] {
+        try JSONDecoder().decode([String: PaceMCPJSONValue].self, from: JSONEncoder().encode(document))
+    }
+
+    private func plannerEnvelope(arguments: [String: PaceMCPJSONValue], multipleCalls: Bool = false) throws -> String {
+        let call: PaceMCPJSONValue = .object(["name": .string("show_diagram"), "args": .object(arguments)])
+        let envelope: [String: PaceMCPJSONValue] = [
+            "spokenText": .string(""), "intent": .string("action"),
+            "payload": multipleCalls ? .object(["calls": .array([call])]) : call]
+        return String(decoding: try JSONEncoder().encode(envelope), as: UTF8.self)
+    }
+
+    @Test func compactTrustedTemplatesRetainDetailedPartsAndAuthoredLessonsThroughTheActionParser() throws {
+        for definition in PaceTeachingTemplateCatalog.definitions {
+            let authored = try #require(PaceTeachingTemplateCatalog.lessonDocument(for: definition.template))
+            var arguments = compactArguments(for: definition.template)
+            arguments["lesson"] = try encodedArguments(authored)["lesson"]
+            for wrapped in [false, true] {
+                let suppliedArguments = wrapped ? ["document": PaceMCPJSONValue.object(arguments)] : arguments
+                let document = try #require(PaceDiagramDocument.parse(arguments: suppliedArguments))
+                #expect(document.nodes == authored.nodes)
+                #expect(document.connections.isEmpty)
+                #expect(document.title == "An authored title")
+                #expect(document.summary == "An authored summary")
+                #expect(document.lesson == authored.lesson)
+                for multipleCalls in [false, true] {
+                    let parsed = PaceActionTagParser.parseActions(
+                        from: try plannerEnvelope(arguments: suppliedArguments, multipleCalls: multipleCalls))
+                    try #require(parsed.actions.count == 1)
+                    guard case .showDiagram(let parsedDocument) = parsed.actions[0] else {
+                        Issue.record("Expected a compact native teaching figure")
+                        continue
+                    }
+                    #expect(parsedDocument == document)
+                    let controller = PaceDiagramOverlayController(showsWindows: false)
+                    #expect(controller.present(parsedDocument))
+                    #expect(controller.currentLessonStep == authored.lesson?.steps.first)
+                    #expect(controller.selectedNodeID == authored.lesson?.steps.first?.focusNodeID)
+                }
+            }
+            #expect(PaceDiagramDocument.parse(arguments: compactArguments(for: definition.template))?.lesson == nil)
+        }
+    }
+
+    @Test func compactDefaultsNeverReplaceExplicitPartTextOrMalformedFields() throws {
+        for definition in PaceTeachingTemplateCatalog.definitions {
+            let authored = try #require(PaceTeachingTemplateCatalog.lessonDocument(for: definition.template))
+            var fullArguments = try encodedArguments(authored)
+            #expect(PaceDiagramDocument.parse(arguments: fullArguments) == authored)
+            guard case .array(var nodes) = fullArguments["nodes"],
+                  case .object(var firstNode) = nodes.first else {
+                Issue.record("Expected authored template nodes")
+                continue
+            }
+            firstNode["label"] = .string("My assembly label")
+            firstNode["detail"] = .string("My intentional assembly explanation.")
+            firstNode["subtitle"] = .string("My subtitle")
+            nodes[0] = .object(firstNode)
+            fullArguments["nodes"] = .array(nodes)
+            let explicitDocument = try #require(PaceDiagramDocument.parse(arguments: fullArguments))
+            #expect(explicitDocument.nodes.first?.label == "My assembly label")
+            #expect(explicitDocument.nodes.first?.detail == "My intentional assembly explanation.")
+            #expect(explicitDocument.nodes.first?.subtitle == "My subtitle")
+            #expect(explicitDocument.lesson == authored.lesson)
+            fullArguments.removeValue(forKey: "connections")
+            #expect(PaceDiagramDocument.parse(arguments: fullArguments) == explicitDocument)
+            for invalidNodes: PaceMCPJSONValue in [.null, .array([]), .object([:]), .string("catalog"), .array([.null]), .array(Array(nodes.dropLast()))] {
+                var arguments = compactArguments(for: definition.template)
+                arguments["nodes"] = invalidNodes
+                #expect(PaceDiagramDocument.parse(arguments: arguments) == nil)
+            }
+            for invalidConnections: PaceMCPJSONValue in [.null, .object([:]), .string("none"), .array([.null]),
+                .array([.object(["source": .string("unknown"), "target": .string("missing")])])] {
+                var arguments = compactArguments(for: definition.template)
+                arguments["connections"] = invalidConnections
+                #expect(PaceDiagramDocument.parse(arguments: arguments) == nil)
+            }
+            for field in ["title", "summary"] {
+                for invalidText: PaceMCPJSONValue in [.null, .string(""), .string(String(repeating: "x", count: 501)), .number(1)] {
+                    var arguments = compactArguments(for: definition.template)
+                    arguments[field] = invalidText
+                    #expect(PaceDiagramDocument.parse(arguments: arguments) == nil)
+                }
+            }
+        }
+    }
+
+    @Test func compactTemplatesRejectUnknownReferencesMixedGeometryAndOversizedPayloads() throws {
+        let template = PaceFigureScene.Template.liftSystem
+        let invalidFigures: [PaceMCPJSONValue] = [
+            .object(["template": .string("unknown")]), .object(["template": .string("airplane")]),
+            .object(["parts": .array([])]),
+            .object(["template": .string(template.rawValue), "focusNodeID": .string("unknown")]),
+            .object(["template": .string(template.rawValue), "parts": .array([.object([
+                "id": .string("custom"), "nodeID": .string("engine"), "geometry": .string("box"),
+                "position": .array([.number(0), .number(0), .number(0)]),
+                "size": .array([.number(1), .number(1), .number(1)])])])])]
+        for figure in invalidFigures {
+            var arguments = compactArguments(for: template)
+            arguments["figure"] = figure
+            #expect(PaceDiagramDocument.parse(arguments: arguments) == nil)
+        }
+        var arguments = compactArguments(for: template)
+        arguments["illustration"] = .object(["rows": .array([])])
+        #expect(PaceDiagramDocument.parse(arguments: arguments) == nil)
+        arguments = compactArguments(for: template)
+        arguments.removeValue(forKey: "figure")
+        #expect(PaceDiagramDocument.parse(arguments: arguments) == nil)
+        arguments = compactArguments(for: template)
+        arguments["lesson"] = .object(["steps": .array([.object([
+            "id": .string("unknown"), "title": .string("Unknown"), "narration": .string("An authored narration."),
+            "revealedNodeIDs": .array([.string("unknown")]), "focusNodeID": .string("unknown")])])])
+        #expect(PaceDiagramDocument.parse(arguments: arguments) == nil)
+        arguments = compactArguments(for: template)
+        arguments["padding"] = .string(String(repeating: "x", count: 64_000))
+        #expect(PaceDiagramDocument.parse(arguments: arguments) == nil)
+        arguments["padding"] = .string(String(repeating: "x", count: 63_000))
+        #expect(try JSONEncoder().encode(arguments).count < 64_000)
+        #expect(PaceDiagramDocument.parse(arguments: arguments) == nil)
+        let example = try #require(PaceToolRegistry.definition(forToolName: "show_diagram")?.schemaExample)
+        let parsed = PaceActionTagParser.parseActions(from: example)
+        try #require(parsed.actions.count == 1)
+        guard case .showDiagram(let document) = parsed.actions[0] else {
+            Issue.record("The compact registry example must present its teaching figure")
+            return
+        }
+        #expect(document.figure?.template == template)
+        #expect(document.nodes == PaceTeachingTemplateCatalog.liftSystem.nodes)
+        #expect(document.lesson?.steps.count == 2)
+    }
+
+    private struct TeachingSpeedCondition {
+        let name: String
+        let prompt: String
+        var modelIdentifier: String? = nil
+        var reasoningEffort: PaceCodexReasoningEffort? = nil
+        var requiresExplicitNodesAndConnections: Bool = false
+    }
+
+    private struct TeachingSpeedSample: Encodable {
+        let round: Int
+        let order: Int
+        let condition: String
+        let model: String
+        let effort: String
+        let systemPromptBytes: Int
+        let startedAt: Date
+        var firstCompletedMessageMilliseconds: Double?
+        var firstValidCompletedMessageMilliseconds: Double?
+        var fullReturnMilliseconds: Double = 0
+        var outputBytes: Int = 0
+        var rawResponse: String = ""
+        var completedMessages: [String] = []
+        var validityReasons: [String] = []
+        var error: String?
+    }
+
+    private struct TeachingSpeedReport: Encodable {
+        let userRequest: String
+        let baselinePrompt: String
+        let compactPrompt: String
+        let requestTimeoutSeconds: Double
+        var samples: [TeachingSpeedSample] = []
+        var invalidOutputCount: Int { samples.filter { !$0.validityReasons.isEmpty }.count }
+        var errorCount: Int { samples.filter { $0.error != nil }.count }
+
+        private enum CodingKeys: String, CodingKey {
+            case userRequest, baselinePrompt, compactPrompt, requestTimeoutSeconds, samples, invalidOutputCount, errorCount
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(userRequest, forKey: .userRequest)
+            try values.encode(baselinePrompt, forKey: .baselinePrompt)
+            try values.encode(compactPrompt, forKey: .compactPrompt)
+            try values.encode(requestTimeoutSeconds, forKey: .requestTimeoutSeconds)
+            try values.encode(samples, forKey: .samples)
+            try values.encode(invalidOutputCount, forKey: .invalidOutputCount)
+            try values.encode(errorCount, forKey: .errorCount)
+        }
+    }
+
+    private func teachingSpeedValidityReasons(
+        _ text: String, requiresExplicitNodesAndConnections: Bool
+    ) -> [String] {
+        guard let envelope = try? JSONDecoder().decode([String: PaceMCPJSONValue].self, from: Data(text.utf8)),
+              envelope["intent"] == .string("action") else {
+            return ["Expected one action JSON envelope"]
+        }
+        if requiresExplicitNodesAndConnections {
+            guard case .object(let payload) = envelope["payload"] else {
+                return ["Baseline requires explicit diagram arguments"]
+            }
+            let calls: [PaceMCPJSONValue]
+            if case .array(let payloadCalls) = payload["calls"] { calls = payloadCalls }
+            else { calls = [.object(payload)] }
+            guard calls.count == 1, case .object(let call) = calls[0],
+                  case .object(var arguments) = call["args"] else {
+                return ["Baseline requires one explicit diagram argument object"]
+            }
+            if case .object(let documentArguments) = arguments["document"] { arguments = documentArguments }
+            guard arguments["nodes"] != nil, arguments["connections"] != nil else {
+                return ["Baseline contract requires explicit nodes and connections"]
+            }
+        }
+        let parsed = PaceActionTagParser.parseActions(from: text)
+        guard parsed.actions.count == 1, parsed.executionPlan.flattenedActions.count == 1,
+              case .showDiagram(let document) = parsed.actions[0] else {
+            return ["Expected exactly one valid show_diagram action"]
+        }
+        var reasons: [String] = []
+        if !parsed.spokenText.isEmpty { reasons.append("Outer speech duplicates guided narration") }
+        if let issue = document.validationIssue { reasons.append(issue) }
+        if document.figure?.template != .liftSystem { reasons.append("Expected lift_system template") }
+        let definition = PaceTeachingTemplateCatalog.liftSystem
+        if Set(document.nodes.map(\.id)) != definition.nodeIDs { reasons.append("Missing canonical teaching parts") }
+        if definition.parts.count < 90 { reasons.append("Detailed native geometry is missing") }
+        guard let steps = document.lesson?.steps, steps.count == 2 else {
+            return reasons + ["Expected two authored lesson steps"]
+        }
+        for step in steps {
+            if step.focusNodeID == nil { reasons.append("Each lesson step must highlight its explained part") }
+            if step.narration.count > 200 || step.narration.contains("\n") {
+                reasons.append("Narration must be one brief sentence")
+            }
+            let sentenceEndings = (try? NSRegularExpression(pattern: #"[.!?](?:\s|$)"#))?
+                .numberOfMatches(in: step.narration, range: NSRange(step.narration.startIndex..., in: step.narration)) ?? 0
+            if sentenceEndings > 1 { reasons.append("Narration contains more than one sentence") }
+        }
+        let controller = PaceDiagramOverlayController(showsWindows: false)
+        if !controller.present(document) { reasons.append("Controller rejected the teaching document") }
+        if controller.currentLessonStep != steps.first || controller.selectedNodeID != steps.first?.focusNodeID {
+            reasons.append("First lesson snapshot did not highlight its authored part")
+        }
+        controller.moveLesson(by: 1)
+        if controller.currentLessonStep != steps.last || controller.selectedNodeID != steps.last?.focusNodeID {
+            reasons.append("Second lesson snapshot did not highlight its authored part")
+        }
+        controller.dismiss()
+        return reasons
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["PACE_SPEED_BASELINE_PROMPT"] != nil))
+    func benchmarkTeachingPlannerWhenRequested() async throws {
+        let baselinePath = try #require(ProcessInfo.processInfo.environment["PACE_SPEED_BASELINE_PROMPT"])
+        let resultPath = try #require(ProcessInfo.processInfo.environment["PACE_SPEED_RESULT_PATH"])
+        try #require(baselinePath != resultPath)
+        let baselinePrompt = try String(contentsOfFile: baselinePath, encoding: .utf8)
+        let compactPrompt = CompanionSystemPrompt.buildTextOnly(includeInteractiveDiagrams: true)
+        let userRequest = "Explain how the F-35B hovers using the lift_system template and a two-step guided lesson. Keep each narration to one brief sentence. Show the diagram first and highlight the part being explained."
+        let conditions = [
+            TeachingSpeedCondition(name: "baseline-default", prompt: baselinePrompt,
+                                   requiresExplicitNodesAndConnections: true),
+            TeachingSpeedCondition(name: "compact-default", prompt: compactPrompt),
+            TeachingSpeedCondition(name: "compact-low", prompt: compactPrompt, reasoningEffort: .low),
+            TeachingSpeedCondition(name: "compact-luna-low", prompt: compactPrompt,
+                                   modelIdentifier: "gpt-6-luna", reasoningEffort: .low)]
+        var report = TeachingSpeedReport(userRequest: userRequest, baselinePrompt: baselinePrompt,
+                                        compactPrompt: compactPrompt, requestTimeoutSeconds: 45)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let resultURL = URL(fileURLWithPath: resultPath)
+        try encoder.encode(report).write(to: resultURL, options: .atomic)
+        for round in 0..<5 {
+            for order in conditions.indices {
+                let condition = conditions[(round + order) % conditions.count]
+                var sample = TeachingSpeedSample(round: round + 1, order: order + 1,
+                    condition: condition.name, model: condition.modelIdentifier ?? "cli_default",
+                    effort: condition.reasoningEffort?.rawValue ?? "cli_default",
+                    systemPromptBytes: condition.prompt.utf8.count, startedAt: Date())
+                let planner = PaceLocalCLIPlannerClient(upstream: .codex, modelIdentifier: condition.modelIdentifier,
+                    codexReasoningEffort: condition.reasoningEffort, requestTimeout: report.requestTimeoutSeconds)
+                let startedAt = ProcessInfo.processInfo.systemUptime
+                do {
+                    let response = try await planner.generateResponseStreaming(images: [],
+                        systemPrompt: condition.prompt, conversationHistory: [], userPrompt: userRequest,
+                        onTextChunk: { text in
+                            let elapsed = (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+                            sample.completedMessages.append(text)
+                            if sample.firstCompletedMessageMilliseconds == nil {
+                                sample.firstCompletedMessageMilliseconds = elapsed
+                            }
+                            if sample.firstValidCompletedMessageMilliseconds == nil,
+                               teachingSpeedValidityReasons(text,
+                                requiresExplicitNodesAndConnections: condition.requiresExplicitNodesAndConnections).isEmpty {
+                                sample.firstValidCompletedMessageMilliseconds = elapsed
+                            }
+                        })
+                    sample.fullReturnMilliseconds = (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+                    sample.rawResponse = response.text
+                    sample.outputBytes = response.text.utf8.count
+                    sample.validityReasons = teachingSpeedValidityReasons(response.text,
+                        requiresExplicitNodesAndConnections: condition.requiresExplicitNodesAndConnections)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    sample.fullReturnMilliseconds = (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+                    sample.rawResponse = sample.completedMessages.joined()
+                    sample.outputBytes = sample.rawResponse.utf8.count
+                    sample.error = String(describing: error)
+                    sample.validityReasons = teachingSpeedValidityReasons(sample.rawResponse,
+                        requiresExplicitNodesAndConnections: condition.requiresExplicitNodesAndConnections)
+                }
+                report.samples.append(sample)
+                try encoder.encode(report).write(to: resultURL, options: .atomic)
+            }
+        }
+        #expect(report.errorCount == 0, "Planner errors are recorded in the private benchmark result")
+        #expect(report.invalidOutputCount == 0, "Invalid teaching outputs are recorded in the private benchmark result")
+    }
+
 }

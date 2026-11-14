@@ -161,11 +161,26 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
     }
 
     static func parse(arguments: [String: PaceMCPJSONValue]) -> PaceDiagramDocument? {
-        let diagramArguments: [String: PaceMCPJSONValue]
+        var diagramArguments: [String: PaceMCPJSONValue]
         if case .object(let documentArguments) = arguments["document"] {
             diagramArguments = documentArguments
         } else {
             diagramArguments = arguments
+        }
+        guard let originalArguments = try? JSONEncoder().encode(diagramArguments),
+            originalArguments.count <= 64_000 else { return nil }
+        if case .object(let figureArguments) = diagramArguments["figure"],
+           case .string(let templateName) = figureArguments["template"],
+           let template = PaceFigureScene.Template(rawValue: templateName),
+           let definition = PaceTeachingTemplateCatalog.definition(for: template) {
+            // Only absent fields select trusted defaults. Explicit null or invalid values must still fail.
+            if diagramArguments["nodes"] == nil {
+                guard let encodedNodes = try? JSONEncoder().encode(definition.nodes),
+                      let nodes = try? JSONDecoder().decode(PaceMCPJSONValue.self, from: encodedNodes)
+                else { return nil }
+                diagramArguments["nodes"] = nodes
+            }
+            if diagramArguments["connections"] == nil { diagramArguments["connections"] = .array([]) }
         }
         guard let encodedArguments = try? JSONEncoder().encode(diagramArguments),
             encodedArguments.count <= 64_000,

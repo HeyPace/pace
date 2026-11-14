@@ -108,6 +108,12 @@ responsibilities live in [`../development/key-files.md`](../development/key-file
 
 **Interactive visual explanations**: `PaceDiagramDocument` contains up to twelve
 semantic explanation parts and either a 1000×600 flowchart or a typed 3D figure.
+For `lift_system` and `pi_camera` only, omitted `nodes` selects the complete
+trusted catalog explanations and omitted `connections` selects an empty array.
+Explicit fields remain authoritative and pass normal validation; null or invalid
+node/connection arrays are rejected. Compact selection never supplies a lesson or
+changes authored titles, summaries or narration. Input and hydrated documents both
+retain the 64 KB limit.
 `PaceFigureScene` accepts an authored aircraft template or at most 96 generated
 solid parts, with bounded transforms, triangle indices and custom vertices.
 The aircraft uses lofted/airfoil meshes and real control-surface hinge entities;

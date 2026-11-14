@@ -7,7 +7,7 @@ import simd
 
 @Suite(.serialized)
 struct PaceFigureSceneTests {
-    @Test func registryAircraftDecodesWithoutFlowchartCoordinates() throws {
+    @Test func aircraftDecodesWithoutFlowchartCoordinates() throws {
         let document = try aircraftDocument()
         #expect(document.validationIssue == nil)
         #expect(document.figure?.template == .airplane)
@@ -278,7 +278,7 @@ struct PaceFigureSceneTests {
     }
 
     private func aircraftDocument() throws -> PaceDiagramDocument {
-        let example = try #require(PaceToolRegistry.definition(forToolName: "show_diagram")?.schemaExample)
+        let example = #"{"tool":"show_diagram","title":"How an airplane flies","summary":"Drag to orbit the conceptual aircraft. Select a physical part to explore it; the control slider illustrates surface movement.","nodes":[{"id":"fuselage","label":"Fuselage","detail":"The central body carries people, cargo and structural loads, joining the wings and tail."},{"id":"cockpit","label":"Flight deck","detail":"The flight deck contains controls and instruments. Pilot inputs command the aircraft control surfaces and engines."},{"id":"wings","label":"Wings","detail":"The wings produce aerodynamic lift. Their shape and angle guide the surrounding airflow; the resulting pressure distribution supports the aircraft."},{"id":"engines","label":"Engines","detail":"The engines produce forward thrust. The two underwing nacelles surround the fan and engine machinery."},{"id":"ailerons","label":"Ailerons","detail":"The outboard trailing-edge surfaces deflect in opposite directions to control roll. Select them and move the control slider."},{"id":"elevators","label":"Elevators","detail":"The horizontal-tail control surfaces change pitching moment to control nose-up and nose-down motion. Slider movement is illustrative."},{"id":"rudder","label":"Rudder","detail":"The movable trailing edge of the vertical tail controls yaw and helps coordinate turns."},{"id":"flaps","label":"Flaps","detail":"The inboard trailing-edge surfaces increase wing camber for lower-speed flight, while also increasing drag. The slider illustrates their hinged movement."}],"connections":[],"figure":{"template":"airplane","focusNodeID":"wings"}}"#
         let data = try #require(example.data(using: .utf8))
         var arguments = try JSONDecoder().decode([String: PaceMCPJSONValue].self, from: data)
         arguments.removeValue(forKey: "tool")

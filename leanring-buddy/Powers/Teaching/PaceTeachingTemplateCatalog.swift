@@ -19,8 +19,14 @@ nonisolated enum PaceTeachingTemplateCatalog {
         let source: String
         var nodeIDs: Set<String> { Set(explanations.map(\.id)) }
         var controlNodeIDs: Set<String> { Set(motions.map(\.nodeID)) }
+        var nodes: [PaceDiagramNode] {
+            explanations.map { item in
+                PaceDiagramNode(id: item.id, label: item.label, detail: item.detail, x: 0, y: 0,
+                                width: 220, height: 130, shape: nil, role: nil, subtitle: nil)
+            }
+        }
         var prompt: String {
-            "template \(template.rawValue): \(title). Required node IDs: "
+            "template \(template.rawValue): \(title). Stable node IDs: "
                 + explanations.map { "\($0.id) (\($0.label))" }.joined(separator: ", ")
                 + ". Moving assemblies: " + motions.map(\.nodeID).joined(separator: ", ") + "."
         }
@@ -34,10 +40,6 @@ nonisolated enum PaceTeachingTemplateCatalog {
 
     static func lessonDocument(for template: PaceFigureScene.Template) -> PaceDiagramDocument? {
         guard let definition = definition(for: template) else { return nil }
-        let nodes = definition.explanations.map { item in
-            PaceDiagramNode(id: item.id, label: item.label, detail: item.detail, x: 0, y: 0,
-                            width: 220, height: 130, shape: nil, role: nil, subtitle: nil)
-        }
         let steps = definition.explanations.enumerated().map { index, item in
             PaceTeachingLesson.Step(id: "step-\(index + 1)", title: item.label, narration: item.detail,
                 revealedNodeIDs: Array(definition.explanations.prefix(index + 1).map(\.id)), focusNodeID: item.id,
@@ -46,7 +48,7 @@ nonisolated enum PaceTeachingTemplateCatalog {
         }
         return PaceDiagramDocument(title: definition.title,
             summary: "Conceptual teaching model. Drag to orbit; select a real assembly to explore it.",
-            nodes: nodes, connections: [], figure: .init(template: template), lesson: .init(steps: steps))
+            nodes: definition.nodes, connections: [], figure: .init(template: template), lesson: .init(steps: steps))
     }
 
     private static func part(_ id: String, _ node: String, _ geometry: PaceFigureScene.Geometry,
