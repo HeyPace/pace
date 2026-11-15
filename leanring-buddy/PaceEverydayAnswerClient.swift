@@ -69,15 +69,18 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient, PacePas
     }()
     private let session: URLSession
     private let loadKey: () async throws -> String?
+    private let invalidateKey: () -> Void
     private let isAuthorized: () -> Bool
     private let auditLog: PaceAPIAuditLog
 
     init(session: URLSession? = nil,
         loadKey: @escaping () async throws -> String? = { try await PacePlannerCredentialStore.shared.loadOpenAIKey() },
+        invalidateKey: @escaping () -> Void = { PacePlannerCredentialStore.shared.clearCachedKey() },
          auditLog: PaceAPIAuditLog = .shared,
          isAuthorized: @escaping () -> Bool) {
         self.session = session ?? Self.sharedSession
         self.loadKey = loadKey
+        self.invalidateKey = invalidateKey
         self.isAuthorized = isAuthorized
         self.auditLog = auditLog
     }
@@ -159,7 +162,10 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient, PacePas
             guard isAuthorized() else { throw PaceEverydayAnswerError.consentRevoked }
             let (bytes, response) = try await session.bytes(for: request)
             guard let response = response as? HTTPURLResponse else { throw PaceEverydayAnswerError.invalidResponse }
-            guard response.statusCode == 200 else { throw PaceEverydayAnswerError.httpFailure(response.statusCode) }
+            guard response.statusCode == 200 else {
+                if response.statusCode == 401 || response.statusCode == 403 { invalidateKey() }
+                throw PaceEverydayAnswerError.httpFailure(response.statusCode)
+            }
             var data = Data()
             for try await byte in bytes {
                 try Task.checkCancellation()

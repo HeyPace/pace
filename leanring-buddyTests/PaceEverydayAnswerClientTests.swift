@@ -72,13 +72,34 @@ struct PaceEverydayAnswerClientTests {
     private func client(
         isAuthorized: @escaping () -> Bool = { true },
         loadKey: @escaping () async throws -> String? = { "injected-test-key" },
+        invalidateKey: @escaping () -> Void = {},
         auditLog: PaceAPIAuditLog = .shared,
     ) -> PaceOpenAIResponsesEverydayClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [EverydayURLProtocol.self]
         return PaceOpenAIResponsesEverydayClient(
             session: URLSession(configuration: configuration),
-            loadKey: loadKey, auditLog: auditLog, isAuthorized: isAuthorized)
+            loadKey: loadKey, invalidateKey: invalidateKey, auditLog: auditLog, isAuthorized: isAuthorized)
+    }
+
+    @Test func authenticationRejectionInvalidatesKeyWithoutRetrying() async throws {
+        for status in [401, 403] {
+            var requests = 0
+            var invalidations = 0
+            EverydayURLProtocol.handler = { _ in
+                requests += 1
+                return (status, Data())
+            }
+            let answerClient = client(invalidateKey: { invalidations += 1 })
+            do {
+                _ = try await answerClient.answer(.init(currentQuestion: "What is seven times nine?"))
+                Issue.record("Expected authentication failure")
+            } catch PaceEverydayAnswerError.httpFailure(let receivedStatus) {
+                #expect(receivedStatus == status)
+            }
+            #expect(requests == 1)
+            #expect(invalidations == 1)
+        }
     }
 
     @Test func authorizationRevokedDuringCredentialFetchPreventsAPIRequest() async throws {

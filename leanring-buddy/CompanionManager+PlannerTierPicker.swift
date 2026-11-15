@@ -24,6 +24,8 @@ extension CompanionManager {
         guard fastEverydayAnswersEnabled,
             activePlannerTier == .cliDirect,
             activePlannerTierCLIDirectUpstream == .codex,
+            (plannerClient as? PaceLocalCLIPlannerClient)?.allowsBoundedEverydayAnswers == true,
+            (try? PaceInfisicalCredentialConfiguration.load()) != nil,
             PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
             PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
         else { return }

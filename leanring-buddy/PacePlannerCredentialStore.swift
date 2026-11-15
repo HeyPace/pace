@@ -58,6 +58,15 @@ nonisolated struct PaceInfisicalCredentialConfiguration: Equatable, Sendable {
     }
 }
 
+nonisolated enum PacePlannerCredentialClock {
+    private static let origin = ContinuousClock.now
+
+    static func seconds() -> TimeInterval {
+        let elapsed = origin.duration(to: .now).components
+        return Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1_000_000_000_000_000_000
+    }
+}
+
 @MainActor
 final class PacePlannerCredentialStore {
     static let shared = PacePlannerCredentialStore()
@@ -106,6 +115,7 @@ final class PacePlannerCredentialStore {
     private var generation = UUID()
     private var cachedKey: CachedKey?
     private var pendingKey: PendingKey?
+    private var failedFetchRetryAt: TimeInterval?
 
     init(
         loadConfiguration: @escaping () throws -> PaceInfisicalCredentialConfiguration? = {
@@ -115,7 +125,7 @@ final class PacePlannerCredentialStore {
         loadInfisicalKey: @escaping @Sendable (PaceInfisicalCredentialConfiguration) async throws -> String = {
             try await PaceInfisicalCredentialProcess.loadKey(configuration: $0)
         },
-        now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        now: @escaping () -> TimeInterval = { PacePlannerCredentialClock.seconds() },
         cacheLifetime: TimeInterval = 30 * 60,
         auditLog: PaceAPIAuditLog? = nil
     ) {
@@ -130,6 +140,7 @@ final class PacePlannerCredentialStore {
     func clearCachedKey() {
         generation = UUID()
         cachedKey = nil
+        failedFetchRetryAt = nil
         pendingKey?.task.cancel()
         pendingKey = nil
     }
@@ -171,6 +182,10 @@ final class PacePlannerCredentialStore {
                 outcome = "cacheHit"
                 return cachedKey.value
             }
+            if let failedFetchRetryAt, failedFetchRetryAt > now() {
+                outcome = "backoff"
+                throw PacePlannerCredentialError.unavailable
+            }
             let requestedGeneration = generation
             let waiterIdentifier = UUID()
             if pendingKey == nil {
@@ -184,7 +199,8 @@ final class PacePlannerCredentialStore {
                             throw PacePlannerCredentialError.unavailable
                         }
                         return key
-                    }, waiters: [])
+                    }, waiters: []
+                )
             }
             pendingKey!.waiters.insert(waiterIdentifier)
             let request = pendingKey!
@@ -213,13 +229,21 @@ final class PacePlannerCredentialStore {
             case .success(let key):
                 if pendingKey?.identifier == request.identifier {
                     cachedKey = CachedKey(value: key, expiresAt: now() + cacheLifetime)
+                    failedFetchRetryAt = nil
                     pendingKey = nil
                 }
                 outcome = "loaded"
                 return key
-            case .failure:
+            case .failure(let error):
                 if pendingKey?.identifier == request.identifier {
                     pendingKey = nil
+                    if !(error is CancellationError) {
+                        cachedKey = nil
+                        failedFetchRetryAt = now() + 30
+                    }
+                }
+                if error is CancellationError {
+                    throw CancellationError()
                 }
                 throw PacePlannerCredentialError.unavailable
             }

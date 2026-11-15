@@ -31,6 +31,21 @@ private final class CredentialLoaderFixture {
 }
 
 @MainActor
+private final class LateCredentialFailureFixture {
+    var calls = 0
+    var completeFirstFetch: CheckedContinuation<Void, Never>?
+
+    func load() async throws -> String {
+        calls += 1
+        if calls == 1 {
+            await withCheckedContinuation { completeFirstFetch = $0 }
+            throw PacePlannerCredentialError.unavailable
+        }
+        return "sk-synthetic-credential-for-automated-tests-only"
+    }
+}
+
+@MainActor
 struct PacePlannerCredentialStoreTests {
     private let configuration = PaceInfisicalCredentialConfiguration(
         projectID: "11111111-1111-4111-8111-111111111111",
@@ -54,7 +69,8 @@ struct PacePlannerCredentialStoreTests {
             loadKeychain: {
                 keychainCalls += 1
                 return "wrong-source"
-            }, loadInfisicalKey: { try await fixture.load($0) })
+            }, loadInfisicalKey: { try await fixture.load($0) }
+        )
         #expect(try await store.loadOpenAIKey() == fixture.value)
         #expect(try await store.loadOpenAIKey() == fixture.value)
         #expect(fixture.calls == 1)
@@ -72,21 +88,77 @@ struct PacePlannerCredentialStoreTests {
         #expect(fixture.calls == 0)
     }
 
-    @Test func configuredFailureDoesNotFallbackAndCanBeRetried() async throws {
+    @Test func configuredFailureDoesNotFallbackOrRepeatFetchUntilBackoffExpires() async throws {
         let fixture = CredentialLoaderFixture()
         fixture.shouldFail = true
         var keychainCalls = 0
+        var elapsed: TimeInterval = 100
         let store = PacePlannerCredentialStore(
             loadConfiguration: { configuration },
             loadKeychain: {
                 keychainCalls += 1
                 return "wrong-source"
-            }, loadInfisicalKey: { try await fixture.load($0) })
+            }, loadInfisicalKey: { try await fixture.load($0) }, now: { elapsed }
+        )
         await #expect(throws: PacePlannerCredentialError.self) { try await store.loadOpenAIKey() }
         fixture.shouldFail = false
+        await #expect(throws: PacePlannerCredentialError.self) { try await store.loadOpenAIKey() }
+        elapsed += 29
+        await #expect(throws: PacePlannerCredentialError.self) { try await store.loadOpenAIKey() }
+        #expect(fixture.calls == 1)
+        elapsed += 1
         #expect(try await store.loadOpenAIKey() == fixture.value)
         #expect(fixture.calls == 2)
         #expect(keychainCalls == 0)
+    }
+
+    @Test func explicitClearRetriesAfterFailedFetchWithoutWaitingForBackoff() async throws {
+        let fixture = CredentialLoaderFixture()
+        fixture.shouldFail = true
+        let store = PacePlannerCredentialStore(
+            loadConfiguration: { configuration },
+            loadInfisicalKey: { try await fixture.load($0) })
+        await #expect(throws: PacePlannerCredentialError.self) { try await store.loadOpenAIKey() }
+        fixture.shouldFail = false
+        store.clearCachedKey()
+        #expect(try await store.loadOpenAIKey() == fixture.value)
+        #expect(fixture.calls == 2)
+    }
+
+    @Test func configurationChangeDoesNotInheritPreviousSourceFailureBackoff() async throws {
+        let fixture = CredentialLoaderFixture()
+        fixture.shouldFail = true
+        var selectedConfiguration = configuration
+        let store = PacePlannerCredentialStore(
+            loadConfiguration: { selectedConfiguration },
+            loadInfisicalKey: { try await fixture.load($0) })
+        await #expect(throws: PacePlannerCredentialError.self) { try await store.loadOpenAIKey() }
+        selectedConfiguration = .init(
+            projectID: configuration.projectID, organizationID: configuration.organizationID,
+            environment: "production", secretPath: "/other", secretName: "OPENAI_API_KEY")
+        fixture.shouldFail = false
+        #expect(try await store.loadOpenAIKey() == fixture.value)
+        #expect(fixture.calls == 2)
+    }
+
+    @Test func lateFailureFromOldConfigurationCannotSetNewSourceBackoff() async throws {
+        let fixture = LateCredentialFailureFixture()
+        var selectedConfiguration = configuration
+        var elapsed: TimeInterval = 100
+        let store = PacePlannerCredentialStore(
+            loadConfiguration: { selectedConfiguration },
+            loadInfisicalKey: { _ in try await fixture.load() }, now: { elapsed }, cacheLifetime: 1)
+        let oldRequest = Task { try await store.loadOpenAIKey() }
+        try await waitUntil { fixture.completeFirstFetch != nil }
+        selectedConfiguration = .init(
+            projectID: configuration.projectID, organizationID: configuration.organizationID,
+            environment: "production", secretPath: "/other", secretName: "OPENAI_API_KEY")
+        _ = try await store.loadOpenAIKey()
+        fixture.completeFirstFetch?.resume()
+        await #expect(throws: PacePlannerCredentialError.self) { try await oldRequest.value }
+        elapsed += 1
+        #expect(try await store.loadOpenAIKey() != nil)
+        #expect(fixture.calls == 3)
     }
 
     @Test func expiredCacheAndExplicitClearFetchAgain() async throws {
