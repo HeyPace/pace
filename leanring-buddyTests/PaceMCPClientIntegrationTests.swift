@@ -63,7 +63,7 @@ private enum PaceMCPFixture {
                     args = params.get("arguments", {})
                     target = args.get("app", args.get("app_target", ""))
                     if name == "receipt":
-                        result = {"content": [{"type": "text", "text": "\n".join(calls)}]}
+                        result = {"content": [{"type": "text", "text": "\n".join(calls) if calls else "NO_CALLS"}]}
                     else:
                         calls.append(name + ":" + target)
                         if name in ["window", "see"] and target == "Google Chrome":
@@ -303,7 +303,7 @@ struct PaceMCPClientIntegrationTests {
         #expect(receipt.observations.first?.userFacingSummary?.contains("Turn on Read My Screen") == true)
         #expect(receipt.executedPlan.flattenedActions.isEmpty)
         let calls = try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
-        #expect(calls.isEmpty)
+        #expect(calls == "NO_CALLS")
     }
 
     @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
