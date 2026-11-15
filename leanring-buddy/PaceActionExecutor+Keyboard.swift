@@ -491,12 +491,15 @@ extension PaceActionExecutor {
         }
         let indicatesPermissionFailure = [
             "permission denied", "permission is required", "permission required", "not granted", "not authorized",
-            "not enabled", "not trusted", "access denied", "missing permission",
+            "access denied", "missing permission",
         ].contains(where: text.contains)
         if indicatesPermissionFailure {
             if text.contains("screen recording") || text.contains("screenrecording") { return .screenRecording }
             if text.contains("accessibility") || text.contains("assistive access") { return .accessibility }
         }
+        let authenticationStatusPattern =
+            #"\b(?:(?:http(?:/\d+(?:\.\d+)?)?|status)"#
+            + #"(?:\s+(?:status|code|error))*\s*[:=]?\s*40[13]\b|403\s+forbidden\b)"#
         if [
             "unauthorized", "authentication failed", "authentication required", "auth failed",
             "authentication_required", "not authenticated", "please sign in", "sign in required", "not signed in",
@@ -504,7 +507,7 @@ extension PaceActionExecutor {
             "invalid token",
         ].contains(where: text.contains)
             || text.range(
-                of: #"\b(?:http|status)(?:\s+(?:status|code))*\s*[:=]?\s*40[13]\b"#,
+                of: authenticationStatusPattern,
                 options: .regularExpression) != nil
         {
             return .authentication

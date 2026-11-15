@@ -275,8 +275,17 @@ struct PaceMCPClientIntegrationTests {
             ("Accessibility access denied", "Enable Accessibility for Peekaboo in System Settings, then try again."),
             ("Unauthorized: expired token", "Reconnect Peekaboo in Pace settings, then try again."),
             ("HTTP status: 401", "Reconnect Peekaboo in Pace settings, then try again."),
+            ("403 Forbidden", "Reconnect Peekaboo in Pace settings, then try again."),
+            ("HTTP Error 403: Forbidden", "Reconnect Peekaboo in Pace settings, then try again."),
+            ("HTTP/1.1 401", "Reconnect Peekaboo in Pace settings, then try again."),
             ("Window titled Sign in not available", "I couldn’t finish that step through Peekaboo."),
             ("Accessibility snapshot failed", "I couldn’t finish that step through Peekaboo."),
+            ("Permission denied", "I couldn’t finish that step through Peekaboo."),
+            (
+                "Click failed: element not enabled (accessibility role AXButton)",
+                "I couldn’t finish that step through Peekaboo."
+            ),
+            ("Element not trusted (accessibility role AXButton)", "I couldn’t finish that step through Peekaboo."),
         ] {
             executor.beginUserTurn()
             let observation = await executor.callMCPTool(
@@ -290,11 +299,17 @@ struct PaceMCPClientIntegrationTests {
         }
         let calls = try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
         #expect(!calls.contains("click"))
-        let browserFailure = await executor.callMCPTool(
-            .init(
-                serverName: "playwright", toolName: "browser_snapshot",
-                arguments: ["failure": .string("Accessibility snapshot failed")]))
-        #expect(browserFailure.userFacingSummary == "I couldn’t finish that step through Playwright.")
+        for (diagnostic, expectedFeedback) in [
+            ("Accessibility snapshot failed", "I couldn’t finish that step through Playwright."),
+            ("Screen Recording permission denied", "Check Playwright’s access in Pace settings, then try again."),
+        ] {
+            let browserFailure = await executor.callMCPTool(
+                .init(
+                    serverName: "playwright", toolName: "browser_snapshot",
+                    arguments: ["failure": .string(diagnostic)]))
+            #expect(browserFailure.userFacingSummary == expectedFeedback)
+            #expect(browserFailure.stopsAgentLoop == false)
+        }
     }
 
     @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
