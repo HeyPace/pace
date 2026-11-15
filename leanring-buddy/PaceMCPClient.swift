@@ -502,6 +502,8 @@ private final class PaceMCPPersistentSession {
     private let stdoutPipe = Pipe()
     private let stderrHandle: FileHandle
     private let client = MCP.Client(name: "Pace", version: "1.0")
+    private let closeLock = NSLock()
+    private var hasScheduledClose = false
 
     init(serverName: String, configuration: PaceMCPServerConfiguration, timeout: TimeInterval) throws {
         self.configuration = configuration
@@ -571,12 +573,26 @@ private final class PaceMCPPersistentSession {
     }
 
     func close() {
+        closeLock.lock()
+        guard !hasScheduledClose else {
+            closeLock.unlock()
+            return
+        }
+        hasScheduledClose = true
         let client = self.client
-        Task { await client.disconnect() }
+        let retainedInputPipe = stdinPipe
+        let retainedOutputPipe = stdoutPipe
+        let retainedErrorHandle = stderrHandle
+        closeLock.unlock()
         if process.isRunning { process.terminate() }
-        try? stdinPipe.fileHandleForWriting.close()
-        try? stdoutPipe.fileHandleForReading.close()
-        try? stderrHandle.close()
+        // The SDK borrows raw descriptor numbers. Keep their owners alive until
+        // its reader is disconnected, so another session cannot reuse them first.
+        Task.detached {
+            await client.disconnect()
+            try? retainedInputPipe.fileHandleForWriting.close()
+            try? retainedOutputPipe.fileHandleForReading.close()
+            try? retainedErrorHandle.close()
+        }
     }
 }
 

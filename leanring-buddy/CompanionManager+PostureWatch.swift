@@ -233,6 +233,18 @@ extension CompanionManager {
         }
         recentActionResults = updatedActionResults
 
+        if let targetResolution = actionResult.targetResolution {
+            switch targetResolution {
+            case .discovering:
+                currentTurnHUDState = .acting("Finding the right window")
+            case .clarification(let question):
+                currentTurnHUDState = .clarification(question: question, options: [])
+            case .interrupted(let message):
+                currentTurnHUDState = .failed(message)
+            }
+            return
+        }
+
         switch actionResult.status {
         case .planned:
             currentTurnHUDState = .acting(actionResult.title)

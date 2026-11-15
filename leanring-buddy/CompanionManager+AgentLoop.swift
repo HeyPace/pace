@@ -2724,6 +2724,7 @@ extension CompanionManager {
 
                     // 10. Execute tool calls/action tags if any.
                     var toolObservations: [PaceActionExecutionObservation] = []
+                    var executedActionsForUndo: [PaceParsedAction] = []
                     var userDeniedActionApproval = false
                     var preActionObservationBaseline: PaceClickStateSnapshot?
                     if !actionParseResult.actions.isEmpty {
@@ -2777,20 +2778,27 @@ extension CompanionManager {
                                         .finishActiveStreamingMailDraft(finalMailDraft: finalMailDraft)
                                     {
                                         toolObservations.append(streamingMailObservation)
+                                        if !streamingMailObservation.stopsActionPlan {
+                                            executedActionsForUndo.append(.composeMail(finalMailDraft))
+                                        }
                                     }
 
                                     let remainingActionPlan = actionParseResult
                                         .executionPlan
                                         .removingFirstMailDraftAction()
-                                    toolObservations += await actionExecutor.executeActionPlan(
+                                    let remainingReceipt = await actionExecutor.executeActionPlanWithReceipt(
                                         remainingActionPlan,
                                         screenCaptures: screenCaptures
                                     )
+                                    toolObservations += remainingReceipt.observations
+                                    executedActionsForUndo += remainingReceipt.executedPlan.flattenedActions
                                 } else {
-                                    toolObservations = await actionExecutor.executeActionPlan(
+                                    let executionReceipt = await actionExecutor.executeActionPlanWithReceipt(
                                         actionParseResult.executionPlan,
                                         screenCaptures: screenCaptures
                                     )
+                                    toolObservations = executionReceipt.observations
+                                    executedActionsForUndo = executionReceipt.executedPlan.flattenedActions
                                 }
                                 // Set-of-Mark recovery: if any click missed,
                                 // re-mark the screenshot and let the VLM re-pick
@@ -2810,11 +2818,7 @@ extension CompanionManager {
                                         .formatForUserFeedback(toolObservations)
                                     // After every reversible mutation, raise the
                                     // visible undo banner (PRD trust-and-failures).
-                                    if !toolObservations.contains(where: \.stopsActionPlan) {
-                                        noteReversibleActionExecuted(
-                                            in: actionParseResult.executionPlan
-                                        )
-                                    }
+                                    noteReversibleActionExecuted(in: .serial(actions: executedActionsForUndo))
                                     // After click-all-fail observations, speak
                                     // the plain-language failure once.
                                     speakFailureForClickMissedIfApplicable(
@@ -2953,7 +2957,9 @@ extension CompanionManager {
                                     question: ambiguity.userFacingSummary ?? "Which app window do you mean?",
                                     options: [])
                             } else {
-                                currentTurnHUDState = .failed("Window inspection stopped")
+                                let stoppedObservation = toolObservations.first(where: \.stopsAgentLoop)
+                                currentTurnHUDState = .failed(
+                                    stoppedObservation?.userFacingSummary ?? "I stopped that step.")
                             }
                         } else if plannerSignaledDone {
                             print("✅ Agent loop: planner signaled [DONE] at step \(stepIndex)")

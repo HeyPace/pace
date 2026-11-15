@@ -66,6 +66,24 @@ struct PaceActionResultsView: View {
                     .lineLimit(2)
                     .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if let diagnosticDetail = actionResult.diagnosticDetail {
+                    DisclosureGroup {
+                        ScrollView {
+                            Text(diagnosticDetail)
+                                .font(DS.Typography.caption)
+                                .foregroundStyle(DS.Colors.textTertiary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxHeight: 140)
+                    } label: {
+                        Text("Technical details")
+                            .pointerCursor()
+                    }
+                    .font(DS.Typography.caption)
+                    .foregroundStyle(DS.Colors.textTertiary)
+                }
             }
 
             Spacer(minLength: 0)

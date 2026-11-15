@@ -192,8 +192,10 @@ nonisolated enum PaceActionApprovalPolicy {
         switch action {
         case .createCalendarEvent, .createReminder, .createNote, .appendNote,
              .composeMail, .createThingsToDo, .runShortcut, .downloadFile,
-             .recordFlow, .runFlow, .mcp, .setTextValue, .editSelectedText:
+            .recordFlow, .runFlow, .setTextValue, .editSelectedText:
             return true
+        case .mcp:
+            return !permitsObservationOnly(.serial(actions: [action]))
         case .codingSession: return false
         case .openMessages(let messageRequest):
             // Messages with body text creates a visible Messages draft;

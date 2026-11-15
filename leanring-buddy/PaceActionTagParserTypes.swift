@@ -58,6 +58,19 @@ nonisolated struct PaceSetOfMarkRecoveryRequest {
     let screenNumber: Int?
 }
 
+nonisolated enum PaceApplicationTargetResolution: Equatable, Sendable {
+    case discovering
+    case clarification(String)
+    case interrupted(String)
+
+    var userFacingSummary: String {
+        switch self {
+        case .discovering: return "Checking which window you mean."
+        case .clarification(let question), .interrupted(let question): return question
+        }
+    }
+}
+
 nonisolated struct PaceActionExecutionObservation {
     enum TerminalReason: Equatable, Sendable {
         case ambiguousApplicationTarget
@@ -73,6 +86,15 @@ nonisolated struct PaceActionExecutionObservation {
     var stopsActionPlan: Bool { terminalReason != nil }
     var requiresFreshInspectionPlan: Bool { terminalReason == .ambiguousInspectionTarget }
     var stopsAgentLoop: Bool { terminalReason != nil && !requiresFreshInspectionPlan }
+    var targetResolution: PaceApplicationTargetResolution? {
+        switch terminalReason {
+        case .ambiguousInspectionTarget: return .discovering
+        case .ambiguousApplicationTarget: return .clarification(userFacingSummary ?? "Which app window do you mean?")
+        case .staleApplicationTarget, .inspectionInterrupted:
+            return .interrupted(userFacingSummary ?? "I stopped checking that window.")
+        case nil: return nil
+        }
+    }
     /// Non-nil only on an all-fail click, to request Set-of-Mark recovery.
     let setOfMarkRecovery: PaceSetOfMarkRecoveryRequest?
 
@@ -130,6 +152,11 @@ nonisolated struct PaceActionExecutionObservation {
         // app launch or mutation behind the first successful action.
         return userVisibleSummaries.joined(separator: "\n")
     }
+}
+
+nonisolated struct PaceActionExecutionReceipt {
+    let observations: [PaceActionExecutionObservation]
+    let executedPlan: PaceActionExecutionPlan
 }
 
 nonisolated struct PaceActionExecutionPlan {

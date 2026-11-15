@@ -27,7 +27,8 @@ struct PaceChatTranscriptModelTests {
         let record = PaceActionRunRecord.completed(observations: [observation])
         #expect(record.status == .failed)
         #expect(!record.showsInConversation)
-        #expect(record.detail.contains("PID:111"))
+        #expect(!record.detail.contains("PID:111"))
+        #expect(record.diagnosticDetail?.contains("PID:111") == true)
         #expect(PaceActionExecutionObservation.formatForPlanner([observation]).contains("PID:222"))
         #expect(
             PaceActionExecutionObservation.formatForUserFeedback([observation])
@@ -54,6 +55,53 @@ struct PaceChatTranscriptModelTests {
         ])
         #expect(rows.count == 1)
         #expect(PaceActionRunRecord(status: .failed, title: "Failed", detail: "Other failure").showsInConversation)
+    }
+
+    @Test func completedEarlierActionsRemainVisibleWhenAWindowNeedsClarification() {
+        let success = PaceActionExecutionObservation(toolName: "notes", summary: "Created the meeting note.")
+        let clarification = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.window",
+            summary: "Multiple apps match, PID:111 PID:222", userFacingSummary: "Which Chrome window do you mean?",
+            terminalReason: .ambiguousApplicationTarget)
+        let record = PaceActionRunRecord.completed(observations: [success, clarification])
+        #expect(record.showsInConversation)
+        #expect(record.status == .completed)
+        #expect(record.title == "Earlier actions completed")
+        #expect(record.detail == "Created the meeting note.")
+        #expect(record.targetResolution == .clarification("Which Chrome window do you mean?"))
+        #expect(record.diagnosticDetail?.contains("PID:111") == true)
+        let rows = PaceChatTranscriptModel.toolActivityRowModels(fromNewestFirstActionRunRecords: [record])
+        #expect(rows.count == 1)
+        #expect(rows.first?.resultSummaryLine == "Created the meeting note.")
+    }
+
+    @MainActor @Test func actualManagerKeepsTargetDiagnosticsOutOfTheHUD() {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let recovery = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.window",
+            summary: "RAW PRIVATE INVENTORY PID:111", userFacingSummary: "", terminalReason: .ambiguousInspectionTarget)
+        manager.appendActionResult(.completed(observations: [recovery]))
+        #expect(manager.currentTurnHUDState.status == .acting)
+        #expect(manager.currentTurnHUDState.detail == "Finding the right window")
+        #expect(manager.recentActionResults.first?.detail == "Checking which window you mean.")
+        #expect(manager.recentActionResults.first?.diagnosticDetail?.contains("RAW PRIVATE INVENTORY") == true)
+
+        let clarification = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.window",
+            summary: "RAW PRIVATE INVENTORY PID:222", userFacingSummary: "Which Chrome window do you mean?",
+            terminalReason: .ambiguousApplicationTarget)
+        manager.appendActionResult(.completed(observations: [clarification]))
+        #expect(manager.currentTurnHUDState.status == .needsClarification)
+        #expect(manager.currentTurnHUDState.title == "Which Chrome window do you mean?")
+        #expect(manager.currentTurnHUDState.detail?.contains("PID:") != true)
+
+        let stale = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.window", summary: "PID:999 exited",
+            userFacingSummary: "Chrome closed. Please reopen it so I can continue.",
+            terminalReason: .staleApplicationTarget)
+        manager.appendActionResult(.completed(observations: [stale]))
+        #expect(manager.currentTurnHUDState.status == .failed)
+        #expect(manager.currentTurnHUDState.detail == "Chrome closed. Please reopen it so I can continue.")
     }
 
     // MARK: - Fixtures

@@ -24,23 +24,34 @@ extension PaceActionExecutor {
         _ actionExecutionPlan: PaceActionExecutionPlan,
         screenCaptures: [CompanionScreenCapture]
     ) async -> [PaceActionExecutionObservation] {
-        guard !actionExecutionPlan.steps.isEmpty else { return [] }
+        let receipt = await executeActionPlanWithReceipt(actionExecutionPlan, screenCaptures: screenCaptures)
+        return receipt.observations
+    }
 
+    func executeActionPlanWithReceipt(
+        _ actionExecutionPlan: PaceActionExecutionPlan,
+        screenCaptures: [CompanionScreenCapture]
+    ) async -> PaceActionExecutionReceipt {
         var observations: [PaceActionExecutionObservation] = []
+        var executedActions: [PaceParsedAction] = []
+        func receipt() -> PaceActionExecutionReceipt {
+            .init(observations: observations, executedPlan: .serial(actions: executedActions))
+        }
         let executionGeneration = applicationTargetGeneration
 
         for (stepIndex, step) in actionExecutionPlan.steps.enumerated() {
-            guard !Task.isCancelled else { return observations }
+            guard !Task.isCancelled else { return receipt() }
             guard !step.actions.isEmpty else { continue }
 
             for (actionIndex, action) in step.actions.enumerated() {
-                guard !Task.isCancelled, executionGeneration == applicationTargetGeneration else { return observations }
+                guard !Task.isCancelled, executionGeneration == applicationTargetGeneration else { return receipt() }
 
                 if let observation = await executeSingleAction(action, screenCaptures: screenCaptures) {
                     observations.append(observation)
-                    if observation.stopsActionPlan { return observations }
+                    if observation.stopsActionPlan { return receipt() }
                 }
-                guard !Task.isCancelled else { return observations }
+                executedActions.append(action)
+                guard !Task.isCancelled else { return receipt() }
 
                 let isLastActionInStep = (actionIndex == step.actions.count - 1)
                 if !isLastActionInStep {
@@ -54,7 +65,7 @@ extension PaceActionExecutor {
             }
         }
 
-        return observations
+        return receipt()
     }
 
     var hasActiveStreamingMailDraft: Bool {

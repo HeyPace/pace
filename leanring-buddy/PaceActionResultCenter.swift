@@ -46,6 +46,8 @@ nonisolated struct PaceActionRunRecord: Identifiable, Equatable {
     let title: String
     let detail: String
     let showsInConversation: Bool
+    let diagnosticDetail: String?
+    let targetResolution: PaceApplicationTargetResolution?
 
     init(
         id: UUID = UUID(),
@@ -53,7 +55,9 @@ nonisolated struct PaceActionRunRecord: Identifiable, Equatable {
         status: PaceActionRunStatus,
         title: String,
         detail: String,
-        showsInConversation: Bool = true
+        showsInConversation: Bool = true,
+        diagnosticDetail: String? = nil,
+        targetResolution: PaceApplicationTargetResolution? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -61,6 +65,8 @@ nonisolated struct PaceActionRunRecord: Identifiable, Equatable {
         self.title = title
         self.detail = detail
         self.showsInConversation = showsInConversation
+        self.diagnosticDetail = diagnosticDetail
+        self.targetResolution = targetResolution
     }
 
     static func planned(
@@ -93,20 +99,36 @@ nonisolated struct PaceActionRunRecord: Identifiable, Equatable {
                 || lowercasedSummary.contains("not granted")
                 || lowercasedSummary.contains("does not exist")
         }
-        let hasFailure = observations.contains(where: indicatesFailure)
-        let needsFreshInspection = observations.contains(where: \.requiresFreshInspectionPlan)
-        let hasCoveredTargetOutcome =
-            observations.contains { $0.terminalReason != nil }
-            && !observations.contains { $0.terminalReason == nil && indicatesFailure($0) }
-
-        let feedback = PaceActionExecutionObservation.formatForUserFeedback(observations)
-            ?? "No tool observations returned."
+        let targetResolution = observations.compactMap(\.targetResolution).last
+        let ordinaryObservations = observations.filter { $0.targetResolution == nil }
+        let visibleObservations =
+            targetResolution != nil && !ordinaryObservations.isEmpty
+            ? ordinaryObservations : observations
+        let hasFailure = visibleObservations.contains(where: indicatesFailure)
+        let needsFreshInspection = visibleObservations.contains(where: \.requiresFreshInspectionPlan)
+        let showsInConversation = targetResolution == nil || !ordinaryObservations.isEmpty
+        let hasSeparateDiagnostics = observations.contains { $0.userFacingSummary != nil || $0.targetResolution != nil }
+        let feedback =
+            PaceActionExecutionObservation.formatForUserFeedback(visibleObservations)
+            ?? targetResolution?.userFacingSummary ?? "No tool observations returned."
+        let title: String
+        if hasFailure {
+            title = "Action needs attention"
+        } else if needsFreshInspection {
+            title = "Choosing a window"
+        } else if targetResolution != nil && !ordinaryObservations.isEmpty {
+            title = "Earlier actions completed"
+        } else {
+            title = "Action complete"
+        }
         return PaceActionRunRecord(
             status: hasFailure ? .failed : (needsFreshInspection ? .skipped : .completed),
-            title: hasFailure
-                ? "Action needs attention" : (needsFreshInspection ? "Choosing a window" : "Action complete"),
-            detail: hasCoveredTargetOutcome ? PaceActionExecutionObservation.formatForPlanner(observations) : feedback,
-            showsInConversation: !hasCoveredTargetOutcome
+            title: title,
+            detail: feedback,
+            showsInConversation: showsInConversation,
+            diagnosticDetail: hasSeparateDiagnostics
+                ? PaceActionExecutionObservation.formatForPlanner(observations) : nil,
+            targetResolution: targetResolution
         )
     }
 }

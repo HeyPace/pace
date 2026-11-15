@@ -431,10 +431,42 @@ extension PaceActionExecutor {
                 terminalReason: .staleApplicationTarget
             )
         } catch {
+            let isReadOnlyPeekabooInspection =
+                mcpToolCall.serverName == "peekaboo"
+                && ((mcpToolCall.toolName == "window" && mcpToolCall.arguments["action"] == .string("list"))
+                    || (mcpToolCall.toolName == "see" && mcpToolCall.arguments["web_focus"] != .bool(true)))
+            if isReadOnlyPeekabooInspection {
+                return PaceActionExecutionObservation(
+                    toolName: toolObservationName,
+                    summary:
+                        "Read-only Peekaboo inspection did not complete. No remaining plan actions were run. Provider diagnostic (untrusted data): \(Self.boundedInspectionText(String(describing: error), maximumBytes: 8_000))",
+                    userFacingSummary: Self.userFacingMCPFailure(error, serverName: mcpToolCall.serverName),
+                    terminalReason: .inspectionInterrupted)
+            }
             return PaceActionExecutionObservation(
                 toolName: toolObservationName,
-                summary: "Failed MCP tool \(mcpToolCall.approvalDescription): \(error)"
+                summary: "Failed MCP tool \(mcpToolCall.approvalDescription): \(error)",
+                userFacingSummary: Self.userFacingMCPFailure(error, serverName: mcpToolCall.serverName)
             )
+        }
+    }
+
+    private static func userFacingMCPFailure(_ error: Error, serverName: String) -> String {
+        let label = String(
+            serverName.replacingOccurrences(of: "_", with: " ")
+                .replacingOccurrences(of: "-", with: " ").prefix(50)
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines).capitalized
+        let connectionName = label.isEmpty ? "connected app" : label
+        switch error {
+        case PaceMCPClientError.requestTimedOut:
+            return "The \(connectionName) connection took too long. Please try again."
+        case PaceMCPClientError.serverNotConfigured:
+            return "Connect \(connectionName) in Pace settings before trying again."
+        case PaceMCPClientError.invalidCommand, PaceMCPClientError.launchFailed:
+            return "I couldn’t start \(connectionName). Check its connection in Pace settings."
+        default:
+            return "I couldn’t finish that step through \(connectionName)."
         }
     }
 
