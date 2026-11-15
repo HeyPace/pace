@@ -448,7 +448,6 @@ extension PaceActionExecutor {
             !applicationName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("pid:"),
             !hasAttemptedAmbiguousInspectionRecovery
         else { return nil }
-        hasAttemptedAmbiguousInspectionRecovery = true
         let observationName = "mcp.peekaboo.window"
         func remainsAuthorized() -> Bool {
             !Task.isCancelled && actionsAreEnabled && readMyScreenIsEnabled()
@@ -461,6 +460,7 @@ extension PaceActionExecutor {
                 userFacingSummary: "I stopped checking those windows.", terminalReason: .inspectionInterrupted)
         }
         guard remainsAuthorized() else { return interrupted() }
+        hasAttemptedAmbiguousInspectionRecovery = true
         let requestedApplicationKey = Self.applicationTargetKey(applicationName)
         let candidates = Self.peekabooAmbiguousProcessIdentifiers(
             in: diagnostic, preferring: preferredInspectionProcessIdentifiers(),
