@@ -203,7 +203,7 @@ struct PaceCloudBridgeSettingsTab: View {
                 Spacer()
                 paceSettingsButton("revoke", systemName: "xmark.circle") {
                     PaceCloudBridgeConsent.revokeConsentAndResetAllBridgeState()
-                    PacePlannerCredentialStore.shared.clearCachedKey()
+                    companionManager.invalidateFastAnswerCredentialPrewarm()
                     companionManager.setCloudBridgeMode(.off)
                 }
             }

@@ -155,6 +155,7 @@ final class MenuBarPanelManager: NSObject {
     private var isPanelPresented: Bool { presentation.isPresented }
     private var screenParametersObserver: NSObjectProtocol?
     private var workspaceWakeObserver: NSObjectProtocol?
+    private let workspaceNotificationCenter: NotificationCenter
     private let activeDisplayCoordinator: PaceActiveDisplayCoordinator
     private var displayRouteObservation: AnyCancellable?
     private var menuBarOccupancyObserver: NSObjectProtocol?
@@ -188,6 +189,7 @@ final class MenuBarPanelManager: NSObject {
     init(
         companionManager: CompanionManager,
         activeDisplayCoordinator: PaceActiveDisplayCoordinator = .shared,
+        workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
         usesChatPanelAsPrimarySurface: Bool? = nil,
         panelPlacementResolver: (@MainActor (PaceActiveDisplayRoute) -> PaceConversationPanelPlacement?)? = nil,
         scheduleOutsideClickDismissal: @escaping @MainActor (@escaping @MainActor () -> Void) -> Void = { dismissal in
@@ -205,6 +207,7 @@ final class MenuBarPanelManager: NSObject {
         )
         self.companionManager = companionManager
         self.activeDisplayCoordinator = activeDisplayCoordinator
+        self.workspaceNotificationCenter = workspaceNotificationCenter
         self.shouldReducePanelMotion = shouldReducePanelMotion
         self.waitForExplanationAutoClose = waitForExplanationAutoClose
         self.scheduleOutsideClickDismissal = scheduleOutsideClickDismissal
@@ -262,10 +265,13 @@ final class MenuBarPanelManager: NSObject {
         ) { [weak self] _ in
             Task { @MainActor in self?.repositionVisiblePanel() }
         }
-        workspaceWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+        workspaceWakeObserver = workspaceNotificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.repositionVisiblePanel() }
+            Task { @MainActor in
+                self?.companionManager.prewarmFastAnswerCredentialsIfNeeded()
+                self?.repositionVisiblePanel()
+            }
         }
 
     }
@@ -275,7 +281,7 @@ final class MenuBarPanelManager: NSObject {
         if let explanationInteractionMonitor { NSEvent.removeMonitor(explanationInteractionMonitor) }
         if let menuBarOccupancyObserver { NotificationCenter.default.removeObserver(menuBarOccupancyObserver) }
         if let screenParametersObserver { NotificationCenter.default.removeObserver(screenParametersObserver) }
-        if let workspaceWakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(workspaceWakeObserver) }
+        if let workspaceWakeObserver { workspaceNotificationCenter.removeObserver(workspaceWakeObserver) }
         if let monitor = clickOutsideMonitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -329,6 +335,9 @@ final class MenuBarPanelManager: NSObject {
     // MARK: - Panel Lifecycle
 
     private func showPanel(intent: PaceConversationPanelPresentationIntent = .interactive) {
+        if intent.requestsKeyboardFocus {
+            companionManager.prewarmFastAnswerCredentialsIfNeeded()
+        }
         pendingOutsideDismissalGeneration = nil
         PaceMenuBarOccupancyMonitor.shared.start()
         PaceMenuBarOccupancyMonitor.shared.refresh()

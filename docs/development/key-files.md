@@ -207,6 +207,7 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `Powers/PacePowerCatalog.swift` | ~104 | Typed preinstalled power catalog, unique tool ownership, contextual instruction composition and startup validation. Permission metadata discloses use without granting authority. |
 | `Powers/Automation/PaceAutomationPower.swift` | ~50 | Preinstalled automation power; owns its tool definitions and applicable planner instructions. |
 | `Powers/ComputerUse/PaceComputerUsePower.swift` | ~273 | Preinstalled computeruse power; owns its tool definitions and applicable planner instructions. |
+| `Powers/ComputerUse/PaceInitialInspectionPlanResolver.swift` | ~90 | Pure, whole-request window-inventory resolver. Produces one typed Peekaboo window.list envelope for eligible default Codex foreground turns; execution and follow-up answers remain in the main agent loop. |
 | `Powers/Images/PaceImagesPower.swift` | ~35 | Preinstalled images power; owns its tool definitions and applicable planner instructions. |
 | `Powers/Integration/PaceIntegrationPower.swift` | ~35 | Preinstalled integration power; owns its tool definitions and applicable planner instructions. |
 | `Powers/Productivity/PaceProductivityPower.swift` | ~138 | Preinstalled productivity power; owns its tool definitions and applicable planner instructions. |

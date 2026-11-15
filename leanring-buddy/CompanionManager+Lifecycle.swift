@@ -787,6 +787,7 @@ extension CompanionManager {
     }
 
     func stop() {
+        invalidateFastAnswerCredentialPrewarm()
         dismissCodingApprovals()
         Task { await codingSessionCoordinator.shutdown() }
         stopWatchRuntime()

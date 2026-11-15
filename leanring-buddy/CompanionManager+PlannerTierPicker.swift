@@ -16,28 +16,48 @@ extension CompanionManager {
         if enabled {
             prewarmFastAnswerCredentialsIfNeeded()
         } else {
-            PacePlannerCredentialStore.shared.clearCachedKey()
+            invalidateFastAnswerCredentialPrewarm()
         }
     }
 
+    private var canPrewarmFastAnswerCredentials: Bool {
+        fastEverydayAnswersEnabled
+            && activePlannerTier == .cliDirect
+            && activePlannerTierCLIDirectUpstream == .codex
+            && (plannerClient as? PaceLocalCLIPlannerClient)?.allowsBoundedEverydayAnswers == true
+            && fastAnswerCredentialSourceIsReady()
+    }
+
     func prewarmFastAnswerCredentialsIfNeeded() {
-        guard fastEverydayAnswersEnabled,
-            activePlannerTier == .cliDirect,
-            activePlannerTierCLIDirectUpstream == .codex,
-            (plannerClient as? PaceLocalCLIPlannerClient)?.allowsBoundedEverydayAnswers == true,
-            (try? PaceInfisicalCredentialConfiguration.load()) != nil,
-            PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
-            PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
-        else { return }
-        Task {
-            _ = try? await PacePlannerCredentialStore.shared.loadOpenAIKey()
+        guard fastAnswerCredentialPrewarmTask == nil, canPrewarmFastAnswerCredentials else { return }
+        let generation = fastAnswerCredentialPrewarmGeneration
+        fastAnswerCredentialPrewarmTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if generation == fastAnswerCredentialPrewarmGeneration {
+                    fastAnswerCredentialPrewarmTask = nil
+                }
+            }
+            // Consent and the selected brain can change before this queued task starts.
+            guard !Task.isCancelled, generation == fastAnswerCredentialPrewarmGeneration,
+                canPrewarmFastAnswerCredentials
+            else { return }
+            _ = try? await fastAnswerCredentialStore.loadOpenAIKey()
         }
+    }
+
+    func invalidateFastAnswerCredentialPrewarm() {
+        fastAnswerCredentialPrewarmGeneration = UUID()
+        fastAnswerCredentialPrewarmTask?.cancel()
+        fastAnswerCredentialPrewarmTask = nil
+        fastAnswerCredentialStore.clearCachedKey()
     }
 
     // MARK: - Planner tier picker state
 
     func setActivePlannerTier(_ newTier: PacePlannerTier) {
         if newTier != activePlannerTier {
+            invalidateFastAnswerCredentialPrewarm()
             diagramOverlayController.dismiss()
             imageOverlayController.dismiss()
         }
@@ -52,7 +72,7 @@ extension CompanionManager {
         if newTier == .cliDirect {
             prewarmFastAnswerCredentialsIfNeeded()
         } else {
-            PacePlannerCredentialStore.shared.clearCachedKey()
+            invalidateFastAnswerCredentialPrewarm()
         }
     }
 
@@ -111,6 +131,7 @@ extension CompanionManager {
     /// app restart.
     func setCLIDirectUpstream(_ newUpstream: PaceLocalCLIUpstream) {
         if newUpstream != activePlannerTierCLIDirectUpstream {
+            invalidateFastAnswerCredentialPrewarm()
             diagramOverlayController.dismiss()
             imageOverlayController.dismiss()
         }
@@ -123,7 +144,7 @@ extension CompanionManager {
         if newUpstream == .codex {
             prewarmFastAnswerCredentialsIfNeeded()
         } else {
-            PacePlannerCredentialStore.shared.clearCachedKey()
+            invalidateFastAnswerCredentialPrewarm()
         }
     }
 

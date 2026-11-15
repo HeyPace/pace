@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -59,6 +60,139 @@ struct PacePlannerCredentialStoreTests {
             try await Task.sleep(for: .milliseconds(1))
         }
         #expect(condition())
+    }
+
+    private func makeReadinessManager(store: PacePlannerCredentialStore) -> CompanionManager {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        manager.fastEverydayAnswersEnabled = true
+        manager.activePlannerTier = .cliDirect
+        manager.activePlannerTierCLIDirectUpstream = .codex
+        manager.plannerClient = PaceLocalCLIPlannerClient(upstream: .codex, modelIdentifier: nil)
+        manager.fastAnswerCredentialSourceIsReady = { true }
+        manager.fastAnswerCredentialStore = store
+        return manager
+    }
+
+    @Test func queuedReadinessRechecksAuthorizationBeforeLoading() async throws {
+        let fixture = CredentialLoaderFixture()
+        let store = PacePlannerCredentialStore(
+            loadConfiguration: { configuration },
+            loadInfisicalKey: { try await fixture.load($0) })
+        let manager = makeReadinessManager(store: store)
+        var sourceIsReady = true
+        manager.fastAnswerCredentialSourceIsReady = { sourceIsReady }
+        manager.prewarmFastAnswerCredentialsIfNeeded()
+        let queuedPrewarm = try #require(manager.fastAnswerCredentialPrewarmTask)
+        sourceIsReady = false
+        await queuedPrewarm.value
+        #expect(fixture.calls == 0)
+        #expect(manager.fastAnswerCredentialPrewarmTask == nil)
+    }
+
+    @Test func queuedReadinessRechecksSelectedBrainAndFastAnswerOptIn() async throws {
+        for revokedSetting in ["fastAnswers", "tier", "upstream", "automaticPlanner"] {
+            let fixture = CredentialLoaderFixture()
+            let store = PacePlannerCredentialStore(
+                loadConfiguration: { configuration },
+                loadInfisicalKey: { try await fixture.load($0) })
+            let manager = makeReadinessManager(store: store)
+            manager.prewarmFastAnswerCredentialsIfNeeded()
+            let queuedPrewarm = try #require(manager.fastAnswerCredentialPrewarmTask)
+            switch revokedSetting {
+            case "fastAnswers": manager.fastEverydayAnswersEnabled = false
+            case "tier": manager.activePlannerTier = .local
+            case "upstream": manager.activePlannerTierCLIDirectUpstream = .claude
+            default:
+                manager.plannerClient = PaceLocalCLIPlannerClient(upstream: .codex, modelIdentifier: "explicit-model")
+            }
+            await queuedPrewarm.value
+            #expect(fixture.calls == 0)
+            #expect(manager.fastAnswerCredentialPrewarmTask == nil)
+        }
+    }
+
+    @Test func repeatedReadinessSharesOneOwnedPrewarmAndInvalidationRejectsOldCleanup() async throws {
+        let fixture = CredentialLoaderFixture()
+        fixture.pause = true
+        let store = PacePlannerCredentialStore(
+            loadConfiguration: { configuration },
+            loadInfisicalKey: { try await fixture.load($0) })
+        let manager = makeReadinessManager(store: store)
+        defer { manager.invalidateFastAnswerCredentialPrewarm() }
+        for _ in 0..<10 { manager.prewarmFastAnswerCredentialsIfNeeded() }
+        let oldPrewarm = try #require(manager.fastAnswerCredentialPrewarmTask)
+        try await waitUntil { fixture.calls == 1 }
+        for _ in 0..<10 { manager.prewarmFastAnswerCredentialsIfNeeded() }
+        #expect(fixture.calls == 1)
+
+        manager.invalidateFastAnswerCredentialPrewarm()
+        manager.prewarmFastAnswerCredentialsIfNeeded()
+        let replacementPrewarm = try #require(manager.fastAnswerCredentialPrewarmTask)
+        await oldPrewarm.value
+        try await waitUntil { fixture.calls == 2 }
+        #expect(manager.fastAnswerCredentialPrewarmTask != nil)
+        fixture.pause = false
+        await replacementPrewarm.value
+        #expect(try await store.loadOpenAIKey() == fixture.value)
+        #expect(fixture.calls == 2)
+        #expect(manager.fastAnswerCredentialPrewarmTask == nil)
+    }
+
+    @Test func invalidatedQueuedReadinessNeverStartsTheLoader() async throws {
+        let fixture = CredentialLoaderFixture()
+        let store = PacePlannerCredentialStore(
+            loadConfiguration: { configuration },
+            loadInfisicalKey: { try await fixture.load($0) })
+        let manager = makeReadinessManager(store: store)
+        manager.prewarmFastAnswerCredentialsIfNeeded()
+        let queuedPrewarm = try #require(manager.fastAnswerCredentialPrewarmTask)
+        manager.invalidateFastAnswerCredentialPrewarm()
+        await queuedPrewarm.value
+        #expect(fixture.calls == 0)
+        #expect(manager.fastAnswerCredentialPrewarmTask == nil)
+    }
+
+    @Test func wakeReadinessRefreshesExpiredKeyAndDemandJoinsWithoutIdleRefresh() async throws {
+        let fixture = CredentialLoaderFixture()
+        var elapsed: TimeInterval = 100
+        let store = PacePlannerCredentialStore(
+            loadConfiguration: { configuration },
+            loadInfisicalKey: { try await fixture.load($0) }, now: { elapsed })
+        #expect(try await store.loadOpenAIKey() == fixture.value)
+        let manager = makeReadinessManager(store: store)
+        let workspaceNotifications = NotificationCenter()
+        let panelManager = MenuBarPanelManager(
+            companionManager: manager, workspaceNotificationCenter: workspaceNotifications)
+        defer {
+            manager.invalidateFastAnswerCredentialPrewarm()
+            withExtendedLifetime(panelManager) {}
+        }
+        elapsed += 30 * 60
+        fixture.value = "sk-refreshed-synthetic-credential-for-tests-only"
+        fixture.pause = true
+        workspaceNotifications.post(name: NSWorkspace.didWakeNotification, object: nil)
+        try await waitUntil { fixture.calls == 2 }
+        let wakePrewarm = try #require(manager.fastAnswerCredentialPrewarmTask)
+        var demandStarted = false
+        let demand = Task {
+            demandStarted = true
+            return try await store.loadOpenAIKey()
+        }
+        try await waitUntil { demandStarted }
+        #expect(fixture.calls == 2)
+        fixture.pause = false
+        #expect(try await demand.value == fixture.value)
+        await wakePrewarm.value
+        #expect(try await store.loadOpenAIKey() == fixture.value)
+        #expect(fixture.calls == 2)
+
+        elapsed += 30 * 60
+        for _ in 0..<10 { await Task.yield() }
+        #expect(fixture.calls == 2)
+        #expect(manager.fastAnswerCredentialPrewarmTask == nil)
+        fixture.value = "sk-next-synthetic-credential-for-tests-only"
+        #expect(try await store.loadOpenAIKey() == fixture.value)
+        #expect(fixture.calls == 3)
     }
 
     @Test func configuredInfisicalBypassesKeychainAndCachesOnlyInMemory() async throws {

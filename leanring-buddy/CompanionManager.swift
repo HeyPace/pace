@@ -350,6 +350,15 @@ final class CompanionManager: ObservableObject {
     /// once instead of racing two multi-gigabyte inference sessions.
     var textOnlyPlannerWarmupTask: Task<Void, Never>?
 
+    var fastAnswerCredentialPrewarmTask: Task<Void, Never>?
+    var fastAnswerCredentialPrewarmGeneration = UUID()
+    var fastAnswerCredentialStore = PacePlannerCredentialStore.shared
+    var fastAnswerCredentialSourceIsReady: () -> Bool = {
+        (try? PaceInfisicalCredentialConfiguration.load()) != nil
+            && PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent()
+            && PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+    }
+
     /// Post-hoc response quality checker. After the local model generates a
     /// response, this checks whether it is adequate before speaking it. If
     /// poor, the turn is re-routed to a stronger model.

@@ -1973,11 +1973,32 @@ extension CompanionManager {
             handleUnsupportedTurn(transcript: transcript, unsupportedResponse: unsupportedResponse)
             return
         }
+        let currentInitialInspectionContext = {
+            PaceInitialInspectionPlanResolver.Context(
+                usesDirectCodex: activePlannerTier == .cliDirect && activePlannerTierCLIDirectUpstream == .codex,
+                usesDefaultCodexPlanner: (plannerClient as? PaceLocalCLIPlannerClient)?.allowsBoundedEverydayAnswers
+                    == true,
+                hasAcceptedDirectSpawnConsent: PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
+                canRunDirectSpawnTurn: PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date()),
+                isReadMyScreenEnabled: useLocalVLMForScreenContext,
+                areActionsEnabled: actionExecutor.actionsAreEnabled,
+                isLocalForegroundTurn: activePacePadTurnIdentifier == nil,
+                isResearchOrEscalationTurn: researchTurnConfiguration != nil || researchTurnPlannerOverride != nil
+                    || isEscalationRoute,
+                hasActiveSkill: activeSkillRun != nil,
+                hasScreenSuggestion: screenSuggestionContext != nil,
+                hasVisualContext: hasActiveDiagram || hasActiveImage || requestsInteractiveDiagram
+                    || requestsGeneratedImage,
+                requestsTeaching: PaceTeachingPower.prefersVisualExplanation(transcript))
+        }
+        let initialInspectionPlan = PaceInitialInspectionPlanResolver.resolve(
+            transcript: transcript, context: currentInitialInspectionContext())
+
         // A complex or context-dependent knowledge turn may request a larger
         // model, but an unavailable bridge must never turn it into a screen
         // request. The local text-only planner is a lower-quality answerer,
         // not a reason to capture the user's display or require permission.
-        if !requestsInteractiveDiagram && !requestsGeneratedImage,
+        if initialInspectionPlan == nil, !requestsInteractiveDiagram && !requestsGeneratedImage,
             mutableIntentPrediction.route == .escalateToLargeModel,
             !escalationUsesLargeModelForThisTurn,
             mutableIntentPrediction.intent == .pureKnowledge
@@ -1996,7 +2017,8 @@ extension CompanionManager {
         // Fast paths use .route (not .intent) so a low-confidence
         // prediction whose intent happens to be .chitchat but whose
         // route is .escalateToLargeModel does NOT bypass escalation.
-        if !requestsInteractiveDiagram && !requestsGeneratedImage && mutableIntentPrediction.route == .chitchatFastPath
+        if initialInspectionPlan == nil && !requestsInteractiveDiagram && !requestsGeneratedImage
+            && mutableIntentPrediction.route == .chitchatFastPath
         {
             print(
                 "🎯 Intent: chitchat (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — fast-path"
@@ -2006,7 +2028,9 @@ extension CompanionManager {
                 purpose: classifiedTextAnswerPurpose)
             return
         }
-        if !requestsInteractiveDiagram && !requestsGeneratedImage && mutableIntentPrediction.route == .answerDirectly {
+        if initialInspectionPlan == nil && !requestsInteractiveDiagram && !requestsGeneratedImage
+            && mutableIntentPrediction.route == .answerDirectly
+        {
             print(
                 "🎯 Intent: pureKnowledge (confidence \(String(format: "%.2f", mutableIntentPrediction.confidence)), complexity \(mutableIntentPrediction.complexity.rawValue)) — text-only planner"
             )
@@ -2128,6 +2152,9 @@ extension CompanionManager {
                     streamingPlannerFieldDetector.reset()
                     let isFirstStep = (stepIndex == 1)
                     guard !Task.isCancelled else { return }
+                    if initialInspectionPlan != nil, !currentInitialInspectionContext().isEligible {
+                        throw CancellationError()
+                    }
 
                     // 1. Capture screens for this step. On the first step,
                     // prefer the PTT-press prewarm capture if it finished:
@@ -2137,7 +2164,9 @@ extension CompanionManager {
                     let screenCaptureStartedAt = Date()
                     var prewarmedContextForStep: PaceScreenContextPrewarmedSnapshot?
                     let screenCaptures: [CompanionScreenCapture]
-                    if isResearchTurn || !useLocalVLMForScreenContext
+                    // Named window inventory needs provider metadata, not a screenshot to author the list call.
+                    if (isFirstStep && initialInspectionPlan != nil)
+                        || isResearchTurn || !useLocalVLMForScreenContext
                         || (requestsGeneratedImage && !imageNeedsScreenContext)
                     {
                         screenCaptures = []
@@ -2290,7 +2319,13 @@ extension CompanionManager {
                     var raceLiteWonSpokenText: String? = nil
                     var plannerDisplayNameForStep = plannerClientForThisTurn.displayName
                     var plannerPathDetailForStep = "single planner"
-                    if useSpeculativeRace {
+                    if isFirstStep, let initialInspectionPlan {
+                        fullResponseText = initialInspectionPlan.canonicalEnvelope
+                        turnFullResponseText = fullResponseText
+                        userPromptForPlannerForDebug = transcript
+                        plannerDisplayNameForStep = "Pace local initial inspection"
+                        plannerPathDetailForStep = "deterministic Peekaboo window.list"
+                    } else if useSpeculativeRace {
                         userPromptForPlannerForDebug =
                             "(speculative race — full-path prompt assembled inside the race; lite path is transcript-only)"
                         let raceWiringResult = await performFirstStepSpeculativePlannerRace(
@@ -2762,11 +2797,12 @@ extension CompanionManager {
                                 actionParseResult.executionPlan,
                                 preflightIssues: preflightIssues
                             ) {
-                                // Brief settle so the cursor flight visibly arrives
-                                // before the synthetic click fires.
-                                try? await Task.sleep(nanoseconds: 350_000_000)
+                                if !PaceActionApprovalPolicy.permitsObservationOnly(actionParseResult.executionPlan) {
+                                    // Let cursor motion arrive before input; read-only tools need no UI settling.
+                                    try? await Task.sleep(nanoseconds: 350_000_000)
+                                    preActionObservationBaseline = PaceClickStateSnapshot.captureLightweight()
+                                }
                                 guard !Task.isCancelled else { return }
-                                preActionObservationBaseline = PaceClickStateSnapshot.captureLightweight()
                                 let mutationCountBeforeExecution = actionExecutor.mutationLog.count
                                 PaceLatencyBudget.shared.mark(.toolExecStart)
                                 if actionExecutor.hasActiveStreamingMailDraft,
