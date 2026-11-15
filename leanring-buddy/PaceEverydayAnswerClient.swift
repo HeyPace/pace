@@ -69,13 +69,13 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient, PacePas
     }()
     private let session: URLSession
     private let loadKey: () async throws -> String?
-    private let invalidateKey: () -> Void
+    private let invalidateKey: @MainActor () -> Void
     private let isAuthorized: () -> Bool
     private let auditLog: PaceAPIAuditLog
 
     init(session: URLSession? = nil,
         loadKey: @escaping () async throws -> String? = { try await PacePlannerCredentialStore.shared.loadOpenAIKey() },
-        invalidateKey: @escaping () -> Void = { PacePlannerCredentialStore.shared.clearCachedKey() },
+        invalidateKey: @escaping @MainActor () -> Void = { PacePlannerCredentialStore.shared.clearCachedKey() },
          auditLog: PaceAPIAuditLog = .shared,
          isAuthorized: @escaping () -> Bool) {
         self.session = session ?? Self.sharedSession
