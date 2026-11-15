@@ -132,6 +132,12 @@ struct PaceActionApprovalTests {
         #expect(PaceActionApprovalPolicy.needsAnswerAfterInspection(inventory.executionPlan))
         #expect(PaceActionApprovalPolicy.needsAnswerAfterInspection(.serial(actions: [inspection])))
         #expect(!PaceActionApprovalPolicy.needsAnswerAfterInspection(.serial(actions: [inspection, .type("text")])))
+        let recoveredInventory = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.window", summary: "Read-only candidate inventory",
+            userFacingSummary: "", terminalReason: .ambiguousInspectionTarget)
+        #expect(
+            PaceActionApprovalPolicy.needsAnswerAfterInspection(
+                .serial(actions: [inspection, .type("text")]), observations: [recoveredInventory]))
         let answer = PaceActionTagParser.parseActions(
             from:
                 #"{"spokenText":"Launch review is Tuesday at 14:00.","intent":"answer"}"#)

@@ -480,6 +480,7 @@ extension CompanionManager {
             pttPressedAt = Date()
             // Start a per-turn latency budget tracker.
             PaceLatencyBudget.shared.startTurn(trigger: .pushToTalk)
+            prewarmFastAnswerCredentialsIfNeeded()
             // Fire the screen-context pre-warm in parallel with dictation.
             // VLM + OCR run during the user's natural speech time (~2-5s)
             // and the result is awaited by the agent loop's first step —

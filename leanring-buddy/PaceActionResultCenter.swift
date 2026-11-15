@@ -45,19 +45,22 @@ nonisolated struct PaceActionRunRecord: Identifiable, Equatable {
     let status: PaceActionRunStatus
     let title: String
     let detail: String
+    let showsInConversation: Bool
 
     init(
         id: UUID = UUID(),
         createdAt: Date = Date(),
         status: PaceActionRunStatus,
         title: String,
-        detail: String
+        detail: String,
+        showsInConversation: Bool = true
     ) {
         self.id = id
         self.createdAt = createdAt
         self.status = status
         self.title = title
         self.detail = detail
+        self.showsInConversation = showsInConversation
     }
 
     static func planned(
@@ -82,20 +85,28 @@ nonisolated struct PaceActionRunRecord: Identifiable, Equatable {
     }
 
     static func completed(observations: [PaceActionExecutionObservation]) -> PaceActionRunRecord {
-        let hasFailure = observations.contains { observation in
+        func indicatesFailure(_ observation: PaceActionExecutionObservation) -> Bool {
+            if observation.requiresFreshInspectionPlan { return false }
             let lowercasedSummary = observation.summary.lowercased()
-            return lowercasedSummary.contains("failed")
+            return observation.stopsAgentLoop || lowercasedSummary.contains("failed")
                 || lowercasedSummary.contains("could not")
                 || lowercasedSummary.contains("not granted")
                 || lowercasedSummary.contains("does not exist")
         }
+        let hasFailure = observations.contains(where: indicatesFailure)
+        let needsFreshInspection = observations.contains(where: \.requiresFreshInspectionPlan)
+        let hasCoveredTargetOutcome =
+            observations.contains { $0.terminalReason != nil }
+            && !observations.contains { $0.terminalReason == nil && indicatesFailure($0) }
 
         let feedback = PaceActionExecutionObservation.formatForUserFeedback(observations)
             ?? "No tool observations returned."
         return PaceActionRunRecord(
-            status: hasFailure ? .failed : .completed,
-            title: hasFailure ? "Action needs attention" : "Action complete",
-            detail: feedback
+            status: hasFailure ? .failed : (needsFreshInspection ? .skipped : .completed),
+            title: hasFailure
+                ? "Action needs attention" : (needsFreshInspection ? "Choosing a window" : "Action complete"),
+            detail: hasCoveredTargetOutcome ? PaceActionExecutionObservation.formatForPlanner(observations) : feedback,
+            showsInConversation: !hasCoveredTargetOutcome
         )
     }
 }

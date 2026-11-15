@@ -322,6 +322,7 @@ nonisolated enum PaceChatTranscriptModel {
         let oldestFirstRowModels: [PaceChatToolActivityRowModel] = newestFirstActionRunRecords
             .enumerated()
             .compactMap { indexFromNewest, actionRunRecord in
+                guard actionRunRecord.showsInConversation else { return nil }
                 if actionRunRecord.status == .planned && indexFromNewest != 0 {
                     return nil
                 }

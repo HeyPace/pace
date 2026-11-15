@@ -18,6 +18,44 @@ import Testing
 
 struct PaceChatTranscriptModelTests {
 
+    @Test func appTargetClarificationHasOneHumanReplyWhileTechnicalDetailsRemainAvailable() {
+        let observation = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.window",
+            summary: "Application target remains ambiguous. Provider diagnostic: PID:111 PID:222",
+            userFacingSummary: "Which Google Chrome window do you mean?",
+            terminalReason: .ambiguousApplicationTarget)
+        let record = PaceActionRunRecord.completed(observations: [observation])
+        #expect(record.status == .failed)
+        #expect(!record.showsInConversation)
+        #expect(record.detail.contains("PID:111"))
+        #expect(PaceActionExecutionObservation.formatForPlanner([observation]).contains("PID:222"))
+        #expect(
+            PaceActionExecutionObservation.formatForUserFeedback([observation])
+                == "Which Google Chrome window do you mean?")
+        #expect(PaceChatTranscriptModel.toolActivityRowModels(fromNewestFirstActionRunRecords: [record]).isEmpty)
+    }
+
+    @Test func recoveryDoesNotCreateAnInterimChipAndUncoveredFailuresStayVisible() {
+        let recovery = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.window",
+            summary: "Read-only candidate inventory", userFacingSummary: "", terminalReason: .ambiguousInspectionTarget)
+        let recoveryRecord = PaceActionRunRecord.completed(observations: [recovery])
+        #expect(recoveryRecord.status == .skipped)
+        #expect(recoveryRecord.title == "Choosing a window")
+        #expect(!recoveryRecord.showsInConversation)
+        #expect(PaceActionExecutionObservation.formatForUserFeedback([recovery]) == nil)
+
+        let unrelatedFailure = PaceActionExecutionObservation(toolName: "notes", summary: "Failed to save the note.")
+        let mixedRecord = PaceActionRunRecord.completed(observations: [unrelatedFailure, recovery])
+        #expect(mixedRecord.status == .failed)
+        #expect(mixedRecord.showsInConversation)
+        let rows = PaceChatTranscriptModel.toolActivityRowModels(fromNewestFirstActionRunRecords: [
+            mixedRecord, recoveryRecord,
+        ])
+        #expect(rows.count == 1)
+        #expect(PaceActionRunRecord(status: .failed, title: "Failed", detail: "Other failure").showsInConversation)
+    }
+
     // MARK: - Fixtures
 
     private func makeChatMessage(

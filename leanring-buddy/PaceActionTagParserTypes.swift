@@ -61,13 +61,18 @@ nonisolated struct PaceSetOfMarkRecoveryRequest {
 nonisolated struct PaceActionExecutionObservation {
     enum TerminalReason: Equatable, Sendable {
         case ambiguousApplicationTarget
+        case ambiguousInspectionTarget
         case staleApplicationTarget
+        case inspectionInterrupted
     }
 
     let toolName: String
     let summary: String
+    let userFacingSummary: String?
     let terminalReason: TerminalReason?
-    var stopsAgentLoop: Bool { terminalReason != nil }
+    var stopsActionPlan: Bool { terminalReason != nil }
+    var requiresFreshInspectionPlan: Bool { terminalReason == .ambiguousInspectionTarget }
+    var stopsAgentLoop: Bool { terminalReason != nil && !requiresFreshInspectionPlan }
     /// Non-nil only on an all-fail click, to request Set-of-Mark recovery.
     let setOfMarkRecovery: PaceSetOfMarkRecoveryRequest?
 
@@ -76,11 +81,13 @@ nonisolated struct PaceActionExecutionObservation {
     init(
         toolName: String,
         summary: String,
+        userFacingSummary: String? = nil,
         setOfMarkRecovery: PaceSetOfMarkRecoveryRequest? = nil,
         terminalReason: TerminalReason? = nil
     ) {
         self.toolName = toolName
         self.summary = summary
+        self.userFacingSummary = userFacingSummary
         self.setOfMarkRecovery = setOfMarkRecovery
         self.terminalReason = terminalReason
     }
@@ -96,7 +103,7 @@ nonisolated struct PaceActionExecutionObservation {
 
     static func formatForUserFeedback(_ observations: [PaceActionExecutionObservation]) -> String? {
         let userVisibleSummaries = observations
-            .map(\.summary)
+            .map { $0.userFacingSummary ?? $0.summary }
             .map { summary in
                 // Producer metadata belongs to the planner, not speech or
                 // conversation indexing (snapshots can be very large).

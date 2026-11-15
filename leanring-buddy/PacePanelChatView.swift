@@ -478,6 +478,7 @@ struct PacePanelChatView: View {
         let toolItems = companionManager.recentActionResults
             .filter {
                 ($0.status == .completed || $0.status == .failed)
+                    && $0.showsInConversation
                     && selectedQuestionIdentifier == nil
                     && $0.createdAt >= (visibleMessages.first?.createdAt ?? Date())
             }

@@ -735,7 +735,9 @@ final class PaceActionExecutor {
     var activeStreamingMailDraftState: PaceStreamingMailDraftState?
     private(set) var applicationTargetGeneration = UUID()
     private var launchedApplicationTargets: [String: LaunchedApplicationTarget] = [:]
+    var hasAttemptedAmbiguousInspectionRecovery = false
     let runningApplicationBundleURL: (Int32) -> URL?
+    let preferredInspectionProcessIdentifiers: @MainActor () -> [Int32]
 
     struct LaunchedApplicationTarget {
         let processIdentifier: Int32
@@ -745,6 +747,7 @@ final class PaceActionExecutor {
     func beginUserTurn() {
         applicationTargetGeneration = UUID()
         launchedApplicationTargets.removeAll()
+        hasAttemptedAmbiguousInspectionRecovery = false
     }
 
     func rememberLaunchedApplication(
@@ -767,7 +770,7 @@ final class PaceActionExecutor {
         }
     }
 
-    private static func applicationTargetKey(_ applicationName: String) -> String {
+    static func applicationTargetKey(_ applicationName: String) -> String {
         let normalizedName = normalizeApplicationName(applicationName)
         return ["chrome", "googlechrome", "comgooglechrome"].contains(normalizedName) ? "googlechrome" : normalizedName
     }
@@ -833,12 +836,22 @@ final class PaceActionExecutor {
         runningApplicationBundleURL: @escaping (Int32) -> URL? = { processIdentifier in
             guard let application = NSRunningApplication(processIdentifier: processIdentifier), !application.isTerminated else { return nil }
             return application.bundleURL
+        },
+        preferredInspectionProcessIdentifiers: @escaping @MainActor () -> [Int32] = {
+            let foregroundProcess = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            let windows =
+                CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]] ?? []
+            let visibleProcesses = windows.filter { ($0[kCGWindowLayer as String] as? Int) == 0 }
+                .compactMap { $0[kCGWindowOwnerPID as String] as? Int32 }
+            return foregroundProcess.map { [$0] + visibleProcesses } ?? visibleProcesses
         }
     ) {
         self.mcpClient = mcpClient
         self.accessibilityPermissionCheck = accessibilityPermissionCheck
         self.readMyScreenIsEnabled = readMyScreenIsEnabled
         self.runningApplicationBundleURL = runningApplicationBundleURL
+        self.preferredInspectionProcessIdentifiers = preferredInspectionProcessIdentifiers
         // Default-construct on the MainActor init body — the
         // @MainActor-isolated initializer can't be the default arg of
         // another @MainActor init in Swift 6 concurrency checking.

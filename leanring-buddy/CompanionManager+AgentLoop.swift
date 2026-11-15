@@ -2810,9 +2810,11 @@ extension CompanionManager {
                                         .formatForUserFeedback(toolObservations)
                                     // After every reversible mutation, raise the
                                     // visible undo banner (PRD trust-and-failures).
-                                    noteReversibleActionExecuted(
-                                        in: actionParseResult.executionPlan
-                                    )
+                                    if !toolObservations.contains(where: \.stopsActionPlan) {
+                                        noteReversibleActionExecuted(
+                                            in: actionParseResult.executionPlan
+                                        )
+                                    }
                                     // After click-all-fail observations, speak
                                     // the plain-language failure once.
                                     speakFailureForClickMissedIfApplicable(
@@ -2932,7 +2934,7 @@ extension CompanionManager {
                     // answer. Keep mutations single-shot for constrained planners.
                     let needsInspectionAnswer =
                         PaceActionApprovalPolicy.needsAnswerAfterInspection(
-                            actionParseResult.executionPlan
+                            actionParseResult.executionPlan, observations: toolObservations
                         ) && !toolObservations.isEmpty
                     let exitLoop =
                         toolObservations.contains(where: \.stopsAgentLoop)
@@ -2944,7 +2946,15 @@ extension CompanionManager {
                     if exitLoop {
                         plannerLoopFinished = true
                         if toolObservations.contains(where: \.stopsAgentLoop) {
-                            currentTurnHUDState = .failed("Could not identify the app to control")
+                            if let ambiguity = toolObservations.first(where: {
+                                $0.terminalReason == .ambiguousApplicationTarget
+                            }) {
+                                currentTurnHUDState = .clarification(
+                                    question: ambiguity.userFacingSummary ?? "Which app window do you mean?",
+                                    options: [])
+                            } else {
+                                currentTurnHUDState = .failed("Window inspection stopped")
+                            }
                         } else if plannerSignaledDone {
                             print("✅ Agent loop: planner signaled [DONE] at step \(stepIndex)")
                         } else if plannerClientForThisTurn.usesStructuredActionOutput {

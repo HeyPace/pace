@@ -44,13 +44,52 @@ private enum PaceMCPFixture {
             requestTimeoutInSeconds: requestTimeoutInSeconds
         )
     }
+
+    static func makeAmbiguityClient(signalDirectory: URL? = nil) -> PaceMCPStdioClient {
+        let program = #"""
+            import json, pathlib, sys, time
+            calls = []
+            signal_root = pathlib.Path(sys.argv[1]) if sys.argv[1] else None
+            for line in sys.stdin:
+                request = json.loads(line)
+                if "id" not in request:
+                    continue
+                if request["method"] == "initialize":
+                    result = {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}}, "serverInfo": {"name": "ambiguity-fixture", "version": "1"}}
+                else:
+                    params = request["params"]
+                    name = params["name"]
+                    args = params.get("arguments", {})
+                    target = args.get("app", args.get("app_target", ""))
+                    if name == "receipt":
+                        result = {"content": [{"type": "text", "text": "\n".join(calls)}]}
+                    else:
+                        calls.append(name + ":" + target)
+                        if name in ["window", "see"] and target == "Google Chrome":
+                            result = {"isError": True, "content": [{"type": "text", "text": "Multiple apps match 'Google Chrome'. Did you mean: Google Chrome (PID:111), Google Chrome (PID:222)?"}]}
+                        else:
+                            if signal_root and target == "PID:111":
+                                (signal_root / "started").write_text("ready")
+                                deadline = time.monotonic() + 3
+                                while not (signal_root / "release").exists() and time.monotonic() < deadline:
+                                    time.sleep(0.001)
+                            text = "Current application inventory" if name == "app" else "Window title Preview " + target
+                            result = {"content": [{"type": "text", "text": text}]}
+                print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
+            """#
+        return PaceMCPStdioClient(serverConfigurations: [
+            "peekaboo": .init(
+                command: pythonThreeExecutablePath ?? "python3",
+                args: ["-u", "-c", program, signalDirectory?.path ?? "", UUID().uuidString])
+        ])
+    }
 }
 
 @Suite(.serialized)
 struct PaceMCPClientIntegrationTests {
     @MainActor
     @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
-    func executorUsesLaunchedPIDAndStopsAllLaterDispatchAfterAmbiguousInspection() async throws {
+    func executorUsesLaunchedPIDAndStopsTheOriginalPlanAfterAmbiguousInspection() async throws {
         let fixtureProgram = #"""
         import json, sys
         calls = 0
@@ -76,7 +115,8 @@ struct PaceMCPClientIntegrationTests {
         let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app")
         let executor = PaceActionExecutor(
             actionsAreEnabledOverride: true, mcpClient: client,
-            readMyScreenIsEnabled: { true }, runningApplicationBundleURL: { _ in chromeURL })
+            readMyScreenIsEnabled: { true }, runningApplicationBundleURL: { _ in chromeURL },
+            preferredInspectionProcessIdentifiers: { [] })
         executor.rememberLaunchedApplication(named: "Chrome", processIdentifier: 4123, bundleURL: chromeURL, generation: executor.applicationTargetGeneration)
         let inspection = PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: ["action": .string("list"), "app": .string("Google Chrome")])
         let boundResult = await executor.callMCPTool(inspection)
@@ -90,10 +130,197 @@ struct PaceMCPClientIntegrationTests {
             .mcp(.init(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("should not inspect")])),
         ]), screenCaptures: [])
         #expect(blockedResults.count == 1)
-        #expect(blockedResults.first?.terminalReason == .ambiguousApplicationTarget)
-        #expect(PaceActionExecutionObservation.formatForUserFeedback(blockedResults)?.contains("remaining actions were not run") == true)
+        #expect(blockedResults.first?.terminalReason == .ambiguousInspectionTarget)
+        #expect(blockedResults.first?.stopsActionPlan == true)
+        #expect(blockedResults.first?.stopsAgentLoop == false)
+        #expect(PaceActionExecutionObservation.formatForUserFeedback(blockedResults) == nil)
         let receipt = try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
-        #expect(receipt.contains("calls=3;"))
+        #expect(receipt.contains("calls=5;"))
+    }
+
+    @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func ambiguousReadOnlyInventoryReturnsAllValidatedCandidatesWithoutBindingOrLaterWrites() async throws {
+        let client = PaceMCPFixture.makeAmbiguityClient()
+        let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app")
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, mcpClient: client,
+            readMyScreenIsEnabled: { true }, runningApplicationBundleURL: { _ in chromeURL },
+            preferredInspectionProcessIdentifiers: { [222] })
+        let inspection = PaceMCPToolCall(
+            serverName: "peekaboo", toolName: "window",
+            arguments: [
+                "action": .string("list"), "app": .string("Google Chrome"),
+            ])
+        let plan = PaceActionExecutionPlan.serial(actions: [
+            .mcp(inspection), .mcp(.init(serverName: "peekaboo", toolName: "click", arguments: [:])),
+            .type("never type"),
+        ])
+        let observations = await executor.executeActionPlan(plan, screenCaptures: [])
+        #expect(observations.count == 1)
+        let observation = try #require(observations.first)
+        #expect(observation.requiresFreshInspectionPlan)
+        #expect(!observation.stopsAgentLoop)
+        #expect(observation.summary.contains("Preview PID:111"))
+        #expect(observation.summary.contains("Preview PID:222"))
+        #expect(observation.summary.contains("inventory may be incomplete"))
+        #expect(try executor.boundPeekabooToolCall(inspection) == inspection)
+        #expect(PaceActionApprovalPolicy.needsAnswerAfterInspection(plan, observations: observations))
+        let receipt = try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
+        #expect(receipt.components(separatedBy: "\n") == ["window:Google Chrome", "window:PID:222", "window:PID:111"])
+
+        let repeated = await executor.callMCPTool(inspection)
+        #expect(repeated.terminalReason == .ambiguousApplicationTarget)
+        #expect(repeated.userFacingSummary == "Which Google Chrome window do you mean?")
+        let repeatedReceipt = try await client.callTool(
+            .init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
+        #expect(repeatedReceipt.components(separatedBy: "\n").count == 4)
+        executor.beginUserTurn()
+        #expect(await executor.callMCPTool(inspection).requiresFreshInspectionPlan)
+    }
+
+    @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func ambiguityDoesNotRecoverMutationsScreenshotsOrExactSelectors() async throws {
+        let requests = [
+            PaceMCPToolCall(
+                serverName: "peekaboo", toolName: "window",
+                arguments: ["action": .string("focus"), "app": .string("Google Chrome")]),
+            PaceMCPToolCall(
+                serverName: "peekaboo", toolName: "see", arguments: ["app_target": .string("Google Chrome")]),
+            PaceMCPToolCall(
+                serverName: "peekaboo", toolName: "window",
+                arguments: ["action": .string("list"), "app": .string("Google Chrome"), "window_id": .number(123)]),
+        ]
+        for request in requests {
+            let client = PaceMCPFixture.makeAmbiguityClient()
+            let executor = PaceActionExecutor(
+                actionsAreEnabledOverride: true, mcpClient: client,
+                readMyScreenIsEnabled: { true },
+                runningApplicationBundleURL: { _ in URL(fileURLWithPath: "/Applications/Google Chrome.app") },
+                preferredInspectionProcessIdentifiers: { [] })
+            let observations = await executor.executeActionPlan(
+                .serial(actions: [
+                    .mcp(request), .mcp(.init(serverName: "peekaboo", toolName: "click", arguments: [:])),
+                ]), screenCaptures: [])
+            #expect(observations.count == 1)
+            #expect(observations.first?.terminalReason == .ambiguousApplicationTarget)
+            #expect(observations.first?.stopsAgentLoop == true)
+            let receipt = try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
+            #expect(receipt.components(separatedBy: "\n").count == 1)
+        }
+    }
+
+    @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func deadOrWrongApplicationCandidatesUseOnlyOneReadOnlyAppInventory() async throws {
+        let client = PaceMCPFixture.makeAmbiguityClient()
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, mcpClient: client,
+            readMyScreenIsEnabled: { true },
+            runningApplicationBundleURL: { identifier in
+                identifier == 111 ? nil : URL(fileURLWithPath: "/Applications/Safari.app")
+            }, preferredInspectionProcessIdentifiers: { [] })
+        let result = await executor.callMCPTool(
+            .init(
+                serverName: "peekaboo", toolName: "window",
+                arguments: [
+                    "action": .string("list"), "app": .string("Google Chrome"),
+                ]))
+        #expect(result.requiresFreshInspectionPlan)
+        #expect(result.summary.contains("Current application inventory"))
+        let receipt = try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
+        #expect(receipt.components(separatedBy: "\n") == ["window:Google Chrome", "app:"])
+    }
+
+    @MainActor @Test func candidateParsingIsBoundedAndPrioritizesOnlyValidatedVisibleProcesses() {
+        let diagnostic = "PID:-1 PID:0 PID:9999999999 PID:111 PID:111 PID:222 PID:333 PID:444 PID:555 PID:666"
+        #expect(PaceActionExecutor.peekabooAmbiguousProcessIdentifiers(in: diagnostic) == [111, 222, 333, 444])
+        #expect(
+            PaceActionExecutor.peekabooAmbiguousProcessIdentifiers(
+                in: diagnostic, preferring: [666, 999], matchesApplication: { $0 != 111 }) == [666, 222, 333, 444])
+        #expect(
+            PaceActionExecutor.peekabooAmbiguousProcessIdentifiers(
+                in: String(repeating: "x", count: 8_000) + " PID:777"
+            ).isEmpty)
+    }
+
+    @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func revocationCancellationAndNewTurnsStopRecoveryAfterAnAwait() async throws {
+        for interruption in ["revoke", "cancel", "newTurn"] {
+            let signalDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "pace-inspection-\(UUID())")
+            try FileManager.default.createDirectory(at: signalDirectory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: signalDirectory) }
+            let client = PaceMCPFixture.makeAmbiguityClient(signalDirectory: signalDirectory)
+            var canReadScreen = true
+            let executor = PaceActionExecutor(
+                actionsAreEnabledOverride: true, mcpClient: client,
+                readMyScreenIsEnabled: { canReadScreen },
+                runningApplicationBundleURL: { _ in URL(fileURLWithPath: "/Applications/Google Chrome.app") },
+                preferredInspectionProcessIdentifiers: { [] })
+            let task = Task { @MainActor in
+                await executor.callMCPTool(
+                    .init(
+                        serverName: "peekaboo", toolName: "window",
+                        arguments: [
+                            "action": .string("list"), "app": .string("Google Chrome"),
+                        ]))
+            }
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while !FileManager.default.fileExists(atPath: signalDirectory.appendingPathComponent("started").path),
+                ContinuousClock.now < deadline
+            {
+                try await Task.sleep(for: .milliseconds(1))
+            }
+            #expect(FileManager.default.fileExists(atPath: signalDirectory.appendingPathComponent("started").path))
+            switch interruption {
+            case "revoke": canReadScreen = false
+            case "cancel": task.cancel()
+            default: executor.beginUserTurn()
+            }
+            try Data().write(to: signalDirectory.appendingPathComponent("release"))
+            let result = await task.value
+            #expect(result.terminalReason == .inspectionInterrupted)
+            #expect(result.stopsAgentLoop)
+            let receipt = try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
+            #expect(receipt.components(separatedBy: "\n") == ["window:Google Chrome", "window:PID:111"])
+        }
+    }
+
+    @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func anInventoryFromAReusedProcessIsDiscardedAfterItsAwait() async throws {
+        let signalDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("pace-inspection-\(UUID())")
+        try FileManager.default.createDirectory(at: signalDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: signalDirectory) }
+        let client = PaceMCPFixture.makeAmbiguityClient(signalDirectory: signalDirectory)
+        let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app")
+        var firstProcessBundleURL = chromeURL
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, mcpClient: client,
+            readMyScreenIsEnabled: { true },
+            runningApplicationBundleURL: { identifier in
+                identifier == 111 ? firstProcessBundleURL : chromeURL
+            }, preferredInspectionProcessIdentifiers: { [] })
+        let task = Task { @MainActor in
+            await executor.callMCPTool(
+                .init(
+                    serverName: "peekaboo", toolName: "window",
+                    arguments: [
+                        "action": .string("list"), "app": .string("Google Chrome"),
+                    ]))
+        }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while !FileManager.default.fileExists(atPath: signalDirectory.appendingPathComponent("started").path),
+            ContinuousClock.now < deadline
+        {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        #expect(FileManager.default.fileExists(atPath: signalDirectory.appendingPathComponent("started").path))
+        firstProcessBundleURL = URL(fileURLWithPath: "/Applications/Safari.app")
+        try Data().write(to: signalDirectory.appendingPathComponent("release"))
+        let result = await task.value
+        #expect(result.requiresFreshInspectionPlan)
+        #expect(!result.summary.contains("Preview PID:111"))
+        #expect(result.summary.contains("PID:111 changed during inspection"))
+        #expect(result.summary.contains("Preview PID:222"))
     }
 
     @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))

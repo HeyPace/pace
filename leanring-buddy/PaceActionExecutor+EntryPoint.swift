@@ -38,7 +38,7 @@ extension PaceActionExecutor {
 
                 if let observation = await executeSingleAction(action, screenCaptures: screenCaptures) {
                     observations.append(observation)
-                    if observation.stopsAgentLoop { return observations }
+                    if observation.stopsActionPlan { return observations }
                 }
                 guard !Task.isCancelled else { return observations }
 

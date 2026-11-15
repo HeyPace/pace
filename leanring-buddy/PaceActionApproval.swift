@@ -49,8 +49,12 @@ nonisolated struct PaceActionApprovalRequest: Equatable, Sendable {
 }
 
 nonisolated enum PaceActionApprovalPolicy {
-    static func needsAnswerAfterInspection(_ actionExecutionPlan: PaceActionExecutionPlan) -> Bool {
-        !actionExecutionPlan.flattenedActions.isEmpty
+    static func needsAnswerAfterInspection(
+        _ actionExecutionPlan: PaceActionExecutionPlan,
+        observations: [PaceActionExecutionObservation] = []
+    ) -> Bool {
+        observations.contains(where: \.requiresFreshInspectionPlan)
+            || !actionExecutionPlan.flattenedActions.isEmpty
             && actionExecutionPlan.flattenedActions.allSatisfy { action in
                 guard case .mcp(let toolCall) = action else { return false }
                 // Focus recovery changes permission requirements, but the result
