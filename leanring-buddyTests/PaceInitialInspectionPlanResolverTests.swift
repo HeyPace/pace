@@ -14,6 +14,32 @@ struct PaceInitialInspectionPlanResolverTests {
             hasVisualContext: false, requestsTeaching: false)
     }
 
+    @MainActor
+    @Test func changedSettingsEndTheInspectionOnceWithoutStaleTurnOutput() throws {
+        let (manager, persister, client) = PaceConversationRecorderTests().makeDismissalFixture()
+        let turnLease = manager.turnLeaseRegistry.beginTurn()
+        manager.beginConversationRequest("List Google Chrome windows.")
+        manager.currentTurnHUDState = .acting("Checking windows")
+        #expect(!manager.finishInitialInspectionIfSettingsChanged(context: eligibleContext, turnLease: turnLease))
+        #expect(persister.events.values.filter { $0.role == .pace }.isEmpty)
+
+        var revokedContext = eligibleContext
+        revokedContext.isReadMyScreenEnabled = false
+        #expect(manager.finishInitialInspectionIfSettingsChanged(context: revokedContext, turnLease: turnLease))
+        #expect(manager.currentTurnHUDState.status == .failed)
+        let message = try #require(manager.currentTurnHUDState.detail)
+        #expect(manager.chatSession.userFacingMessages.filter { $0.body == message }.count == 1)
+        #expect(persister.events.values.filter { $0.role == .pace }.count == 1)
+        #expect(client.spokenTexts.isEmpty)
+
+        let newerTurnLease = manager.turnLeaseRegistry.beginTurn()
+        manager.currentTurnHUDState = .understanding("New request")
+        #expect(!manager.finishInitialInspectionIfSettingsChanged(context: revokedContext, turnLease: turnLease))
+        #expect(manager.isActiveTurn(newerTurnLease))
+        #expect(persister.events.values.filter { $0.role == .pace }.count == 1)
+        #expect(manager.currentTurnHUDState == .understanding("New request"))
+    }
+
     @Test func exactWindowCommandsProduceOneReadOnlyActionWithoutNarration() throws {
         let requests = [
             ("List Google Chrome windows", "Google Chrome"),

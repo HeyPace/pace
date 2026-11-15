@@ -47,6 +47,17 @@ extension CompanionManager {
         !Task.isCancelled && turnLeaseRegistry.isCurrent(turnLease)
     }
 
+    func finishInitialInspectionIfSettingsChanged(
+        context: PaceInitialInspectionPlanResolver.Context, turnLease: PaceTurnLease
+    ) -> Bool {
+        guard !context.isEligible, isActiveTurn(turnLease) else { return false }
+        let message = "I stopped the window check because Pace’s permissions or settings changed."
+        currentTurnHUDState = .failed(message)
+        recordConversationTurn(userTranscript: "", assistantResponse: message)
+        responseOverlayManager.finishStreaming()
+        return true
+    }
+
     var canGenerateImagesWithCodex: Bool {
         activePlannerTier == .cliDirect && activePlannerTierCLIDirectUpstream == .codex
             && PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
@@ -1973,7 +1984,7 @@ extension CompanionManager {
             handleUnsupportedTurn(transcript: transcript, unsupportedResponse: unsupportedResponse)
             return
         }
-        let currentInitialInspectionContext = {
+        let currentInitialInspectionContext = { [self] in
             PaceInitialInspectionPlanResolver.Context(
                 usesDirectCodex: activePlannerTier == .cliDirect && activePlannerTierCLIDirectUpstream == .codex,
                 usesDefaultCodexPlanner: (plannerClient as? PaceLocalCLIPlannerClient)?.allowsBoundedEverydayAnswers
@@ -2151,9 +2162,14 @@ extension CompanionManager {
                     streamingMailDraftDetector.reset()
                     streamingPlannerFieldDetector.reset()
                     let isFirstStep = (stepIndex == 1)
-                    guard !Task.isCancelled else { return }
-                    if initialInspectionPlan != nil, !currentInitialInspectionContext().isEligible {
-                        throw CancellationError()
+                    guard isActiveTurn(turnLease) else { return }
+                    if initialInspectionPlan != nil,
+                        finishInitialInspectionIfSettingsChanged(
+                            context: currentInitialInspectionContext(), turnLease: turnLease)
+                    {
+                        plannerLoopFinished = true
+                        pendingPostActionFeedbackText = nil
+                        break agentStepLoop
                     }
 
                     // 1. Capture screens for this step. On the first step,

@@ -105,6 +105,9 @@ struct PacePanelChatView: View {
                 selectedQuestionIdentifier = nil
             }
         }
+        .onChange(of: isInputFocused) { _, isInputFocused in
+            if isInputFocused { companionManager.prewarmFastAnswerCredentialsIfNeeded() }
+        }
         .onChange(of: companionManager.voiceState) { _, voiceState in
             if voiceState == .listening {
                 selectedQuestionIdentifier = nil
