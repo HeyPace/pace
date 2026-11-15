@@ -229,19 +229,21 @@ struct PaceMCPClientIntegrationTests {
                     else:
                         calls.append(name)
                         diagnostic = params.get("arguments", {}).get("failure", "invalid parameter: app")
-                        result = {"isError": True, "content": [{"type": "text", "text": diagnostic}]}
+                        result = {"isError": True, "content": [{"type": "text", "text": diagnostic}], "structuredContent": {"window_id": 14013}, "_meta": {"pid": 4013, "windowTitle": "Sign in", "snapshotDescription": "accessibility snapshot"}}
                 print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
             """#
-        let client = PaceMCPStdioClient(serverConfigurations: [
-            "peekaboo": .init(
-                command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3",
-                args: ["-u", "-c", program, UUID().uuidString])
-        ])
+        let configuration = PaceMCPServerConfiguration(
+            command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3",
+            args: ["-u", "-c", program, UUID().uuidString])
+        let client = PaceMCPStdioClient(serverConfigurations: ["peekaboo": configuration, "playwright": configuration])
         let executor = PaceActionExecutor(
             actionsAreEnabledOverride: true, mcpClient: client,
             readMyScreenIsEnabled: { true })
         let futureWrite = PaceParsedAction.mcp(.init(serverName: "peekaboo", toolName: "click", arguments: [:]))
-        for diagnostic in ["invalid parameter: app", "Application not running"] {
+        for diagnostic in [
+            "invalid parameter: app", "Application not running", "Invalid params: window_id 14013",
+            "Invalid params: window title Sign in", "Missing required argument: accessibility",
+        ] {
             executor.beginUserTurn()
             let inspection = PaceParsedAction.mcp(
                 .init(
@@ -271,7 +273,10 @@ struct PaceMCPClientIntegrationTests {
                 "Enable Screen Recording for Peekaboo in System Settings, then try again."
             ),
             ("Accessibility access denied", "Enable Accessibility for Peekaboo in System Settings, then try again."),
-            ("Unauthorized: expired token", "Sign in again to Peekaboo through Pace settings, then try again."),
+            ("Unauthorized: expired token", "Reconnect Peekaboo in Pace settings, then try again."),
+            ("HTTP status: 401", "Reconnect Peekaboo in Pace settings, then try again."),
+            ("Window titled Sign in not available", "I couldn’t finish that step through Peekaboo."),
+            ("Accessibility snapshot failed", "I couldn’t finish that step through Peekaboo."),
         ] {
             executor.beginUserTurn()
             let observation = await executor.callMCPTool(
@@ -285,6 +290,11 @@ struct PaceMCPClientIntegrationTests {
         }
         let calls = try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
         #expect(!calls.contains("click"))
+        let browserFailure = await executor.callMCPTool(
+            .init(
+                serverName: "playwright", toolName: "browser_snapshot",
+                arguments: ["failure": .string("Accessibility snapshot failed")]))
+        #expect(browserFailure.userFacingSummary == "I couldn’t finish that step through Playwright.")
     }
 
     @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))

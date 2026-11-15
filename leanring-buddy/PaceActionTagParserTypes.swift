@@ -60,12 +60,14 @@ nonisolated struct PaceSetOfMarkRecoveryRequest {
 
 nonisolated enum PaceApplicationTargetResolution: Equatable, Sendable {
     case discovering
+    case retryingInspection
     case clarification(String)
     case interrupted(String)
 
     var userFacingSummary: String {
         switch self {
         case .discovering: return "Checking which window you mean."
+        case .retryingInspection: return "Checking that again."
         case .clarification(let question), .interrupted(let question): return question
         }
     }
@@ -91,7 +93,8 @@ nonisolated struct PaceActionExecutionObservation {
     var stopsAgentLoop: Bool { terminalReason != nil && !requiresFreshInspectionPlan }
     var targetResolution: PaceApplicationTargetResolution? {
         switch terminalReason {
-        case .ambiguousInspectionTarget, .recoverableInspectionFailure: return .discovering
+        case .ambiguousInspectionTarget: return .discovering
+        case .recoverableInspectionFailure: return .retryingInspection
         case .ambiguousApplicationTarget: return .clarification(userFacingSummary ?? "Which app window do you mean?")
         case .staleApplicationTarget, .inspectionInterrupted:
             return .interrupted(userFacingSummary ?? "I stopped checking that window.")

@@ -103,6 +103,12 @@ struct PaceChatTranscriptModelTests {
         manager.appendActionResult(.completed(observations: [stale]))
         #expect(manager.currentTurnHUDState.status == .failed)
         #expect(manager.currentTurnHUDState.detail == "Chrome closed. Please reopen it so I can continue.")
+        let retry = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.app", summary: "Invalid parameter",
+            userFacingSummary: "", terminalReason: .recoverableInspectionFailure)
+        manager.appendActionResult(.completed(observations: [retry]))
+        #expect(manager.currentTurnHUDState.detail == "Checking that again")
+        #expect(manager.recentActionResults.first?.title == "Checking that again")
     }
 
     @MainActor @Test func earlierFailureIsNotMaskedByTargetDiscovery() {
@@ -110,13 +116,25 @@ struct PaceChatTranscriptModelTests {
         let failure = PaceActionExecutionObservation(
             toolName: "notes", summary: "Failed internal note implementation",
             userFacingSummary: "I couldn’t save the note.")
-        let discovery = PaceActionExecutionObservation(
-            toolName: "mcp.peekaboo.window", summary: "PRIVATE PID:111",
-            userFacingSummary: "", terminalReason: .recoverableInspectionFailure)
-        manager.appendActionResult(.completed(observations: [failure, discovery]))
-        #expect(manager.currentTurnHUDState.status == .failed)
-        #expect(manager.currentTurnHUDState.detail == "I couldn’t save the note.")
-        #expect(manager.recentActionResults.first?.showsInConversation == true)
+        let terminalReasons: [PaceActionExecutionObservation.TerminalReason] = [
+            .recoverableInspectionFailure, .inspectionInterrupted, .staleApplicationTarget, .ambiguousApplicationTarget,
+        ]
+        for reason in terminalReasons {
+            let discovery = PaceActionExecutionObservation(
+                toolName: "mcp.peekaboo.window", summary: "PRIVATE PID:111",
+                userFacingSummary: "I stopped that inspection.", terminalReason: reason)
+            let record = PaceActionRunRecord.completed(observations: [failure, discovery])
+            manager.appendActionResult(record)
+            #expect(manager.currentTurnHUDState.status == .failed)
+            #expect(manager.currentTurnHUDState.detail == "I couldn’t save the note.")
+            #expect(manager.recentActionResults.first?.showsInConversation == true)
+            let recordCount = manager.recentActionResults.count
+            manager.currentTurnHUDState = .done("Fixture before loop finalization")
+            manager.updateActionResultHUD(record)
+            #expect(manager.currentTurnHUDState.status == .failed)
+            #expect(manager.currentTurnHUDState.detail == "I couldn’t save the note.")
+            #expect(manager.recentActionResults.count == recordCount)
+        }
     }
 
     @MainActor @Test func cancelledExecutionDoesNotAdvertiseUndo() async {

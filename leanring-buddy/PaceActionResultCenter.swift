@@ -115,7 +115,7 @@ nonisolated struct PaceActionRunRecord: Identifiable, Equatable {
         if hasFailure {
             title = "Action needs attention"
         } else if needsFreshInspection {
-            title = "Choosing a window"
+            title = targetResolution == .discovering ? "Choosing a window" : "Checking that again"
         } else if targetResolution != nil && !ordinaryObservations.isEmpty {
             title = "Earlier actions completed"
         } else {

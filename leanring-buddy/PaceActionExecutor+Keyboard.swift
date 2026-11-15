@@ -468,15 +468,13 @@ extension PaceActionExecutor {
     }
 
     private static func rpcFailureRemedy(_ diagnostic: String) -> MCPFailureRemedy {
-        let text = String(diagnostic.prefix(8_000)).lowercased()
-        if text.contains("screen recording") || text.contains("screenrecording") { return .screenRecording }
-        if text.contains("accessibility") || text.contains("assistive access") { return .accessibility }
-        if [
-            "unauthorized", "authentication", "auth failed", "authentication_required", "not authenticated", "sign in",
-            "signin", "log in", "expired token", "token expired", "invalid token", "401", "403",
-        ].contains(where: text.contains) {
-            return .authentication
+        var providerMessage = diagnostic
+        for marker in ["\nTool structuredContent:", "\nTool _meta:"] {
+            if let range = providerMessage.range(of: marker) {
+                providerMessage = String(providerMessage[..<range.lowerBound])
+            }
         }
+        let text = boundedInspectionText(providerMessage, maximumBytes: 8_000).lowercased()
         if [
             "app not running", "application not running", "application is not running", "app is not running",
             "application not found", "app not found", "no matching application",
@@ -484,11 +482,32 @@ extension PaceActionExecutor {
             return .applicationClosed
         }
         if [
-            "-32602", "invalid value for", "unrecognized argument", "missing required", "invalid parameter",
+            "-32602", "invalid value for", "unrecognized argument", "missing required argument",
+            "missing required parameter", "invalid parameter",
             "invalid argument", "invalid params", "missing parameter", "missing argument", "unknown parameter",
             "unknown argument", "unexpected argument", "required parameter", "required argument",
         ].contains(where: text.contains) {
             return .invalidArguments
+        }
+        let indicatesPermissionFailure = [
+            "permission denied", "permission is required", "permission required", "not granted", "not authorized",
+            "not enabled", "not trusted", "access denied", "missing permission",
+        ].contains(where: text.contains)
+        if indicatesPermissionFailure {
+            if text.contains("screen recording") || text.contains("screenrecording") { return .screenRecording }
+            if text.contains("accessibility") || text.contains("assistive access") { return .accessibility }
+        }
+        if [
+            "unauthorized", "authentication failed", "authentication required", "auth failed",
+            "authentication_required", "not authenticated", "please sign in", "sign in required", "not signed in",
+            "expired token", "token expired",
+            "invalid token",
+        ].contains(where: text.contains)
+            || text.range(
+                of: #"\b(?:http|status)(?:\s+(?:status|code))*\s*[:=]?\s*40[13]\b"#,
+                options: .regularExpression) != nil
+        {
+            return .authentication
         }
         return .other
     }
@@ -517,12 +536,14 @@ extension PaceActionExecutor {
             return "I couldn’t start \(connectionName). Check its connection in Pace settings."
         case PaceMCPClientError.rpcError(let diagnostic):
             switch rpcFailureRemedy(diagnostic) {
-            case .screenRecording:
+            case .screenRecording where serverName == "peekaboo":
                 return "Enable Screen Recording for \(connectionName) in System Settings, then try again."
-            case .accessibility:
+            case .accessibility where serverName == "peekaboo":
                 return "Enable Accessibility for \(connectionName) in System Settings, then try again."
+            case .screenRecording, .accessibility:
+                return "Check \(connectionName)’s access in Pace settings, then try again."
             case .authentication:
-                return "Sign in again to \(connectionName) through Pace settings, then try again."
+                return "Reconnect \(connectionName) in Pace settings, then try again."
             case .applicationClosed:
                 return "Open the app you want me to use, then try again."
             case .invalidArguments, .other:

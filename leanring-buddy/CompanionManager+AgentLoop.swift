@@ -2944,17 +2944,7 @@ extension CompanionManager {
                     if exitLoop {
                         plannerLoopFinished = true
                         if toolObservations.contains(where: \.stopsAgentLoop) {
-                            if let ambiguity = toolObservations.first(where: {
-                                $0.terminalReason == .ambiguousApplicationTarget
-                            }) {
-                                currentTurnHUDState = .clarification(
-                                    question: ambiguity.userFacingSummary ?? "Which app window do you mean?",
-                                    options: [])
-                            } else {
-                                let stoppedObservation = toolObservations.first(where: \.stopsAgentLoop)
-                                currentTurnHUDState = .failed(
-                                    stoppedObservation?.userFacingSummary ?? "I stopped that step.")
-                            }
+                            updateActionResultHUD(.completed(observations: toolObservations))
                         } else if plannerSignaledDone {
                             print("✅ Agent loop: planner signaled [DONE] at step \(stepIndex)")
                         } else if plannerClientForThisTurn.usesStructuredActionOutput {

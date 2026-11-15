@@ -232,7 +232,10 @@ extension CompanionManager {
             updatedActionResults.removeLast(updatedActionResults.count - 8)
         }
         recentActionResults = updatedActionResults
+        updateActionResultHUD(actionResult)
+    }
 
+    func updateActionResultHUD(_ actionResult: PaceActionRunRecord) {
         if actionResult.status == .failed, actionResult.showsInConversation {
             currentTurnHUDState = .failed(actionResult.detail)
             return
@@ -241,6 +244,8 @@ extension CompanionManager {
             switch targetResolution {
             case .discovering:
                 currentTurnHUDState = .acting("Finding the right window")
+            case .retryingInspection:
+                currentTurnHUDState = .acting("Checking that again")
             case .clarification(let question):
                 currentTurnHUDState = .clarification(question: question, options: [])
             case .interrupted(let message):
