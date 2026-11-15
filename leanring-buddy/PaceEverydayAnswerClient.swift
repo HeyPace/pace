@@ -47,7 +47,7 @@ nonisolated enum PaceEverydayAnswerError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingKey: return "Fast answers need an OpenAI key in Planner settings."
+        case .missingKey: return "Fast answers could not load the OpenAI key. Check the configured credential source."
         case .consentRevoked: return "Fast answers require the current Codex off-device consent and fast-answer opt-in."
         case .httpFailure(let status): return "OpenAI fast answer failed (HTTP \(status)). Check API access and credits."
         case .invalidResponse: return "OpenAI did not complete a valid text answer."
@@ -68,12 +68,12 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient, PacePas
         return URLSession(configuration: configuration)
     }()
     private let session: URLSession
-    private let loadKey: () -> String?
+    private let loadKey: () async throws -> String?
     private let isAuthorized: () -> Bool
     private let auditLog: PaceAPIAuditLog
 
     init(session: URLSession? = nil,
-         loadKey: @escaping () -> String? = { PaceKeychainStore.loadAPIKey(for: .openai) },
+        loadKey: @escaping () async throws -> String? = { try await PacePlannerCredentialStore.shared.loadOpenAIKey() },
          auditLog: PaceAPIAuditLog = .shared,
          isAuthorized: @escaping () -> Bool) {
         self.session = session ?? Self.sharedSession
@@ -132,7 +132,19 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient, PacePas
                 inputTokenCount: inputTokenCount, outputTokenCount: outputTokenCount)
         }
         do {
-            guard let key = loadKey(), !key.isEmpty else { throw PaceEverydayAnswerError.missingKey }
+            let loadedKey: String?
+            do {
+                loadedKey = try await loadKey()
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                try Task.checkCancellation()
+                guard isAuthorized() else { throw PaceEverydayAnswerError.consentRevoked }
+                throw PaceEverydayAnswerError.missingKey
+            }
+            try Task.checkCancellation()
+            guard isAuthorized() else { throw PaceEverydayAnswerError.consentRevoked }
+            guard let key = loadedKey, !key.isEmpty else { throw PaceEverydayAnswerError.missingKey }
             var request = URLRequest(url: URL(string: "https://api.openai.com/v1/responses")!)
             request.httpMethod = "POST"
             request.timeoutInterval = 10

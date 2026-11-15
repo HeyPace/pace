@@ -113,6 +113,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: companionManager.plannerClient)
         companionManager.prewarmTextOnlyPlannerInBackgroundIfNeeded()
+        companionManager.prewarmFastAnswerCredentialsIfNeeded()
         // Start Kokoro only when the user explicitly selected the sidecar
         // provider. The default Apple voice has no helper process to manage.
         PaceTTSSidecarLauncher.startIfNotRunning()

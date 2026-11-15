@@ -13,8 +13,24 @@ extension CompanionManager {
     func setFastEverydayAnswersEnabled(_ enabled: Bool) {
         PacePlannerTierStore.setFastEverydayAnswersEnabled(enabled)
         fastEverydayAnswersEnabled = enabled
+        if enabled {
+            prewarmFastAnswerCredentialsIfNeeded()
+        } else {
+            PacePlannerCredentialStore.shared.clearCachedKey()
+        }
     }
 
+    func prewarmFastAnswerCredentialsIfNeeded() {
+        guard fastEverydayAnswersEnabled,
+            activePlannerTier == .cliDirect,
+            activePlannerTierCLIDirectUpstream == .codex,
+            PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
+            PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+        else { return }
+        Task {
+            _ = try? await PacePlannerCredentialStore.shared.loadOpenAIKey()
+        }
+    }
 
     // MARK: - Planner tier picker state
 
@@ -31,6 +47,11 @@ extension CompanionManager {
         screenWatchNoteCoordinator.invalidate()
         plannerClient = BuddyPlannerClientFactory.makeDefault()
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
+        if newTier == .cliDirect {
+            prewarmFastAnswerCredentialsIfNeeded()
+        } else {
+            PacePlannerCredentialStore.shared.clearCachedKey()
+        }
     }
 
     /// Selects a planner tier from any picker surface, running the SAME
@@ -97,6 +118,11 @@ extension CompanionManager {
         screenWatchNoteCoordinator.invalidate()
         plannerClient = BuddyPlannerClientFactory.makeDefault()
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
+        if newUpstream == .codex {
+            prewarmFastAnswerCredentialsIfNeeded()
+        } else {
+            PacePlannerCredentialStore.shared.clearCachedKey()
+        }
     }
 
     func setDirectAPIProvider(_ newProvider: PaceDirectAPIProvider) {

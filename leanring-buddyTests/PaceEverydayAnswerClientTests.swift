@@ -71,7 +71,7 @@ struct PaceEverydayAnswerClientTests {
 
     private func client(
         isAuthorized: @escaping () -> Bool = { true },
-        loadKey: @escaping () -> String? = { "injected-test-key" },
+        loadKey: @escaping () async throws -> String? = { "injected-test-key" },
         auditLog: PaceAPIAuditLog = .shared,
     ) -> PaceOpenAIResponsesEverydayClient {
         let configuration = URLSessionConfiguration.ephemeral
@@ -79,6 +79,62 @@ struct PaceEverydayAnswerClientTests {
         return PaceOpenAIResponsesEverydayClient(
             session: URLSession(configuration: configuration),
             loadKey: loadKey, auditLog: auditLog, isAuthorized: isAuthorized)
+    }
+
+    @Test func authorizationRevokedDuringCredentialFetchPreventsAPIRequest() async throws {
+        var authorized = true
+        EverydayURLProtocol.handler = { _ in
+            Issue.record("A revoked turn must not send after credential retrieval")
+            return (500, Data())
+        }
+        let answerClient = client(
+            isAuthorized: { authorized },
+            loadKey: {
+                await Task.yield()
+                authorized = false
+                return "injected-test-key"
+            })
+        do {
+            _ = try await answerClient.answer(.init(currentQuestion: "What is seven times nine?"))
+            Issue.record("Expected consent revocation")
+        } catch PaceEverydayAnswerError.consentRevoked {}
+    }
+
+    @Test func credentialFailureDoesNotExposeProviderErrorDetails() async throws {
+        struct PrivateCredentialFailure: LocalizedError {
+            var errorDescription: String? { "private-credential-provider-output" }
+        }
+        EverydayURLProtocol.handler = { _ in
+            Issue.record("A failed credential fetch must not send")
+            return (500, Data())
+        }
+        let answerClient = client(loadKey: { throw PrivateCredentialFailure() })
+        do {
+            _ = try await answerClient.answer(.init(currentQuestion: "What is seven times nine?"))
+            Issue.record("Expected unavailable credential")
+        } catch PaceEverydayAnswerError.missingKey {}
+    }
+
+    @Test func revocationDuringFailedCredentialFetchDoesNotPromoteToCodex() async throws {
+        var authorized = true
+        let selected = EverydaySelectedPlanner()
+        let answerClient = client(
+            isAuthorized: { authorized },
+            loadKey: {
+                await Task.yield()
+                authorized = false
+                throw URLError(.cannotConnectToHost)
+            })
+        let planner = PaceBoundedTextAnswerPlanner(
+            everydayClient: answerClient, question: .init(currentQuestion: "What is seven times nine?"),
+            selectedPlanner: selected, recordDecision: { _ in })
+        do {
+            _ = try await planner.generateResponseStreaming(
+                images: [], systemPrompt: "", conversationHistory: [], userPrompt: "What is seven times nine?",
+                onTextChunk: { _ in Issue.record("Revocation must prevent delivery") })
+            Issue.record("Expected consent revocation")
+        } catch PaceEverydayAnswerError.consentRevoked {}
+        #expect(selected.calls == 0)
     }
 
     @Test func providerUsageReachesTheAuditWithoutAnotherRequest() async throws {

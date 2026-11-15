@@ -6,6 +6,7 @@ const runnerPath = fileURLToPath(new URL('./test-pace.sh', import.meta.url));
 const result = spawnSync('bash', [runnerPath,
   'PaceBoundedTextAnswerPlannerTests',
   'PaceEverydayAnswerClientTests',
+  'PacePlannerCredentialStoreTests',
   'PaceCodingSessionTests',
   'PaceCodingManagerTests',
   'PaceActionApprovalTests',
