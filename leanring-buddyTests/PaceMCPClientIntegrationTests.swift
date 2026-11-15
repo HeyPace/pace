@@ -8,6 +8,7 @@
 //  with a real child process, not a mock.
 //
 
+import ApplicationServices
 import Foundation
 import Testing
 
@@ -139,12 +140,12 @@ struct PaceMCPClientIntegrationTests {
                     name = request["params"]["name"]
                     with receipt.open("a") as file:
                         file.write(name + "\n")
-                    if name in ["window", "see"]:
+                    if name in ["window", "see", "app"]:
                         time.sleep(1)
                     result = {"content": [{"type": "text", "text": "completed " + name}]}
                 print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
             """#
-        for toolName in ["window", "see"] {
+        for toolName in ["window", "see", "app"] {
             let receipt = FileManager.default.temporaryDirectory.appendingPathComponent(
                 "pace-inspection-timeout-\(UUID()).txt")
             defer { try? FileManager.default.removeItem(at: receipt) }
@@ -162,9 +163,9 @@ struct PaceMCPClientIntegrationTests {
                 preferredInspectionProcessIdentifiers: { [] })
             let inspection = PaceMCPToolCall(
                 serverName: "peekaboo", toolName: toolName,
-                arguments: toolName == "window"
-                    ? ["action": .string("list"), "app": .string("Google Chrome")]
-                    : ["app_target": .string("Google Chrome")])
+                arguments: toolName == "see"
+                    ? ["app_target": .string("Google Chrome")]
+                    : ["action": .string("list"), "app": .string("Google Chrome")])
             let observations = await executor.executeActionPlan(
                 .serial(actions: [
                     .mcp(inspection), .mcp(.init(serverName: "peekaboo", toolName: "click", arguments: [:])),
@@ -197,8 +198,112 @@ struct PaceMCPClientIntegrationTests {
         #expect(!record.detail.contains("MCP"))
         #expect(!record.detail.contains("intentional fixture failure"))
         #expect(record.diagnosticDetail?.contains("intentional fixture failure") == true)
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        manager.actionExecutor.mutationLog.append(
+            .axValue(
+                element: AXUIElementCreateApplication(1), oldValue: "old", summary: "An older edit"))
+        let mutationCountBeforeFailure = manager.actionExecutor.mutationLog.count
+        manager.appendActionResult(record)
+        manager.noteReversibleActionExecuted(sinceMutationCount: mutationCountBeforeFailure)
+        #expect(manager.mostRecentReversibleActionAt == nil)
         let missing = await executor.callMCPTool(.init(serverName: "missing", toolName: "read", arguments: [:]))
         #expect(missing.userFacingSummary == "Connect Missing in Pace settings before trying again.")
+    }
+
+    @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func recoverableInspectionRPCFailuresPermitOnlyOneFreshPlanAndKeepWritesStopped() async throws {
+        let program = #"""
+            import json, sys
+            calls = []
+            for line in sys.stdin:
+                request = json.loads(line)
+                if "id" not in request:
+                    continue
+                if request["method"] == "initialize":
+                    result = {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}}, "serverInfo": {"name": "rpc-repair", "version": "1"}}
+                else:
+                    params = request["params"]
+                    name = params["name"]
+                    if name == "receipt":
+                        result = {"content": [{"type": "text", "text": "\n".join(calls)}]}
+                    else:
+                        calls.append(name)
+                        diagnostic = params.get("arguments", {}).get("failure", "invalid parameter: app")
+                        result = {"isError": True, "content": [{"type": "text", "text": diagnostic}]}
+                print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
+            """#
+        let client = PaceMCPStdioClient(serverConfigurations: [
+            "peekaboo": .init(
+                command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3",
+                args: ["-u", "-c", program, UUID().uuidString])
+        ])
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, mcpClient: client,
+            readMyScreenIsEnabled: { true })
+        let futureWrite = PaceParsedAction.mcp(.init(serverName: "peekaboo", toolName: "click", arguments: [:]))
+        for diagnostic in ["invalid parameter: app", "Application not running"] {
+            executor.beginUserTurn()
+            let inspection = PaceParsedAction.mcp(
+                .init(
+                    serverName: "peekaboo", toolName: "window",
+                    arguments: ["action": .string("list"), "failure": .string(diagnostic)]))
+            let plan = PaceActionExecutionPlan.serial(actions: [inspection, futureWrite])
+            let first = await executor.executeActionPlanWithReceipt(plan, screenCaptures: [])
+            #expect(first.observations.count == 1)
+            #expect(first.observations.first?.terminalReason == .recoverableInspectionFailure)
+            #expect(first.observations.first?.stopsAgentLoop == false)
+            #expect(first.executedPlan.flattenedActions.isEmpty)
+            #expect(PaceActionApprovalPolicy.needsAnswerAfterInspection(plan, observations: first.observations))
+            #expect(first.observations.first?.summary.contains(diagnostic) == true)
+            let repeated = await executor.executeActionPlanWithReceipt(plan, screenCaptures: [])
+            #expect(repeated.observations.count == 1)
+            #expect(repeated.observations.first?.terminalReason == .inspectionInterrupted)
+            #expect(repeated.observations.first?.stopsAgentLoop == true)
+            if diagnostic == "Application not running" {
+                #expect(
+                    repeated.observations.first?.userFacingSummary == "Open the app you want me to use, then try again."
+                )
+            }
+        }
+        for (diagnostic, expectedFeedback) in [
+            (
+                "Screen Recording permission denied",
+                "Enable Screen Recording for Peekaboo in System Settings, then try again."
+            ),
+            ("Accessibility access denied", "Enable Accessibility for Peekaboo in System Settings, then try again."),
+            ("Unauthorized: expired token", "Sign in again to Peekaboo through Pace settings, then try again."),
+        ] {
+            executor.beginUserTurn()
+            let observation = await executor.callMCPTool(
+                .init(
+                    serverName: "peekaboo", toolName: "app",
+                    arguments: ["action": .string("list"), "failure": .string(diagnostic)]))
+            #expect(observation.terminalReason == .inspectionInterrupted)
+            #expect(observation.userFacingSummary == expectedFeedback)
+            #expect(observation.summary.contains(diagnostic))
+            #expect(!expectedFeedback.contains("MCP"))
+        }
+        let calls = try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
+        #expect(!calls.contains("click"))
+    }
+
+    @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func disabledScreenReadingStopsTheQueuedPlanBeforeAnyProviderDispatch() async throws {
+        let client = PaceMCPFixture.makeAmbiguityClient()
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, mcpClient: client,
+            readMyScreenIsEnabled: { false })
+        let receipt = await executor.executeActionPlanWithReceipt(
+            .serial(actions: [
+                .mcp(.init(serverName: "peekaboo", toolName: "window", arguments: ["action": .string("list")])),
+                .mcp(.init(serverName: "peekaboo", toolName: "click", arguments: [:])),
+            ]), screenCaptures: [])
+        #expect(receipt.observations.count == 1)
+        #expect(receipt.observations.first?.terminalReason == .inspectionInterrupted)
+        #expect(receipt.observations.first?.userFacingSummary?.contains("Turn on Read My Screen") == true)
+        #expect(receipt.executedPlan.flattenedActions.isEmpty)
+        let calls = try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
+        #expect(calls.isEmpty)
     }
 
     @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
@@ -228,7 +333,17 @@ struct PaceMCPClientIntegrationTests {
         }
         #expect(executedCall.toolName == "earlier_write")
         let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
-        manager.noteReversibleActionExecuted(in: receipt.executedPlan)
+        manager.actionExecutor.mutationLog.append(
+            .axValue(
+                element: AXUIElementCreateApplication(1), oldValue: "old", summary: "An older edit"))
+        let oldMutationCount = manager.actionExecutor.mutationLog.count
+        manager.noteReversibleActionExecuted(sinceMutationCount: oldMutationCount)
+        #expect(manager.mostRecentReversibleActionAt == nil)
+        manager.actionExecutor.mutationLog.append(
+            .axValue(
+                element: AXUIElementCreateApplication(1), oldValue: "before", summary: "Actual earlier edit"))
+        manager.noteReversibleActionExecuted(sinceMutationCount: oldMutationCount)
+        #expect(manager.mostRecentReversibleActionSummary == "Actual earlier edit")
         #expect(manager.mostRecentReversibleActionAt != nil)
         let callReceipt = try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
         #expect(callReceipt.contains("earlier_write:"))
@@ -239,7 +354,7 @@ struct PaceMCPClientIntegrationTests {
         let blockedReceipt = await executor.executeActionPlanWithReceipt(
             .serial(actions: [inspection, futureWrite]), screenCaptures: [])
         #expect(blockedReceipt.executedPlan.flattenedActions.isEmpty)
-        manager.noteReversibleActionExecuted(in: blockedReceipt.executedPlan)
+        manager.noteReversibleActionExecuted(sinceMutationCount: manager.actionExecutor.mutationLog.count)
         #expect(manager.mostRecentReversibleActionAt == nil)
         #expect(!PaceActionApprovalPolicy.actionIsReversibleMutation(inspection))
         #expect(

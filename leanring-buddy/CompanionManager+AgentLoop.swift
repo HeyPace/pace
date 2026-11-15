@@ -1145,6 +1145,7 @@ extension CompanionManager {
                     fastActionParseResult.executionPlan,
                     preflightIssues: preflightIssues
                 ) {
+                    let mutationCountBeforeExecution = actionExecutor.mutationLog.count
                     let toolObservations = await actionExecutor.executeActionPlan(
                         fastActionParseResult.executionPlan,
                         screenCaptures: []
@@ -1156,9 +1157,7 @@ extension CompanionManager {
                         : PaceActionExecutionObservation.formatForPlanner(toolObservations)
                     if !toolObservations.isEmpty {
                         appendActionResult(.completed(observations: toolObservations))
-                        noteReversibleActionExecuted(
-                            in: fastActionParseResult.executionPlan
-                        )
+                        noteReversibleActionExecuted(sinceMutationCount: mutationCountBeforeExecution)
                         speakFailureForClickMissedIfApplicable(
                             observations: toolObservations,
                             clickTargetLabel: Self.firstClickCandidateLabel(
@@ -2724,7 +2723,6 @@ extension CompanionManager {
 
                     // 10. Execute tool calls/action tags if any.
                     var toolObservations: [PaceActionExecutionObservation] = []
-                    var executedActionsForUndo: [PaceParsedAction] = []
                     var userDeniedActionApproval = false
                     var preActionObservationBaseline: PaceClickStateSnapshot?
                     if !actionParseResult.actions.isEmpty {
@@ -2769,6 +2767,7 @@ extension CompanionManager {
                                 try? await Task.sleep(nanoseconds: 350_000_000)
                                 guard !Task.isCancelled else { return }
                                 preActionObservationBaseline = PaceClickStateSnapshot.captureLightweight()
+                                let mutationCountBeforeExecution = actionExecutor.mutationLog.count
                                 PaceLatencyBudget.shared.mark(.toolExecStart)
                                 if actionExecutor.hasActiveStreamingMailDraft,
                                     let finalMailDraft = streamedMailDraftForFinalization
@@ -2778,9 +2777,6 @@ extension CompanionManager {
                                         .finishActiveStreamingMailDraft(finalMailDraft: finalMailDraft)
                                     {
                                         toolObservations.append(streamingMailObservation)
-                                        if !streamingMailObservation.stopsActionPlan {
-                                            executedActionsForUndo.append(.composeMail(finalMailDraft))
-                                        }
                                     }
 
                                     let remainingActionPlan = actionParseResult
@@ -2791,14 +2787,12 @@ extension CompanionManager {
                                         screenCaptures: screenCaptures
                                     )
                                     toolObservations += remainingReceipt.observations
-                                    executedActionsForUndo += remainingReceipt.executedPlan.flattenedActions
                                 } else {
                                     let executionReceipt = await actionExecutor.executeActionPlanWithReceipt(
                                         actionParseResult.executionPlan,
                                         screenCaptures: screenCaptures
                                     )
                                     toolObservations = executionReceipt.observations
-                                    executedActionsForUndo = executionReceipt.executedPlan.flattenedActions
                                 }
                                 // Set-of-Mark recovery: if any click missed,
                                 // re-mark the screenshot and let the VLM re-pick
@@ -2818,7 +2812,7 @@ extension CompanionManager {
                                         .formatForUserFeedback(toolObservations)
                                     // After every reversible mutation, raise the
                                     // visible undo banner (PRD trust-and-failures).
-                                    noteReversibleActionExecuted(in: .serial(actions: executedActionsForUndo))
+                                    noteReversibleActionExecuted(sinceMutationCount: mutationCountBeforeExecution)
                                     // After click-all-fail observations, speak
                                     // the plain-language failure once.
                                     speakFailureForClickMissedIfApplicable(

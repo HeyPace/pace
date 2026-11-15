@@ -75,6 +75,7 @@ nonisolated struct PaceActionExecutionObservation {
     enum TerminalReason: Equatable, Sendable {
         case ambiguousApplicationTarget
         case ambiguousInspectionTarget
+        case recoverableInspectionFailure
         case staleApplicationTarget
         case inspectionInterrupted
     }
@@ -84,11 +85,13 @@ nonisolated struct PaceActionExecutionObservation {
     let userFacingSummary: String?
     let terminalReason: TerminalReason?
     var stopsActionPlan: Bool { terminalReason != nil }
-    var requiresFreshInspectionPlan: Bool { terminalReason == .ambiguousInspectionTarget }
+    var requiresFreshInspectionPlan: Bool {
+        terminalReason == .ambiguousInspectionTarget || terminalReason == .recoverableInspectionFailure
+    }
     var stopsAgentLoop: Bool { terminalReason != nil && !requiresFreshInspectionPlan }
     var targetResolution: PaceApplicationTargetResolution? {
         switch terminalReason {
-        case .ambiguousInspectionTarget: return .discovering
+        case .ambiguousInspectionTarget, .recoverableInspectionFailure: return .discovering
         case .ambiguousApplicationTarget: return .clarification(userFacingSummary ?? "Which app window do you mean?")
         case .staleApplicationTarget, .inspectionInterrupted:
             return .interrupted(userFacingSummary ?? "I stopped checking that window.")

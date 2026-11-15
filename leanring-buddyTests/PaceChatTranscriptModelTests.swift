@@ -12,6 +12,7 @@
 //  itself part of the contract.
 //
 
+import ApplicationServices
 import Foundation
 import Testing
 @testable import Pace
@@ -102,6 +103,55 @@ struct PaceChatTranscriptModelTests {
         manager.appendActionResult(.completed(observations: [stale]))
         #expect(manager.currentTurnHUDState.status == .failed)
         #expect(manager.currentTurnHUDState.detail == "Chrome closed. Please reopen it so I can continue.")
+    }
+
+    @MainActor @Test func earlierFailureIsNotMaskedByTargetDiscovery() {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let failure = PaceActionExecutionObservation(
+            toolName: "notes", summary: "Failed internal note implementation",
+            userFacingSummary: "I couldn’t save the note.")
+        let discovery = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.window", summary: "PRIVATE PID:111",
+            userFacingSummary: "", terminalReason: .recoverableInspectionFailure)
+        manager.appendActionResult(.completed(observations: [failure, discovery]))
+        #expect(manager.currentTurnHUDState.status == .failed)
+        #expect(manager.currentTurnHUDState.detail == "I couldn’t save the note.")
+        #expect(manager.recentActionResults.first?.showsInConversation == true)
+    }
+
+    @MainActor @Test func cancelledExecutionDoesNotAdvertiseUndo() async {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let previousMutationCount = manager.actionExecutor.mutationLog.count
+        manager.actionExecutor.mutationLog.append(
+            .axValue(
+                element: AXUIElementCreateApplication(1), oldValue: "before", summary: "Actual edit"))
+        let task = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            manager.noteReversibleActionExecuted(sinceMutationCount: previousMutationCount)
+        }
+        await task.value
+        #expect(manager.mostRecentReversibleActionAt == nil)
+    }
+
+    @Test func technicalDetailsAreBoundedWithoutChangingPlannerReceipts() {
+        let observations = (0..<4).map { index in
+            PaceActionExecutionObservation(
+                toolName: "fixture-\(index)",
+                summary: String(repeating: "é", count: 4_000)
+                    + "\nTool structuredContent:\nPRIVATE STRUCTURE\nTool _meta:\nPRIVATE META",
+                userFacingSummary: "I couldn’t finish that step.")
+        }
+        let record = PaceActionRunRecord.completed(observations: observations)
+        #expect((record.diagnosticDetail?.utf8.count ?? 0) <= 8_000)
+        #expect(record.diagnosticDetail?.contains("PRIVATE STRUCTURE") == false)
+        #expect(record.diagnosticDetail?.contains("PRIVATE META") == false)
+        #expect(record.diagnosticDetail?.contains("truncated") == true)
+        #expect(PaceActionExecutionObservation.formatForPlanner(observations).contains("PRIVATE STRUCTURE"))
+        let metadataOnly = PaceActionExecutionObservation(
+            toolName: "fixture", summary: "A short error\nTool _meta:\nPRIVATE META",
+            userFacingSummary: "I couldn’t finish that step.")
+        #expect(
+            PaceActionRunRecord.completed(observations: [metadataOnly]).diagnosticDetail == "fixture: A short error")
     }
 
     // MARK: - Fixtures

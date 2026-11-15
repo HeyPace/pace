@@ -233,6 +233,10 @@ extension CompanionManager {
         }
         recentActionResults = updatedActionResults
 
+        if actionResult.status == .failed, actionResult.showsInConversation {
+            currentTurnHUDState = .failed(actionResult.detail)
+            return
+        }
         if let targetResolution = actionResult.targetResolution {
             switch targetResolution {
             case .discovering:

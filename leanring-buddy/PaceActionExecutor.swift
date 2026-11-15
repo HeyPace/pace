@@ -735,7 +735,7 @@ final class PaceActionExecutor {
     var activeStreamingMailDraftState: PaceStreamingMailDraftState?
     private(set) var applicationTargetGeneration = UUID()
     private var launchedApplicationTargets: [String: LaunchedApplicationTarget] = [:]
-    var hasAttemptedAmbiguousInspectionRecovery = false
+    var hasAttemptedInspectionRecovery = false
     let runningApplicationBundleURL: (Int32) -> URL?
     let preferredInspectionProcessIdentifiers: @MainActor () -> [Int32]
 
@@ -747,7 +747,7 @@ final class PaceActionExecutor {
     func beginUserTurn() {
         applicationTargetGeneration = UUID()
         launchedApplicationTargets.removeAll()
-        hasAttemptedAmbiguousInspectionRecovery = false
+        hasAttemptedInspectionRecovery = false
     }
 
     func rememberLaunchedApplication(

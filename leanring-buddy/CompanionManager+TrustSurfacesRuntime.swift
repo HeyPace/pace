@@ -38,19 +38,12 @@ extension CompanionManager {
         return nil
     }
 
-    /// Records that a reversible action just executed. Called from the
-    /// post-action site in the agent loop / fast-action path. The
-    /// cursor overlay observes the published fields and shows the
-    /// undo banner for the next 5 seconds.
-    func noteReversibleActionExecuted(
-        in actionExecutionPlan: PaceActionExecutionPlan
-    ) {
-        guard PaceActionApprovalPolicy.planContainsReversibleMutation(actionExecutionPlan) else {
-            return
-        }
-        let summary =
-            PaceActionApprovalPolicy.firstReversibleSummary(actionExecutionPlan)
-            ?? "Last action"
+    /// Only an actual new AX mutation can be undone by Undo.last. A dispatched
+    /// MCP or calendar action must never advertise undo for an older AX entry.
+    func noteReversibleActionExecuted(sinceMutationCount previousMutationCount: Int) {
+        guard !Task.isCancelled, actionExecutor.mutationLog.count > previousMutationCount,
+            case .axValue(_, _, let summary) = actionExecutor.mutationLog.last
+        else { return }
         mostRecentReversibleActionSummary = summary
         mostRecentReversibleActionAt = Date()
     }

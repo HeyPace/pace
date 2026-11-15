@@ -127,8 +127,31 @@ nonisolated struct PaceActionRunRecord: Identifiable, Equatable {
             detail: feedback,
             showsInConversation: showsInConversation,
             diagnosticDetail: hasSeparateDiagnostics
-                ? PaceActionExecutionObservation.formatForPlanner(observations) : nil,
+                ? boundedDiagnosticDetail(observations) : nil,
             targetResolution: targetResolution
         )
     }
+
+    private static func boundedDiagnosticDetail(_ observations: [PaceActionExecutionObservation]) -> String {
+        let maximumBytes = 8_000
+        let truncationMarker = "\n[technical details truncated]"
+        var diagnostic = ""
+        for observation in observations {
+            var summary = observation.summary
+            for marker in ["\nTool structuredContent:", "\nTool _meta:"] {
+                if let range = summary.range(of: marker) { summary = String(summary[..<range.lowerBound]) }
+            }
+            let section = (diagnostic.isEmpty ? "" : "\n\n") + observation.toolName + ": " + summary
+            let remainingBytes = maximumBytes - diagnostic.utf8.count
+            if section.utf8.count > remainingBytes {
+                let budget = maximumBytes - truncationMarker.utf8.count
+                var prefix = String(decoding: (diagnostic + section).utf8.prefix(budget), as: UTF8.self)
+                while prefix.utf8.count > budget { prefix.removeLast() }
+                return prefix + truncationMarker
+            }
+            diagnostic += section
+        }
+        return diagnostic
+    }
+
 }
