@@ -857,6 +857,7 @@ final class CompanionManager: ObservableObject {
     var wakeWordPTTBridgeCancellable: AnyCancellable?
     var accessibilityCheckTimer: Timer?
     var lmStudioReachabilityCheckTimer: Timer?
+    var ignoresRejectedPracticeShortcutRelease = false
     var pendingKeyboardShortcutStartTask: Task<Void, Never>?
     var lastCalendarRetrievalRefreshAt: Date?
     var lastCalendarRetrievalAuthorizationStatus: EKAuthorizationStatus?

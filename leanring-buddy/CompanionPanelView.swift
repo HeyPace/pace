@@ -605,7 +605,8 @@ struct CompanionPanelView: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .pointerCursor()
+                    .disabled(!companionManager.canReplayChatSpeech)
+                    .pointerCursor(isEnabled: companionManager.canReplayChatSpeech)
                 } else {
                     EmptyView()
                 }

@@ -113,16 +113,7 @@ extension CompanionManager {
         guard let request = lastSpokenReplyRequest ?? lastSpokenReplyText.map({ PaceSpeechRequest(text: $0) }),
               !chatSession.isChatTTSMuted, !streamingSentenceTTSPipeline.isMutedForCurrentTurn else { return }
         guard conversationLanguageMode == .standard || request.profile != nil else { return }
-        let replayLease = turnLeaseRegistry.currentLease
-        currentResponseTask = Task { @MainActor [weak self] in
-            guard let self, self.isActiveTurn(replayLease) else { return }
-            do {
-                if request.profile == nil { try await ttsClient.speakText(request.text) }
-                else { try await ttsClient.speakUtterance(request, onStarted: {}) }
-            } catch {
-                print("⚠️ Replay TTS failed: \(error.localizedDescription)")
-            }
-        }
+        replayChatSpeech(request)
     }
 
     var canReplayChatSpeech: Bool {

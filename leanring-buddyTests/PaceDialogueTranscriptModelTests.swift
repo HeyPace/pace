@@ -90,6 +90,30 @@ struct PaceDialogueTranscriptModelTests {
         #expect(!PaceChatTranscriptModel.messageRowModel(fromChatMessage: mismatched).isEnglishSubtitle)
     }
 
+    @Test func latestAndEarlierWindowsShowOnlyTheirLinkedActivityAndBoundUnlinkedRecords() {
+        let oldDate = Date(timeIntervalSince1970: 100)
+        let currentDate = Date(timeIntervalSince1970: 200)
+        var earlier = PaceChatTranscriptMessageRowModel(id: "old-question", author: .user, bodyText: "Earlier", createdAt: oldDate)
+        earlier.turnIdentifier = "old-turn"
+        var current = PaceChatTranscriptMessageRowModel(id: "new-question", author: .user, bodyText: "Current", createdAt: currentDate)
+        current.turnIdentifier = "current-turn"
+        func receipt(_ id: String, parent: String?, time: TimeInterval, state: PaceChatToolActivityResultState = .done) -> PaceChatToolActivityRowModel {
+            var row = PaceChatToolActivityRowModel(id: id, toolDisplayName: id, resultState: state,
+                resultSummaryLine: id, occurredAt: Date(timeIntervalSince1970: time))
+            row.turnIdentifier = parent
+            return row
+        }
+        let receipts = [receipt("old-linked", parent: "old-turn", time: 220, state: .failed),
+            receipt("current-linked", parent: "current-turn", time: 150, state: .failed),
+            receipt("old-unlinked", parent: nil, time: 150), receipt("current-unlinked", parent: nil, time: 210)]
+        let latest = PaceDialogueTranscriptModel.visibleActivities(receipts, messages: [current])
+        #expect(latest.map(\.id) == ["current-linked", "current-unlinked"])
+        let selectedEarlier = PaceDialogueTranscriptModel.visibleActivities(receipts, messages: [earlier], windowEnd: currentDate)
+        #expect(selectedEarlier.map(\.id) == ["old-linked", "old-unlinked"])
+        let expanded = PaceDialogueTranscriptModel.visibleActivities(receipts, messages: [earlier, current])
+        #expect(expanded.count == 4 && receipts.count == 4)
+    }
+
     @Test func committedEventIdentityRetiresStreamingMirrorWithoutTextGuessing() {
         let committed = PaceChatMessage(id: "assistant-event", role: .pace, body: "Hello.", createdAt: timestamp)
         #expect(!PaceDialogueTranscriptModel.shouldShowStreamingReply(text: "Hello.",

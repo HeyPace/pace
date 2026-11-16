@@ -474,12 +474,15 @@ struct PacePanelChatView: View {
     }
 
     private var threadItems: [PaceDialogueTranscriptItem] {
-        let activityRows = selectedQuestionIdentifier == nil
-            ? PaceDialogueTranscriptModel.activityRows(
-                fromNewestFirst: companionManager.recentActionResults) : []
-        return PaceDialogueTranscriptModel.items(
-            messages: PaceChatTranscriptModel.messageRowModels(fromChatMessages: visibleMessages),
-            activities: activityRows)
+        let messages = PaceChatTranscriptModel.messageRowModels(fromChatMessages: visibleMessages)
+        let activityRows = PaceDialogueTranscriptModel.activityRows(fromNewestFirst: companionManager.recentActionResults)
+        let windowEnd: Date?
+        if let selectedQuestionIdentifier,
+            let selectedIndex = chatSession.userFacingMessages.firstIndex(where: { $0.id == selectedQuestionIdentifier }) {
+            windowEnd = chatSession.userFacingMessages.dropFirst(selectedIndex + 1).first { $0.role == .user }?.createdAt
+        } else { windowEnd = nil }
+        return PaceDialogueTranscriptModel.items(messages: messages, activities:
+            PaceDialogueTranscriptModel.visibleActivities(activityRows, messages: messages, windowEnd: windowEnd))
     }
 
     private func messageRow(_ message: PaceChatTranscriptMessageRowModel) -> some View {

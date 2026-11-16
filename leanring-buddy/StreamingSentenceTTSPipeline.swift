@@ -268,8 +268,13 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// Speaks any tail beyond what's already been queued.
     func flushFinal(finalSpokenText: String) async {
         if conversationLanguageMode == .japanesePractice {
-            guard let bilingualReply, bilingualReply.speechRequest.text == finalSpokenText else {
+            guard let bilingualReply else {
                 recordAudioDispatch(outcome: "skipped_missing_bilingual_reply", characterCount: finalSpokenText.count)
+                return
+            }
+            guard bilingualReply.speechRequest.text == finalSpokenText else {
+                recordAudioDispatch(outcome: "failed_bilingual_reply_mismatch", characterCount: finalSpokenText.count)
+                reportPlaybackFailureIfNeeded()
                 return
             }
             await dispatchDeltaIfReady(speakableSafePrefix: finalSpokenText, allowShortFinalChunk: true,

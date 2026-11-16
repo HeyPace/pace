@@ -31,6 +31,12 @@ nonisolated struct PaceBilingualReply: Equatable, Sendable {
     let speechRequest: PaceSpeechRequest
     let englishSubtitle: String
 
+    private static func normalizedSpokenText(_ text: String) -> String {
+        let strippedDone = PaceTagParsers.parseAndStripDoneSignal(from: text).strippedText
+        return PaceTagParsers.parsePointingCoordinates(from: strippedDone).spokenText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static func parse(_ response: String) throws -> Self {
         guard let data = response.data(using: .utf8), data.count <= 128 * 1024,
               case .object(let envelope) = try? JSONDecoder().decode(PaceMCPJSONValue.self, from: data),
@@ -41,9 +47,9 @@ nonisolated struct PaceBilingualReply: Equatable, Sendable {
               case .object(let payload)? = envelope["payload"],
               case .string(let englishSubtitle)? = payload["englishSubtitle"],
               !englishSubtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              englishSubtitle.count <= 4000,
-              let speechRequest = PaceSpeechRequest.parse(arguments: ["text": .string(spokenText.trimmingCharacters(in: .whitespacesAndNewlines)), "profile": .string("japanese_female"), "englishSubtitle": .string(englishSubtitle)]),
-              spokenText.unicodeScalars.contains(where: { (0x3040...0x30ff).contains($0.value) || (0x4e00...0x9fff).contains($0.value) }),
+              englishSubtitle.count <= 4000, spokenText.count <= 2000,
+              let speechRequest = PaceSpeechRequest.parse(arguments: ["text": .string(normalizedSpokenText(spokenText)), "profile": .string("japanese_female"), "englishSubtitle": .string(englishSubtitle)]),
+              speechRequest.text.unicodeScalars.contains(where: { (0x3040...0x30ff).contains($0.value) || (0x4e00...0x9fff).contains($0.value) }),
               !spokenText.contains("<tool_calls"), !englishSubtitle.contains("<tool_calls"),
               !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{"),
               !englishSubtitle.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{") else {
@@ -70,6 +76,7 @@ extension CompanionManager {
             responseOverlayManager.updateStreamingText(failure)
             responseOverlayManager.finishStreaming()
             currentTurnHUDState = .failed(failure)
+            if transcript != nil || voiceState == .idle { voiceState = .idle }
             return
         }
         buddyDictationManager.cancelCurrentDictation(preserveDraftText: false)

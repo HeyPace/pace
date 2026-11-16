@@ -1473,6 +1473,15 @@ extension CompanionManager {
     func beginFinalSpeechIfCurrentTurn(spokenText: String, turnLease: PaceTurnLease) async -> Bool {
         guard isActiveTurn(turnLease) else { return false }
         if activeConversationLanguageMode == .japanesePractice {
+            if let activeBilingualReply, activeBilingualReply.speechRequest.text != spokenText {
+                let failure = "Japanese practice reply did not match its validated speech and subtitles. Please try again."
+                recordAssistantNarration(failure, origin: .failure)
+                responseOverlayManager.updateStreamingText(failure)
+                responseOverlayManager.finishStreaming()
+                currentTurnHUDState = .failed(failure)
+                voiceState = .idle
+                return false
+            }
             voiceState = .responding
             if let request = conversationSpeechRequest(for: spokenText) {
                 noteLastSpokenReply(spokenText, profile: request.profile)

@@ -161,6 +161,122 @@ struct PaceJapanesePracticeManagerTests {
         #expect(manager.currentTurnHUDState.status != .failed)
     }
 
+    @Test func unreadyPracticeShortcutPreservesRespondingTurnAndRetriesFailedPreparation() async throws {
+        let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
+        defer {
+            manager.buddyDictationManager.usesJapanesePracticeTranscription = false
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
+        var preparationAttempts = 0
+        manager.buddyDictationManager.prepareJapanesePracticeOverride = {
+            preparationAttempts += 1
+            throw WhisperKitTranscriptionProviderError(message: "Fixture multilingual model unavailable")
+        }
+        manager.buddyDictationManager.usesJapanesePracticeTranscription = true
+        manager.isTranscriptionModelReady = true
+        manager.voiceState = .responding
+        let activeTask = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
+        manager.currentResponseTask = activeTask
+        let lease = manager.turnLeaseRegistry.currentLease
+        let stopCount = speech.stopCount
+        manager.handleShortcutTransition(.pressed)
+        manager.handleShortcutTransition(.released)
+        #expect(manager.voiceState == .responding && !activeTask.isCancelled)
+        #expect(manager.turnLeaseRegistry.isCurrent(lease) && speech.stopCount == stopCount)
+        #expect(manager.pendingKeyboardShortcutStartTask == nil && manager.transcriptSafetyTask == nil)
+        #expect(manager.currentTurnHUDState.detail?.contains("Preparing") == true)
+        for _ in 0..<1000 {
+            if case .failed = manager.buddyDictationManager.japanesePracticeMicrophoneReadiness { break }
+            await Task.yield()
+        }
+        #expect(preparationAttempts == 1)
+        manager.handleShortcutTransition(.pressed)
+        manager.handleShortcutTransition(.released)
+        #expect(manager.currentTurnHUDState.status == .failed)
+        #expect(manager.currentTurnHUDState.detail?.contains("Fixture multilingual") == true)
+        for _ in 0..<1000 { if preparationAttempts == 2 { break }; await Task.yield() }
+        #expect(preparationAttempts == 2 && !activeTask.isCancelled)
+        #expect(manager.voiceState == .responding && speech.spokenTexts.isEmpty)
+        manager.cancelCurrentTurnFromPanel()
+        #expect(activeTask.isCancelled)
+        await activeTask.value
+    }
+
+    @Test func taggedJapaneseReplyKeepsEnglishHistoryAndReplaysNormalizedSpeech() async throws {
+        let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        manager.conversationLanguageMode = .japanesePractice
+        PacePowerManagerTests().begin("Say hello", manager: manager)
+        let planner = Planner()
+        planner.response = #"{"spokenText":"こんにちは。 [POINT:42,84:greeting:desktop] [DONE]","intent":"answer","payload":{"englishSubtitle":"Hello."}}"#
+        let originalPoint = PaceTagParsers.parsePointingCoordinates(from:
+            PaceTagParsers.parseAndStripDoneSignal(from: PaceActionTagParser.parseActions(from: planner.response).spokenText).strippedText)
+        #expect(originalPoint.coordinate?.x == 42 && originalPoint.coordinate?.y == 84)
+        manager.plannerClient = planner
+        manager.textOnlyPlannerClient = planner
+        manager.activePlannerTier = .local
+        manager.handleTextOnlyPlannerFastPath(transcript: "Say hello")
+        await manager.currentResponseTask?.value
+        let request = PaceSpeechRequest(text: "こんにちは。", profile: .japaneseFemale, englishSubtitle: "Hello.")
+        #expect(speech.requests == [request])
+        let replies = persister.events.values.filter { $0.role == .pace }
+        #expect(replies.count == 1 && replies.first?.text == "Hello." && replies.first?.speechRequest == request)
+        manager.replayLastSpokenReply()
+        await manager.currentResponseTask?.value
+        #expect(speech.requests == [request, request])
+        #expect(persister.events.values.filter { $0.role == .pace }.count == 1)
+    }
+
+    @Test func validatedMismatchFailsVisiblyButWrittenOperationalAcknowledgementStaysQuiet() async throws {
+        let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        manager.conversationLanguageMode = .japanesePractice
+        PacePowerManagerTests().begin("Hello", manager: manager)
+        await manager.streamingSentenceTTSPipeline.flushFinal(finalSpokenText: "Showing the animation.")
+        #expect(speech.requests.isEmpty && manager.currentTurnHUDState.status != .failed)
+        let lease = manager.turnLeaseRegistry.currentLease
+        try manager.prepareBilingualReplyIfNeeded(
+            #"{"spokenText":"こんにちは。","intent":"answer","payload":{"englishSubtitle":"Hello."}}"#, turnLease: lease)
+        let succeeded = await manager.beginFinalSpeechIfCurrentTurn(spokenText: "違う文章。", turnLease: lease)
+        #expect(!succeeded && manager.currentTurnHUDState.status == .failed)
+        #expect(manager.currentTurnHUDState.detail?.contains("did not match") == true)
+        #expect(manager.voiceState == .idle && speech.requests.isEmpty)
+        var playbackFailures = 0
+        manager.streamingSentenceTTSPipeline.onPlaybackFailure = { playbackFailures += 1 }
+        await manager.streamingSentenceTTSPipeline.flushFinal(finalSpokenText: "違う文章。")
+        #expect(playbackFailures == 1 && speech.requests.isEmpty)
+    }
+
+    @Test func unsupportedTypedPracticeCommandReturnsIdleAndDrainsTheFollowingQueuedTurn() async throws {
+        let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
+        defer {
+            manager.cancelActiveTurnTasks()
+            manager.queuedChatTurnDrainTask?.cancel()
+            manager.queuedChatTurnDrainCancellable?.cancel()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let speech = PaceConversationRecorderTests.DismissalTTSClient()
+        manager.ttsClient = speech
+        manager.streamingSentenceTTSPipeline = StreamingSentenceTTSPipeline(ttsClient: speech)
+        manager.isOverlayVisible = true
+        manager.bindQueuedChatTurnDrainObservation()
+        manager.voiceState = .processing
+        manager.submitChatTranscriptFromDeepLink("start Japanese practice")
+        manager.submitChatTranscriptFromDeepLink("What is seven times nine?")
+        #expect(manager.queuedChatTurnCount == 2)
+        manager.voiceState = .idle
+        manager.drainNextQueuedChatTurnIfPossible()
+        for _ in 0..<2000 {
+            if speech.spokenTexts.contains(where: { $0.contains("63") }), manager.voiceState == .idle { break }
+            await Task.yield()
+        }
+        #expect(manager.conversationLanguageMode == .standard)
+        #expect(manager.voiceState == .idle && manager.queuedChatTurnCount == 0)
+        #expect(speech.spokenTexts.contains { $0.contains("63") })
+        #expect(persister.events.values.contains { $0.role == .pace && $0.text.contains("needs the local Kokoro Japanese voice") })
+    }
+
     @Test func invalidPracticeReplyFailsVisiblyWithoutSpeakingEnglishOrJSON() async throws {
         let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
         defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }

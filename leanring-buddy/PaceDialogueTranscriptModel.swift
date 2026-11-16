@@ -47,6 +47,18 @@ nonisolated enum PaceDialogueTranscriptModel {
         return Array(rows.reversed())
     }
 
+    static func visibleActivities(
+        _ activities: [PaceChatToolActivityRowModel],
+        messages: [PaceChatTranscriptMessageRowModel], windowEnd: Date? = nil
+    ) -> [PaceChatToolActivityRowModel] {
+        let visibleTurnIdentifiers = Set(messages.compactMap(\.turnIdentifier))
+        guard let windowStart = messages.map(\.createdAt).min() else { return [] }
+        return activities.filter { activity in
+            if let turnIdentifier = activity.turnIdentifier { return visibleTurnIdentifiers.contains(turnIdentifier) }
+            return activity.occurredAt >= windowStart && (windowEnd.map { activity.occurredAt < $0 } ?? true)
+        }
+    }
+
     static func showsCurrentTurnStatus(state: PaceSignalState, hasFailure: Bool) -> Bool {
         hasFailure || [.listening, .understanding, .awaitingApproval, .acting, .speaking, .blocked, .failed].contains(state)
     }

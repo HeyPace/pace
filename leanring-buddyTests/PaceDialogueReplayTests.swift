@@ -43,7 +43,8 @@ struct PaceDialogueReplayTests {
         let originalMessages = manager.chatSession.messages
         let originalEvents = persister.events.count
         manager.chatSession.draftMessageText = "Keep this draft"
-        manager.replayChatSpeech(request)
+        manager.lastSpokenReplyRequest = request
+        manager.replayLastSpokenReply()
         for _ in 0..<1000 {
             if speech.completion != nil { break }
             await Task.yield()
@@ -92,6 +93,24 @@ struct PaceDialogueReplayTests {
         #expect(manager.chatSession.messages == originalMessages && persister.events.count == originalEvents)
         #expect(manager.chatSession.draftMessageText == "Keep my next question")
         #expect(manager.voiceState == .idle)
+    }
+
+    @Test func notchReplayCannotReplaceARunningTurnOrBreakStopCancellation() async throws {
+        let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        PacePowerManagerTests().begin("Keep working", manager: manager)
+        let originalEvents = persister.events.count
+        manager.lastSpokenReplyText = "An earlier reply."
+        manager.voiceState = .responding
+        let activeTask = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
+        manager.currentResponseTask = activeTask
+        manager.replayLastSpokenReply()
+        #expect(!activeTask.isCancelled && speech.spokenTexts.isEmpty)
+        manager.cancelCurrentTurnFromPanel()
+        #expect(activeTask.isCancelled)
+        await activeTask.value
+        #expect(manager.voiceState == .idle && speech.spokenTexts.isEmpty)
+        #expect(persister.events.count == originalEvents)
     }
 
     @Test func bothMutePathsAndBusyTurnPreventReplayAudioAndHistory() async throws {

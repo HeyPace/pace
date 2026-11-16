@@ -244,31 +244,58 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
     }
 
     let transcriptionProvider: any BuddyTranscriptionProvider
-    @Published private(set) var japanesePracticePreparationStatus = ""
+    enum JapanesePracticeMicrophoneReadiness: Equatable {
+        case inactive, preparing, ready, failed(String)
+
+        var message: String {
+            switch self {
+            case .inactive: return ""
+            case .preparing: return "Preparing local Japanese / English microphone…"
+            case .ready: return "Japanese / English microphone ready"
+            case .failed(let message): return message
+            }
+        }
+    }
+
+    @Published private(set) var japanesePracticeMicrophoneReadiness: JapanesePracticeMicrophoneReadiness = .inactive
+    var japanesePracticePreparationStatus: String { japanesePracticeMicrophoneReadiness.message }
     private var japanesePracticePreparationTask: Task<Void, Never>?
-    private var isJapanesePracticeTranscriptionReady = false
+    private var japanesePracticePreparationGeneration = UUID()
+    var prepareJapanesePracticeOverride: (@MainActor () async throws -> Void)?
+    var isJapanesePracticeTranscriptionReady: Bool { japanesePracticeMicrophoneReadiness == .ready }
     var usesJapanesePracticeTranscription = false {
         didSet {
+            guard oldValue != usesJapanesePracticeTranscription else { return }
             transcriptionProviderDisplayName = selectedTranscriptionProvider.displayName
+            japanesePracticePreparationGeneration = UUID()
             japanesePracticePreparationTask?.cancel()
-            isJapanesePracticeTranscriptionReady = false
-            guard usesJapanesePracticeTranscription else {
-                japanesePracticePreparationStatus = ""
-                return
+            japanesePracticePreparationTask = nil
+            japanesePracticeMicrophoneReadiness = .inactive
+            if usesJapanesePracticeTranscription { prepareJapanesePracticeTranscriptionIfNeeded() }
+        }
+    }
+
+    func prepareJapanesePracticeTranscriptionIfNeeded() {
+        guard usesJapanesePracticeTranscription, !isJapanesePracticeTranscriptionReady,
+              japanesePracticePreparationTask == nil else { return }
+        japanesePracticeMicrophoneReadiness = .preparing
+        let generation = japanesePracticePreparationGeneration
+        japanesePracticePreparationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if generation == japanesePracticePreparationGeneration { japanesePracticePreparationTask = nil }
             }
-            japanesePracticePreparationStatus = "Preparing local Japanese / English microphone…"
-            japanesePracticePreparationTask = Task { @MainActor [weak self] in
-                guard let self else { return }
-                do {
-                    try await japanesePracticeTranscriptionProvider.prepare()
-                    guard !Task.isCancelled, usesJapanesePracticeTranscription else { return }
-                    isJapanesePracticeTranscriptionReady = true
-                    japanesePracticePreparationStatus = "Japanese / English microphone ready"
-                } catch {
-                    guard !Task.isCancelled, usesJapanesePracticeTranscription else { return }
-                    japanesePracticePreparationStatus = error.localizedDescription
-                    lastErrorMessage = error.localizedDescription
-                }
+            do {
+                if let prepareJapanesePracticeOverride { try await prepareJapanesePracticeOverride() }
+                else { try await japanesePracticeTranscriptionProvider.prepare() }
+                guard !Task.isCancelled, usesJapanesePracticeTranscription,
+                      generation == japanesePracticePreparationGeneration else { return }
+                japanesePracticeMicrophoneReadiness = .ready
+            } catch {
+                guard !Task.isCancelled, usesJapanesePracticeTranscription,
+                      generation == japanesePracticePreparationGeneration else { return }
+                japanesePracticeMicrophoneReadiness = .failed(error.localizedDescription)
+                lastErrorMessage = error.localizedDescription
             }
         }
     }

@@ -418,8 +418,25 @@ extension CompanionManager {
     func handleShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
         switch transition {
         case .pressed:
-            screenSuggestionCoordinator.invalidate()
             guard !buddyDictationManager.isDictationInProgress else { return }
+            if buddyDictationManager.usesJapanesePracticeTranscription,
+                !buddyDictationManager.isJapanesePracticeTranscriptionReady {
+                ignoresRejectedPracticeShortcutRelease = true
+                let readiness = buddyDictationManager.japanesePracticeMicrophoneReadiness
+                buddyDictationManager.prepareJapanesePracticeTranscriptionIfNeeded()
+                let feedback = readiness.message.isEmpty ? buddyDictationManager.japanesePracticePreparationStatus : readiness.message
+                if case .failed = readiness { currentTurnHUDState = .failed(feedback) }
+                else { currentTurnHUDState = .understanding(feedback) }
+                if voiceState == .idle {
+                    responseOverlayManager.showOverlayAndBeginStreaming()
+                    responseOverlayManager.updateStreamingText(feedback)
+                    responseOverlayManager.finishStreaming()
+                }
+                globalPushToTalkShortcutMonitor.discardSimulatedPress()
+                return
+            }
+            ignoresRejectedPracticeShortcutRelease = false
+            screenSuggestionCoordinator.invalidate()
 
             // Cancel any pending transient hide so the overlay stays visible
             transientHideTask?.cancel()
@@ -610,6 +627,10 @@ extension CompanionManager {
                 )
             }
         case .released:
+            if ignoresRejectedPracticeShortcutRelease {
+                ignoresRejectedPracticeShortcutRelease = false
+                return
+            }
             if currentDictationTrigger == .wakeWord {
                 wakeWordListeningWindowReleaseTask?.cancel()
                 wakeWordListeningWindowReleaseTask = nil
