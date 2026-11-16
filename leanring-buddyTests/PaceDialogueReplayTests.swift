@@ -81,7 +81,7 @@ struct PaceDialogueReplayTests {
         manager.streamingSentenceTTSPipeline = StreamingSentenceTTSPipeline(ttsClient: speech)
         manager.conversationLanguageMode = .japanesePractice
         let reply = try PaceBilingualReply.parse(#"{"spokenText":"こんにちは。","intent":"answer","payload":{"englishSubtitle":"Hello."}}"#)
-        for usesNotchDelegate in [false, true] {
+        for (usesNotchDelegate, usesStop) in [(false, false), (true, false), (false, true), (true, true)] {
             PacePowerManagerTests().begin("Greet me", manager: manager)
             manager.activeBilingualReply = reply
             manager.recordConversationTurn(userTranscript: "Greet me", assistantResponse: reply.speechRequest.text)
@@ -103,13 +103,73 @@ struct PaceDialogueReplayTests {
             }
             #expect(speech.completion != nil && speech.isPlaying && manager.voiceState == .responding)
             let replayTask = manager.currentResponseTask
-            manager.handleExplanationDismissal(.userInitiated)
+            #expect(manager.activeConversationUserEvent?.eventID == completedUser.eventID)
+            if usesStop { manager.cancelCurrentTurnFromPanel() }
+            else { manager.handleExplanationDismissal(.userInitiated) }
             await replayTask?.value
             #expect(!speech.isPlaying && manager.voiceState == .idle)
             #expect(speech.requests.last == reply.speechRequest)
             #expect(persister.events == originalEvents && manager.chatSession.messages == originalMessages)
             #expect(manager.chatSession.draftMessageText == "Keep my next question")
         }
+    }
+
+    @Test func postActionNotchReplayPreservesAcceptedUserAndCompletedFeedbackOnCloseOrNewInput() async throws {
+        for closesReplay in [true, false] {
+            let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
+            let speech = ControlledEnglishSpeech()
+            defer { speech.stopPlayback(); manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+            PacePowerManagerTests().begin("Perform the task", manager: manager)
+            let originalUser = try #require(manager.activeConversationUserEvent)
+            #expect(await manager.deliverPostActionFeedbackIfCurrentTurn("The local task finished.",
+                turnLease: manager.turnLeaseRegistry.currentLease))
+            manager.voiceState = .idle
+            let feedbackIdentifier = try #require(manager.lastConversationAssistantEventIdentifier)
+            #expect(persister.events[originalUser.eventID]?.deliveryState == .accepted)
+            #expect(persister.events[feedbackIdentifier]?.deliveryState == .completed)
+            let originalEvents = persister.events
+            manager.chatSession.draftMessageText = "Keep this next question"
+            manager.ttsClient = speech
+            manager.streamingSentenceTTSPipeline = StreamingSentenceTTSPipeline(ttsClient: speech)
+            manager.replayLastSpokenReply()
+            for _ in 0..<1000 {
+                if speech.completion != nil { break }
+                await Task.yield()
+            }
+            #expect(speech.completion != nil && manager.voiceState == .responding)
+            let replayTask = manager.currentResponseTask
+            if closesReplay {
+                manager.handleExplanationDismissal(.userInitiated)
+                await replayTask?.value
+                #expect(persister.events == originalEvents)
+            }
+            PacePowerManagerTests().begin("A new normal request", manager: manager)
+            await replayTask?.value
+            #expect(originalEvents.allSatisfy { persister.events[$0.key] == $0.value })
+            #expect(!manager.replayPreservesOriginalConversationHistory)
+            let nextUser = try #require(manager.activeConversationUserEvent)
+            manager.updateAssistantStreamingText("The next answer has started.")
+            manager.voiceState = .responding
+            manager.handleExplanationDismissal(.userInitiated)
+            #expect(persister.events[nextUser.eventID]?.deliveryState == .cancelled)
+            #expect(persister.events.values.contains { $0.text == "The next answer has started." && $0.deliveryState == .interrupted })
+            #expect(originalEvents.allSatisfy { persister.events[$0.key] == $0.value })
+            #expect(manager.chatSession.draftMessageText == "Keep this next question")
+        }
+    }
+
+    @Test func restoredHistoryReplayClearsProtectionEvenWithoutAnActiveRequest() async throws {
+        let (root, manager, _, _) = try PacePowerManagerTests().fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        manager.replayChatSpeech(.init(text: "A restored reply."))
+        let replayTask = manager.currentResponseTask
+        #expect(manager.activeConversationUserEvent == nil && manager.replayPreservesOriginalConversationHistory)
+        manager.interruptConversationRequest()
+        #expect(!manager.replayPreservesOriginalConversationHistory)
+        manager.cancelCurrentTurnFromPanel()
+        await replayTask?.value
+        manager.beginConversationRequest("A fresh request")
+        #expect(!manager.replayPreservesOriginalConversationHistory)
     }
 
     @Test func selectedReplyReplaysItsOwnSpeechWithoutAddingHistoryOrChangingDraft() async throws {

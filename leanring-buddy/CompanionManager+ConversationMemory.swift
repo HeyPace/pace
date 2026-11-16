@@ -42,6 +42,8 @@ extension CompanionManager {
     }
 
     func beginConversationRequest(_ transcript: String, screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil) {
+        if replayPreservesOriginalConversationHistory { interruptConversationRequest() }
+        replayPreservesOriginalConversationHistory = false
         hasRecordedCurrentTurnSpeechUserContext = false
         activeConversationLanguageMode = conversationLanguageMode
         activeBilingualReply = nil
@@ -71,10 +73,14 @@ extension CompanionManager {
     }
 
     func interruptConversationRequest() {
+        let preservesOriginalHistory = replayPreservesOriginalConversationHistory
+        replayPreservesOriginalConversationHistory = false
         guard let userEvent = activeConversationUserEvent else { return }
-        commitInterruptedAssistantPrefix()
-        if conversationRecorder.event(withIdentifier: userEvent.eventID)?.deliveryState == .accepted {
-            conversationRecorder.updateDeliveryState(.cancelled, eventIdentifier: userEvent.eventID)
+        if !preservesOriginalHistory {
+            commitInterruptedAssistantPrefix()
+            if conversationRecorder.event(withIdentifier: userEvent.eventID)?.deliveryState == .accepted {
+                conversationRecorder.updateDeliveryState(.cancelled, eventIdentifier: userEvent.eventID)
+            }
         }
         activeConversationVisibleAssistantText = ""
         activeConversationUserEvent = nil

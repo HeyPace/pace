@@ -151,6 +151,34 @@ struct PaceTeachingManagerTests {
         #expect(speech.exactTexts.isEmpty && speech.spokenTexts.isEmpty)
     }
 
+    @Test func lessonPlayAfterReplayKeepsItsOriginAndDoesNotCancelUnrelatedOwnedWork() async throws {
+        let (manager, _, speech) = try fixture()
+        startTextTurn(manager, muted: true)
+        await manager.currentResponseTask?.value
+        let originalUserIdentifier = try #require(manager.activeConversationUserEvent?.eventID)
+        #expect(manager.diagramOverlayController.lessonConversationTurnIdentifier == originalUserIdentifier)
+        manager.streamingSentenceTTSPipeline.setMutedForCurrentTurn(false)
+        manager.replayChatSpeech(.init(text: "The existing lesson explanation."))
+        let replayTask = manager.currentResponseTask
+        try await waitUntil { speech.completion != nil }
+        let replayCompletion = try #require(speech.completion)
+        speech.completion = nil
+        replayCompletion.resume()
+        await replayTask?.value
+        #expect(manager.activeConversationUserEvent?.eventID == originalUserIdentifier)
+        let ownedWork = Task<Void, Never> {}
+        manager.currentTurnDispatchTask = ownedWork
+        manager.playTeachingLessonFromControls()
+        let lessonTask = manager.currentResponseTask
+        #expect(!ownedWork.isCancelled)
+        try await waitUntil { speech.completion != nil }
+        #expect(manager.activeConversationUserEvent?.eventID == originalUserIdentifier)
+        manager.diagramOverlayController.pauseLesson()
+        await lessonTask?.value
+        #expect(!ownedWork.isCancelled)
+        manager.cancelCurrentTurnFromPanel()
+    }
+
     @Test func activeNavigationRetainsHostingLeaseAndFinalizesOriginExactlyOnce() async throws {
         let (manager, persister, speech) = try fixture()
         startTextTurn(manager, muted: false)

@@ -375,7 +375,7 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `leanring-buddyTests/PaceJapanesePracticeTests.swift` | ~580 | Practice/parser/history/profile/default-language checks and opt-in local Japanese/English WAV transcription qualification. |
 | `leanring-buddyTests/PaceCaptureAcknowledgementTests.swift` | ~435 | Post-tap receipt ordering, mute and history preservation, empty/cancel/stale capture safety and old-finalization timer cancellation. |
 | `leanring-buddyTests/PaceDialogueTranscriptModelTests.swift` | ~100 | Exact-turn activity grouping, retained receipt bodies, unlinked records, visible failure/approval, caption metadata and streaming identity checks. |
-| `leanring-buddyTests/PaceDialogueReplayTests.swift` | ~155 | Per-message replay, both mute boundaries, immediate mute and Stop, canonical history and draft preservation through the manager fixture. |
+| `leanring-buddyTests/PaceDialogueReplayTests.swift` | ~265 | Per-message replay, both mute boundaries, immediate mute and Stop, canonical history and draft preservation through the manager fixture. |
 | `leanring-buddyTests/StreamingSentenceTTSPipelineProfileOnsetTests.swift` | ~75 | Controlled Japanese utterance onset/completion and stale-onset rejection for latency and spoken-character accounting. |
 | `PaceCLIProcessRunner.swift` | ~233 | Cancellable bounded subprocess stream with UTF-8 framing, private stderr capture and awaited owned-worker/process-group teardown. |
 | `PaceDesktopRequests.swift` | ~300 | Typed browser/profile, native capture, meeting control, and folder-specific interactive Codex-in-Warp actions. |

@@ -292,6 +292,7 @@ final class CompanionManager: ObservableObject {
     let persistsDebugTraces: Bool
     var lastPresentedVoiceConversationEventIdentifier: String?
     var activeConversationUserEvent: ConversationEvent?
+    var replayPreservesOriginalConversationHistory = false
     var activeConversationPlannerTranscript: String?
     var activeConversationScreenSuggestionContext: PaceScreenSuggestionRequestContext?
     var pendingTypedConversationEventIdentifier: String?
