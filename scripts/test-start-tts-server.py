@@ -97,6 +97,12 @@ if os.environ.get("STUB_INCOMPLETE_DOWNLOAD") != "1":
         self.assertTrue((self.dictionary / "sys.dic").is_file())
         self.assertTrue(self.receipt.is_file())
 
+    def test_successful_install_instructs_restart_before_japanese_speech(self):
+        result = self.run_script("--install-japanese")
+        self.assertIn("Restart the running Kokoro sidecar before using Japanese speech.", result.stdout)
+        self.assertIn("launchctl kickstart -k gui/$(id -u)/com.pace.tts-sidecar", result.stdout)
+        self.assertIn("For a foreground sidecar: stop it and rerun scripts/start-tts-server.sh", result.stdout)
+
     def test_incomplete_dictionary_does_not_enable_japanese(self):
         self.environment["STUB_INCOMPLETE_DOWNLOAD"] = "1"
         self.run_script("--install-japanese", succeeds=False)

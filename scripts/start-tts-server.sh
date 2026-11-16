@@ -7,8 +7,9 @@
 # synthesis call downloads the model (~350 MB) from Hugging Face; warm
 # synthesis of a sentence is ~150 ms on an M-series Mac.
 #
-# Pace needs no restart: when this server is down it speaks with the
-# Apple voice, and the next turn after the server comes up uses Kokoro.
+# Pace itself needs no restart when this server returns. After installing
+# Japanese support, restart a running sidecar so it loads the Japanese extras;
+# the installer prints managed-service and foreground restart instructions.
 #
 # Usage:
 #   ./scripts/start-tts-server.sh           # foreground on port 8880
@@ -71,7 +72,10 @@ try:
     temporary_receipt.replace(receipt)
 finally:
     temporary_receipt.unlink(missing_ok=True)
-print("Japanese UniDic dictionary is ready.")
+print("Japanese UniDic dictionary is installed.")
+print("Restart the running Kokoro sidecar before using Japanese speech.")
+print("For Pace's managed sidecar: launchctl kickstart -k gui/$(id -u)/com.pace.tts-sidecar")
+print("For a foreground sidecar: stop it and rerun scripts/start-tts-server.sh")
 PYTHON
 fi
 

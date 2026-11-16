@@ -170,7 +170,8 @@ Thank You Dance” for the protected bundled starter, which keeps its original
 animation and configured default voice saying “thank you”. Say “show me the
 Japanese greeting” for the separate Japanese Greeting starter with an adult anime
 woman and Japanese female speech. That starter requires Kokoro and explicit
-Japanese setup with `scripts/start-tts-server.sh --install-japanese`; unavailable
+Japanese setup with `scripts/start-tts-server.sh --install-japanese`, followed by
+restarting a running sidecar using the installer's printed instructions; unavailable
 Japanese speech reports failure. Saved custom workflows can
 present the same original `thank-you-dance` animation and speak requested text
 with local TTS. The animation
