@@ -93,6 +93,7 @@ private struct PaceImageOverlayView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            .background(chrome)
             Divider().overlay(.white.opacity(0.08))
             HStack(spacing: 10) {
                 if case .generating = controller.state { ProgressView().controlSize(.small) }

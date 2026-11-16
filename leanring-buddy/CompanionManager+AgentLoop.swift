@@ -58,14 +58,13 @@ extension CompanionManager {
 
     func finishInitialInspectionIfOutOfScope(
         initialInspectionPlan: PaceInitialInspectionPlan?, executionPlan: PaceActionExecutionPlan,
-        turnLease: PaceTurnLease, debugRecord: PaceToolCallDebugRecord,
-        systemPromptForExport: String? = nil
+        turnLease: PaceTurnLease, debugRecord: PaceToolCallDebugRecord
     ) -> Bool {
         guard let initialInspectionPlan, !initialInspectionPlan.permitsContinuation(executionPlan) else { return false }
         guard finishInitialInspection(
             message: "I stopped the window check because the planner requested something outside a window inventory. No actions from that plan were executed.",
             turnLease: turnLease) else { return false }
-        recordToolCallDebug(debugRecord, systemPromptForExport: systemPromptForExport)
+        recordToolCallDebug(debugRecord)
         return true
     }
 
@@ -2631,7 +2630,7 @@ extension CompanionManager {
                             plannerLatencyMs: plannerSectionElapsedMs,
                             totalTurnLatencyMs: Int(Date().timeIntervalSince(turnStartedAt) * 1000),
                             userPrompt: userPromptForPlannerForDebug
-                        ), systemPromptForExport: isResearchTurn ? nil : systemPromptForTurn)
+                        ))
                     {
                         plannerLoopFinished = true
                         pendingPostActionFeedbackText = nil
