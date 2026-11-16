@@ -1013,7 +1013,7 @@ extension CompanionManager {
 
                 if actionParseResult.teachingDelivery == nil { responseOverlayManager.updateStreamingText(conversationDisplayText(for: spokenText)) }
                 if actionParseResult.teachingDelivery?.handlesSpeech != true, !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    guard await beginFinalSpeechIfCurrentTurn(spokenText: spokenText, turnLease: turnLease) else { return }
+                    guard await beginFinalSpeechIfCurrentTurn(spokenText: spokenText, turnLease: turnLease, purpose: .assistantReply) else { return }
                 }
 
                 while ttsClient.isPlaying && !Task.isCancelled {
@@ -1470,10 +1470,13 @@ extension CompanionManager {
         currentTurnHUDState = .idle
     }
 
-    func beginFinalSpeechIfCurrentTurn(spokenText: String, turnLease: PaceTurnLease) async -> Bool {
+    func beginFinalSpeechIfCurrentTurn(
+        spokenText: String, turnLease: PaceTurnLease, purpose: PaceFinalSpeechDeliveryPurpose
+    ) async -> Bool {
         guard isActiveTurn(turnLease) else { return false }
         if activeConversationLanguageMode == .japanesePractice {
-            if let activeBilingualReply, activeBilingualReply.speechRequest.text != spokenText {
+            if purpose == .operationalFeedback { return true }
+            guard let request = conversationSpeechRequest(for: spokenText) else {
                 let failure = "Japanese practice reply did not match its validated speech and subtitles. Please try again."
                 recordAssistantNarration(failure, origin: .failure)
                 responseOverlayManager.updateStreamingText(failure)
@@ -1483,9 +1486,7 @@ extension CompanionManager {
                 return false
             }
             voiceState = .responding
-            if let request = conversationSpeechRequest(for: spokenText) {
-                noteLastSpokenReply(spokenText, profile: request.profile)
-            }
+            noteLastSpokenReply(spokenText, profile: request.profile)
         }
         await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
         guard isActiveTurn(turnLease) else { return false }
@@ -2887,7 +2888,7 @@ extension CompanionManager {
                     if shouldSpeakInitialPlannerText, actionParseResult.teachingDelivery?.handlesSpeech != true,
                         !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     {
-                        guard await beginFinalSpeechIfCurrentTurn(spokenText: spokenText, turnLease: turnLease) else { return }
+                        guard await beginFinalSpeechIfCurrentTurn(spokenText: spokenText, turnLease: turnLease, purpose: .assistantReply) else { return }
                     }
 
                     // 10. Execute tool calls/action tags if any.
@@ -3190,7 +3191,7 @@ extension CompanionManager {
                     recordConversationTurn(userTranscript: "", assistantResponse: pendingPostActionFeedbackText)
                     noteLastSpokenReply(pendingPostActionFeedbackText)
                     responseOverlayManager.updateStreamingText(pendingPostActionFeedbackText)
-                    guard await beginFinalSpeechIfCurrentTurn(spokenText: pendingPostActionFeedbackText, turnLease: turnLease) else { return }
+                    guard await beginFinalSpeechIfCurrentTurn(spokenText: pendingPostActionFeedbackText, turnLease: turnLease, purpose: .operationalFeedback) else { return }
                 }
                 if currentTurnHUDState.status == .understanding
                     || currentTurnHUDState.status == .acting

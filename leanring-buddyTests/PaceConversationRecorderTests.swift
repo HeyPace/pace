@@ -297,7 +297,7 @@ struct PaceConversationRecorderTests {
         client.suspendsSubmissions = true
         let lease = manager.turnLeaseRegistry.beginTurn()
         manager.voiceState = .processing
-        let finalSpeech = Task { await manager.beginFinalSpeechIfCurrentTurn(spokenText: "The explanation is ready.", turnLease: lease) }
+        let finalSpeech = Task { await manager.beginFinalSpeechIfCurrentTurn(spokenText: "The explanation is ready.", turnLease: lease, purpose: .assistantReply) }
         defer {
             finalSpeech.cancel()
             client.submission?.resume()

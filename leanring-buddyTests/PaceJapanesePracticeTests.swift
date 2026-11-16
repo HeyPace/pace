@@ -177,6 +177,8 @@ struct PaceJapanesePracticeManagerTests {
         manager.buddyDictationManager.usesJapanesePracticeTranscription = true
         manager.isTranscriptionModelReady = true
         manager.voiceState = .responding
+        let activeHUD = PaceTurnHUDState.acting("Reading your current answer")
+        manager.currentTurnHUDState = activeHUD
         let activeTask = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
         manager.currentResponseTask = activeTask
         let lease = manager.turnLeaseRegistry.currentLease
@@ -186,7 +188,8 @@ struct PaceJapanesePracticeManagerTests {
         #expect(manager.voiceState == .responding && !activeTask.isCancelled)
         #expect(manager.turnLeaseRegistry.isCurrent(lease) && speech.stopCount == stopCount)
         #expect(manager.pendingKeyboardShortcutStartTask == nil && manager.transcriptSafetyTask == nil)
-        #expect(manager.currentTurnHUDState.detail?.contains("Preparing") == true)
+        #expect(manager.currentTurnHUDState == activeHUD)
+        #expect(manager.buddyDictationManager.japanesePracticePreparationStatus.contains("Preparing"))
         for _ in 0..<1000 {
             if case .failed = manager.buddyDictationManager.japanesePracticeMicrophoneReadiness { break }
             await Task.yield()
@@ -194,10 +197,12 @@ struct PaceJapanesePracticeManagerTests {
         #expect(preparationAttempts == 1)
         manager.handleShortcutTransition(.pressed)
         manager.handleShortcutTransition(.released)
-        #expect(manager.currentTurnHUDState.status == .failed)
-        #expect(manager.currentTurnHUDState.detail?.contains("Fixture multilingual") == true)
+        #expect(manager.currentTurnHUDState == activeHUD)
+        #expect(manager.buddyDictationManager.japanesePracticePreparationStatus.contains("Preparing")
+            || manager.buddyDictationManager.japanesePracticePreparationStatus.contains("Fixture multilingual"))
         for _ in 0..<1000 { if preparationAttempts == 2 { break }; await Task.yield() }
         #expect(preparationAttempts == 2 && !activeTask.isCancelled)
+        #expect(manager.currentTurnHUDState == activeHUD)
         #expect(manager.voiceState == .responding && speech.spokenTexts.isEmpty)
         manager.cancelCurrentTurnFromPanel()
         #expect(activeTask.isCancelled)
@@ -239,7 +244,7 @@ struct PaceJapanesePracticeManagerTests {
         let lease = manager.turnLeaseRegistry.currentLease
         try manager.prepareBilingualReplyIfNeeded(
             #"{"spokenText":"こんにちは。","intent":"answer","payload":{"englishSubtitle":"Hello."}}"#, turnLease: lease)
-        let succeeded = await manager.beginFinalSpeechIfCurrentTurn(spokenText: "違う文章。", turnLease: lease)
+        let succeeded = await manager.beginFinalSpeechIfCurrentTurn(spokenText: "違う文章。", turnLease: lease, purpose: .assistantReply)
         #expect(!succeeded && manager.currentTurnHUDState.status == .failed)
         #expect(manager.currentTurnHUDState.detail?.contains("did not match") == true)
         #expect(manager.voiceState == .idle && speech.requests.isEmpty)
@@ -247,6 +252,56 @@ struct PaceJapanesePracticeManagerTests {
         manager.streamingSentenceTTSPipeline.onPlaybackFailure = { playbackFailures += 1 }
         await manager.streamingSentenceTTSPipeline.flushFinal(finalSpokenText: "違う文章。")
         #expect(playbackFailures == 1 && speech.requests.isEmpty)
+    }
+
+    @Test func validBilingualActionKeepsOperationalFeedbackWrittenOnlyAndPreservesItsHUD() async throws {
+        let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        manager.conversationLanguageMode = .japanesePractice
+        PacePowerManagerTests().begin("Show the greeting", manager: manager)
+        let response = #"{"spokenText":"あいさつを表示します。","intent":"action","payload":{"name":"present_media","args":{"assetID":"japanese-greeting-woman","durationSeconds":6},"englishSubtitle":"I’ll show the greeting."}}"#
+        #expect(PaceActionTagParser.parseActions(from: response).actions.count == 1)
+        let lease = manager.turnLeaseRegistry.currentLease
+        try manager.prepareBilingualReplyIfNeeded(response, turnLease: lease)
+        manager.recordConversationTurn(userTranscript: "Show the greeting", assistantResponse: "あいさつを表示します。")
+        #expect(persister.events.values.contains { $0.role == .pace && $0.text == "I’ll show the greeting." && $0.speechRequest != nil })
+        let delivered = await manager.beginFinalSpeechIfCurrentTurn(
+            spokenText: "あいさつを表示します。", turnLease: lease, purpose: .assistantReply)
+        #expect(delivered && speech.spokenTexts == ["あいさつを表示します。"])
+        let feedback = try #require(PaceActionExecutionObservation.formatForUserFeedback([
+            .init(toolName: "present_media", summary: "Presented local media fixture.",
+                userFacingSummary: "Presented the requested local media.")]))
+        let cases: [(String, PaceTurnHUDState)] = [
+            (feedback, .acting("Presenting the greeting")),
+            ("Stopped because the next action was denied. Earlier actions may have completed; the full request remains unverified.",
+                .failed("Action denied; request not verified")),
+            ("Stopped after 2 steps before verifying the full request. Please check the current result before continuing.",
+                .failed("Step limit reached; request not verified")),
+        ]
+        for (writtenFeedback, expectedHUD) in cases {
+            manager.currentTurnHUDState = expectedHUD
+            manager.voiceState = .processing
+            manager.recordConversationTurn(userTranscript: "", assistantResponse: writtenFeedback)
+            let eventCount = persister.events.count
+            let continued = await manager.beginFinalSpeechIfCurrentTurn(
+                spokenText: writtenFeedback, turnLease: lease, purpose: .operationalFeedback)
+            #expect(continued && manager.currentTurnHUDState == expectedHUD)
+            #expect(manager.voiceState == .processing && persister.events.count == eventCount)
+            #expect(speech.spokenTexts == ["あいさつを表示します。"])
+        }
+        #expect(!persister.events.values.contains { $0.origin == .failure })
+        await manager.deliverCodingForegroundReply("Coding session stopped before completing the request.",
+            transcript: "", turnLease: lease, failed: true)
+        #expect(manager.voiceState == .idle)
+        #expect(manager.currentTurnHUDState == .failed("Coding session stopped before completing the request."))
+        #expect(speech.spokenTexts == ["あいさつを表示します。"])
+        #expect(!persister.events.values.contains { $0.origin == .failure })
+
+        manager.conversationLanguageMode = .standard
+        PacePowerManagerTests().begin("Back to normal", manager: manager)
+        let standardDelivered = await manager.beginFinalSpeechIfCurrentTurn(spokenText: feedback,
+            turnLease: manager.turnLeaseRegistry.currentLease, purpose: .operationalFeedback)
+        #expect(standardDelivered && speech.spokenTexts.last == feedback)
     }
 
     @Test(.timeLimit(.minutes(1))) func unsupportedTypedPracticeCommandReturnsIdleAndDrainsTheFollowingQueuedTurn() async throws {

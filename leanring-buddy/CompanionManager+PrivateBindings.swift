@@ -425,9 +425,9 @@ extension CompanionManager {
                 let readiness = buddyDictationManager.japanesePracticeMicrophoneReadiness
                 buddyDictationManager.prepareJapanesePracticeTranscriptionIfNeeded()
                 let feedback = readiness.message.isEmpty ? buddyDictationManager.japanesePracticePreparationStatus : readiness.message
-                if case .failed = readiness { currentTurnHUDState = .failed(feedback) }
-                else { currentTurnHUDState = .understanding(feedback) }
                 if voiceState == .idle {
+                    if case .failed = readiness { currentTurnHUDState = .failed(feedback) }
+                    else { currentTurnHUDState = .understanding(feedback) }
                     responseOverlayManager.showOverlayAndBeginStreaming()
                     responseOverlayManager.updateStreamingText(feedback)
                     responseOverlayManager.finishStreaming()

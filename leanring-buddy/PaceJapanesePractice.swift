@@ -27,6 +27,11 @@ nonisolated enum PaceConversationLanguageMode: Equatable, Sendable {
     """
 }
 
+nonisolated enum PaceFinalSpeechDeliveryPurpose: Equatable, Sendable {
+    case assistantReply
+    case operationalFeedback
+}
+
 nonisolated struct PaceBilingualReply: Equatable, Sendable {
     let speechRequest: PaceSpeechRequest
     let englishSubtitle: String

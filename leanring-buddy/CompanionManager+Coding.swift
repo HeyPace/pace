@@ -105,7 +105,7 @@ extension CompanionManager {
         recordConversationTurn(userTranscript: transcript, assistantResponse: writtenResponse)
         responseOverlayManager.showOverlayAndBeginStreaming()
         responseOverlayManager.updateStreamingText(writtenResponse)
-        guard await beginFinalSpeechIfCurrentTurn(spokenText: spokenSummary, turnLease: turnLease) else { return }
+        guard await beginFinalSpeechIfCurrentTurn(spokenText: spokenSummary, turnLease: turnLease, purpose: .operationalFeedback) else { return }
         while ttsClient.isPlaying && isActiveTurn(turnLease) {
             do { try await Task.sleep(for: .milliseconds(80)) } catch { return }
         }
