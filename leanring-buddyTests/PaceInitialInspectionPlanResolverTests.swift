@@ -145,6 +145,65 @@ struct PaceInitialInspectionPlanResolverTests {
         #expect(history.formattedForPlanner.contains("Safari window 84: Launch checklist"))
     }
 
+    @Test func continuationScopeAllowsOnlyWindowListsOrAnAnswer() throws {
+        let plan = try #require(PaceInitialInspectionPlanResolver.resolve(
+            transcript: "List Safari windows.", context: eligibleContext))
+        let observedProcessList = PaceParsedAction.mcp(.init(
+            serverName: "peekaboo", toolName: "window",
+            arguments: ["action": .string("list"), "app": .string("PID:111")]))
+        #expect(plan.permitsContinuation(.serial(actions: [observedProcessList])))
+        #expect(plan.permitsContinuation(PaceActionTagParser.parseActions(from: "safari has two windows.").executionPlan))
+        #expect(plan.permitsContinuation(PaceActionExecutionPlan(steps: [
+            .init(actions: [observedProcessList, observedProcessList])
+        ])))
+
+        let outOfScopeActions: [PaceParsedAction] = [
+            .readClipboard,
+            .openApplication("Safari"),
+            .mcp(.init(serverName: "peekaboo", toolName: "window",
+                arguments: ["action": .string("close"), "app": .string("PID:111")])),
+            .mcp(.init(serverName: "peekaboo", toolName: "see", arguments: ["app": .string("PID:111")])),
+            .mcp(.init(serverName: "peekaboo", toolName: "app", arguments: ["action": .string("list")])),
+            .mcp(.init(serverName: "playwright", toolName: "window", arguments: ["action": .string("list")])),
+            .mcp(.init(serverName: "peekaboo", toolName: "window", arguments: [:])),
+        ]
+        for action in outOfScopeActions {
+            #expect(!plan.permitsContinuation(.serial(actions: [action])))
+            #expect(!plan.permitsContinuation(PaceActionExecutionPlan(steps: [
+                .init(actions: [observedProcessList, action])
+            ])))
+            #expect(!plan.permitsContinuation(.serial(actions: [observedProcessList, action])))
+        }
+    }
+
+    @MainActor @Test func outOfScopeContinuationUsesOneCanonicalFailureWithoutDispatch() throws {
+        let (manager, persister, client) = PaceConversationRecorderTests().makeDismissalFixture()
+        let turnLease = manager.turnLeaseRegistry.beginTurn()
+        manager.beginConversationRequest("List Safari windows.")
+        let plan = try #require(PaceInitialInspectionPlanResolver.resolve(
+            transcript: "List Safari windows.", context: eligibleContext))
+        let unexpectedPlan = PaceActionExecutionPlan.serial(actions: [.readClipboard])
+        #expect(!manager.finishInitialInspectionIfOutOfScope(
+            initialInspectionPlan: nil, executionPlan: unexpectedPlan, turnLease: turnLease))
+        #expect(manager.finishInitialInspectionIfOutOfScope(
+            initialInspectionPlan: plan, executionPlan: unexpectedPlan, turnLease: turnLease))
+        #expect(manager.currentTurnHUDState.status == .failed)
+        let message = try #require(manager.currentTurnHUDState.detail)
+        #expect(message.contains("No actions from that plan were executed"))
+        #expect(manager.chatSession.userFacingMessages.filter { $0.body == message }.count == 1)
+        #expect(persister.events.values.filter { $0.role == .pace }.count == 1)
+        #expect(client.spokenTexts.isEmpty)
+        #expect(manager.actionExecutor.mutationLog.isEmpty)
+
+        let newerTurnLease = manager.turnLeaseRegistry.beginTurn()
+        manager.currentTurnHUDState = .understanding("New request")
+        #expect(!manager.finishInitialInspectionIfOutOfScope(
+            initialInspectionPlan: plan, executionPlan: unexpectedPlan, turnLease: turnLease))
+        #expect(manager.isActiveTurn(newerTurnLease))
+        #expect(persister.events.values.filter { $0.role == .pace }.count == 1)
+        #expect(manager.currentTurnHUDState == .understanding("New request"))
+    }
+
     @MainActor
     @Test(.enabled(if: ProcessInfo.processInfo.environment["PACE_RUN_INSPECTION_LATENCY_BENCHMARK"] == "1"))
     func nativeInitialPlanLatencyComparison() async throws {

@@ -59,6 +59,49 @@ struct PacePowerCatalogTests {
         #expect(!readOnlyPrompt.contains("- {\"tool\":\"click\""))
     }
 
+    @MainActor @Test func windowInventoryPromptSharesOnlyItsRequiredPowerInstructions() throws {
+        let prompt = CompanionSystemPrompt.buildForWindowInventory()
+        #expect(prompt.contains(PaceTextPower.conversationRules))
+        #expect(prompt.contains(PaceVoicePower.responseRules))
+        #expect(prompt.contains(PaceComputerUsePower.mcpActionProtocolRules))
+        #expect(prompt.contains(PaceComputerUsePower.windowInventoryRules))
+        for unrelatedInstruction in [
+            "available tools:", "Draw.annotation", "show_diagram", "generate_image",
+            "coding_session", "Mail.draft", "App.launch", "<conversation_so_far>",
+            PaceComputerUsePower.desktopToolRecoveryGuidance,
+        ] {
+            #expect(!prompt.contains(unrelatedInstruction), "\(unrelatedInstruction)")
+        }
+
+        let normalPrompt = CompanionSystemPrompt.build(
+            includeAgentMode: true, isTuitionModeEnabled: true, includeInteractiveDiagrams: true)
+        #expect(normalPrompt.contains(PaceComputerUsePower.mcpActionProtocolRules))
+        #expect(normalPrompt.contains(PaceTeachingPower.tuitionModeRules))
+        #expect(normalPrompt.contains("show_diagram"))
+        #expect(normalPrompt.contains("coding_session"))
+        #expect(normalPrompt.contains("Codex.session"))
+
+        let examples = PaceComputerUsePower.mcpActionProtocolRules.split(separator: "\n")
+            .filter { $0.hasPrefix("{\"spokenText\"") }
+        #expect(examples.count == 2)
+        var actionCounts: [Int] = []
+        for example in examples {
+            let parsed = PaceActionTagParser.parseActions(from: String(example))
+            #expect(parsed.spokenText.isEmpty)
+            actionCounts.append(parsed.executionPlan.flattenedActions.count)
+            for action in parsed.executionPlan.flattenedActions {
+                guard case .mcp(let call) = action else {
+                    Issue.record("Shared MCP envelope did not parse as an MCP call")
+                    continue
+                }
+                #expect(call.serverName == "peekaboo")
+                #expect(call.toolName == "window")
+                #expect(call.arguments["action"] == .string("list"))
+            }
+        }
+        #expect(actionCounts == [1, 2])
+    }
+
     @MainActor @Test func passiveScreenPromptKeepsGroundingAndMemoryWithoutActionOrVisualSchemas() throws {
         let threadSummary = "<conversation_so_far>We were reviewing the Pace project.</conversation_so_far>"
         let ambientContext = "Frontmost app: Xcode"

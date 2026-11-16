@@ -833,9 +833,18 @@ struct PaceMCPClientIntegrationTests {
 
         let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
         manager.actionExecutor = PaceActionExecutor(actionsAreEnabledOverride: true, mcpClient: client)
+        let canonicalEnvelope = #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","tool":"window","arguments":{"action":"list","app":"Google Chrome"}}}}"#
         let plan = PaceInitialInspectionPlan(toolCall: .init(serverName: "peekaboo", toolName: "window",
-            arguments: ["action": .string("list"), "app": .string("Google Chrome")]), canonicalEnvelope: "")
-        let observedRequest = "original request: List Chrome windows.\nObserved PID:111, window_id:84, partial inventory."
+            arguments: ["action": .string("list"), "app": .string("Google Chrome")]), canonicalEnvelope: canonicalEnvelope)
+        let partialResult = "Observed PID:111, window_id:84, partial inventory; PID:222 is still missing."
+        var inspectionHistory = PaceAgentInspectionHistory()
+        inspectionHistory.append(plannerRequest: plan.canonicalEnvelope, observations: [
+            .init(toolName: "mcp.peekaboo.window", summary: partialResult)
+        ])
+        inspectionHistory.append(plannerRequest: plan.canonicalEnvelope, observations: [
+            .init(toolName: "mcp.peekaboo.window", summary: "PID:222 inventory may be incomplete.\n" + String(repeating: "window metadata ", count: 1_000))
+        ])
+        let observedRequest = "original request: List Chrome windows.\n" + inspectionHistory.formattedForPlanner
         let prompt = await manager.appendConfiguredMCPContext(to: observedRequest, initialInspectionPlan: plan)
         #expect(prompt.hasPrefix(observedRequest))
         #expect(prompt.contains(scopedCatalog))
@@ -845,6 +854,33 @@ struct PaceMCPClientIntegrationTests {
         #expect(!prompt.contains("click fixture schema"))
         #expect(!prompt.contains("see fixture schema"))
         #expect(!prompt.contains("playwright"))
+        #expect(!prompt.contains(CompanionSystemPrompt.desktopToolRecoveryGuidance))
+
+        manager.threadMemory = PaceThreadMemory(configuration: .default)
+        _ = manager.threadMemory.record(userTurn: "OLD_CONVERSATION_REQUEST", assistantTurn: "OLD_CONVERSATION_ANSWER",
+            turnId: "prior-turn", now: Date())
+        manager.threadMemory.applySummaryUpdate(summary: "OLD_THREAD_SUMMARY",
+            summaryVersion: manager.threadMemory.reserveNextSummaryVersion(), updatedAt: Date())
+        let ordinaryPrompt = PaceLocalCLIPlannerClient.composeCodexPrompt(
+            systemPrompt: CompanionSystemPrompt.build(includeAgentMode: true,
+                threadSummaryInjection: manager.threadMemory.injectionPrefix(), ambientContextInjection: "OLD_AMBIENT_CONTEXT"),
+            conversationHistory: manager.plannerConversationHistory(initialInspectionPlan: nil), userPrompt: prompt)
+        for oldContext in ["OLD_CONVERSATION_REQUEST", "OLD_CONVERSATION_ANSWER", "OLD_THREAD_SUMMARY", "OLD_AMBIENT_CONTEXT"] {
+            #expect(ordinaryPrompt.contains(oldContext))
+        }
+        let inventoryPrompt = PaceLocalCLIPlannerClient.composeCodexPrompt(
+            systemPrompt: CompanionSystemPrompt.buildForWindowInventory(),
+            conversationHistory: manager.plannerConversationHistory(initialInspectionPlan: plan), userPrompt: prompt)
+        for oldContext in ["OLD_CONVERSATION_REQUEST", "OLD_CONVERSATION_ANSWER", "OLD_THREAD_SUMMARY", "OLD_AMBIENT_CONTEXT", "<conversation_so_far>"] {
+            #expect(!inventoryPrompt.contains(oldContext))
+        }
+        #expect(inventoryPrompt.contains(observedRequest))
+        #expect(inventoryPrompt.contains(plan.canonicalEnvelope))
+        #expect(inventoryPrompt.contains(partialResult))
+        #expect(inventoryPrompt.contains("PID:222 inventory may be incomplete."))
+        #expect(inventoryPrompt.contains("[inspection result truncated to fit the prompt budget]"))
+        #expect(inspectionHistory.formattedForPlanner.count <= PaceAgentInspectionHistory.maximumCharacterCount)
+        #expect(inspectionHistory.formattedForPlanner.components(separatedBy: "Completed inspection step ").count == 3)
         #expect(try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:])) == "NO_ACTIONS")
     }
 

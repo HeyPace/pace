@@ -9,7 +9,7 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `leanring_buddyApp.swift` | ~340 | Menu bar app entry point. Uses `@NSApplicationDelegateAdaptor` with `CompanionAppDelegate` which validates the local tool registry at startup, warms only the selected local planner, creates the notch/panel managers, starts `CompanionManager`, launches versioned onboarding when needed, handles `pace://` deeplinks, and optionally installs runtime smoke hooks. Pace has no Dock icon; its resizable Command Center opens only on request. |
 | `PaceDeepLinkParser.swift` | ~77 | Pure parser for the `pace://` URL scheme (listen, chat, watch, panel). Reject-on-ambiguity rules, percent-decoding via URLComponents, and a hard 500-char chat-text cap because deeplinks are an external input surface. |
 | `CompanionManager.swift` | ~1336 | Class declaration and stored properties only — the god-class shell after Phase A decomposition. |
-| `CompanionManager+AgentLoop.swift` | ~4005 | AI response routing and execution, including selected-planner teaching requests, same-lease awaited lessons, remote/mute-safe speech handling and owned replay after host finalization.
+| `CompanionManager+AgentLoop.swift` | ~4056 | AI response routing and execution, including selected-planner teaching requests, same-lease awaited lessons, remote/mute-safe speech handling and owned replay after host finalization.
 | `PaceTurnLease.swift` | ~30 | Pure generation registry used to reject cancelled or superseded routing results and queued planner speech before they can mutate the active turn. |
 | `CompanionManager+PrivateBindings.swift` | ~680 | Permission polling, LM Studio reachability, barge-in VAD, wake-word, shortcut bindings. |
 | `CompanionManager+Lifecycle.swift` | ~1000 | `start()`/`stop()`, permission requests, avatar/deeplink/chat entry points, and FIFO typed-turn queue draining between complete voice-agent turns. |
@@ -365,5 +365,7 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `PaceDesktopRequests.swift` | ~300 | Typed browser/profile, native capture, meeting control, and folder-specific interactive Codex-in-Warp actions. |
 | `PaceScreenRecordingController.swift` | ~140 | Owned native main-display recording lifecycle, bounded stop and shutdown, and saved-movie validation. |
 | `scripts/setup-whisperkit.py` | ~47 | Standard-library provisioner for pinned WhisperKit base.en assets and local tokenizer under Application Support. |
+| `../leanring-buddyTests/PaceInventoryContextBenchmarkTests.swift` | ~112 | Opt-in, fixed synthetic two-window answer comparison through the selected Codex CLI. Alternates frozen broad context and scoped inventory context; validates both answers and performs no desktop actions. |
 
 | `Resources/OpenSourceNotices.txt` | license text | Offline copyright and licenses for pinned Swift dependencies and optional external helpers, opened from About. |
+

@@ -50,12 +50,37 @@ extension CompanionManager {
     func finishInitialInspectionIfSettingsChanged(
         context: PaceInitialInspectionPlanResolver.Context, turnLease: PaceTurnLease
     ) -> Bool {
-        guard !context.isEligible, isActiveTurn(turnLease) else { return false }
-        let message = "I stopped the window check because Pace’s permissions or settings changed."
+        guard !context.isEligible else { return false }
+        return finishInitialInspection(
+            message: "I stopped the window check because Pace’s permissions or settings changed.",
+            turnLease: turnLease)
+    }
+
+    func finishInitialInspectionIfOutOfScope(
+        initialInspectionPlan: PaceInitialInspectionPlan?, executionPlan: PaceActionExecutionPlan,
+        turnLease: PaceTurnLease
+    ) -> Bool {
+        guard let initialInspectionPlan, !initialInspectionPlan.permitsContinuation(executionPlan) else { return false }
+        return finishInitialInspection(
+            message: "I stopped the window check because the planner requested something outside a window inventory. No actions from that plan were executed.",
+            turnLease: turnLease)
+    }
+
+    private func finishInitialInspection(message: String, turnLease: PaceTurnLease) -> Bool {
+        guard isActiveTurn(turnLease) else { return false }
         currentTurnHUDState = .failed(message)
         recordConversationTurn(userTranscript: "", assistantResponse: message)
         responseOverlayManager.finishStreaming()
         return true
+    }
+
+    func plannerConversationHistory(
+        initialInspectionPlan: PaceInitialInspectionPlan?
+    ) -> [(userPlaceholder: String, assistantResponse: String)] {
+        guard initialInspectionPlan == nil else { return [] }
+        return conversationHistory.map { entry in
+            (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
+        }
     }
 
     var canGenerateImagesWithCodex: Bool {
@@ -2116,7 +2141,8 @@ extension CompanionManager {
         // headless CLI gets a research-shaped prompt instead of
         // Pace's agent-mode tool docs.
         let isResearchTurn: Bool = (researchTurnPlannerOverride != nil)
-        let requiresObservationOnly = PaceActionApprovalPolicy.requestsObservationOnly(transcript)
+        let requiresObservationOnly = initialInspectionPlan != nil
+            || PaceActionApprovalPolicy.requestsObservationOnly(transcript)
 
         guard isActiveTurn(turnLease) else { return }
         currentResponseTask = Task {
@@ -2245,7 +2271,8 @@ extension CompanionManager {
                         AppBundleConfiguration
                         .stringValue(forKey: "EnableActions")?
                         .lowercased() == "true"
-                    let threadSummaryInjectionForTurn = threadMemory.injectionPrefix()
+                    let threadSummaryInjectionForTurn = initialInspectionPlan == nil
+                        ? threadMemory.injectionPrefix() : nil
                     // Research turns route through PaceLocalCLIPlannerClient
                     // (claude/codex CLI). The CLI has its own web tools
                     // and doesn't need Pace's local action-tag dialect —
@@ -2253,7 +2280,9 @@ extension CompanionManager {
                     // confuse the headless CLI into returning Pace
                     // action JSON instead of a spoken research answer.
                     let systemPromptForTurn: String
-                    if isResearchTurn {
+                    if initialInspectionPlan != nil {
+                        systemPromptForTurn = CompanionSystemPrompt.buildForWindowInventory()
+                    } else if isResearchTurn {
                         systemPromptForTurn = CompanionSystemPrompt.buildForResearchTurn(
                             threadSummaryInjection: threadSummaryInjectionForTurn,
                             includeInteractiveDiagrams: true
@@ -2398,13 +2427,18 @@ extension CompanionManager {
                             userPromptWithConfiguredTools = await appendConfiguredMCPContext(
                                 to: screenContextPrompt, initialInspectionPlan: initialInspectionPlan)
                         }
-                        let userPromptForPlanner = await appendLocalRetrievalContext(
-                            to: userPromptWithConfiguredTools,
-                            query: transcript,
-                            route: intentPrediction.route,
-                            isFirstPlannerStep: isFirstStep,
-                            memoryQuery: screenSuggestionContext?.suggestion.subject
-                        )
+                        let userPromptForPlanner: String
+                        if initialInspectionPlan != nil {
+                            userPromptForPlanner = userPromptWithConfiguredTools
+                        } else {
+                            userPromptForPlanner = await appendLocalRetrievalContext(
+                                to: userPromptWithConfiguredTools,
+                                query: transcript,
+                                route: intentPrediction.route,
+                                isFirstPlannerStep: isFirstStep,
+                                memoryQuery: screenSuggestionContext?.suggestion.subject
+                            )
+                        }
                         userPromptForPlannerForDebug = userPromptForPlanner
                         let screenContextElapsedMs = Int(
                             Date().timeIntervalSince(screenContextStartedAt) * 1000
@@ -2429,9 +2463,7 @@ extension CompanionManager {
                         }
 
                         // 4. Build conversation history (already includes prior steps)
-                        let historyForPlanner = conversationHistory.map { entry in
-                            (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
-                        }
+                        let historyForPlanner = plannerConversationHistory(initialInspectionPlan: initialInspectionPlan)
 
                         // 5. Run the planner. Text-only planners get an empty
                         //    images list; the VLM element-map text inside
@@ -2578,6 +2610,14 @@ extension CompanionManager {
                     //    Each pass strips its own tag class so the final
                     //    `spokenText` is clean enough to play via TTS.
                     let rawActionParseResult = PaceActionTagParser.parseActions(from: fullResponseText)
+                    if finishInitialInspectionIfOutOfScope(
+                        initialInspectionPlan: initialInspectionPlan,
+                        executionPlan: rawActionParseResult.executionPlan, turnLease: turnLease)
+                    {
+                        plannerLoopFinished = true
+                        pendingPostActionFeedbackText = nil
+                        break agentStepLoop
+                    }
                     if requiresObservationOnly,
                         !PaceActionApprovalPolicy.permitsObservationOnly(rawActionParseResult.executionPlan)
                     {
@@ -2707,7 +2747,7 @@ extension CompanionManager {
                         return screenCaptures.first(where: { $0.isCursorScreen })
                     }()
 
-                    if parseResult.usesDesktopCoordinates,
+                    if initialInspectionPlan == nil, parseResult.usesDesktopCoordinates,
                         let pointCoordinate = parseResult.coordinate,
                         let primaryScreen = NSScreen.screens.first,
                         let target = PaceTagParsers.desktopPointingTarget(
@@ -2720,7 +2760,7 @@ extension CompanionManager {
                         // of whether the local VLM captured any screenshots.
                         presentDetectedElement(screenLocation: target.location, displayFrame: target.displayFrame)
                         PaceAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
-                    } else if !parseResult.usesDesktopCoordinates,
+                    } else if initialInspectionPlan == nil, !parseResult.usesDesktopCoordinates,
                         let pointCoordinate = parseResult.coordinate,
                         let targetScreenCapture
                     {

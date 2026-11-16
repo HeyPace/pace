@@ -27,6 +27,15 @@ import Foundation
 enum CompanionSystemPrompt {
     static let desktopToolRecoveryGuidance = PaceComputerUsePower.desktopToolRecoveryGuidance
 
+    static func buildForWindowInventory() -> String {
+        [
+            PaceTextPower.conversationRules,
+            PaceVoicePower.responseRules,
+            PaceComputerUsePower.mcpActionProtocolRules,
+            PaceComputerUsePower.windowInventoryRules,
+        ].joined(separator: "\n\n")
+    }
+
     static func shouldUsePassiveScreenPrompt(
         transcript: String,
         route: PaceIntentRoute,

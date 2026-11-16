@@ -3,6 +3,14 @@ import Foundation
 nonisolated struct PaceInitialInspectionPlan: Equatable, Sendable {
     let toolCall: PaceMCPToolCall
     let canonicalEnvelope: String
+
+    func permitsContinuation(_ executionPlan: PaceActionExecutionPlan) -> Bool {
+        executionPlan.flattenedActions.allSatisfy { action in
+            guard case .mcp(let toolCall) = action else { return false }
+            return toolCall.serverName == "peekaboo" && toolCall.toolName == "window"
+                && toolCall.arguments["action"] == .string("list")
+        }
+    }
 }
 
 nonisolated enum PaceInitialInspectionPlanResolver {
