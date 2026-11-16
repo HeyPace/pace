@@ -5,7 +5,9 @@
   "description": "Present an original dancing character for four seconds and say thank you locally.",
   "category": "media",
   "invocationPhrases": [
-    "show me the thank you dance"
+    "show me the thank you dance",
+    "play my thank you dance",
+    "run my thank you dance"
   ],
   "source": "bundled",
   "executionMode": "deterministicLocal",

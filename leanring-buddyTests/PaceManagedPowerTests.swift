@@ -288,7 +288,7 @@ struct PaceManagedPowerTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let definitions = PaceAutomationDefinitionLibrary.loadBundledDefinitions(allowSourceTreeFallback: true)
         let starter = try #require(definitions.first { $0.identifier == "thank-you-dance" })
-        #expect(starter.invocationPhrases == ["show me the thank you dance"])
+        #expect(starter.invocationPhrases == ["show me the thank you dance", "play my thank you dance", "run my thank you dance"])
         let plan = try PaceAutomationCompiler.compile(starter)
         #expect(plan.flattenedActions.count == 2)
         guard case .presentMedia(let media) = plan.flattenedActions[0], case .speak(let speech) = plan.flattenedActions[1] else {
