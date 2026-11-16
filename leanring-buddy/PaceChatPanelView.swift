@@ -23,6 +23,9 @@ import SaaSMakerUI
 import SwiftUI
 
 struct PaceChatPanelView: View {
+    @ObservedObject private var appearanceStore = PaceChatAppearanceStore.shared
+    private var appearance: PaceChatAppearance { appearanceStore.appearance }
+
     @ObservedObject var companionManager: CompanionManager
     // Observed separately: these are their own ObservableObjects, and
     // changes to their @Published state do NOT flow through
@@ -40,11 +43,11 @@ struct PaceChatPanelView: View {
 
     @FocusState private var isChatInputFocused: Bool
 
-    private let panelWidth: CGFloat = 320
-    private let panelHeight: CGFloat = 460
+    private let contentSize: CGSize?
     private let composerFocusRequestID: UUID?
 
-    init(companionManager: CompanionManager, composerFocusRequestID: UUID?) {
+    init(companionManager: CompanionManager, contentSize: CGSize? = nil, composerFocusRequestID: UUID?) {
+        self.contentSize = contentSize
         self.composerFocusRequestID = composerFocusRequestID
         _companionManager = ObservedObject(wrappedValue: companionManager)
         _chatSession = ObservedObject(wrappedValue: companionManager.chatSession)
@@ -64,7 +67,7 @@ struct PaceChatPanelView: View {
             Divider().background(DS.Colors.borderSubtle)
             dockedInputRow
         }
-        .frame(width: panelWidth, height: panelHeight)
+        .frame(width: contentSize?.width ?? 320, height: contentSize?.height ?? 460)
         .background(panelBackground)
         .smTheme(DS.palette)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -193,7 +196,7 @@ struct PaceChatPanelView: View {
                         .frame(height: 1)
                         .id(Self.transcriptBottomAnchorId)
                 }
-                .padding(14)
+                .padding(appearance.padding(existing: 14))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onChange(of: chatSession.messages.count) {
@@ -283,8 +286,8 @@ struct PaceChatPanelView: View {
                 Spacer(minLength: 32)
             }
             Text(messageRowModel.bodyText)
-                .font(.system(size: 13))
-                .lineSpacing(3)
+                .font(appearance.font(size: 13))
+                .lineSpacing(appearance.lineSpacing(existing: 3))
                 .foregroundColor(DS.Colors.textPrimary)
                 .textSelection(.enabled)
                 .padding(.horizontal, 11)
@@ -367,8 +370,8 @@ struct PaceChatPanelView: View {
             HStack {
                 Spacer(minLength: 32)
                 Text(companionManager.liveSpeechDraft)
-                    .font(.system(size: 13))
-                    .lineSpacing(3)
+                    .font(appearance.font(size: 13))
+                    .lineSpacing(appearance.lineSpacing(existing: 3))
                     .foregroundColor(DS.Colors.textPrimary)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 8)
@@ -391,8 +394,8 @@ struct PaceChatPanelView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             HStack {
                 Text(streamingSentenceTTSPipeline.inFlightStreamedText)
-                    .font(.system(size: 13))
-                    .lineSpacing(3)
+                    .font(appearance.font(size: 13))
+                    .lineSpacing(appearance.lineSpacing(existing: 3))
                     .foregroundColor(DS.Colors.textPrimary)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 8)
@@ -643,7 +646,7 @@ struct PaceChatPanelView: View {
         HStack(spacing: 8) {
             TextField("Message Pace…", text: $chatSession.draftMessageText, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(appearance.font(size: 13))
                 .foregroundColor(DS.Colors.textPrimary)
                 .lineLimit(1...4)
                 .focused($isChatInputFocused)
@@ -663,7 +666,7 @@ struct PaceChatPanelView: View {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 22))
                     .foregroundColor(
-                        isDraftMessageTextEmpty ? DS.Colors.textTertiary : DS.Colors.accent
+                        isDraftMessageTextEmpty ? DS.Colors.textTertiary : appearance.controlColor
                     )
             }
             .buttonStyle(.plain)
@@ -672,7 +675,7 @@ struct PaceChatPanelView: View {
             .disabled(isDraftMessageTextEmpty)
             .help("Send to Pace")
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, appearance.padding(existing: 12))
         .padding(.vertical, 10)
     }
 

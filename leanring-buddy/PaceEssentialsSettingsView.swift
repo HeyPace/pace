@@ -5,6 +5,7 @@ struct PaceEssentialsSettingsView: View {
     @ObservedObject var companionManager: CompanionManager
     let onSelectDestination: (PaceCommandCenterDestination) -> Void
 
+    @State private var showsChatAppearance = false
     @State private var showsPrivacyControls = false
     @State private var showsAdvancedControls = false
 
@@ -65,6 +66,9 @@ struct PaceEssentialsSettingsView: View {
         .background(Appearance.surface)
         .foregroundStyle(Appearance.primary)
         .font(.system(size: 12))
+        .sheet(isPresented: $showsChatAppearance) {
+            PaceChatAppearanceEditor()
+        }
     }
 
     private var header: some View {
@@ -121,6 +125,13 @@ struct PaceEssentialsSettingsView: View {
                 subtitle: voiceSubtitle
             ) {
                 destinationLink("Change…", destination: .voice)
+            }
+            settingsRow(title: "Chat appearance", subtitle: "Font, spacing, width and control accent.") {
+                Button("Customize…") { showsChatAppearance = true }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Appearance.link)
+                    .paceControlHoverHighlight(cornerRadius: 4)
+                    .pointerCursor()
             }
             toggleRow(
                 title: "Read my screen",

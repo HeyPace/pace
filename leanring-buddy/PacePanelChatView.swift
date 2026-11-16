@@ -24,10 +24,12 @@ import SwiftUI
 
 struct PacePanelChatView: View {
     private enum Layout {
-        static let contentInset: CGFloat = 20
         static let messageSpacing: CGFloat = 12
         static let historyRowInset: CGFloat = 12
     }
+
+    @ObservedObject private var appearanceStore = PaceChatAppearanceStore.shared
+    private var appearance: PaceChatAppearance { appearanceStore.appearance }
 
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject private var chatSession: PaceChatSession
@@ -39,16 +41,19 @@ struct PacePanelChatView: View {
     @State private var expandedOriginalResponseIdentifiers: Set<String> = []
     @FocusState private var isInputFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let contentSize: CGSize?
     private let isEmbeddedInNotch: Bool
     private let composerFocusRequestID: UUID?
 
     init(
         companionManager: CompanionManager,
         isEmbeddedInNotch: Bool = false,
+        contentSize: CGSize? = nil,
         composerFocusRequestID: UUID?
     ) {
         self.companionManager = companionManager
         self.isEmbeddedInNotch = isEmbeddedInNotch
+        self.contentSize = contentSize
         self.composerFocusRequestID = composerFocusRequestID
         self._chatSession = ObservedObject(wrappedValue: companionManager.chatSession)
         self._imageOverlayController = ObservedObject(wrappedValue: companionManager.imageOverlayController)
@@ -69,8 +74,8 @@ struct PacePanelChatView: View {
             inputRow
         }
         .frame(
-            width: PaceQuickPanelMetrics.width,
-            height: isEmbeddedInNotch ? PaceQuickPanelMetrics.seamlessContentHeight : PaceQuickPanelMetrics.height
+            width: isEmbeddedInNotch ? PaceQuickPanelMetrics.width : contentSize?.width ?? appearance.anchoredWidth(),
+            height: isEmbeddedInNotch ? PaceQuickPanelMetrics.seamlessContentHeight : contentSize?.height ?? PaceQuickPanelMetrics.height
         )
         .background(conversationBackground)
         .paceRootTheme(isRoot: true)
@@ -165,7 +170,7 @@ struct PacePanelChatView: View {
                 .keyboardShortcut(.escape, modifiers: [])
             }
         }
-        .padding(.horizontal, Layout.contentInset)
+        .padding(.horizontal, appearance.padding())
         .frame(height: isEmbeddedInNotch ? 36 : 52)
         .overlay(alignment: .bottom) {
             Rectangle().fill(DS.Colors.borderSubtle.opacity(0.6)).frame(height: 0.5)
@@ -201,7 +206,7 @@ struct PacePanelChatView: View {
                 .pointerCursor()
             }
         }
-        .padding(.horizontal, Layout.contentInset)
+        .padding(.horizontal, appearance.padding())
         .padding(.vertical, 10)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(signalPresentation.accessibilityValue)
@@ -281,7 +286,7 @@ struct PacePanelChatView: View {
                     // The scroll target must not add another message gap after the last reply.
                     Color.clear.frame(height: 0).id(Self.streamingAnchorID)
                 }
-                .padding(.horizontal, Layout.contentInset)
+                .padding(.horizontal, appearance.padding())
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .top) {
@@ -321,7 +326,7 @@ struct PacePanelChatView: View {
             VStack(alignment: .leading, spacing: 0) {
                 if chatSession.userFacingMessages.filter({ $0.role == .user }).isEmpty {
                     Text("Your conversations will appear here.")
-                        .font(.system(size: 14))
+                        .font(appearance.font(size: 14))
                         .foregroundStyle(DS.Colors.textSecondary)
                         .padding(.vertical, 24)
                 }
@@ -332,7 +337,7 @@ struct PacePanelChatView: View {
                     } label: {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(message.body)
-                                .font(.system(size: 14, weight: .medium))
+                                .font(appearance.font(size: 14, weight: .medium))
                                 .foregroundStyle(DS.Colors.textPrimary)
                                 .lineLimit(2)
                                 .multilineTextAlignment(.leading)
@@ -350,7 +355,7 @@ struct PacePanelChatView: View {
                     Divider().overlay(DS.Colors.borderSubtle).padding(.horizontal, Layout.historyRowInset)
                 }
             }
-            .padding(.horizontal, Layout.contentInset - Layout.historyRowInset)
+            .padding(.horizontal, appearance.padding() - Layout.historyRowInset)
             .padding(.vertical, Layout.historyRowInset)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -537,9 +542,9 @@ struct PacePanelChatView: View {
         let showsOriginal = expandedOriginalResponseIdentifiers.contains(message.id)
         return VStack(alignment: .leading, spacing: 8) {
             Text(readableMessage(displayedBody))
-                .font(.system(size: isFromUser ? 15 : 14, weight: isFromUser ? .medium : .regular))
+                .font(appearance.font(size: isFromUser ? 15 : 14, weight: isFromUser ? .medium : .regular))
                 .tracking(isFromUser ? -0.15 : 0)
-                .lineSpacing(isFromUser ? 4 : 5)
+                .lineSpacing(appearance.lineSpacing(existing: isFromUser ? 4 : 5))
                 .foregroundStyle(isFromUser ? DS.Colors.textPrimary : DS.Colors.textPrimary.opacity(0.9))
                 .textSelection(.enabled)
             if hasOriginalResponse {
@@ -557,7 +562,7 @@ struct PacePanelChatView: View {
                 .pointerCursor()
                 if showsOriginal {
                     Text(message.body)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(appearance.font(size: 11, existing: .system(size: 11, design: .monospaced)))
                         .foregroundStyle(DS.Colors.textSecondary)
                         .textSelection(.enabled)
                 }
@@ -576,8 +581,8 @@ struct PacePanelChatView: View {
     private var streamingReplyRow: some View {
         if !inFlightStreamedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             Text(readableMessage(inFlightStreamedText))
-                .font(.system(size: 14))
-                .lineSpacing(6)
+                .font(appearance.font(size: 14))
+                .lineSpacing(appearance.lineSpacing(existing: 6))
                 .foregroundStyle(DS.Colors.textPrimary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
@@ -592,8 +597,8 @@ struct PacePanelChatView: View {
     private var liveUserBubbleRow: some View {
         if !liveSpeechDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             Text(liveSpeechDraft)
-                .font(.system(size: 17, weight: .medium))
-                .lineSpacing(4)
+                .font(appearance.font(size: 17, weight: .medium))
+                .lineSpacing(appearance.lineSpacing(existing: 4))
                 .foregroundStyle(DS.Colors.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -610,7 +615,7 @@ struct PacePanelChatView: View {
             HStack(alignment: .bottom, spacing: 8) {
                 TextField("Message Pace…", text: $chatSession.draftMessageText, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 14))
+                    .font(appearance.font(size: 14))
                     .foregroundStyle(DS.Colors.textPrimary)
                     .lineLimit(1...4)
                     .focused($isInputFocused)
@@ -652,9 +657,13 @@ struct PacePanelChatView: View {
                 Button(action: submitDraft) {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(isDraftEmpty ? DS.Colors.textTertiary : DS.Colors.textPrimary)
+                        .foregroundStyle(
+                            isDraftEmpty ? DS.Colors.textTertiary
+                                : appearance.controlAccent == .blue ? DS.Colors.textPrimary : appearance.controlForeground)
                         .frame(width: 28, height: 28)
-                        .background(DS.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 6))
+                        .background(
+                            isDraftEmpty ? DS.Colors.surfaceRaised : appearance.controlColor(existing: DS.Colors.surfaceRaised),
+                            in: RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
                 .paceControlHoverHighlight(cornerRadius: 6, isEnabled: !isDraftEmpty)
@@ -670,7 +679,7 @@ struct PacePanelChatView: View {
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(
-                        isInputFocused ? DS.Colors.textSecondary.opacity(0.45) : DS.Colors.borderSubtle, lineWidth: 0.7)
+                        isInputFocused ? appearance.controlColor(existing: DS.Colors.textSecondary).opacity(0.45) : DS.Colors.borderSubtle, lineWidth: 0.7)
             }
             HStack(spacing: 5) {
                 if companionManager.allPermissionsGranted {
@@ -704,7 +713,7 @@ struct PacePanelChatView: View {
                 .foregroundStyle(DS.Colors.textSecondary)
             }
         }
-        .padding(.horizontal, Layout.contentInset)
+        .padding(.horizontal, appearance.padding())
         .padding(.top, 6)
         .padding(.bottom, 16)
     }

@@ -20,6 +20,7 @@
 import Foundation
 
 enum PaceUserPreferenceKey: String {
+    case chatAppearance
     case useLocalVLMForScreenContext
     case isWatchModeEnabled
     case lastAcknowledgedScreenSuggestionEventIdentifier

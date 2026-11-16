@@ -85,11 +85,13 @@ private struct PaceConversationPanelSurface: View {
                 if usesChatPanelAsPrimarySurface {
                     PaceChatPanelView(
                         companionManager: companionManager,
+                        contentSize: notchGeometry == nil ? surfaceModel.placement.frame.size : nil,
                         composerFocusRequestID: surfaceModel.presentation.composerFocusRequestID)
                 } else {
                     PacePanelChatView(
                         companionManager: companionManager,
                         isEmbeddedInNotch: notchGeometry != nil,
+                        contentSize: surfaceModel.placement.frame.size,
                         composerFocusRequestID: surfaceModel.presentation.composerFocusRequestID)
                 }
             }
@@ -158,6 +160,7 @@ final class MenuBarPanelManager: NSObject {
     private let workspaceNotificationCenter: NotificationCenter
     private let activeDisplayCoordinator: PaceActiveDisplayCoordinator
     private var displayRouteObservation: AnyCancellable?
+    private var chatAppearanceObservation: AnyCancellable?
     private var menuBarOccupancyObserver: NSObjectProtocol?
     private var panelAnchorFrameOverride: NSRect?
     private var clickOutsideMonitor: Any?
@@ -184,7 +187,10 @@ final class MenuBarPanelManager: NSObject {
 
     private let companionManager: CompanionManager
     private let usesChatPanelAsPrimarySurface: Bool
-    private let panelWidth: CGFloat
+    private var panelWidth: CGFloat {
+        PaceChatAppearanceStore.shared.appearance.anchoredWidth(
+            existing: usesChatPanelAsPrimarySurface ? 320 : PaceQuickPanelMetrics.width)
+    }
     private let panelHeight: CGFloat
     init(
         companionManager: CompanionManager,
@@ -214,13 +220,19 @@ final class MenuBarPanelManager: NSObject {
         self.panelPlacementResolver = panelPlacementResolver
         self.usesChatPanelAsPrimarySurface = shouldUseChatPanelAsPrimarySurface
         if shouldUseChatPanelAsPrimarySurface {
-            self.panelWidth = 320
             self.panelHeight = 460
         } else {
-            self.panelWidth = PaceQuickPanelMetrics.width
             self.panelHeight = PaceQuickPanelMetrics.height
         }
         super.init()
+        chatAppearanceObservation = PaceChatAppearanceStore.shared.$appearance
+            .map(\.panelWidth)
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.repositionVisiblePanel()
+            }
         displayRouteObservation = activeDisplayCoordinator.routeChanges.sink { [weak self] _ in
             self?.repositionVisiblePanel(reassertPresentation: true)
         }
@@ -548,7 +560,7 @@ final class MenuBarPanelManager: NSObject {
                 screenFrame: targetScreen.frame,
                 contentSize: CGSize(width: panelWidth, height: panelHeight),
                 notchContentSize: usesChatPanelAsPrimarySurface
-                    ? CGSize(width: panelWidth, height: panelHeight)
+                    ? CGSize(width: 320, height: panelHeight)
                     : CGSize(width: PaceQuickPanelMetrics.width, height: PaceQuickPanelMetrics.seamlessContentHeight))
         }
         surfaceModel.placement = placement
@@ -569,6 +581,7 @@ final class MenuBarPanelManager: NSObject {
             panel.level = .floating
         }
         panel.setFrame(surfaceModel.placement.frame, display: true)
+        panel.contentView?.frame = CGRect(origin: .zero, size: surfaceModel.placement.frame.size)
     }
 
     private func repositionVisiblePanel(reassertPresentation: Bool = false) {

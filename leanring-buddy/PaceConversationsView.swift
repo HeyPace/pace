@@ -21,6 +21,9 @@ import SaaSMakerUI
 import SwiftUI
 
 struct PaceConversationsView: View {
+    @ObservedObject private var appearanceStore = PaceChatAppearanceStore.shared
+    private var appearance: PaceChatAppearance { appearanceStore.appearance }
+
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject private var chatSession: PaceChatSession
 
@@ -76,7 +79,7 @@ struct PaceConversationsView: View {
                 .font(DS.Typography.callout)
                 .foregroundStyle(DS.Colors.textSecondary)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, appearance.padding(existing: 24))
         .padding(.top, 24)
         .padding(.bottom, 14)
     }
@@ -137,7 +140,7 @@ struct PaceConversationsView: View {
                         .stroke(DS.Colors.borderSubtle, lineWidth: 0.8)
                 }
         )
-        .padding(.horizontal, 24)
+        .padding(.horizontal, appearance.padding(existing: 24))
         .padding(.bottom, 12)
     }
 
@@ -163,7 +166,7 @@ struct PaceConversationsView: View {
                     streamingAssistantRowIfActive
                         .id(PaceConversationsView.streamingRowAnchorId)
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, appearance.padding(existing: 24))
                 .padding(.vertical, 16)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -260,7 +263,8 @@ struct PaceConversationsView: View {
                 .foregroundStyle(DS.Colors.textTertiary)
 
                 Text(messageRowModel.bodyText)
-                    .font(DS.Typography.body)
+                    .font(appearance.font(size: 13, existing: DS.Typography.body))
+                    .lineSpacing(appearance.lineSpacing())
                     .foregroundStyle(DS.Colors.textPrimary)
                     .textSelection(.enabled)
                     .padding(.horizontal, 13)
@@ -365,7 +369,8 @@ struct PaceConversationsView: View {
                     .foregroundStyle(DS.Colors.localSignal)
 
                     Text(streamingText)
-                        .font(DS.Typography.body)
+                        .font(appearance.font(size: 13, existing: DS.Typography.body))
+                        .lineSpacing(appearance.lineSpacing())
                         .foregroundStyle(DS.Colors.textPrimary)
                         .padding(.horizontal, 13)
                         .padding(.vertical, 10)
@@ -394,7 +399,8 @@ struct PaceConversationsView: View {
             )
             .lineLimit(1...4)
             .textFieldStyle(.plain)
-            .font(DS.Typography.body)
+            .font(appearance.font(size: 13, existing: DS.Typography.body))
+            .lineSpacing(appearance.lineSpacing())
             .foregroundStyle(DS.Colors.textPrimary)
             .focused($isInputFocused)
             .onSubmit(submitDraftMessage)
@@ -410,7 +416,7 @@ struct PaceConversationsView: View {
                         )
                         .stroke(
                             isInputFocused
-                                ? DS.Colors.localSignal.opacity(0.85)
+                                ? appearance.controlColor(existing: DS.Colors.localSignal).opacity(0.85)
                                 : DS.Colors.borderSubtle,
                             lineWidth: isInputFocused ? 1.2 : 0.8
                         )
@@ -424,12 +430,12 @@ struct PaceConversationsView: View {
                     .foregroundStyle(
                         isDraftEmpty
                             ? DS.Colors.textTertiary
-                            : DS.Colors.textOnAccent
+                            : appearance.controlForeground
                     )
                     .frame(width: 34, height: 34)
                     .background(
                         Circle()
-                            .fill(isDraftEmpty ? DS.Colors.surfaceRaised : DS.Colors.accent)
+                            .fill(isDraftEmpty ? DS.Colors.surfaceRaised : appearance.controlColor)
                     )
             }
             .buttonStyle(.plain)
@@ -456,7 +462,7 @@ struct PaceConversationsView: View {
                 .help("Stop after the current completed action")
             }
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, appearance.padding(existing: 24))
         .padding(.vertical, 14)
         .background(DS.Colors.surfaceRaised.opacity(0.34))
         .overlay(alignment: .top) {

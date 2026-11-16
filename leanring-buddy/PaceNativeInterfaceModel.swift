@@ -95,14 +95,18 @@ nonisolated enum PaceConversationPanelPlacement: Equatable {
                     presentationFrame: CGRect(
                         x: housing.midX - width / 2, y: housing.maxY - height, width: width, height: height)))
         }
+        let width = min(contentSize.width, max(0, screenFrame.width - 16))
+        let height = min(contentSize.height, max(0, screenFrame.height - 16))
         let minimumX = screenFrame.minX + 8
-        let maximumX = max(minimumX, screenFrame.maxX - contentSize.width - 8)
+        let maximumX = max(minimumX, screenFrame.maxX - width - 8)
+        let minimumY = screenFrame.minY + 8
+        let maximumY = max(minimumY, screenFrame.maxY - height - 8)
         return .anchored(
             CGRect(
-                x: min(max(anchorFrame.midX - contentSize.width / 2, minimumX), maximumX),
-                y: anchorFrame.minY - contentSize.height - 10,
-                width: contentSize.width,
-                height: contentSize.height))
+                x: min(max(anchorFrame.midX - width / 2, minimumX), maximumX),
+                y: min(max(anchorFrame.minY - height - 10, minimumY), maximumY),
+                width: width,
+                height: height))
     }
 }
 
