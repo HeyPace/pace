@@ -66,7 +66,10 @@ nonisolated enum PaceInitialInspectionPlanResolver {
 
         let toolCall = PaceMCPToolCall(
             serverName: "peekaboo", toolName: "window",
-            arguments: ["action": .string("list"), "app": .string(applicationName)])
+            arguments: [
+                "action": .string("list"), "app": .string(applicationName),
+                "include_window_details": .array([.string("ids")]),
+            ])
         let envelope: [String: PaceMCPJSONValue] = [
             "spokenText": .string(""),
             "intent": .string("action"),

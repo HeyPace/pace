@@ -232,7 +232,7 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `PaceActionExecutor+SystemToolsCalendarReminders.swift` | ~185 | Calendar reads/event creation and Reminders. |
 | `PaceActionExecutor+SystemToolsNotesMail.swift` | ~800 | Finder, Notes, Mail compose/streaming, Contacts recipient resolution. |
 | `PaceActionExecutor+SystemToolsIntegrations.swift` | ~225 | Things, Shortcuts, Messages, AppleScript helpers, auxiliary key events. |
-| `PaceActionExecutor+Keyboard.swift` | ~665 | Type, edit, undo, key press and MCP calls, with bounded read-only app-instance discovery, short user-facing failures and preserved fresh-planning/approval boundaries. |
+| `PaceActionExecutor+Keyboard.swift` | ~737 | Type, edit, undo, key press and MCP calls, with bounded read-only app-instance discovery, short user-facing failures and preserved fresh-planning/approval boundaries. |
 | `PaceActionExecutorCoordinateConversion.swift` | ~65 | Screenshot-pixel → CG-global coordinate conversion (Wave 6a precedent). |
 | `PaceActionResultCenter.swift` | ~126 | UI-friendly action run records with typed target-resolution state, human summaries and separate opt-in diagnostics; mixed results retain earlier completed-action receipts. |
 | `PaceToolCallDebugLog.swift` | ~190 | Plain DTO (`PaceToolCallDebugRecord`) for the Settings → Debug "Tool calls" view. Captures, per turn: transcript, routing lane (fast path / text-only / planner), which planner produced the audio (incl. speculative-race lite-won-with-no-screen), screen element count, the planner's RAW output (pre-strip), parsed tool calls, and dispatch outcome — so a turn that *spoke* but *did nothing* becomes legible. CompanionManager owns the capped list (`recentToolCallDebugRecords`, newest first, ≤25, session-only); captures are written at the fast-path, text-only, and agent-loop-post-execution sites. |
@@ -368,4 +368,3 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `../leanring-buddyTests/PaceInventoryContextBenchmarkTests.swift` | ~112 | Opt-in, fixed synthetic two-window answer comparison through the selected Codex CLI. Alternates frozen broad context and scoped inventory context; validates both answers and performs no desktop actions. |
 
 | `Resources/OpenSourceNotices.txt` | license text | Offline copyright and licenses for pinned Swift dependencies and optional external helpers, opened from About. |
-

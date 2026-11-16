@@ -59,7 +59,10 @@ struct PaceInitialInspectionPlanResolverTests {
                 plan.toolCall
                     == PaceMCPToolCall(
                         serverName: "peekaboo", toolName: "window",
-                        arguments: ["action": .string("list"), "app": .string(expectedApplicationName)]))
+                        arguments: [
+                            "action": .string("list"), "app": .string(expectedApplicationName),
+                            "include_window_details": .array([.string("ids")]),
+                        ]))
             let parsed = PaceActionTagParser.parseActions(from: plan.canonicalEnvelope)
             #expect(parsed.spokenText.isEmpty)
             #expect(parsed.actions.count == 1)
@@ -212,7 +215,7 @@ struct PaceInitialInspectionPlanResolverTests {
             You are Pace's planner. Author a plan, but do not execute tools or inspect anything yourself.
             For the user's exact named-app window-inventory command, return only one JSON action envelope.
             The envelope has spokenText="", intent="action", and payload containing name="MCP.call".
-            Its args are server="peekaboo", tool="window", arguments={"action":"list","app":"Google Chrome"}.
+            Its args are server="peekaboo", tool="window", arguments={"action":"list","app":"Google Chrome","include_window_details":["ids"]}.
             Return no narration, markdown, additional fields or additional actions.
             """
         let legacyPlanner = PaceLocalCLIPlannerClient(
@@ -238,7 +241,10 @@ struct PaceInitialInspectionPlanResolverTests {
             }
             #expect(call.serverName == "peekaboo")
             #expect(call.toolName == "window")
-            #expect(call.arguments == ["action": .string("list"), "app": .string("Google Chrome")])
+            #expect(call.arguments == [
+                "action": .string("list"), "app": .string("Google Chrome"),
+                "include_window_details": .array([.string("ids")]),
+            ])
             #expect(PaceActionApprovalPolicy.permitsObservationOnly(parsed.executionPlan))
         }
 

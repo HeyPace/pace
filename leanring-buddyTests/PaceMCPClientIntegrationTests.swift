@@ -84,6 +84,46 @@ private enum PaceMCPFixture {
                 args: ["-u", "-c", program, signalDirectory?.path ?? "", UUID().uuidString])
         ])
     }
+
+    static func makeWindowInventoryClient(paddingSizes: [Int], failingProcessIdentifier: Int32 = 0) -> PaceMCPStdioClient {
+        let program = #"""
+            import json, sys
+            sizes = [int(size) for size in sys.argv[1].split(",")]
+            failing_pid = int(sys.argv[2])
+            calls = []
+            for line in sys.stdin:
+                request = json.loads(line)
+                if "id" not in request:
+                    continue
+                if request["method"] == "initialize":
+                    result = {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}}, "serverInfo": {"name": "compact-inventory", "version": "1"}}
+                else:
+                    params = request["params"]
+                    args = params.get("arguments", {})
+                    if params["name"] == "receipt":
+                        result = {"content": [{"type": "text", "text": json.dumps(calls)}]}
+                    else:
+                        calls.append(args)
+                        target = args.get("app", "")
+                        if target == "Google Chrome":
+                            text = "Multiple apps match 'Google Chrome'. Did you mean: " + ", ".join("PID:" + str((index + 1) * 111) for index in range(len(sizes))) + "?"
+                            result = {"isError": True, "content": [{"type": "text", "text": text}]}
+                        elif "include_window_details" in args and args["include_window_details"] != ["ids"]:
+                            result = {"isError": True, "content": [{"type": "text", "text": "invalid array detail mode"}]}
+                        elif target == "PID:" + str(failing_pid):
+                            result = {"isError": True, "content": [{"type": "text", "text": "inventory unavailable"}]}
+                        else:
+                            index = int(target.split(":")[1]) // 111 - 1
+                            text = "Window title " + target + "\n" + "x" * sizes[index] + "\nEND " + target
+                            result = {"content": [{"type": "text", "text": text}]}
+                print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
+            """#
+        return PaceMCPStdioClient(serverConfigurations: [
+            "peekaboo": .init(command: pythonThreeExecutablePath ?? "python3",
+                args: ["-u", "-c", program, paddingSizes.map { String($0) }.joined(separator: ","),
+                    String(failingProcessIdentifier), UUID().uuidString])
+        ])
+    }
 }
 
 @Suite(.serialized)
@@ -463,7 +503,8 @@ struct PaceMCPClientIntegrationTests {
         #expect(!observation.stopsAgentLoop)
         #expect(observation.summary.contains("Preview PID:111"))
         #expect(observation.summary.contains("Preview PID:222"))
-        #expect(observation.summary.contains("inventory may be incomplete"))
+        #expect(observation.summary.contains("examined 2/2 validated reported matching instances"))
+        #expect(observation.summary.contains("All validated reported instances succeeded"))
         #expect(try executor.boundPeekabooToolCall(inspection) == inspection)
         #expect(PaceActionApprovalPolicy.needsAnswerAfterInspection(plan, observations: observations))
         let receipt = try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
@@ -477,6 +518,72 @@ struct PaceMCPClientIntegrationTests {
         #expect(repeatedReceipt.components(separatedBy: "\n").count == 4)
         executor.beginUserTurn()
         #expect(await executor.callMCPTool(inspection).requiresFreshInspectionPlan)
+    }
+
+    @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func compactInventoriesPoolTheirBudgetAndPreserveTheRealDetailArray() async throws {
+        for usesCompactDetails in [true, false] {
+            let client = PaceMCPFixture.makeWindowInventoryClient(paddingSizes: [2_500, 350, 700, 350])
+            let executor = PaceActionExecutor(actionsAreEnabledOverride: true, mcpClient: client,
+                readMyScreenIsEnabled: { true },
+                runningApplicationBundleURL: { _ in URL(fileURLWithPath: "/Applications/Google Chrome.app") },
+                preferredInspectionProcessIdentifiers: { [] })
+            var arguments: [String: PaceMCPJSONValue] = ["action": .string("list"), "app": .string("Google Chrome")]
+            if usesCompactDetails { arguments["include_window_details"] = .array([.string("ids")]) }
+            let result = await executor.callMCPTool(.init(serverName: "peekaboo", toolName: "window", arguments: arguments))
+            #expect(result.requiresFreshInspectionPlan)
+            #expect(result.summary.contains("examined 4/4 validated reported matching instances"))
+            #expect(result.summary.contains("END PID:111") == usesCompactDetails)
+            #expect(result.summary.contains("inventory truncated: false") == usesCompactDetails)
+            for processIdentifier in [222, 333, 444] {
+                #expect(result.summary.contains("END PID:\(processIdentifier)"))
+            }
+            #expect(result.summary.contains("[inventory text truncated;") == !usesCompactDetails)
+            #expect(result.summary.contains("All validated reported instances succeeded") == usesCompactDetails)
+            #expect(result.summary.utf8.count < 5_999)
+            let receipt = try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
+            let calls = try JSONDecoder().decode([[String: PaceMCPJSONValue]].self, from: Data(receipt.utf8))
+            #expect(calls.count == 5)
+            for call in calls {
+                #expect(call["include_window_details"] == (usesCompactDetails ? .array([.string("ids")]) : nil))
+            }
+        }
+    }
+
+    @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func compactInventoriesExposeOmissionsFailuresAndTotalBudgetTruncation() async throws {
+        for (paddingSizes, failingProcessIdentifier, expectedCoverage) in [
+            ([100, 100, 100, 100, 100], Int32(0), "examined 4/5 validated reported matching instances; omitted 1"),
+            ([8_000, 100, 100, 100], Int32(0), "inventory truncated: true"),
+            ([100, 100], Int32(111), "failed 1"),
+        ] {
+            let client = PaceMCPFixture.makeWindowInventoryClient(
+                paddingSizes: paddingSizes, failingProcessIdentifier: failingProcessIdentifier)
+            let executor = PaceActionExecutor(actionsAreEnabledOverride: true, mcpClient: client,
+                readMyScreenIsEnabled: { true },
+                runningApplicationBundleURL: { _ in URL(fileURLWithPath: "/Applications/Google Chrome.app") },
+                preferredInspectionProcessIdentifiers: { [] })
+            let result = await executor.callMCPTool(.init(serverName: "peekaboo", toolName: "window", arguments: [
+                "action": .string("list"), "app": .string("Google Chrome"),
+                "include_window_details": .array([.string("ids")]),
+            ]))
+            #expect(result.summary.contains(expectedCoverage))
+            #expect(result.summary.contains("Partial coverage"))
+            #expect(!result.summary.contains("All validated reported instances succeeded"))
+            #expect(result.summary.utf8.count < 5_999)
+            var history = PaceAgentInspectionHistory()
+            let canonicalRequest = #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","tool":"window","arguments":{"action":"list","app":"Google Chrome","include_window_details":["ids"]}}}}"#
+            history.append(plannerRequest: canonicalRequest, observations: [result])
+            #expect(!history.formattedForPlanner.contains("[inspection result truncated to fit the prompt budget]"))
+            if paddingSizes.first == 8_000 {
+                #expect(result.summary.contains("[inventory text truncated; request a precise current window if more evidence is needed]"))
+                #expect(history.formattedForPlanner.contains("[inventory text truncated; request a precise current window if more evidence is needed]"))
+            }
+            let receipt = try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
+            let calls = try JSONDecoder().decode([[String: PaceMCPJSONValue]].self, from: Data(receipt.utf8))
+            #expect(calls.count == min(4, paddingSizes.count) + 1)
+            #expect(!calls.contains { $0["app"] == .string("PID:555") })
+        }
     }
 
     @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
@@ -534,6 +641,11 @@ struct PaceMCPClientIntegrationTests {
     @MainActor @Test func candidateParsingIsBoundedAndPrioritizesOnlyValidatedVisibleProcesses() {
         let diagnostic = "PID:-1 PID:0 PID:9999999999 PID:111 PID:111 PID:222 PID:333 PID:444 PID:555 PID:666"
         #expect(PaceActionExecutor.peekabooAmbiguousProcessIdentifiers(in: diagnostic) == [111, 222, 333, 444])
+        #expect(PaceActionExecutor.peekabooAmbiguousProcessIdentifiers(in: diagnostic, maximumCount: 64)
+            == [111, 222, 333, 444, 555, 666])
+        #expect(PaceActionExecutor.peekabooAmbiguousProcessIdentifiers(in: diagnostic, maximumCount: 0).isEmpty)
+        let manyCandidates = (1...100).map { "PID:\($0)" }.joined(separator: " ")
+        #expect(PaceActionExecutor.peekabooAmbiguousProcessIdentifiers(in: manyCandidates, maximumCount: 100).count == 64)
         #expect(
             PaceActionExecutor.peekabooAmbiguousProcessIdentifiers(
                 in: diagnostic, preferring: [666, 999], matchesApplication: { $0 != 111 }) == [666, 222, 333, 444])
@@ -621,6 +733,8 @@ struct PaceMCPClientIntegrationTests {
         #expect(result.requiresFreshInspectionPlan)
         #expect(!result.summary.contains("Preview PID:111"))
         #expect(result.summary.contains("PID:111 changed during inspection"))
+        #expect(result.summary.contains("changed 1"))
+        #expect(result.summary.contains("Partial coverage"))
         #expect(result.summary.contains("Preview PID:222"))
     }
 

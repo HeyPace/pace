@@ -2733,7 +2733,7 @@ extension CompanionManager {
 
                     // 7. Move the cursor to the pointing/click target so the
                     //    flight animation is in flight before the click fires.
-                    let hasPointCoordinate = parseResult.coordinate != nil
+                    let hasPointCoordinate = initialInspectionPlan == nil && parseResult.coordinate != nil
                     if hasPointCoordinate {
                         voiceState = .idle
                     }
