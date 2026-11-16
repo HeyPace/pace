@@ -136,6 +136,31 @@ struct PaceJapanesePracticeManagerTests {
         #expect(speech.spokenTexts.last == "Your usual English voice is back.")
     }
 
+    @Test func practiceMathRoutesThroughTheSelectedBilingualPlannerAndSpeaksJapanese() async throws {
+        let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        let transcript = "What is seven times nine?"
+        manager.conversationLanguageMode = .japanesePractice
+        PacePowerManagerTests().begin(transcript, manager: manager)
+        let planner = Planner()
+        planner.response = #"{"spokenText":"七かける九は六十三です。","intent":"answer","payload":{"englishSubtitle":"Seven times nine is sixty-three."}}"#
+        manager.plannerClient = planner
+        manager.textOnlyPlannerClient = planner
+        manager.intentClassifier = PaceIntentClassifier()
+        manager.activePlannerTier = .local
+        manager.useLocalVLMForScreenContext = false
+        await manager.sendTranscriptToPlannerWithScreenshotAsync(
+            transcript: transcript, turnLease: manager.turnLeaseRegistry.currentLease)
+        await manager.currentResponseTask?.value
+        #expect(planner.calls == 1 && planner.capturedSystemPrompt.contains("englishSubtitle"))
+        #expect(speech.requests == [.init(text: "七かける九は六十三です。", profile: .japaneseFemale,
+            englishSubtitle: "Seven times nine is sixty-three.")])
+        #expect(speech.spokenTexts == ["七かける九は六十三です。"])
+        let assistantEvents = persister.events.values.filter { $0.role == .pace }
+        #expect(assistantEvents.count == 1 && assistantEvents.first?.text == "Seven times nine is sixty-three.")
+        #expect(manager.currentTurnHUDState.status != .failed)
+    }
+
     @Test func invalidPracticeReplyFailsVisiblyWithoutSpeakingEnglishOrJSON() async throws {
         let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
         defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }

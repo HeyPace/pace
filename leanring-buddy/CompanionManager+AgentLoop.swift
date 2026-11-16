@@ -1563,7 +1563,8 @@ extension CompanionManager {
         PaceMeetingModeController.shared.plannerClient =
             BuddyPlannerClientFactory.makeLocalOnlyTextPlannerForPrivacyPinnedFeatures()
 
-        if let deterministicAnswer = PaceDeterministicAnswerParser.parse(transcript: transcript) {
+        if activeConversationLanguageMode == .standard,
+            let deterministicAnswer = PaceDeterministicAnswerParser.parse(transcript: transcript) {
             print("🧮 Deterministic answer: \(deterministicAnswer.routingDetail)")
             handleDeterministicAnswerPath(
                 transcript: transcript,
