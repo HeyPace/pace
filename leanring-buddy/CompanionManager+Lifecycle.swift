@@ -348,6 +348,7 @@ extension CompanionManager {
         // parser does. Defaults are no-ops; we set them once here per
         // CompanionManager lifecycle so dry-run/unit-test code stays
         // unaffected.
+        bindPowerToolCallbacks()
         actionExecutor.executeCodingSession = { [weak self] command in
             guard let self else { return .init(toolName: "coding_session", summary: "Coding is unavailable.") }
             return await self.executeRetainedCoding(command)

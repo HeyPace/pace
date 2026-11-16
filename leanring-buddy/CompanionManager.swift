@@ -810,6 +810,12 @@ final class CompanionManager: ObservableObject {
     /// `currentResponseTask`. Track it separately so Stop and replacement
     /// turns can cancel the complete pipeline, including that early window.
     var currentTurnDispatchTask: Task<Void, Never>?
+    var powerCatalogDiscoveryOverride: (() async -> PaceDiscoveredAutomationCatalog)?
+    var reusableWorkAuthoringPlannerOverride: (any BuddyPlannerClient)?
+    var activeManagedPower: PaceManagedPower?
+    var localMediaCatalog = PaceLocalMediaCatalog()
+    var managedPowerStore = PaceManagedPowerStore()
+    var mediaOverlayController = PaceMediaOverlayController()
     var turnLeaseRegistry = PaceTurnLeaseRegistry()
     var chatTurnQueue = PaceChatTurnQueue()
     var queuedChatTurnDrainTask: Task<Void, Never>?

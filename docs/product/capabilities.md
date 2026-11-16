@@ -155,6 +155,26 @@ General → Automation:
   of failed commands (`PaceDynamicToolRegistry`).
 - *Background agents* — persistent read-only summaries, drafts, and cited research. Tasks exposes results, cancellation, and retry from the beginning after interruption. Text or voice: "in the background, draft a reply to..." (`PaceBackgroundAgentRunner`).
 
+**Power management** — Say “list powers”, “show power Thank You”, “create a
+power called Thank You that presents thank-you-dance for four seconds and says
+thank you”, “update power Thank You: say welcome”, “disable power Thank You”,
+“enable power Thank You”, “run power Thank You”, or “remove power Thank You”.
+Saved custom automations, programs and flexible skills support these controls;
+updates retain a recovery revision and removal archives their owned definition.
+Compiled powers and provider-owned workflows show their existing configuration
+controls and remain protected. Disabling applies to exact and natural run aliases
+and persists across restarts. Enabling keeps all existing permission gates.
+
+**Local expressive media** — Say “show me the thank you dance” or “run power
+Thank You Dance” for the protected bundled starter. Saved custom workflows can
+present the same original `thank-you-dance` animation and speak requested text
+with local TTS. The animation
+preserves keyboard and mouse control, stays visible for one to thirty seconds,
+and has an explicit close/“stop media” path that cancels its owned speech. Import
+a personal GIF or PNG with “import power media /absolute/file.gif as my-dance”,
+then reference `my-dance` while creating a power. Imports are validated and copied
+locally; planners receive asset IDs, never arbitrary media URLs or file access.
+
 **Skills** — `.skill.md` files in `Resources/skills/` define reusable multi-step
 workflows that are parsed into planner prompts. Voice: "run the standup skill"
 (`PaceSkillLoader`).
@@ -179,7 +199,7 @@ interpretation. Every program branch validates before persistence; runs flatten
 into the typed action pipeline without invoking a model. Raw Lua, JavaScript,
 shell, network, arbitrary file, and direct Accessibility authority are not
 available. User typed definitions and programs live in separate Application
-Support directories. The 17 bundled
+Support directories. The 18 bundled
 entries span Notes templates, Calendar reads, timers, Finder folders,
 current-window layouts, bounded media control, weekly review, and end-of-day
 reset. Recorded flows, skills, Shortcuts, cron, and background agents keep their

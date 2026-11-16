@@ -598,9 +598,9 @@ struct PaceSkillLoaderTests {
         #expect(PaceSkillLoader.listUserSkills(in: temporaryDirectory).isEmpty)
     }
 
-    /// Saving twice with the same name overwrites rather than duplicating.
+    /// Updates require the managed compare-and-swap path; create never silently overwrites.
     @Test
-    func saveOverwritesSameSlug() throws {
+    func saveRejectsSameSlugWithoutOverwriting() throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("pace-skill-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
@@ -609,13 +609,15 @@ struct PaceSkillLoaderTests {
             makeSkill(name: "Dupe", steps: ["Step one"]),
             to: temporaryDirectory
         )
-        try PaceSkillLoader.save(
-            makeSkill(name: "Dupe", steps: ["Step one", "Step two"]),
-            to: temporaryDirectory
-        )
+        #expect(throws: PaceManagedPowerError.self) {
+            try PaceSkillLoader.save(
+                makeSkill(name: "Dupe", steps: ["Step one", "Step two"]),
+                to: temporaryDirectory
+            )
+        }
         let listed = PaceSkillLoader.listUserSkills(in: temporaryDirectory)
         #expect(listed.count == 1)
-        #expect(listed.first?.steps.count == 2)
+        #expect(listed.first?.steps.count == 1)
     }
 
     // MARK: - Structured JSON → skill

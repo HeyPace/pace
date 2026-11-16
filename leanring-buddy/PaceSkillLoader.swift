@@ -369,8 +369,14 @@ extension PaceSkillLoader {
         _ skill: PaceSkillFile,
         to directory: URL = PaceSkillLoader.userSkillsDirectory()
     ) throws {
+        guard PaceManagedPowerStore.safeIdentifier(skill.slug) else {
+            throw PaceManagedPowerError.invalid("invalid skill identifier")
+        }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let destinationFileURL = directory.appendingPathComponent("\(skill.slug).skill.md")
+        guard !FileManager.default.fileExists(atPath: destinationFileURL.path) else {
+            throw PaceManagedPowerError.collision
+        }
         let skillFileData = Data(serialize(skill).utf8)
         try writeSkillFileAtomically(data: skillFileData, to: destinationFileURL)
     }

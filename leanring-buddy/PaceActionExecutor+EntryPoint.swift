@@ -150,6 +150,9 @@ extension PaceActionExecutor {
         _ action: PaceParsedAction,
         screenCaptures: [CompanionScreenCapture]
     ) async -> PaceActionExecutionObservation? {
+        guard managedPowerExecutionCheck?() != false else {
+            return .init(toolName: action.auditOperationName, summary: "Power was disabled, removed, or changed; execution stopped.", terminalReason: .managedWorkflowUnavailable)
+        }
         // Input posting can silently do nothing without Accessibility access.
         // Return a real observation so the agent does not treat that as success.
         if actionsAreEnabled, Self.requiresAccessibility(action), !accessibilityPermissionCheck() {
@@ -240,6 +243,13 @@ extension PaceActionExecutor {
             return await openMessages(messageRequest)
         case .downloadFile(let downloadRequest):
             return await downloadFile(downloadRequest)
+        case .presentMedia(let request):
+            guard actionsAreEnabled else { return .init(toolName: "present_media", summary: "Would present local media: \(request.assetID)") }
+            return presentLocalMedia?(request) ?? .init(toolName: "present_media", summary: "Media unavailable; lifecycle binding missing.", terminalReason: .managedWorkflowUnavailable)
+        case .speak(let text):
+            guard actionsAreEnabled else { return .init(toolName: "speak", summary: "Would speak local text.") }
+            guard let speakLocalText else { return .init(toolName: "speak", summary: "Local speech unavailable; lifecycle binding missing.", terminalReason: .managedWorkflowUnavailable) }
+            return await speakLocalText(text)
         case .startTimer(let timerRequest):
             return await startTimer(timerRequest)
         case .recordFlow(let flowRequest):

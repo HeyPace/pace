@@ -234,12 +234,13 @@ extension CompanionManager {
     func discoverAutomationCatalog(
         refreshShortcutCatalog: Bool = true
     ) async -> PaceDiscoveredAutomationCatalog {
+        if let powerCatalogDiscoveryOverride { return await powerCatalogDiscoveryOverride() }
         let bundledDefinitions = PaceAutomationDefinitionLibrary.loadBundledDefinitions()
-        let userDefinitions = PaceUserAutomationStore().listValidDefinitions()
+        let userDefinitions = PaceUserAutomationStore(directoryURL: managedPowerStore.automationDirectoryURL).listValidDefinitions()
         let typedDefinitions = bundledDefinitions + userDefinitions
-        let programs = PaceUserProgramStore().listValidPrograms()
+        let programs = PaceUserProgramStore(directoryURL: managedPowerStore.programDirectoryURL).listValidPrograms()
         let recordedFlows = flowStore.listAll()
-        let skills = PaceSkillLoader.loadAllSkills()
+        let skills = PaceSkillLoader.loadAllSkills(userSkillsDirectoryURL: managedPowerStore.skillDirectoryURL)
         let shortcutNames: [String]
         if refreshShortcutCatalog {
             let shortcutCatalogDiscoveryResult = await PaceShortcutsAutomationProvider.shared.catalog()
@@ -278,7 +279,7 @@ extension CompanionManager {
         )
     }
 
-    private func dispatchAutomationCatalogEntry(
+    func dispatchAutomationCatalogEntry(
         _ catalogEntry: PaceAutomationCatalogEntry,
         typedDefinitions: [PaceAutomationDefinition],
         programs: [PaceProgramDefinition],
@@ -286,6 +287,7 @@ extension CompanionManager {
         skills: [PaceSkillFile],
         transcript: String
     ) {
+        guard authorizeManagedPower(catalogEntry, transcript: transcript) else { return }
         switch catalogEntry.reference {
         case .typedDefinition(let identifier):
             guard let definition = typedDefinitions.first(where: { $0.identifier == identifier }) else {

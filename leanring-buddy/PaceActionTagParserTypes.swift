@@ -80,6 +80,7 @@ nonisolated struct PaceActionExecutionObservation {
         case recoverableInspectionFailure
         case staleApplicationTarget
         case inspectionInterrupted
+        case managedWorkflowUnavailable
     }
 
     let toolName: String
@@ -98,7 +99,7 @@ nonisolated struct PaceActionExecutionObservation {
         case .ambiguousApplicationTarget: return .clarification(userFacingSummary ?? "Which app window do you mean?")
         case .staleApplicationTarget, .inspectionInterrupted:
             return .interrupted(userFacingSummary ?? "I stopped checking that window.")
-        case nil: return nil
+        case nil, .managedWorkflowUnavailable: return nil
         }
     }
     /// Non-nil only on an all-fail click, to request Set-of-Mark recovery.
@@ -239,6 +240,8 @@ nonisolated enum PaceParsedAction {
     case runShortcut(String)
     case openMessages(PaceMessageRequest)
     case downloadFile(PaceFileDownloadRequest)
+    case presentMedia(PaceMediaPresentationRequest)
+    case speak(String)
     case startTimer(PaceTimerRequest)
     case recordFlow(PaceFlowActionRequest)
     case runFlow(PaceFlowActionRequest)
@@ -291,6 +294,8 @@ nonisolated enum PaceParsedAction {
         case .runShortcut: return "shortcut_run"
         case .openMessages: return "messages_open"
         case .downloadFile: return "download_file"
+        case .presentMedia: return "present_media"
+        case .speak: return "speak"
         case .startTimer: return "start_timer"
         case .recordFlow: return "record_flow"
         case .runFlow: return "run_flow"
@@ -340,6 +345,8 @@ nonisolated enum PaceParsedAction {
             return String(request.path.prefix(120))
         case .downloadFile(let request):
             return String(request.url.absoluteString.prefix(120))
+        case .presentMedia(let request): return request.assetID
+        case .speak: return "local speech"
         case .startTimer(let request):
             return String(request.label.prefix(60))
         case .recordFlow(let request), .runFlow(let request):
@@ -451,6 +458,8 @@ nonisolated enum PaceParsedAction {
             return "Open Messages"
         case .downloadFile(let downloadRequest):
             return "Download file to ~/Downloads: \(downloadRequest.url.absoluteString)"
+        case .presentMedia(let request): return "Present local media: \(request.assetID) for \(request.durationSeconds) seconds"
+        case .speak(let text): return "Speak: \(Self.truncatedForApproval(text))"
         case .startTimer(let timerRequest):
             let durationMinutes = Int((timerRequest.durationInSeconds / 60.0).rounded())
             if durationMinutes >= 1, !timerRequest.label.isEmpty {

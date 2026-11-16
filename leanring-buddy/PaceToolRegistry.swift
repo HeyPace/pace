@@ -62,6 +62,8 @@ nonisolated enum PaceLocalToolKind: String, CaseIterable {
     case shortcuts
     case messages
     case downloadFile
+    case presentMedia
+    case speak
     case startTimer
     case recordFlow
     case runFlow
@@ -300,6 +302,8 @@ nonisolated enum PaceToolRegistry {
             return definition(forToolName: "messages")
         case .downloadFile:
             return definition(forToolName: "download_file")
+        case .presentMedia: return definition(forToolName: "present_media")
+        case .speak: return definition(forToolName: "speak")
         case .startTimer:
             return definition(forToolName: "start_timer")
         case .recordFlow:

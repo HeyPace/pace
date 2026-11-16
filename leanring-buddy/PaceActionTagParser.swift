@@ -1446,6 +1446,10 @@ nonisolated enum PaceActionTagParser {
             return parseMessagesToolCall(toolCall)
         case .downloadFile:
             return parseDownloadFileToolCall(toolCall)
+        case .presentMedia:
+            return PaceMediaPresentationRequest.parse(arguments: mergeMCPArguments(from: toolCall)).map { .presentMedia($0) }
+        case .speak:
+            return firstStringValue(for: ["text"], in: mergeMCPArguments(from: toolCall)).map { .speak($0) }
         case .startTimer:
             return parseStartTimerToolCall(toolCall)
         case .recordFlow:
@@ -1630,6 +1634,15 @@ nonisolated enum PaceActionTagParser {
             let rawURLString = firstStringValue(for: ["url", "text"], in: mergedArguments) ?? ""
             if PaceFileDownloadURLValidator.validatedDownloadURL(from: rawURLString) == nil {
                 issues.append("requires a valid http(s) download url")
+            }
+        case .presentMedia:
+            if PaceMediaPresentationRequest.parse(arguments: mergedArguments) == nil {
+                issues.append("requires a catalog assetID, durationSeconds from one to thirty, and optional supported motion")
+            }
+        case .speak:
+            if Set(mergedArguments.keys) != ["text"] || !hasNonEmptyString(for: ["text"], in: mergedArguments)
+                || (firstStringValue(for: ["text"], in: mergedArguments)?.count ?? 0) > 2000 {
+                issues.append("requires bounded local speech text only")
             }
         case .startTimer:
             let rawDurationText = firstStringValue(

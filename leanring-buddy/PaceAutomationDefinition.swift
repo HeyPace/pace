@@ -134,6 +134,8 @@ nonisolated enum PaceAutomationDefinitionValidator {
         .codexSession,
         .reminder,
         .startTimer,
+        .presentMedia,
+        .speak,
         .things,
         .volume,
         .window,
@@ -163,6 +165,9 @@ nonisolated enum PaceAutomationDefinitionValidator {
             validationIssues.append(.init(message: "\(fieldName) must not be empty"))
         }
 
+        if !PaceManagedPowerStore.safeIdentifier(definition.identifier) {
+            validationIssues.append(.init(message: "identifier must contain only canonical lowercase slug characters"))
+        }
         if definition.source != .bundled && definition.source != .user {
             validationIssues.append(.init(
                 message: "typed definition source must be bundled or user"

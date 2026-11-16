@@ -803,6 +803,9 @@ final class PaceActionExecutor {
     /// stop. The closure returns a short user-facing summary the
     /// executor folds into its observation. Default no-op preserves
     /// dry-run / unit-test behavior.
+    var managedPowerExecutionCheck: (() -> Bool)?
+    var presentLocalMedia: ((PaceMediaPresentationRequest) -> PaceActionExecutionObservation)?
+    var speakLocalText: ((String) async -> PaceActionExecutionObservation)?
     var executeCodingSession: ((PaceCodingSessionCommand) async -> PaceActionExecutionObservation)?
 
     var startFlowRecordingCallback: (String) -> String = { flowName in

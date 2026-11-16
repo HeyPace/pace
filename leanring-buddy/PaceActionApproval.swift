@@ -173,7 +173,7 @@ nonisolated enum PaceActionApprovalPolicy {
             .screenCapture, .meeting, .codexSession,
              .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
-            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
+            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations, .presentMedia, .speak:
             return false
         }
     }
@@ -208,7 +208,7 @@ nonisolated enum PaceActionApprovalPolicy {
             .openApplication, .openBrowser, .screenCapture, .meeting, .codexSession, .openURL, .controlMusic,
             .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
-            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
+            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations, .presentMedia, .speak:
             return false
         }
     }
@@ -262,7 +262,7 @@ nonisolated enum PaceActionApprovalPolicy {
             .screenCapture, .meeting, .codexSession,
              .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
-            .dismissDiagram, .clearAnnotations:
+            .dismissDiagram, .clearAnnotations, .presentMedia, .speak:
             // clearAnnotations: pure overlay cleanup, no speech needed.
             return true
         case .codingSession: return false
