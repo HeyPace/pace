@@ -363,4 +363,29 @@ struct PacePowerManagerTests {
         }
     }
 
+    @Test func lateMeetingFeedbackKeepsItsOwnQuestionAndLeavesCurrentSpeechContextUntouched() throws {
+        let (root, manager, persister, _) = try fixture(recordsDerivedMemory: true)
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        let oldTranscript = "start meeting recording"
+        let oldUserEvent = manager.acceptConversationRequest(oldTranscript, origin: .voice)
+        let currentTranscript = "run power Two Lines"
+        begin(currentTranscript, manager: manager)
+        let currentUserEventIdentifier = try #require(manager.activeConversationUserEvent?.eventID)
+        let currentAssistantEventIdentifier = manager.activeConversationAssistantEventIdentifier
+        let currentLease = manager.turnLeaseRegistry.currentLease
+        manager.hasRecordedCurrentTurnSpeechUserContext = true
+        manager.recordConversationTurn(userTranscript: oldTranscript, assistantResponse: "meeting recording started",
+            userEventIdentifier: oldUserEvent.eventID)
+        let oldDerivedTurn = try #require(manager.threadMemory.verbatimWindow().last)
+        #expect(oldDerivedTurn.userText == oldTranscript)
+        let oldUnifiedTurn = try #require(manager.memoryIndex.allEntries().first { $0.id == oldUserEvent.eventID })
+        #expect(oldUnifiedTurn.text == "User: " + oldTranscript + "\nPace: meeting recording started")
+        #expect(persister.events[oldUserEvent.eventID]?.deliveryState == .completed)
+        #expect(manager.activeConversationUserEvent?.eventID == currentUserEventIdentifier)
+        #expect(persister.events[currentUserEventIdentifier]?.deliveryState == .accepted)
+        #expect(manager.activeConversationAssistantEventIdentifier == currentAssistantEventIdentifier)
+        #expect(manager.hasRecordedCurrentTurnSpeechUserContext)
+        #expect(manager.turnLeaseRegistry.currentLease == currentLease)
+    }
+
 }

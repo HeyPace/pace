@@ -172,7 +172,8 @@ extension CompanionManager {
         }
         let userTranscriptForMemory = userEvent?.text ?? userTranscript
         let stableTurnId = userEvent?.eventID ?? activeConversationUserEvent?.eventID ?? UUID().uuidString
-        let userTranscriptForDerivedMemory = hasRecordedCurrentTurnSpeechUserContext ? "" : userTranscriptForMemory
+        let speechAlreadyRecordedUserContext = ownsActiveStream && hasRecordedCurrentTurnSpeechUserContext
+        let userTranscriptForDerivedMemory = speechAlreadyRecordedUserContext ? "" : userTranscriptForMemory
         let shouldExtractUserFacts = userEvent.map {
             extractedConversationUserEventIdentifiers.insert($0.eventID).inserted
         } ?? false
@@ -233,7 +234,7 @@ extension CompanionManager {
             recordUnifiedMemoryTurn(
                 userTranscript: userTranscriptForDerivedMemory,
                 assistantResponse: assistantResponse,
-                turnId: hasRecordedCurrentTurnSpeechUserContext ? assistantEventIdentifier : stableTurnId,
+                turnId: speechAlreadyRecordedUserContext && recordsAssistantEvent ? assistantEventIdentifier : stableTurnId,
                 recordedAt: recordedAt
             )
         }
