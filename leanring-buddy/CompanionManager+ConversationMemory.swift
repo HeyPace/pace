@@ -42,6 +42,7 @@ extension CompanionManager {
     }
 
     func beginConversationRequest(_ transcript: String, screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil) {
+        hasRecordedCurrentTurnSpeechUserContext = false
         let typedEventIdentifier = pendingTypedConversationEventIdentifier
         pendingTypedConversationEventIdentifier = nil
         activeConversationScreenSuggestionContext = screenSuggestionContextForCurrentPrivacyGate(screenSuggestionContext
@@ -132,7 +133,8 @@ extension CompanionManager {
         userTranscript: String,
         assistantResponse: String,
         userEventIdentifier: String? = nil,
-        recordsAssistantEvent: Bool = true
+        recordsAssistantEvent: Bool = true,
+        recordsAssistantDerivedMemory: Bool = true
     ) {
         let ownsActiveStream = userEventIdentifier == nil || userEventIdentifier == activeConversationUserEvent?.eventID
         if ownsActiveStream, let activePacePadTurnIdentifier {
@@ -187,11 +189,15 @@ extension CompanionManager {
         }
 
         guard recordsDerivedConversationMemory else { return }
-        let displacedTurnPair = threadMemory.record(
-            userTurn: shouldExtractUserFacts ? userTranscriptForMemory : "",
-            assistantTurn: assistantResponse, turnId: assistantEventIdentifier, now: recordedAt)
-        refreshLocalRetrievalPublishedState()
-        persistThreadMemorySnapshot()
+        let displacedTurnPair: PaceThreadTurnPair?
+        if recordsAssistantDerivedMemory {
+            displacedTurnPair = threadMemory.record(
+                userTurn: shouldExtractUserFacts ? userTranscriptForMemory : "",
+                assistantTurn: assistantResponse, turnId: assistantEventIdentifier, now: recordedAt)
+            refreshLocalRetrievalPublishedState()
+            persistThreadMemorySnapshot()
+        } else { displacedTurnPair = nil }
+        let assistantResponseForFactExtraction = recordsAssistantDerivedMemory ? assistantResponse : ""
         guard shouldExtractUserFacts else {
             if let displacedTurnPair {
                 scheduleDetachedThreadSummarizationCall(displacedTurnPair: displacedTurnPair, recordedAt: recordedAt)
@@ -202,7 +208,7 @@ extension CompanionManager {
         // 1. Fast pattern extractor — inline, sub-millisecond.
         let patternExtractedFacts = episodicPatternExtractor.extractFacts(
             from: userTranscriptForMemory,
-            assistantText: assistantResponse,
+            assistantText: assistantResponseForFactExtraction,
             frontmostApplicationName: frontmostAppName,
             sourceTurnId: stableTurnId
         )
@@ -215,19 +221,21 @@ extension CompanionManager {
         //    failure is silent — episodic memory is best-effort.
         scheduleDetachedEpisodicLLMExtractionCall(
             userTranscript: userTranscriptForMemory,
-            assistantSpokenText: assistantResponse,
+            assistantSpokenText: assistantResponseForFactExtraction,
             frontmostAppName: frontmostAppName,
             turnId: stableTurnId,
             intentRoute: lastIntentRouteForEpisodicExtraction
         )
 
         // Dual-write the turn into the unified memory index (ships dark).
-        recordUnifiedMemoryTurn(
-            userTranscript: userTranscriptForMemory,
-            assistantResponse: assistantResponse,
-            turnId: stableTurnId,
-            recordedAt: recordedAt
-        )
+        if recordsAssistantDerivedMemory {
+            recordUnifiedMemoryTurn(
+                userTranscript: userTranscriptForMemory,
+                assistantResponse: assistantResponse,
+                turnId: stableTurnId,
+                recordedAt: recordedAt
+            )
+        }
 
         guard let displacedTurnPair else { return }
         scheduleDetachedThreadSummarizationCall(

@@ -24,6 +24,7 @@ extension CompanionManager {
         diagramOverlayController.cancelLessonPlayback()
         mediaOverlayController.dismiss(cancelOwnedRun: false)
         activeManagedPower = nil
+        hasRecordedCurrentTurnSpeechUserContext = false
         cancelWatchSuggestionSpeech()
         if !preservingConversationRequest { interruptConversationRequest() }
         foregroundOffDeviceTurnInFlight = false
@@ -1254,7 +1255,8 @@ extension CompanionManager {
             guard isActiveTurn(turnLease) else { return }
             if shouldRecordConversationTurn {
                 recordConversationTurn(userTranscript: transcript, assistantResponse: completedActionFeedback,
-                    recordsAssistantEvent: !explicitSpeechCompleted)
+                    recordsAssistantEvent: !explicitSpeechCompleted,
+                    recordsAssistantDerivedMemory: !explicitSpeechCompleted)
             }
             responseOverlayManager.updateStreamingText(completedActionFeedback)
 
@@ -1611,7 +1613,7 @@ extension CompanionManager {
             return
         }
 
-        if let powerCommand = PacePowerCommandParser.parse(transcript) {
+        if let powerCommand = PacePowerCommandParser.parse(transcript, isKnownSavedPowerName: managedPowerStore.hasExactSavedPowerName) {
             await handlePowerCommand(powerCommand, transcript: transcript)
             return
         }

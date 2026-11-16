@@ -739,12 +739,12 @@ final class CompanionManager: ObservableObject {
     /// retrieval stores — those stay authoritative; this ships dark and
     /// nothing reads it yet. Phase 3 cuts recall over to it behind a flag.
     let memoryIndex = PaceMemoryIndex()
-    let memoryStore = PaceMemoryStore()
+    let memoryStore: PaceMemoryStore
     /// One-way mirror into the system CoreSpotlight index so memories
     /// are discoverable from Cmd+Space and other Spotlight surfaces.
     /// Best-effort: any framework failure is silently absorbed by the
     /// indexer — Spotlight mirroring never blocks a user-facing turn.
-    let spotlightMemoryIndexer = PaceSpotlightMemoryIndexer()
+    let spotlightMemoryIndexer: PaceSpotlightMemoryIndexer
     /// macOS Focus state monitor. Feeds `isInUserFocusMode` into every
     /// `PaceRestraintContext` we build, so proactive surfaces (morning
     /// brief, posture, failure narrations) defer cleanly while the
@@ -812,6 +812,7 @@ final class CompanionManager: ObservableObject {
     var currentTurnDispatchTask: Task<Void, Never>?
     var powerCatalogDiscoveryOverride: (() async -> PaceDiscoveredAutomationCatalog)?
     var reusableWorkAuthoringPlannerOverride: (any BuddyPlannerClient)?
+    var hasRecordedCurrentTurnSpeechUserContext = false
     var activeManagedPower: PaceManagedPower?
     var localMediaCatalog = PaceLocalMediaCatalog()
     var managedPowerStore = PaceManagedPowerStore()
@@ -1331,11 +1332,15 @@ final class CompanionManager: ObservableObject {
         persistsDebugTraces: Bool = true,
         diagramOverlayController: PaceDiagramOverlayController? = nil,
         threadMemoryStore: PaceThreadMemoryStore? = nil,
+        memoryStore: PaceMemoryStore? = nil,
+        spotlightMemoryIndexer: PaceSpotlightMemoryIndexer? = nil,
         teachingPreviewDirectSpawnAvailability: (() -> Bool)? = nil
     ) {
         self.diagramOverlayController = diagramOverlayController ?? PaceDiagramOverlayController()
         self.teachingPreviewDirectSpawnAvailability = teachingPreviewDirectSpawnAvailability
         self.threadMemoryStore = threadMemoryStore ?? PaceThreadMemoryStore()
+        self.memoryStore = memoryStore ?? PaceMemoryStore()
+        self.spotlightMemoryIndexer = spotlightMemoryIndexer ?? PaceSpotlightMemoryIndexer()
         self.persistsDebugTraces = persistsDebugTraces
         self.recordsDerivedConversationMemory = recordsDerivedConversationMemory
         self.watchModeDefaults = watchModeDefaults

@@ -39,10 +39,28 @@ struct PacePowerManagerTests {
         }
     }
 
-    func fixture() throws -> (URL, CompanionManager, PaceConversationRecorderTests.FixturePersister, LocalSpeech) {
-        let (manager, persister, _) = PaceConversationRecorderTests().makeDismissalFixture()
+    private final class NoEmbeddingClient: PaceTextEmbedding, @unchecked Sendable {
+        struct Unavailable: Error {}
+        func embed(_ texts: [String]) async throws -> [[Float]] { throw Unavailable() }
+    }
+
+    func fixture(recordsDerivedMemory: Bool = false) throws -> (URL, CompanionManager, PaceConversationRecorderTests.FixturePersister, LocalSpeech) {
         let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("pace-power-manager-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let (persister, session, recorder) = PaceConversationRecorderTests().makeFixture()
+        let defaults = UserDefaults(suiteName: "PacePowerMemoryTests." + UUID().uuidString)!
+        let spotlight = PaceSpotlightMemoryIndexer(indexOperation: { _, completion in completion(nil) },
+            deleteDomainOperation: { _, completion in completion(nil) }, hasCompletedLegacyCleanup: { true }, markLegacyCleanupComplete: {})
+        let manager = CompanionManager(watchModeDefaults: defaults, recordsDerivedConversationMemory: recordsDerivedMemory, persistsDebugTraces: false,
+            threadMemoryStore: PaceThreadMemoryStore(fileURL: root.appendingPathComponent("thread.json")),
+            memoryStore: PaceMemoryStore(fileURL: root.appendingPathComponent("memory.json")), spotlightMemoryIndexer: spotlight)
+        manager.chatSession = session
+        manager.conversationRecorder = recorder
+        manager.bindVisualExplanationCallbacks()
+        manager.threadMemory = PaceThreadMemory(configuration: .init(verbatimWindowSize: 8, sessionIdleThreshold: 1200, summaryMaxTokenEstimate: 400))
+        manager.lastIntentRouteForEpisodicExtraction = .screenAction
+        manager.lazyEmbeddingScheduler = PaceLazyEmbeddingScheduler(memoryIndex: manager.memoryIndex,
+            embeddingClientFactory: { NoEmbeddingClient() }, onEmbeddingsPersisted: {})
         let store = PaceManagedPowerStore(automationDirectoryURL: root.appendingPathComponent("automations"),
             programDirectoryURL: root.appendingPathComponent("programs"), skillDirectoryURL: root.appendingPathComponent("skills"),
             stateDirectoryURL: root.appendingPathComponent("management"), recordsAudit: false)
@@ -262,6 +280,44 @@ struct PacePowerManagerTests {
         let bundledEntry = PaceAutomationCatalog(typedDefinitions: [bundled], recordedFlows: [], skills: [], shortcutNames: []).entries[0]
         begin("run power Thank You Dance", manager: manager)
         #expect(manager.authorizeManagedPower(bundledEntry, transcript: "run power Thank You Dance"))
+    }
+
+    @Test func multipleSpokenLinesHaveOneDerivedOwnerAndRealEventIdentifiers() async throws {
+        let (root, manager, persister, speech) = try fixture(recordsDerivedMemory: true)
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        let definition = PaceAutomationDefinition(schemaVersion: 1, identifier: "two-lines", name: "Two Lines", description: "Speak two lines", category: "custom",
+            source: .user, executionMode: .deterministicLocal, requiredPreferences: [], steps: [
+                .init(toolCalls: [.init(tool: "speak", arguments: ["text": .string("thank you")])]),
+                .init(toolCalls: [.init(tool: "speak", arguments: ["text": .string("welcome back")])]),
+            ])
+        _ = try manager.managedPowerStore.commit(.automation(definition), catalog: (await manager.discoverAutomationCatalog()).catalog)
+        let userTranscript = "run power Two Lines"
+        begin(userTranscript, manager: manager)
+        let userEventIdentifier = try #require(manager.activeConversationUserEvent?.eventID)
+        await manager.handlePowerCommand(.run("Two Lines"), transcript: userTranscript)
+        await manager.currentResponseTask?.value
+        #expect(speech.spokenTexts.filter { ["thank you", "welcome back"].contains($0) } == ["thank you", "welcome back"])
+        let spokenEvents = persister.events.values.filter { $0.role == .pace && ["thank you", "welcome back"].contains($0.text) }
+        #expect(spokenEvents.count == 2)
+        let spokenEventIdentifiers = Set(spokenEvents.map(\.eventID))
+        let threadTurns = manager.threadMemory.verbatimWindow()
+        let spokenThreadTurns = threadTurns.filter { ["thank you", "welcome back"].contains($0.assistantText) }
+        #expect(spokenThreadTurns.map(\.assistantText) == ["thank you", "welcome back"])
+        #expect(Set(spokenThreadTurns.map(\.turnId)) == spokenEventIdentifiers)
+        #expect(spokenThreadTurns.first?.userText == userTranscript)
+        #expect(spokenThreadTurns.last?.userText == "")
+        #expect(threadTurns.allSatisfy { persister.events[$0.turnId]?.role == .pace })
+        #expect(!threadTurns.contains { $0.assistantText == "thank you\nwelcome back" })
+        let derivedTurns = manager.memoryIndex.allEntries().filter { $0.kind == .conversationTurn }
+        #expect(Set(derivedTurns.map(\.id)) == spokenEventIdentifiers)
+        #expect(derivedTurns.allSatisfy { persister.events[$0.id]?.role == .pace })
+        #expect(derivedTurns.filter { $0.text.contains(userTranscript) }.count == 1)
+        #expect(derivedTurns.filter { $0.text.contains("Pace: thank you") }.count == 1)
+        #expect(derivedTurns.filter { $0.text.contains("Pace: welcome back") }.count == 1)
+        #expect(persister.events[userEventIdentifier]?.deliveryState == .completed)
+        #expect(manager.extractedConversationUserEventIdentifiers.contains(userEventIdentifier))
+        begin("a later question", manager: manager)
+        #expect(persister.events[userEventIdentifier]?.deliveryState == .completed)
     }
 
 }

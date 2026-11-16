@@ -8,7 +8,7 @@ nonisolated enum PacePowerCommand: Equatable {
 }
 
 nonisolated enum PacePowerCommandParser {
-    static func parse(_ transcript: String) -> PacePowerCommand? {
+    static func parse(_ transcript: String, isKnownSavedPowerName: (String) -> Bool = { _ in false }) -> PacePowerCommand? {
         var text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         for _ in 0..<2 {
             guard let courtesyPrefix = ["please ", "can you ", "could you "].first(where: { text.lowercased().hasPrefix($0) }) else { break }
@@ -40,7 +40,7 @@ nonisolated enum PacePowerCommandParser {
             guard !argument.isEmpty else { return nil }
             let normalizedArgument = argument.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".!?"))
             let systemPowerPhrases = ["nap", "saving", "management", "supply", "consumption", "settings", "mode", "options"]
-            if action != 1 && action != 2 && systemPowerPhrases.contains(where: { normalizedArgument == $0 || normalizedArgument.hasPrefix($0 + " ") }) {
+            if action != 1 && action != 2 && systemPowerPhrases.contains(normalizedArgument) && !isKnownSavedPowerName(argument) {
                 return nil
             }
             switch action {
@@ -216,6 +216,28 @@ struct PaceManagedPowerStore {
         guard Self.isRegularFileWithoutFollowingSymlinks(at: url) else { return nil }
         return url
     }
+    nonisolated static func exactSpokenTargetCandidates(_ requestedTarget: String) -> [String] {
+        var candidate = requestedTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+        var candidates = [candidate]
+        for _ in 0..<3 {
+            guard let lastCharacter = candidate.last, ".!?".contains(lastCharacter) else { break }
+            candidate.removeLast()
+            candidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !candidate.isEmpty else { break }
+            candidates.append(candidate)
+        }
+        return candidates
+    }
+
+    func hasExactSavedPowerName(_ requestedName: String) -> Bool {
+        let savedNames = PaceUserAutomationStore(directoryURL: automationDirectoryURL).listValidDefinitions().map(\.name)
+            + PaceUserProgramStore(directoryURL: programDirectoryURL).listValidPrograms().map(\.name)
+            + PaceSkillLoader.listUserSkills(in: skillDirectoryURL).map(\.name)
+        return Self.exactSpokenTargetCandidates(requestedName).contains { candidate in
+            savedNames.contains { PaceAutomationCatalog.normalizedName($0) == PaceAutomationCatalog.normalizedName(candidate) }
+        }
+    }
+
     private func isManagedUserArtifact(_ entry: PaceAutomationCatalogEntry) -> Bool {
         switch entry.reference {
         case .typedDefinition: return entry.source == .user
@@ -247,12 +269,15 @@ struct PaceManagedPowerStore {
     }
     func resolve(_ exactNameOrIdentifier: String, catalog: PaceAutomationCatalog) throws -> PaceManagedPower {
         let powers = list(catalog: catalog)
-        if let exactIdentifierMatch = powers.first(where: { $0.identifier == exactNameOrIdentifier }) { return exactIdentifierMatch }
-        let normalized = PaceAutomationCatalog.normalizedName(exactNameOrIdentifier)
-        let matches = powers.filter { PaceAutomationCatalog.normalizedName($0.name) == normalized }
-        guard !matches.isEmpty else { throw PaceManagedPowerError.missing }
-        guard matches.count == 1 else { throw PaceManagedPowerError.ambiguous(matches.map(\.identifier)) }
-        return matches[0]
+        for candidate in Self.exactSpokenTargetCandidates(exactNameOrIdentifier) {
+            if let exactIdentifierMatch = powers.first(where: { $0.identifier == candidate }) { return exactIdentifierMatch }
+            let normalized = PaceAutomationCatalog.normalizedName(candidate)
+            let matches = powers.filter { PaceAutomationCatalog.normalizedName($0.name) == normalized }
+            if matches.isEmpty { continue }
+            guard matches.count == 1 else { throw PaceManagedPowerError.ambiguous(matches.map(\.identifier)) }
+            return matches[0]
+        }
+        throw PaceManagedPowerError.missing
     }
     func authoringContext(for power: PaceManagedPower) throws -> String {
         let artifactURL = try validateCurrent(power)

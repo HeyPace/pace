@@ -30,7 +30,14 @@ extension CompanionManager {
             do {
                 try await self.ttsClient.speakUtterance(text, onStarted: { [weak self] in
                     guard let self, self.isActiveTurn(turnLease) else { return }
-                    self.recordAssistantNarration(text, origin: .assistant, turnIdentifier: self.activeConversationUserEvent?.eventID)
+                    let userContext = self.hasRecordedCurrentTurnSpeechUserContext ? "" : (self.activeConversationUserEvent?.text ?? "")
+                    let eventIdentifier = self.recordAssistantNarration(text, origin: .assistant,
+                        turnIdentifier: self.activeConversationUserEvent?.eventID, plannerContext: userContext)
+                    self.hasRecordedCurrentTurnSpeechUserContext = true
+                    if self.recordsDerivedConversationMemory {
+                        self.recordUnifiedMemoryTurn(userTranscript: userContext, assistantResponse: text,
+                            turnId: eventIdentifier, recordedAt: Date())
+                    }
                     self.noteLastSpokenReply(text)
                     self.responseOverlayManager.updateStreamingText(text)
                 })

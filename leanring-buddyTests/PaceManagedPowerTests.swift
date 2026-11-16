@@ -33,6 +33,9 @@ struct PaceManagedPowerTests {
         #expect(PacePowerCommandParser.parse("Could you please list powers?") == .list)
         #expect(PacePowerCommandParser.parse("Can you explain how to create a power?") == nil)
         #expect(PacePowerCommandParser.parse("disable power nap") == nil)
+        #expect(PacePowerCommandParser.parse("show power Settings Backup") == .show("Settings Backup"))
+        #expect(PacePowerCommandParser.parse("disable power Mode Switch") == .setEnabled("Mode Switch", false))
+        #expect(PacePowerCommandParser.parse("remove power Options Review") == .remove("Options Review"))
         #expect(PacePowerCommandParser.parse("show power consumption") == nil)
         #expect(PacePowerCommandParser.parse("disable power automation:nap") == .setEnabled("automation:nap", false))
         #expect(PacePowerCommandParser.parse("show my powers") == .list)
@@ -404,6 +407,54 @@ struct PaceManagedPowerTests {
         for invalidIdentifier in ["../secret", "a/b", "a\\b", ".hidden", "a..b", "a--b", "-a", "a-"] {
             #expect(!PaceManagedPowerStore.safeIdentifier(invalidIdentifier))
         }
+    }
+
+    @Test func savedPowersWithOrdinaryFeaturePrefixesRemainManageableByName() throws {
+        let (root, store) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for name in ["Settings Backup", "Mode Switch", "Options Review", "Settings", "Nap"] {
+            _ = try store.commit(.automation(thankYou(identifier: PaceFlowStore.slug(for: name), name: name)), catalog: catalog(store))
+            #expect(PacePowerCommandParser.parse("show power " + name, isKnownSavedPowerName: store.hasExactSavedPowerName) == .show(name))
+            #expect(PacePowerCommandParser.parse("run power " + name, isKnownSavedPowerName: store.hasExactSavedPowerName) == .run(name))
+            #expect(PacePowerCommandParser.parse("enable power " + name, isKnownSavedPowerName: store.hasExactSavedPowerName) == .setEnabled(name, true))
+            #expect(PacePowerCommandParser.parse("remove power " + name, isKnownSavedPowerName: store.hasExactSavedPowerName) == .remove(name))
+            guard case .setEnabled(let target, false) = PacePowerCommandParser.parse("disable power " + name, isKnownSavedPowerName: store.hasExactSavedPowerName) else {
+                Issue.record("Saved name must remain available to exact command parsing")
+                continue
+            }
+            let saved = try store.resolve(target, catalog: catalog(store))
+            try store.setEnabled(false, power: saved)
+            #expect(!store.isEnabled(saved.identifier))
+            _ = try store.archive(saved)
+        }
+        #expect(catalog(store).entries.isEmpty)
+    }
+
+    @Test func spokenTargetPunctuationFallsBackOnlyAfterExactNameOrIdentifierMatches() throws {
+        let (root, store) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for (identifier, name) in [("greeting", "Greeting"), ("punctuated-greeting", "Greeting!"), ("nap", "Nap")] {
+            _ = try store.commit(.automation(thankYou(identifier: identifier, name: name)), catalog: catalog(store))
+        }
+        #expect(try store.resolve("Greeting.", catalog: catalog(store)).identifier == "automation:greeting")
+        #expect(try store.resolve("Greeting!", catalog: catalog(store)).identifier == "automation:punctuated-greeting")
+        #expect(try store.resolve("Greeting!.", catalog: catalog(store)).identifier == "automation:punctuated-greeting")
+        #expect(try store.resolve("automation:greeting.", catalog: catalog(store)).identifier == "automation:greeting")
+        for (transcript, expectedTarget) in [("run power Greeting.", "Greeting."), ("show power Greeting?", "Greeting?"), ("disable power automation:greeting.", "automation:greeting.")] {
+            let command = try #require(PacePowerCommandParser.parse(transcript, isKnownSavedPowerName: store.hasExactSavedPowerName))
+            let target: String
+            switch command {
+            case .run(let value), .show(let value), .setEnabled(let value, _): target = value
+            default: Issue.record("Expected an exact management target"); continue
+            }
+            #expect(target == expectedTarget)
+            #expect(try store.resolve(target, catalog: catalog(store)).identifier == "automation:greeting")
+        }
+        let napCommand = PacePowerCommandParser.parse("disable power Nap.", isKnownSavedPowerName: store.hasExactSavedPowerName)
+        #expect(napCommand == .setEnabled("Nap.", false))
+        #expect(try store.resolve("Nap.", catalog: catalog(store)).identifier == "automation:nap")
+        #expect(PacePowerCommandParser.parse("disable power nap.") == nil)
+        #expect(throws: PaceManagedPowerError.self) { try store.resolve("Greeting similar", catalog: catalog(store)) }
     }
 
 }
