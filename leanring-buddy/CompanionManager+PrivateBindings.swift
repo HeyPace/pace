@@ -325,7 +325,42 @@ extension CompanionManager {
         return false
     }
 
+    func handleAudioCaptured(_ captured: PaceCapturedAudio) {
+        guard captured.frameCount > 0 else { return }
+        transcriptArrivedSinceRelease = false
+        streamingSentenceTTSPipeline.markIntentCommitted()
+        PaceAnalytics.trackPushToTalkReleased()
+        if !chatSession.isChatTTSMuted && !streamingSentenceTTSPipeline.isMutedForCurrentTurn {
+            playCaptureAcknowledgementCue()
+        }
+        guard voiceState != .responding else { return }
+        currentTurnHUDState = .understanding("Audio captured")
+        let recognizedText = captured.recognizedText.isEmpty ? liveSpeechDraft : captured.recognizedText
+        if !recognizedText.isEmpty {
+            liveSpeechDraft = recognizedText
+            responseOverlayManager.updateStreamingText(recognizedText)
+        } else {
+            responseOverlayManager.updateStreamingText("Audio captured")
+        }
+    }
+
+    func handleCaptureWithoutSpeech(_ message: String) {
+        guard voiceState != .responding else { return }
+        transcriptArrivedSinceRelease = true
+        transcriptSafetyTask?.cancel()
+        transcriptSafetyTask = nil
+        currentTurnHUDState = .failed(message)
+        responseOverlayManager.setListeningForAudio(false)
+        responseOverlayManager.updateStreamingText(message)
+        responseOverlayManager.finishStreaming()
+        voiceState = .idle
+    }
+
     func bindVoiceStateObservation() {
+        buddyDictationManager.onAudioCaptured = { [weak self] captured in self?.handleAudioCaptured(captured) }
+        buddyDictationManager.onNoSpeechRecognized = { [weak self] in
+            self?.handleCaptureWithoutSpeech("No speech recognized. Try again.")
+        }
         var hasObservedDictationInProgress = false
         voiceStateCancellable = buddyDictationManager.$isRecordingFromKeyboardShortcut
             .combineLatest(
@@ -415,6 +450,68 @@ extension CompanionManager {
         isNotchChatInputFocused = false
     }
 
+    func resetCaptureTranscriptFeedback() {
+        transcriptSafetyTask?.cancel()
+        transcriptSafetyTask = nil
+        lastPartialTranscriptFromActiveDictation = nil
+        liveSpeechDraft = ""
+    }
+
+    func scheduleTranscriptSafetyFallback() {
+        // Safety net: if no transcript materialises within 12s (silent
+        // audio, WhisperKit hang, mic permission revoked), clean up so
+        // the overlay doesn't sit on "listening…" indefinitely and the
+        // state machine returns to idle. The flag is flipped to true
+        // when the final transcript is submitted.
+        guard !transcriptArrivedSinceRelease else { return }
+        transcriptSafetyTask?.cancel()
+        transcriptSafetyTask = Task { [weak self] in
+            // WhisperKit's first finalize after launch
+            // takes 5-10s on its own, and the previous timeout dropped
+            // the user's words too aggressively. The fallback below
+            // also rescues turns that have a partial but no final.
+            try? await Task.sleep(nanoseconds: 12_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self else { return }
+                guard !self.transcriptArrivedSinceRelease else { return }
+                // If WhisperKit gave us a partial but never finalized,
+                // use the partial as the transcript — better than
+                // dropping the whole turn as "no audio detected".
+                if let rescuedPartial = self.lastPartialTranscriptFromActiveDictation,
+                   !rescuedPartial.isEmpty {
+                    print("🗣️ Final transcript timed out — rescuing partial: \(rescuedPartial)")
+                    self.transcriptArrivedSinceRelease = true
+                    self.lastTranscript = rescuedPartial
+                    self.lastPartialTranscriptFromActiveDictation = nil
+                    _ = PaceAPIAuditLog.shared.beginTurn()
+                    PaceAnalytics.trackUserMessageSent(transcript: rescuedPartial)
+                    self.currentTurnHUDState = .understanding("classifying intent")
+                    self.responseOverlayManager.updateStreamingText(rescuedPartial)
+                    self.sendTranscriptToPlannerWithScreenshot(transcript: rescuedPartial)
+                    return
+                }
+                print("⚠️ Transcript didn't arrive within 12s — resetting state")
+                PaceAPIAuditLog.shared.record(
+                    subsystem: "dictation",
+                    operation: "finalize_timeout",
+                    target: self.buddyDictationManager.transcriptionProvider.displayName,
+                    durationMilliseconds: 12000,
+                    outcome: "no_transcript",
+                    detail: "no partial captured"
+                )
+                self.responseOverlayManager.updateStreamingText("No speech recognized. Try again.")
+                self.responseOverlayManager.finishStreaming()
+                self.voiceState = .idle
+                self.currentTurnHUDState = .failed("No speech recognized. Try again.")
+                if self.isWalkingAvatarEnabled {
+                    self.avatarOverlayManager?.show()
+                }
+                self.currentDictationTrigger = .keyboard
+            }
+        }
+    }
+
     func handleShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
         switch transition {
         case .pressed:
@@ -464,6 +561,7 @@ extension CompanionManager {
                 cancelActiveTurnTasks()
                 ttsClient.stopPlayback()
             }
+            resetCaptureTranscriptFeedback()
             // Clear the streaming-TTS dispatch state so the new turn
             // starts fresh — without this, the diff tracker would think
             // half of the previous reply had already been queued.
@@ -568,48 +666,41 @@ extension CompanionManager {
                     },
                     currentDraftText: "",
                     updateDraftText: { [weak self] partialTranscript in
-                        // The transcription provider may call us off-main;
-                        // hop explicitly so we never violate @MainActor on
-                        // the overlay (silent isolation errors can show up
-                        // as freezes under contention).
+                        // Capture identity is checked before this synchronous MainActor delivery.
                         let trimmedPartial = partialTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !trimmedPartial.isEmpty else { return }
-                        Task { @MainActor [weak self] in
-                            self?.lastPartialTranscriptFromActiveDictation = trimmedPartial
-                            self?.liveSpeechDraft = trimmedPartial
-                            self?.responseOverlayManager.updateStreamingText(trimmedPartial)
-                        }
+                        self?.lastPartialTranscriptFromActiveDictation = trimmedPartial
+                        self?.liveSpeechDraft = trimmedPartial
+                        self?.responseOverlayManager.updateStreamingText(trimmedPartial)
                     },
                     submitDraftText: { [weak self] finalTranscript in
-                        Task { @MainActor [weak self] in
-                            guard let self else { return }
-                            // Mark that a transcript arrived so the release
-                            // safety timer skips its cleanup pass.
-                            self.transcriptArrivedSinceRelease = true
-                            self.lastTranscript = finalTranscript
-                            // Keep the live user bubble showing the final
-                            // transcript through the turn; recordConversationTurn
-                            // clears it when the committed message lands.
-                            self.liveSpeechDraft = finalTranscript
-                            _ = PaceAPIAuditLog.shared.beginTurn()
-                            print("🗣️ Companion received transcript: \(finalTranscript)")
-                            // Record STT latency: PTT press → final transcript.
-                            if let pressedAt = self.pttPressedAt {
-                                let sttMs = Int(Date().timeIntervalSince(pressedAt) * 1000)
-                                let wordCount = finalTranscript.split(separator: " ").count
-                                PaceTelemetryLog.recordSTTLatency(
-                                    milliseconds: sttMs,
-                                    transcriptWordCount: wordCount
-                                )
-                                self.pttPressedAt = nil
-                            }
-                            // Mark STT complete in the latency budget.
-                            PaceLatencyBudget.shared.mark(.sttComplete)
-                            PaceAnalytics.trackUserMessageSent(transcript: finalTranscript)
-                            self.currentTurnHUDState = .understanding("classifying intent")
-                            self.responseOverlayManager.updateStreamingText(finalTranscript)
-                            self.sendTranscriptToPlannerWithScreenshot(transcript: finalTranscript)
+                        guard let self else { return }
+                        // Mark that a transcript arrived so the release
+                        // safety timer skips its cleanup pass.
+                        self.transcriptArrivedSinceRelease = true
+                        self.lastTranscript = finalTranscript
+                        // Keep the live user bubble showing the final
+                        // transcript through the turn; recordConversationTurn
+                        // clears it when the committed message lands.
+                        self.liveSpeechDraft = finalTranscript
+                        _ = PaceAPIAuditLog.shared.beginTurn()
+                        print("🗣️ Companion received transcript: \(finalTranscript)")
+                        // Record STT latency: PTT press → final transcript.
+                        if let pressedAt = self.pttPressedAt {
+                            let sttMs = Int(Date().timeIntervalSince(pressedAt) * 1000)
+                            let wordCount = finalTranscript.split(separator: " ").count
+                            PaceTelemetryLog.recordSTTLatency(
+                                milliseconds: sttMs,
+                                transcriptWordCount: wordCount
+                            )
+                            self.pttPressedAt = nil
                         }
+                        // Mark STT complete in the latency budget.
+                        PaceLatencyBudget.shared.mark(.sttComplete)
+                        PaceAnalytics.trackUserMessageSent(transcript: finalTranscript)
+                        self.currentTurnHUDState = .understanding("classifying intent")
+                        self.responseOverlayManager.updateStreamingText(finalTranscript)
+                        self.sendTranscriptToPlannerWithScreenshot(transcript: finalTranscript)
                     },
                     speculativeFastAction: { [weak self] stablePartial in
                         Task { @MainActor [weak self] in
@@ -640,70 +731,23 @@ extension CompanionManager {
             // Without this, a quick press-and-release drops the release event and
             // leaves the waveform overlay stuck on screen indefinitely.
             print("🎙️ PTT released — stopping dictation")
-            // Stamp the moment the user committed to a query so the
-            // streaming TTS pipeline can log time-to-first-spoken-word
-            // (TTFSW), the headline latency metric for this product.
-            streamingSentenceTTSPipeline.markIntentCommitted()
-            PaceAnalytics.trackPushToTalkReleased()
             pendingKeyboardShortcutStartTask?.cancel()
             pendingKeyboardShortcutStartTask = nil
-            buddyDictationManager.stopCurrentDictation()
+            let captureOutcome = buddyDictationManager.stopCurrentDictation()
             currentDictationTrigger = .keyboard
-            // The stop button only makes sense while we're actually
-            // recording — clear it as soon as the release fires.
             responseOverlayManager.setListeningForAudio(false)
-            responseOverlayManager.updateStreamingText("transcribing…")
-            // Safety net: if no transcript materialises within 5s (silent
-            // audio, WhisperKit hang, mic permission revoked), clean up so
-            // the overlay doesn't sit on "listening…" indefinitely and the
-            // state machine returns to idle. The flag is flipped to true
-            // inside `submitDraftText` above.
-            transcriptArrivedSinceRelease = false
-            transcriptSafetyTask?.cancel()
-            transcriptSafetyTask = Task { [weak self] in
-                // 12s, not 5s — WhisperKit's first finalize after launch
-                // takes 5-10s on its own, and the previous timeout dropped
-                // the user's words too aggressively. The fallback below
-                // also rescues turns that have a partial but no final.
-                try? await Task.sleep(nanoseconds: 12_000_000_000)
-                await MainActor.run {
-                    guard let self else { return }
-                    guard !self.transcriptArrivedSinceRelease else { return }
-                    // If WhisperKit gave us a partial but never finalized,
-                    // use the partial as the transcript — better than
-                    // dropping the whole turn as "no audio detected".
-                    if let rescuedPartial = self.lastPartialTranscriptFromActiveDictation,
-                       !rescuedPartial.isEmpty {
-                        print("🗣️ Final transcript timed out — rescuing partial: \(rescuedPartial)")
-                        self.transcriptArrivedSinceRelease = true
-                        self.lastTranscript = rescuedPartial
-                        self.lastPartialTranscriptFromActiveDictation = nil
-                        _ = PaceAPIAuditLog.shared.beginTurn()
-                        PaceAnalytics.trackUserMessageSent(transcript: rescuedPartial)
-                        self.currentTurnHUDState = .understanding("classifying intent")
-                        self.responseOverlayManager.updateStreamingText(rescuedPartial)
-                        self.sendTranscriptToPlannerWithScreenshot(transcript: rescuedPartial)
-                        return
-                    }
-                    print("⚠️ Transcript didn't arrive within 12s — resetting state")
-                    PaceAPIAuditLog.shared.record(
-                        subsystem: "dictation",
-                        operation: "finalize_timeout",
-                        target: self.buddyDictationManager.transcriptionProvider.displayName,
-                        durationMilliseconds: 12000,
-                        outcome: "no_transcript",
-                        detail: "no partial captured"
-                    )
-                    self.responseOverlayManager.updateStreamingText("no audio detected")
-                    self.responseOverlayManager.finishStreaming()
-                    self.voiceState = .idle
-                    self.currentTurnHUDState = .failed("No audio detected")
-                    if self.isWalkingAvatarEnabled {
-                        self.avatarOverlayManager?.show()
-                    }
-                    self.currentDictationTrigger = .keyboard
+            switch captureOutcome {
+            case .empty:
+                handleCaptureWithoutSpeech("No audio captured. Try again.")
+                return
+            case .ignored:
+                if currentTurnHUDState.status == .listening {
+                    handleCaptureWithoutSpeech("No audio captured. Try again.")
                 }
+                return
+            case .captured: break
             }
+            scheduleTranscriptSafetyFallback()
         case .none:
             break
         }

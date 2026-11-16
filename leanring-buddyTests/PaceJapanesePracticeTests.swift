@@ -243,6 +243,8 @@ struct PaceJapanesePracticeManagerTests {
             try? FileManager.default.removeItem(at: root)
         }
         var preparationAttempts = 0
+        var captureCueCount = 0
+        manager.playCaptureAcknowledgementCue = { captureCueCount += 1 }
         manager.buddyDictationManager.prepareJapanesePracticeOverride = {
             preparationAttempts += 1
             throw WhisperKitTranscriptionProviderError(message: "Fixture multilingual model unavailable")
@@ -277,6 +279,7 @@ struct PaceJapanesePracticeManagerTests {
         #expect(preparationAttempts == 2 && !activeTask.isCancelled)
         #expect(manager.currentTurnHUDState == activeHUD)
         #expect(manager.voiceState == .responding && speech.spokenTexts.isEmpty)
+        #expect(captureCueCount == 0)
         manager.cancelCurrentTurnFromPanel()
         #expect(activeTask.isCancelled)
         await activeTask.value

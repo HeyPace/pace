@@ -199,6 +199,7 @@ struct PacePanelChatView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(DS.Colors.textSecondary)
                 .lineLimit(2)
+                .accessibilityLabel(currentTurnDetail ?? signalPresentation.label)
             Spacer(minLength: 0)
             if companionManager.currentTurnHUDState.status == .failed {
                 Button("Details") {
@@ -689,6 +690,9 @@ struct PacePanelChatView: View {
     }
 
     private var currentTurnDetail: String? {
+        if companionManager.buddyDictationManager.isFinalizingTranscript {
+            return companionManager.currentTurnHUDState.detail
+        }
         if !liveSpeechDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return liveSpeechDraft
         }

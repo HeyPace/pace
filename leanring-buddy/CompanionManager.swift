@@ -861,6 +861,11 @@ final class CompanionManager: ObservableObject {
     var wakeWordPTTBridgeCancellable: AnyCancellable?
     var accessibilityCheckTimer: Timer?
     var lmStudioReachabilityCheckTimer: Timer?
+    var playCaptureAcknowledgementCue: () -> Void = {
+        guard let sound = NSSound(named: NSSound.Name("Tink")) else { return }
+        sound.volume = 0.12
+        sound.play()
+    }
     var ignoresRejectedPracticeShortcutRelease = false
     var pendingKeyboardShortcutStartTask: Task<Void, Never>?
     var lastCalendarRetrievalRefreshAt: Date?

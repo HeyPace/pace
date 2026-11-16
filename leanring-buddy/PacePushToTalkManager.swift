@@ -197,8 +197,8 @@ private enum BuddyDictationStartSource {
 }
 
 private struct BuddyDictationDraftCallbacks {
-    let updateDraftText: (String) -> Void
-    let submitDraftText: (String) -> Void
+    let updateDraftText: @MainActor (String) -> Void
+    let submitDraftText: @MainActor (String) -> Void
     /// Fired when a stable partial transcript matches a deterministic
     /// fast-action command (e.g. "open Music"). The action can start
     /// before PTT release, saving ~200-500ms of perceived latency.
@@ -340,6 +340,9 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
     private var sessionAudioStartedAt: Date?
     private var activeStartSource: BuddyDictationStartSource?
     private var activeCaptureSessionIdentifier = UUID()
+    private let captureAcknowledgementGate = PaceCaptureAcknowledgementGate()
+    var onAudioCaptured: ((PaceCapturedAudio) -> Void)?
+    var onNoSpeechRecognized: (() -> Void)?
     private var handsFreeCaptureEndpoint: PaceHandsFreeCaptureEndpoint?
     private var handsFreeCaptureTimeoutTask: Task<Void, Never>?
     private var hasReceivedFinalTranscript = false
@@ -393,8 +396,8 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         captureMode: PaceDictationCaptureMode,
         onEndOfUtterance: @escaping () -> Void,
         currentDraftText: String,
-        updateDraftText: @escaping (String) -> Void,
-        submitDraftText: @escaping (String) -> Void,
+        updateDraftText: @escaping @MainActor (String) -> Void,
+        submitDraftText: @escaping @MainActor (String) -> Void,
         speculativeFastAction: ((String) -> Void)? = nil
     ) async {
         await startPushToTalk(
@@ -410,9 +413,10 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         )
     }
 
-    func stopCurrentDictation() {
-        guard let activeStartSource else { return }
-        stopPushToTalk(expectedStartSource: activeStartSource)
+    @discardableResult
+    func stopCurrentDictation() -> PaceCaptureStopOutcome {
+        guard let activeStartSource else { return .ignored }
+        return stopPushToTalk(expectedStartSource: activeStartSource)
     }
 
     /// Opens a listening window of the given duration on behalf of an
@@ -468,6 +472,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
 
     func cancelCurrentDictation(preserveDraftText: Bool = true) {
         pendingStartRequestIdentifier = UUID()
+        captureAcknowledgementGate.cancel(activeCaptureSessionIdentifier)
 
         guard isDictationInProgress else { return }
 
@@ -493,8 +498,8 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         startSource: BuddyDictationStartSource,
         onEndOfUtterance: @escaping () -> Void,
         currentDraftText: String,
-        updateDraftText: @escaping (String) -> Void,
-        submitDraftText: @escaping (String) -> Void,
+        updateDraftText: @escaping @MainActor (String) -> Void,
+        submitDraftText: @escaping @MainActor (String) -> Void,
         shouldAutomaticallySubmitFinalDraftOnStop: Bool,
         speculativeFastAction: ((String) -> Void)? = nil
     ) async {
@@ -552,6 +557,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         )
         activeStartSource = startSource
         activeCaptureSessionIdentifier = UUID()
+        captureAcknowledgementGate.begin(activeCaptureSessionIdentifier)
         hasReceivedFinalTranscript = false
         if startSource == .microphoneButton {
             let captureSessionIdentifier = activeCaptureSessionIdentifier
@@ -620,14 +626,14 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         }
     }
 
-    private func stopPushToTalk(expectedStartSource: BuddyDictationStartSource) {
+    private func stopPushToTalk(expectedStartSource: BuddyDictationStartSource) -> PaceCaptureStopOutcome {
         pendingStartRequestIdentifier = UUID()
 
         guard activeStartSource == expectedStartSource else {
             isPreparingToRecord = false
-            return
+            return .ignored
         }
-        guard !isFinalizingTranscript else { return }
+        guard !isFinalizingTranscript else { return .ignored }
 
         print("🎙️ PacePushToTalkManager: stop requested (\(expectedStartSource))")
 
@@ -644,22 +650,34 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         // Lazy stream close: remove the tap and request the final
         // transcript, but DON'T stop the engine — schedule a delayed
         // stop so the next PTT press within 30s skips engine init.
-        audioEngine.inputNode.removeTap(onBus: 0)
+        let captureOutcome = captureAcknowledgementGate.stop(
+            activeCaptureSessionIdentifier, recognizedText: latestRecognizedText,
+            removeTap: { audioEngine.inputNode.removeTap(onBus: 0) },
+            acknowledge: { [weak self] captured in self?.onAudioCaptured?(captured) })
+        if captureOutcome == .empty {
+            activeTranscriptionSession?.cancel()
+            scheduleLazyEngineClose()
+            resetSessionState()
+            return .empty
+        }
         activeTranscriptionSession?.requestFinalTranscript()
         logSessionAudioDiagnostics(reason: "PTT-release")
         scheduleLazyEngineClose()
         if hasReceivedFinalTranscript {
             finishCurrentDictationSessionIfNeeded(shouldSubmitFinalDraft: shouldAutomaticallySubmitFinalDraft)
-            return
+            return captureOutcome
         }
 
         finalizeFallbackWorkItem?.cancel()
         let shouldSubmitFinalDraftWhenFallbackTriggers = shouldAutomaticallySubmitFinalDraft
+        let captureSessionIdentifier = activeCaptureSessionIdentifier
         let fallbackWorkItem = DispatchWorkItem { [weak self] in
             Task { @MainActor in
-                self?.finishCurrentDictationSessionIfNeeded(
-                    shouldSubmitFinalDraft: shouldSubmitFinalDraftWhenFallbackTriggers
-                )
+                guard let self else { return }
+                self.captureAcknowledgementGate.deliverRecognitionResult(for: captureSessionIdentifier) {
+                    self.finishCurrentDictationSessionIfNeeded(
+                        shouldSubmitFinalDraft: shouldSubmitFinalDraftWhenFallbackTriggers)
+                }
             }
         }
         finalizeFallbackWorkItem = fallbackWorkItem
@@ -667,6 +685,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
             deadline: .now() + finalTranscriptFallbackDelaySeconds,
             execute: fallbackWorkItem
         )
+        return captureOutcome
     }
 
     private func startRecognitionSession() async throws {
@@ -692,21 +711,25 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
                     guard let self, self.activeCaptureSessionIdentifier == captureSessionIdentifier,
                         !self.hasReceivedFinalTranscript
                     else { return }
-                    self.handlePartialTranscriptUpdate(transcriptText)
+                    self.captureAcknowledgementGate.deliverRecognitionResult(for: captureSessionIdentifier) {
+                        self.handlePartialTranscriptUpdate(transcriptText)
+                    }
                 }
             },
             onFinalTranscriptReady: { [weak self] transcriptText in
                 Task { @MainActor in
                     guard let self, self.activeCaptureSessionIdentifier == captureSessionIdentifier else { return }
-                    self.latestRecognizedText = transcriptText
-                    self.hasReceivedFinalTranscript = true
-
-                    if self.isFinalizingTranscript {
-                        self.finishCurrentDictationSessionIfNeeded(
-                            shouldSubmitFinalDraft: self.shouldAutomaticallySubmitFinalDraft
-                        )
-                    } else if self.isRecordingFromMicrophoneButton {
-                        self.requestAutomaticEndOfUtterance(reason: .speechPause)
+                    self.captureAcknowledgementGate.deliverRecognitionResult(for: captureSessionIdentifier) {
+                        if !transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            self.latestRecognizedText = transcriptText
+                        }
+                        self.hasReceivedFinalTranscript = true
+                        if self.isFinalizingTranscript {
+                            self.finishCurrentDictationSessionIfNeeded(
+                                shouldSubmitFinalDraft: self.shouldAutomaticallySubmitFinalDraft)
+                        } else if self.isRecordingFromMicrophoneButton {
+                            self.requestAutomaticEndOfUtterance(reason: .speechPause)
+                        }
                     }
                 }
             },
@@ -737,6 +760,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
             guard let self else { return }
             activeTranscriptionSession.appendAudioBuffer(buffer)
+            self.captureAcknowledgementGate.receivedProcessedBuffer(buffer, captureIdentifier: captureSessionIdentifier)
             self.updateAudioPowerLevel(from: buffer, captureSessionIdentifier: captureSessionIdentifier)
             self.recordSessionAudioBufferDiagnostics(from: buffer)
         }
@@ -760,15 +784,13 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
 
     private func handlePartialTranscriptUpdate(_ transcriptText: String) {
         latestRecognizedText = transcriptText
+        draftCallbacks?.updateDraftText(composeDraftText(withTranscribedText: transcriptText))
 
         let stablePartialTranscript = localAgreementStabilizer.acceptHypothesis(transcriptText)
         guard stablePartialTranscript != latestStablePartialTranscript else { return }
 
         latestStablePartialTranscript = stablePartialTranscript
         guard !stablePartialTranscript.isEmpty else { return }
-
-        let stableDraftText = composeDraftText(withTranscribedText: stablePartialTranscript)
-        draftCallbacks?.updateDraftText(stableDraftText)
 
         // Speculative fast-action: if the stable partial is long enough
         // and matches a deterministic fast-action command, fire it
@@ -899,7 +921,10 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         resetSessionState()
 
         guard shouldSubmitFinalDraft else { return }
-        guard !finalTranscriptText.isEmpty else { return }
+        guard !finalTranscriptText.isEmpty else {
+            onNoSpeechRecognized?()
+            return
+        }
 
         // Speculative fast-action: if the final transcript matches
         // the speculative partial, the action already executed via
@@ -983,6 +1008,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
 
     private func resetSessionState() {
         pendingStartRequestIdentifier = UUID()
+        captureAcknowledgementGate.cancel(activeCaptureSessionIdentifier)
         activeCaptureSessionIdentifier = UUID()
         handsFreeCaptureTimeoutTask?.cancel()
         handsFreeCaptureTimeoutTask = nil

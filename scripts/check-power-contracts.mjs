@@ -48,6 +48,7 @@ test('Saved powers preserve CRUD, execution authorization, media and speech life
     'PaceJapanesePracticeManagerTests',
     'PaceDialogueTranscriptModelTests',
     'PaceDialogueReplayTests',
+    'PaceCaptureAcknowledgementTests',
     'StreamingSentenceTTSPipelineProfileOnsetTests',
     'PacePowerCatalogTests',
     'PaceAutomationDefinitionTests',
