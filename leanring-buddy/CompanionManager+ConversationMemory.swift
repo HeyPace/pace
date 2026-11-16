@@ -172,6 +172,7 @@ extension CompanionManager {
         }
         let userTranscriptForMemory = userEvent?.text ?? userTranscript
         let stableTurnId = userEvent?.eventID ?? activeConversationUserEvent?.eventID ?? UUID().uuidString
+        let userTranscriptForDerivedMemory = hasRecordedCurrentTurnSpeechUserContext ? "" : userTranscriptForMemory
         let shouldExtractUserFacts = userEvent.map {
             extractedConversationUserEventIdentifiers.insert($0.eventID).inserted
         } ?? false
@@ -192,7 +193,7 @@ extension CompanionManager {
         let displacedTurnPair: PaceThreadTurnPair?
         if recordsAssistantDerivedMemory {
             displacedTurnPair = threadMemory.record(
-                userTurn: shouldExtractUserFacts ? userTranscriptForMemory : "",
+                userTurn: shouldExtractUserFacts ? userTranscriptForDerivedMemory : "",
                 assistantTurn: assistantResponse, turnId: assistantEventIdentifier, now: recordedAt)
             refreshLocalRetrievalPublishedState()
             persistThreadMemorySnapshot()
@@ -230,9 +231,9 @@ extension CompanionManager {
         // Dual-write the turn into the unified memory index (ships dark).
         if recordsAssistantDerivedMemory {
             recordUnifiedMemoryTurn(
-                userTranscript: userTranscriptForMemory,
+                userTranscript: userTranscriptForDerivedMemory,
                 assistantResponse: assistantResponse,
-                turnId: stableTurnId,
+                turnId: hasRecordedCurrentTurnSpeechUserContext ? assistantEventIdentifier : stableTurnId,
                 recordedAt: recordedAt
             )
         }

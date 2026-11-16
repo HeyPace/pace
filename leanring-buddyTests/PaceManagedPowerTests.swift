@@ -28,14 +28,18 @@ struct PaceManagedPowerTests {
     }
 
     @Test func commandsAreAnchoredAndPreserveExactMutationTargets() {
+        let knownSavedNames: Set<String> = ["Settings Backup", "Mode Switch", "Options Review"]
         #expect(PacePowerCommandParser.parse("list powers") == .list)
         #expect(PacePowerCommandParser.parse("Can you create a power called Thank You") == .create("called Thank You"))
         #expect(PacePowerCommandParser.parse("Could you please list powers?") == .list)
         #expect(PacePowerCommandParser.parse("Can you explain how to create a power?") == nil)
         #expect(PacePowerCommandParser.parse("disable power nap") == nil)
-        #expect(PacePowerCommandParser.parse("show power Settings Backup") == .show("Settings Backup"))
-        #expect(PacePowerCommandParser.parse("disable power Mode Switch") == .setEnabled("Mode Switch", false))
-        #expect(PacePowerCommandParser.parse("remove power Options Review") == .remove("Options Review"))
+        #expect(PacePowerCommandParser.parse("enable power saving mode") == nil)
+        #expect(PacePowerCommandParser.parse("disable power nap on battery") == nil)
+        #expect(PacePowerCommandParser.parse("show power consumption by app") == nil)
+        #expect(PacePowerCommandParser.parse("show power Settings Backup", isKnownSavedPowerName: knownSavedNames.contains) == .show("Settings Backup"))
+        #expect(PacePowerCommandParser.parse("disable power Mode Switch", isKnownSavedPowerName: knownSavedNames.contains) == .setEnabled("Mode Switch", false))
+        #expect(PacePowerCommandParser.parse("remove power Options Review", isKnownSavedPowerName: knownSavedNames.contains) == .remove("Options Review"))
         #expect(PacePowerCommandParser.parse("show power consumption") == nil)
         #expect(PacePowerCommandParser.parse("disable power automation:nap") == .setEnabled("automation:nap", false))
         #expect(PacePowerCommandParser.parse("show my powers") == .list)
@@ -412,7 +416,7 @@ struct PaceManagedPowerTests {
     @Test func savedPowersWithOrdinaryFeaturePrefixesRemainManageableByName() throws {
         let (root, store) = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }
-        for name in ["Settings Backup", "Mode Switch", "Options Review", "Settings", "Nap"] {
+        for name in ["Settings Backup", "Mode Switch", "Options Review", "Settings", "Nap", "Saving Mode", "Nap on battery"] {
             _ = try store.commit(.automation(thankYou(identifier: PaceFlowStore.slug(for: name), name: name)), catalog: catalog(store))
             #expect(PacePowerCommandParser.parse("show power " + name, isKnownSavedPowerName: store.hasExactSavedPowerName) == .show(name))
             #expect(PacePowerCommandParser.parse("run power " + name, isKnownSavedPowerName: store.hasExactSavedPowerName) == .run(name))

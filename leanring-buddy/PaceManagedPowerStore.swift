@@ -40,7 +40,7 @@ nonisolated enum PacePowerCommandParser {
             guard !argument.isEmpty else { return nil }
             let normalizedArgument = argument.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".!?"))
             let systemPowerPhrases = ["nap", "saving", "management", "supply", "consumption", "settings", "mode", "options"]
-            if action != 1 && action != 2 && systemPowerPhrases.contains(normalizedArgument) && !isKnownSavedPowerName(argument) {
+            if action != 1 && action != 2 && systemPowerPhrases.contains(where: { normalizedArgument == $0 || normalizedArgument.hasPrefix($0 + " ") }) && !isKnownSavedPowerName(argument) {
                 return nil
             }
             switch action {

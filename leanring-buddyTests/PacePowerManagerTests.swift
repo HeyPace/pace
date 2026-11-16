@@ -12,9 +12,14 @@ struct PacePowerManagerTests {
         var isPlaying = false
         var lastStopReason: PaceTTSStopReason = .naturalCompletion
         var supportsUtteranceCompletion: Bool { true }
+        var failingUtteranceIndex: Int?
+        private var utteranceCount = 0
+        struct PlaybackFailure: Error {}
         func speakText(_ text: String) async throws { try Task.checkCancellation(); spokenTexts.append(text) }
         func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws {
             try Task.checkCancellation()
+            utteranceCount += 1
+            if utteranceCount == failingUtteranceIndex { throw PlaybackFailure() }
             spokenTexts.append(text)
             onStarted()
         }
@@ -318,6 +323,44 @@ struct PacePowerManagerTests {
         #expect(manager.extractedConversationUserEventIdentifiers.contains(userEventIdentifier))
         begin("a later question", manager: manager)
         #expect(persister.events[userEventIdentifier]?.deliveryState == .completed)
+    }
+
+    @Test func speechFailureRetainsOneQuestionAndRealDerivedSources() async throws {
+        for failingUtteranceIndex in [1, 2] {
+            let (root, manager, persister, speech) = try fixture(recordsDerivedMemory: true)
+            defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+            speech.failingUtteranceIndex = failingUtteranceIndex
+            let definition = PaceAutomationDefinition(schemaVersion: 1, identifier: "two-lines", name: "Two Lines", description: "Speak two lines", category: "custom",
+                source: .user, executionMode: .deterministicLocal, requiredPreferences: [], steps: [
+                    .init(toolCalls: [.init(tool: "speak", arguments: ["text": .string("thank you")])]),
+                    .init(toolCalls: [.init(tool: "speak", arguments: ["text": .string("welcome back")])]),
+                ])
+            _ = try manager.managedPowerStore.commit(.automation(definition), catalog: (await manager.discoverAutomationCatalog()).catalog)
+            let userTranscript = "run power Two Lines"
+            begin(userTranscript, manager: manager)
+            let userEventIdentifier = try #require(manager.activeConversationUserEvent?.eventID)
+            await manager.handlePowerCommand(.run("Two Lines"), transcript: userTranscript)
+            await manager.currentResponseTask?.value
+            let errorEvent = try #require(persister.events.values.first { $0.role == .pace && $0.text.contains("Local speech did not complete") })
+            let threadTurns = manager.threadMemory.verbatimWindow()
+            #expect(threadTurns.filter { $0.userText == userTranscript }.count == 1)
+            #expect(threadTurns.contains { $0.turnId == errorEvent.eventID && $0.assistantText == errorEvent.text })
+            let derivedTurns = manager.memoryIndex.allEntries().filter { $0.kind == .conversationTurn }
+            #expect(derivedTurns.filter { $0.text.contains("User: " + userTranscript) }.count == 1)
+            #expect(derivedTurns.allSatisfy { persister.events[$0.id] != nil })
+            if failingUtteranceIndex == 2 {
+                let successfulEvent = try #require(persister.events.values.first { $0.role == .pace && $0.text == "thank you" })
+                #expect(Set(derivedTurns.map(\.id)) == [successfulEvent.eventID, errorEvent.eventID])
+                #expect(threadTurns.contains { $0.turnId == successfulEvent.eventID && $0.userText == userTranscript })
+                #expect(threadTurns.first { $0.turnId == errorEvent.eventID }?.userText == "")
+                #expect(derivedTurns.filter { $0.id == errorEvent.eventID }.allSatisfy { !$0.text.contains(userTranscript) })
+            } else {
+                #expect(threadTurns.first { $0.turnId == errorEvent.eventID }?.userText == userTranscript)
+                #expect(derivedTurns.count == 1)
+            }
+            #expect(persister.events[userEventIdentifier]?.deliveryState == .completed)
+            #expect(manager.extractedConversationUserEventIdentifiers.contains(userEventIdentifier))
+        }
     }
 
 }
