@@ -103,6 +103,20 @@ struct PaceCaptureAcknowledgementTests {
         #expect(receipts == 1 && finalWords == "final recognized words")
     }
 
+    @Test func authoritativeEmptyFinalReplacesProvisionalCommandBeforeFinalization() {
+        let manager = PacePushToTalkManager()
+        for finalResult in ["", " \n "] {
+            manager.handlePartialTranscriptUpdate("Delete the selected file")
+            #expect(manager.latestRecognizedText == "Delete the selected file")
+            manager.handleFinalTranscriptUpdate(finalResult)
+            #expect(manager.hasReceivedFinalTranscript)
+            #expect(manager.latestRecognizedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            #expect(manager.latestRecognizedText == finalResult)
+        }
+        manager.handleFinalTranscriptUpdate("Keep the selected file")
+        #expect(manager.latestRecognizedText == "Keep the selected file")
+    }
+
     @Test func bothModesShowReceiptPreserveDraftAndHistoryAndRespectBothMutes() throws {
         let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
         defer { manager.voiceStateCancellable?.cancel(); manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
@@ -134,6 +148,7 @@ struct PaceCaptureAcknowledgementTests {
         manager.buddyDictationManager.onNoSpeechRecognized?()
         #expect(manager.currentTurnHUDState.detail == "No speech recognized. Try again.")
         #expect(manager.voiceState == .idle && cueCount == 2)
+        #expect(manager.liveSpeechDraft.isEmpty && manager.lastPartialTranscriptFromActiveDictation == nil)
     }
 
     @Test func releaseWithoutRecordingIsTruthfulAndDoesNotDisturbRespondingTurn() throws {

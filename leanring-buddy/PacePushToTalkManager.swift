@@ -345,10 +345,10 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
     var onNoSpeechRecognized: (() -> Void)?
     private var handsFreeCaptureEndpoint: PaceHandsFreeCaptureEndpoint?
     private var handsFreeCaptureTimeoutTask: Task<Void, Never>?
-    private var hasReceivedFinalTranscript = false
+    private(set) var hasReceivedFinalTranscript = false
     private var draftCallbacks: BuddyDictationDraftCallbacks?
     private var draftTextBeforeCurrentDictation = ""
-    private var latestRecognizedText = ""
+    private(set) var latestRecognizedText = ""
     private var localAgreementStabilizer = PaceLocalAgreementStabilizer()
     private var shouldAutomaticallySubmitFinalDraft = false
     private var hasFinishedCurrentDictationSession = false
@@ -720,16 +720,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
                 Task { @MainActor in
                     guard let self, self.activeCaptureSessionIdentifier == captureSessionIdentifier else { return }
                     self.captureAcknowledgementGate.deliverRecognitionResult(for: captureSessionIdentifier) {
-                        if !transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            self.latestRecognizedText = transcriptText
-                        }
-                        self.hasReceivedFinalTranscript = true
-                        if self.isFinalizingTranscript {
-                            self.finishCurrentDictationSessionIfNeeded(
-                                shouldSubmitFinalDraft: self.shouldAutomaticallySubmitFinalDraft)
-                        } else if self.isRecordingFromMicrophoneButton {
-                            self.requestAutomaticEndOfUtterance(reason: .speechPause)
-                        }
+                        self.handleFinalTranscriptUpdate(transcriptText)
                     }
                 }
             },
@@ -782,7 +773,18 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         )
     }
 
-    private func handlePartialTranscriptUpdate(_ transcriptText: String) {
+    func handleFinalTranscriptUpdate(_ transcriptText: String) {
+        // A final result is authoritative, including a no-speech result after a provisional hypothesis.
+        latestRecognizedText = transcriptText
+        hasReceivedFinalTranscript = true
+        if isFinalizingTranscript {
+            finishCurrentDictationSessionIfNeeded(shouldSubmitFinalDraft: shouldAutomaticallySubmitFinalDraft)
+        } else if isRecordingFromMicrophoneButton {
+            requestAutomaticEndOfUtterance(reason: .speechPause)
+        }
+    }
+
+    func handlePartialTranscriptUpdate(_ transcriptText: String) {
         latestRecognizedText = transcriptText
         draftCallbacks?.updateDraftText(composeDraftText(withTranscribedText: transcriptText))
 

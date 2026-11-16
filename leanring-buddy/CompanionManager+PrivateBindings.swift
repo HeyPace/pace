@@ -349,6 +349,8 @@ extension CompanionManager {
         transcriptArrivedSinceRelease = true
         transcriptSafetyTask?.cancel()
         transcriptSafetyTask = nil
+        lastPartialTranscriptFromActiveDictation = nil
+        liveSpeechDraft = ""
         currentTurnHUDState = .failed(message)
         responseOverlayManager.setListeningForAudio(false)
         responseOverlayManager.updateStreamingText(message)
