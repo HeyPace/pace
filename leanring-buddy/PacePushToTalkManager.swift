@@ -343,6 +343,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
     private let captureAcknowledgementGate = PaceCaptureAcknowledgementGate()
     var onAudioCaptured: ((PaceCapturedAudio) -> Void)?
     var onNoSpeechRecognized: (() -> Void)?
+    var onTranscriptFinalized: (() -> Void)?
     private var handsFreeCaptureEndpoint: PaceHandsFreeCaptureEndpoint?
     private var handsFreeCaptureTimeoutTask: Task<Void, Never>?
     private(set) var hasReceivedFinalTranscript = false
@@ -922,6 +923,18 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
 
         resetSessionState()
 
+        deliverFinalDictationTranscript(
+            finalDraftText: finalDraftText, finalTranscriptText: finalTranscriptText,
+            shouldSubmitFinalDraft: shouldSubmitFinalDraft,
+            speculativeTranscriptExecutedThisSession: speculativeTranscriptExecutedThisSession,
+            submitDraftText: currentDraftCallbacks?.submitDraftText)
+    }
+
+    func deliverFinalDictationTranscript(
+        finalDraftText: String, finalTranscriptText: String, shouldSubmitFinalDraft: Bool,
+        speculativeTranscriptExecutedThisSession: String?, submitDraftText: (@MainActor (String) -> Void)?
+    ) {
+        onTranscriptFinalized?()
         guard shouldSubmitFinalDraft else { return }
         guard !finalTranscriptText.isEmpty else {
             onNoSpeechRecognized?()
@@ -949,7 +962,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         // Music" when the full command was "open Music and play next
         // song"). The normal path runs — the planner sees the action
         // was already partially done and handles the rest.
-        currentDraftCallbacks?.submitDraftText(finalDraftText)
+        submitDraftText?(finalDraftText)
     }
 
     private func composeDraftText(withTranscribedText transcribedText: String) -> String {

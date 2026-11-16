@@ -1438,6 +1438,12 @@ extension CompanionManager {
     /// completed system action is never rolled back; cancellation only prevents
     /// the remaining planner, speech, and follow-up steps from continuing.
     func cancelCurrentTurnFromPanel() {
+        pendingKeyboardShortcutStartTask?.cancel()
+        pendingKeyboardShortcutStartTask = nil
+        buddyDictationManager.cancelCurrentDictation(preserveDraftText: false)
+        finishCaptureTranscriptFeedback()
+        liveSpeechDraft = ""
+        responseOverlayManager.setListeningForAudio(false)
         if let ownership = pendingTeachingPreviewOwnership {
             finishPendingTeachingPreview(for: ownership.turnLease, dismissIfOwned: true)
         }
@@ -1453,6 +1459,12 @@ extension CompanionManager {
 
     func handleExplanationDismissal(_ intent: PaceExplanationDismissalIntent) {
         guard intent == .userInitiated else { return }
+        pendingKeyboardShortcutStartTask?.cancel()
+        pendingKeyboardShortcutStartTask = nil
+        buddyDictationManager.cancelCurrentDictation(preserveDraftText: false)
+        finishCaptureTranscriptFeedback()
+        liveSpeechDraft = ""
+        responseOverlayManager.setListeningForAudio(false)
         dismissCodingApprovals()
         streamingSentenceTTSPipeline.stopForUserDismissal()
         ossCommandSpeechClient?.stopPlayback()

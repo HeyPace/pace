@@ -38,7 +38,9 @@ enum PaceJapanesePracticeRouting {
         hasScreenSuggestion: Bool, hasActiveVisualContext: Bool
     ) -> Decision {
         guard mode == .japanesePractice, route == .fullPipeline,
-              !hasScreenSuggestion, !hasActiveVisualContext else { return .normalRouting }
+              !hasScreenSuggestion, !hasActiveVisualContext,
+              PaceFastActionCommandParser.parse(transcript: transcript) == nil,
+              PaceIntentClarifier.clarification(for: transcript) == nil else { return .normalRouting }
         let normalizedTranscript = transcript.lowercased()
         let words = Set(normalizedTranscript.components(separatedBy: CharacterSet.alphanumerics.inverted))
         let computerWords: Set<String> = [
@@ -61,7 +63,7 @@ enum PaceJapanesePracticeRouting {
             "アイコン", "タブ", "サイドバー", "ツールバー", "ダイアログ",
             "入力欄", "チェックボックス", "押して", "押す", "選ん", "移動", "音量", "ミュート",
             "明るさ", "消して", "切り替え", "戻して", "操作", "マウス", "キーボード", "カーソル",
-            "リンク", "ウェブ", "サイト", "スクショ",
+            "リンク", "ウェブ", "サイト", "スクショ", "音楽をかけて", "音楽かけて", "リマインドして",
         ]
         guard words.isDisjoint(with: computerWords),
               !japaneseComputerCues.contains(where: normalizedTranscript.contains),

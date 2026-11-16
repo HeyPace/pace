@@ -81,6 +81,7 @@ struct PaceJapanesePracticeContractTests {
         }
         let greeting = "こんにちは。短く返事してください。"
         #expect(decide(greeting) == .textOnlyConversation)
+        #expect(decide("音楽が好きです。") == .textOnlyConversation)
         #expect(decide("今日はお茶を飲みました。") == .textOnlyConversation)
         #expect(decide(greeting, mode: .standard) == .normalRouting)
         #expect(decide(greeting, suggestion: true) == .normalRouting)
@@ -93,7 +94,8 @@ struct PaceJapanesePracticeContractTests {
         for command in ["画面を見て説明して", "ブラウザを開いて", "左のアイコンを押して", "メールを送信して",
                         "フォルダを削除して", "日本語のパワーを実行して", "音量を上げて", "サイトを検索して",
                         "Click the save button", "Open Chrome", "run power Japanese Greeting", "research this topic",
-                        "Show the screen", "type this into the terminal", "https://example.com"] {
+                        "Show the screen", "type this into the terminal", "https://example.com",
+                        "undo that", "lock", "mission control", "make it better", "音楽をかけて", "リマインドして"] {
             #expect(decide(command) == .normalRouting)
         }
     }
@@ -208,6 +210,55 @@ struct PaceJapanesePracticeManagerTests {
         #expect(persister.events.values.filter { $0.role == .pace }.map(\.text) == ["Hello. How are you?"])
         #expect(persister.events.values.contains { $0.origin == .typed && $0.text == transcript })
         #expect(manager.voiceState == .idle)
+    }
+
+    @Test func practiceUnknownDeterministicCommandsAndClarificationKeepTheirActualManagerRoutes() async throws {
+        let (root, manager, _, _) = try PacePowerManagerTests().fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        let classifier = PaceRuleBasedIntentClassifierAdapter(classifier: PaceIntentClassifier())
+        let planner = Planner()
+        manager.intentClassifier = classifier
+        manager.plannerClient = planner
+        manager.textOnlyPlannerClient = planner
+        manager.activePlannerTier = .local
+        manager.isOverlayVisible = true
+        manager.fastEverydayAnswersEnabled = false
+        manager.conversationLanguageMode = .japanesePractice
+        manager.actionExecutor = PaceActionExecutor(actionsAreEnabledOverride: false)
+        manager.useLocalVLMForScreenContext = false
+        var captureAttempts = 0
+        manager.captureScreensForPlanner = {
+            captureAttempts += 1
+            throw NSError(domain: "UnexpectedPracticeCommandCapture", code: 1)
+        }
+        for transcript in ["undo that", "lock", "mission control"] {
+            let prediction = await classifier.classify(transcript, conversationHistory: [])
+            #expect(prediction.route == .fullPipeline)
+            let parsed = try #require(PaceFastActionCommandParser.parse(transcript: transcript))
+            manager.recentActionResults = []
+            manager.submitChatTranscriptFromDeepLink(transcript)
+            await manager.currentTurnDispatchTask?.value
+            await manager.currentResponseTask?.value
+            #expect(manager.recentActionResults.contains { $0.status == .planned && $0.detail.contains(parsed.executionPlan.approvalSummary) })
+            #expect(manager.recentActionResults.contains { $0.status == .skipped })
+        }
+        manager.submitChatTranscriptFromDeepLink("make it better")
+        await manager.currentTurnDispatchTask?.value
+        await manager.currentResponseTask?.value
+        #expect(manager.pendingIntentClarification?.originalTranscript == "make it better")
+        #expect(manager.currentTurnHUDState.status == .needsClarification)
+        #expect(planner.calls == 0 && captureAttempts == 0)
+        manager.useLocalVLMForScreenContext = true
+        for transcript in ["音楽をかけて", "リマインドして"] {
+            let prediction = await classifier.classify(transcript, conversationHistory: [])
+            #expect(prediction.route == .fullPipeline)
+            let previousCaptureAttempts = captureAttempts
+            manager.submitChatTranscriptFromDeepLink(transcript)
+            await manager.currentTurnDispatchTask?.value
+            await manager.currentResponseTask?.value
+            // The injected capture fails before any screen or planner work; reaching it proves normal routing.
+            #expect(captureAttempts > previousCaptureAttempts && planner.calls == 0)
+        }
     }
 
     @Test func practiceMathRoutesThroughTheSelectedBilingualPlannerAndSpeaksJapanese() async throws {

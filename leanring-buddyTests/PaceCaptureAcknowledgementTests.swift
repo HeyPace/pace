@@ -6,6 +6,20 @@ import Testing
 
 @MainActor @Suite(.serialized)
 struct PaceCaptureAcknowledgementTests {
+    private final class RecordingPlanner: BuddyPlannerClient {
+        let displayName = "Capture finalization fixture"
+        let supportsImageInput = false
+        var calls = 0
+        func generateResponseStreaming(images: [(data: Data, label: String)], systemPrompt: String,
+            conversationHistory: [(userPlaceholder: String, assistantResponse: String)], userPrompt: String,
+            onTextChunk: @MainActor @Sendable (String) -> Void) async throws -> (text: String, duration: TimeInterval) {
+            calls += 1
+            let reply = "This provisional command must not be submitted."
+            onTextChunk(reply)
+            return (reply, 0)
+        }
+    }
+
     private func buffer(frameCount: AVAudioFrameCount = 128) throws -> AVAudioPCMBuffer {
         let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
         let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 128))
@@ -167,6 +181,110 @@ struct PaceCaptureAcknowledgementTests {
         manager.handleShortcutTransition(.released)
         #expect(manager.currentTurnHUDState == activeHUD && manager.voiceState == .responding)
         #expect(cueCount == 0 && persister.events.isEmpty)
+    }
+
+    @Test func emptyAndSpeculativelyConsumedFinalsDisarmFallbackWhilePreservingActiveReply() async throws {
+        let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
+        defer { manager.voiceStateCancellable?.cancel(); manager.transcriptSafetyTask?.cancel(); manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        let planner = RecordingPlanner()
+        manager.plannerClient = planner
+        manager.textOnlyPlannerClient = planner
+        manager.activePlannerTier = .local
+        manager.isOverlayVisible = true
+        manager.intentClassifier = PaceRuleBasedIntentClassifierAdapter(classifier: PaceIntentClassifier())
+        manager.actionExecutor = PaceActionExecutor(actionsAreEnabledOverride: false)
+        manager.fastEverydayAnswersEnabled = false
+        manager.useLocalVLMForScreenContext = false
+        manager.captureScreensForPlanner = { throw NSError(domain: "UnexpectedCaptureFinalization", code: 1) }
+        manager.playCaptureAcknowledgementCue = {}
+        manager.bindVoiceStateObservation()
+        manager.voiceStateCancellable?.cancel()
+        let activeHUD = PaceTurnHUDState.acting("Current speculative answer")
+        var submitted = 0
+        for finalTranscript in ["", "Open Music."] {
+            manager.voiceState = .responding
+            manager.currentTurnHUDState = activeHUD
+            manager.liveSpeechDraft = "Keep the current reply display"
+            manager.handleAudioCaptured(.init(captureIdentifier: UUID(), frameCount: 128, recognizedText: "open Music"))
+            manager.lastPartialTranscriptFromActiveDictation = "open Music"
+            manager.scheduleTranscriptSafetyFallback()
+            let safetyTask = try #require(manager.transcriptSafetyTask)
+            manager.buddyDictationManager.deliverFinalDictationTranscript(
+                finalDraftText: finalTranscript, finalTranscriptText: finalTranscript, shouldSubmitFinalDraft: true,
+                speculativeTranscriptExecutedThisSession: "open Music", submitDraftText: { _ in submitted += 1 })
+            #expect(manager.transcriptArrivedSinceRelease && manager.transcriptSafetyTask == nil)
+            #expect(manager.lastPartialTranscriptFromActiveDictation == nil && safetyTask.isCancelled)
+            await safetyTask.value
+            #expect(manager.voiceState == .responding && manager.currentTurnHUDState == activeHUD)
+            #expect(manager.liveSpeechDraft == "Keep the current reply display")
+        }
+        // The no-speech callback must also disarm terminal bookkeeping independently of the UI guard.
+        manager.transcriptArrivedSinceRelease = false
+        manager.lastPartialTranscriptFromActiveDictation = "old provisional command"
+        manager.scheduleTranscriptSafetyFallback()
+        let safetyTask = try #require(manager.transcriptSafetyTask)
+        manager.buddyDictationManager.onNoSpeechRecognized?()
+        await safetyTask.value
+        #expect(manager.transcriptArrivedSinceRelease && manager.transcriptSafetyTask == nil)
+        #expect(manager.lastPartialTranscriptFromActiveDictation == nil && safetyTask.isCancelled)
+        #expect(manager.voiceState == .responding && manager.currentTurnHUDState == activeHUD)
+        #expect(submitted == 0 && planner.calls == 0 && persister.events.isEmpty)
+    }
+
+    @Test func ordinaryUnreadyModelRetainsItsRejectionCauseAfterReleaseWithoutCaptureCue() throws {
+        let (root, manager, _, _) = try PacePowerManagerTests().fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        manager.isTranscriptionModelReady = false
+        manager.buddyDictationManager.usesJapanesePracticeTranscription = false
+        manager.fastEverydayAnswersEnabled = false
+        manager.useLocalVLMForScreenContext = false
+        manager.activePlannerTier = .local
+        var cueCount = 0
+        manager.playCaptureAcknowledgementCue = { cueCount += 1 }
+        manager.handleShortcutTransition(.pressed)
+        let rejectedHUD = manager.currentTurnHUDState
+        #expect(rejectedHUD.status != .listening && rejectedHUD.detail == "speech model still loading…")
+        manager.handleShortcutTransition(.released)
+        #expect(manager.currentTurnHUDState == rejectedHUD && manager.voiceState == .idle)
+        #expect(cueCount == 0 && manager.transcriptSafetyTask == nil)
+        #expect(manager.pendingKeyboardShortcutStartTask == nil && !manager.buddyDictationManager.isDictationInProgress)
+    }
+
+    @Test func explicitStopAndCloseCancelCaptureFinalizationWithoutRevivingUncommittedWords() async throws {
+        let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
+        defer { manager.transcriptSafetyTask?.cancel(); manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        let planner = RecordingPlanner()
+        manager.plannerClient = planner
+        manager.textOnlyPlannerClient = planner
+        manager.activePlannerTier = .local
+        manager.isOverlayVisible = true
+        manager.fastEverydayAnswersEnabled = false
+        manager.useLocalVLMForScreenContext = false
+        manager.actionExecutor = PaceActionExecutor(actionsAreEnabledOverride: false)
+        manager.conversationRecorder.record(ConversationEvent(role: .pace, origin: .assistant, text: "Already completed reply."))
+        let originalMessages = manager.chatSession.messages
+        let originalEventCount = persister.events.count
+        manager.chatSession.draftMessageText = "Keep this typed draft"
+        for closesSurface in [false, true] {
+            manager.voiceState = .processing
+            manager.liveSpeechDraft = "uncommitted voice words"
+            manager.lastPartialTranscriptFromActiveDictation = "open Music"
+            manager.transcriptArrivedSinceRelease = false
+            manager.scheduleTranscriptSafetyFallback()
+            let safetyTask = try #require(manager.transcriptSafetyTask)
+            let pendingStartTask = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
+            manager.pendingKeyboardShortcutStartTask = pendingStartTask
+            if closesSurface { manager.handleExplanationDismissal(.userInitiated) }
+            else { manager.cancelCurrentTurnFromPanel() }
+            await safetyTask.value
+            await pendingStartTask.value
+            #expect(safetyTask.isCancelled && pendingStartTask.isCancelled)
+            #expect(manager.transcriptSafetyTask == nil && manager.pendingKeyboardShortcutStartTask == nil)
+            #expect(manager.transcriptArrivedSinceRelease && manager.lastPartialTranscriptFromActiveDictation == nil)
+            #expect(manager.liveSpeechDraft.isEmpty && manager.voiceState == .idle)
+            #expect(manager.chatSession.messages == originalMessages && persister.events.count == originalEventCount)
+            #expect(manager.chatSession.draftMessageText == "Keep this typed draft" && planner.calls == 0)
+        }
     }
 
     @Test func cancellingOldFinalizationTimerCannotOverwriteNextCaptureFeedback() async throws {

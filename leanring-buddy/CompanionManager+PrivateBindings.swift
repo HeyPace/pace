@@ -344,12 +344,16 @@ extension CompanionManager {
         }
     }
 
-    func handleCaptureWithoutSpeech(_ message: String) {
-        guard voiceState != .responding else { return }
+    func finishCaptureTranscriptFeedback() {
         transcriptArrivedSinceRelease = true
         transcriptSafetyTask?.cancel()
         transcriptSafetyTask = nil
         lastPartialTranscriptFromActiveDictation = nil
+    }
+
+    func handleCaptureWithoutSpeech(_ message: String) {
+        finishCaptureTranscriptFeedback()
+        guard voiceState != .responding else { return }
         liveSpeechDraft = ""
         currentTurnHUDState = .failed(message)
         responseOverlayManager.setListeningForAudio(false)
@@ -360,6 +364,7 @@ extension CompanionManager {
 
     func bindVoiceStateObservation() {
         buddyDictationManager.onAudioCaptured = { [weak self] captured in self?.handleAudioCaptured(captured) }
+        buddyDictationManager.onTranscriptFinalized = { [weak self] in self?.finishCaptureTranscriptFeedback() }
         buddyDictationManager.onNoSpeechRecognized = { [weak self] in
             self?.handleCaptureWithoutSpeech("No speech recognized. Try again.")
         }
@@ -621,6 +626,7 @@ extension CompanionManager {
             // WhisperKit and the model is still doing its CoreML compile.
             guard isTranscriptionModelReady else {
                 print("⚠️ Speech model still loading — rejecting PTT press")
+                currentTurnHUDState = .failed("speech model still loading…")
                 responseOverlayManager.setAnchor(.belowRightOfCursor)
                 responseOverlayManager.showOverlayAndBeginStreaming()
                 responseOverlayManager.updateStreamingText("speech model still loading…")
