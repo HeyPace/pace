@@ -52,6 +52,7 @@ nonisolated enum PaceActionTagParser {
         let mcpTool: String?
         let arguments: [String: PaceMCPJSONValue]
         let extraArguments: [String: PaceMCPJSONValue]
+        let strictArguments: [String: PaceMCPJSONValue]?
         let steps: Int?
         let amount: Int?
         let x: Int?
@@ -197,6 +198,16 @@ nonisolated enum PaceActionTagParser {
             self.candidates = (try? container.decodeIfPresent([ClickCandidateDTO].self, forKey: .candidates)) ?? []
             self.expectStateChange = try? container.decodeIfPresent(Bool.self, forKey: .expectStateChange)
             self.extraArguments = Self.decodeExtraArguments(from: rawContainer)
+            if container.contains(.arguments),
+               (try? container.decode([String: PaceMCPJSONValue].self, forKey: .arguments)) == nil {
+                self.strictArguments = nil
+            } else {
+                var strictArguments = self.arguments
+                for key in rawContainer.allKeys where !["tool", "arguments"].contains(key.stringValue) {
+                    strictArguments[key.stringValue] = try rawContainer.decode(PaceMCPJSONValue.self, forKey: key)
+                }
+                self.strictArguments = strictArguments
+            }
         }
 
         private static func decodeStringIfPresent(
@@ -672,6 +683,10 @@ nonisolated enum PaceActionTagParser {
             return parseCodexSessionArguments(arguments)
         case "screen.capture":
             return parseScreenCaptureArguments(arguments)
+        case "speak":
+            return PaceSpeechRequest.parse(arguments: arguments).map { .speak($0) }
+        case "present.media":
+            return PaceMediaPresentationRequest.parse(arguments: arguments).map { .presentMedia($0) }
         case "meeting":
             return parseMeetingArguments(arguments)
         case "ax.press", "click", "mouse.click":
@@ -859,6 +874,14 @@ nonisolated enum PaceActionTagParser {
         case "screen.capture":
             if parseScreenCaptureArguments(arguments) == nil {
                 issues.append("requires a supported screen capture mode")
+            }
+        case "speak":
+            if PaceSpeechRequest.parse(arguments: arguments) == nil {
+                issues.append("requires bounded local speech text and an optional supported profile")
+            }
+        case "present.media":
+            if PaceMediaPresentationRequest.parse(arguments: arguments) == nil {
+                issues.append("requires a catalog assetID, durationSeconds from one to thirty, and optional supported motion")
             }
         case "meeting":
             if parseMeetingArguments(arguments) == nil { issues.append("requires action start, stop, or status") }
@@ -1447,9 +1470,9 @@ nonisolated enum PaceActionTagParser {
         case .downloadFile:
             return parseDownloadFileToolCall(toolCall)
         case .presentMedia:
-            return PaceMediaPresentationRequest.parse(arguments: mergeMCPArguments(from: toolCall)).map { .presentMedia($0) }
+            return toolCall.strictArguments.flatMap(PaceMediaPresentationRequest.parse(arguments:)).map { .presentMedia($0) }
         case .speak:
-            return firstStringValue(for: ["text"], in: mergeMCPArguments(from: toolCall)).map { .speak($0) }
+            return toolCall.strictArguments.flatMap(PaceSpeechRequest.parse(arguments:)).map { .speak($0) }
         case .startTimer:
             return parseStartTimerToolCall(toolCall)
         case .recordFlow:
@@ -1636,13 +1659,12 @@ nonisolated enum PaceActionTagParser {
                 issues.append("requires a valid http(s) download url")
             }
         case .presentMedia:
-            if PaceMediaPresentationRequest.parse(arguments: mergedArguments) == nil {
+            if toolCall.strictArguments.flatMap(PaceMediaPresentationRequest.parse(arguments:)) == nil {
                 issues.append("requires a catalog assetID, durationSeconds from one to thirty, and optional supported motion")
             }
         case .speak:
-            if Set(mergedArguments.keys) != ["text"] || !hasNonEmptyString(for: ["text"], in: mergedArguments)
-                || (firstStringValue(for: ["text"], in: mergedArguments)?.count ?? 0) > 2000 {
-                issues.append("requires bounded local speech text only")
+            if toolCall.strictArguments.flatMap(PaceSpeechRequest.parse(arguments:)) == nil {
+                issues.append("requires bounded local speech text and an optional supported profile")
             }
         case .startTimer:
             let rawDurationText = firstStringValue(

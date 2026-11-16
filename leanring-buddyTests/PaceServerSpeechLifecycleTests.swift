@@ -124,4 +124,132 @@ struct PaceServerSpeechLifecycleTests {
             #expect(!client.isPlaying)
         }
     }
+    private func fixtureRequests() async throws -> [[String: Any]] {
+        let (data, _) = try await URLSession.shared.data(from: URL(string: "http://127.0.0.1:8898/requests")!)
+        return try #require(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+    }
+
+    private func expectJapaneseRequests(_ requests: [[String: Any]], count: Int) {
+        #expect(requests.count == count)
+        #expect(requests.allSatisfy { $0["voice"] as? String == "jf_alpha" && $0["lang_code"] as? String == "j" })
+    }
+
+    @Test func japanesePlaybackDoesNotChangeDefaultSpeechBeforeOrAfterIt() async throws {
+        try await withFixture { client, fallback in
+            var starts = 0
+            try await client.speakUtterance("default before") { starts += 1 }
+            try await client.speakUtterance(.init(text: "こんにちは。", profile: .japaneseFemale)) { starts += 1 }
+            try await client.speakUtterance("default after") { starts += 1 }
+            let requests = try await fixtureRequests().filter { ["default before", "こんにちは。", "default after"].contains($0["input"] as? String ?? "") }
+            #expect(requests.count == 3)
+            #expect(requests.filter { $0["lang_code"] == nil }.allSatisfy { $0["voice"] as? String == "af_heart" })
+            expectJapaneseRequests(requests.filter { $0["input"] as? String == "こんにちは。" }, count: 1)
+            #expect(starts == 3)
+            #expect(fallback.spokenTexts.isEmpty)
+        }
+    }
+
+    @Test func japaneseRetryAndBothSplitHalvesKeepVoiceAndLanguage() async throws {
+        try await withFixture { client, fallback in
+            var starts = 0
+            try await client.speakUtterance(.init(text: "profile retry", profile: .japaneseFemale)) { starts += 1 }
+            let splitText = "profile split. first half has enough words to cross the retry boundary. second half completes the requested utterance with the same Japanese voice."
+            try await client.speakUtterance(.init(text: splitText, profile: .japaneseFemale)) { starts += 1 }
+            let requests = try await fixtureRequests().filter { ($0["input"] as? String ?? "").hasPrefix("profile") || ($0["input"] as? String ?? "").hasPrefix("second half") }
+            expectJapaneseRequests(requests, count: 6)
+            #expect(Set(requests.compactMap { $0["input"] as? String }).count == 4)
+            #expect(starts == 2)
+            #expect(fallback.spokenTexts.isEmpty)
+        }
+    }
+
+    @Test func explicitJapaneseNeverFallsBackOnSynthesisDecodeOrSecondHalfFailure() async throws {
+        try await withFixture { client, fallback in
+            var starts = 0
+            for text in ["profile synthesis failure", "profile invalid WAV",
+                "profile split fail. first half has enough words to cross the retry boundary. second-half-fail completes the requested utterance with the same Japanese voice."] {
+                do {
+                    try await client.speakUtterance(.init(text: text, profile: .japaneseFemale)) { starts += 1 }
+                    Issue.record("Explicit Japanese must fail without a system voice substitute.")
+                } catch { #expect(error is PaceSpeechProfileError) }
+            }
+            #expect(starts == 1)
+            #expect(fallback.spokenTexts.isEmpty)
+            #expect(!client.isPlaying)
+        }
+    }
+
+    @Test func japaneseTransportOutageDoesNotPoisonDefaultSpeech() async throws {
+        try await withFixture { client, fallback in
+            do {
+                try await client.speakUtterance(.init(text: "profile transport failure", profile: .japaneseFemale), onStarted: {})
+                Issue.record("Transport failure must fail explicit Japanese.")
+            } catch { #expect(error is PaceSpeechProfileError) }
+            #expect(!client.hasObservedSidecarOutage)
+            var starts = 0
+            try await client.speakUtterance("default succeeds after Japanese outage") { starts += 1 }
+            #expect(starts == 1)
+            #expect(fallback.spokenTexts.isEmpty)
+            let requests = try await fixtureRequests()
+            #expect(requests.contains { $0["input"] as? String == "default succeeds after Japanese outage" })
+        }
+    }
+
+    @Test func defaultTransportOutageDoesNotPoisonJapaneseSpeech() async throws {
+        try await withFixture { client, fallback in
+            let defaultFailure = Task { try await client.speakUtterance("default transport failure", onStarted: {}) }
+            try await waitUntil { fallback.completion != nil }
+            let completion = fallback.completion
+            fallback.completion = nil
+            completion?.resume()
+            try await defaultFailure.value
+            var starts = 0
+            try await client.speakUtterance(.init(text: "こんにちは。", profile: .japaneseFemale)) { starts += 1 }
+            #expect(starts == 1)
+            #expect(fallback.spokenTexts == ["default transport failure"])
+            let requests = try await fixtureRequests()
+            #expect(requests.contains { $0["input"] as? String == "こんにちは。" })
+        }
+    }
+
+    @Test func cancellingDelayedJapaneseAndStoppingAtOnsetCannotStartLateOrFallback() async throws {
+        try await withFixture { client, fallback in
+            var starts = 0
+            let delayed = Task {
+                try await client.speakUtterance(.init(text: "profile delayed", profile: .japaneseFemale)) { starts += 1 }
+            }
+            try await Task.sleep(for: .milliseconds(80))
+            delayed.cancel()
+            do { try await delayed.value; Issue.record("Cancelling delayed speech must cancel completion.") }
+            catch { #expect(error is CancellationError) }
+            try await Task.sleep(for: .milliseconds(500))
+            #expect(starts == 0)
+            do {
+                try await client.speakUtterance(.init(text: "こんにちは。", profile: .japaneseFemale)) {
+                    starts += 1
+                    client.stopPlayback()
+                }
+                Issue.record("Stopping Japanese at onset must cancel completion.")
+            } catch { #expect(error is CancellationError) }
+            #expect(starts == 1)
+            #expect(fallback.spokenTexts.isEmpty)
+            #expect(!client.isPlaying)
+        }
+    }
+
+    @Test func nonKokoroServerRejectsExplicitProfileBeforeOnset() async {
+        let fallback = Fallback()
+        let client = LocalServerTTSClient(configuration: .init(configuredBaseURLString: "http://127.0.0.1:59997/v1",
+            configuredModelIdentifier: "local-Qwen3-TTS", configuredVoiceIdentifier: nil, configuredSpeedString: nil), fallbackClient: fallback)
+        defer { client.stopPlayback() }
+        var starts = 0
+        do {
+            try await client.speakUtterance(.init(text: "こんにちは。", profile: .japaneseFemale)) { starts += 1 }
+            Issue.record("A non-Kokoro backend cannot claim the Kokoro Japanese profile.")
+        } catch { #expect(error is PaceSpeechProfileError) }
+        #expect(starts == 0)
+        #expect(fallback.spokenTexts.isEmpty)
+        #expect(!client.isPlaying)
+    }
+
 }

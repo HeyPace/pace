@@ -246,10 +246,10 @@ extension PaceActionExecutor {
         case .presentMedia(let request):
             guard actionsAreEnabled else { return .init(toolName: "present_media", summary: "Would present local media: \(request.assetID)") }
             return presentLocalMedia?(request) ?? .init(toolName: "present_media", summary: "Media unavailable; lifecycle binding missing.", terminalReason: .managedWorkflowUnavailable)
-        case .speak(let text):
+        case .speak(let request):
             guard actionsAreEnabled else { return .init(toolName: "speak", summary: "Would speak local text.") }
             guard let speakLocalText else { return .init(toolName: "speak", summary: "Local speech unavailable; lifecycle binding missing.", terminalReason: .managedWorkflowUnavailable) }
-            return await speakLocalText(text)
+            return await speakLocalText(request)
         case .startTimer(let timerRequest):
             return await startTimer(timerRequest)
         case .recordFlow(let flowRequest):

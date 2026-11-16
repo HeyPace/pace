@@ -19,7 +19,9 @@ nonisolated struct PaceLocalMediaCatalog {
         let importedAt: Date
     }
     static let bundled = [Asset(identifier: "thank-you-dance", title: "Thank you",
-        resourceName: "thank-you-dance", resourceExtension: "gif")]
+        resourceName: "thank-you-dance", resourceExtension: "gif"),
+        Asset(identifier: "japanese-greeting-woman", title: "Japanese greeting",
+            resourceName: "japanese-greeting-woman", resourceExtension: "gif")]
     static let maximumFileBytes = 20 * 1024 * 1024
     let importedDirectoryURL: URL
     init(importedDirectoryURL: URL = PaceUserAutomationStore.defaultDirectoryURL.deletingLastPathComponent().appendingPathComponent("power-media", isDirectory: true)) {

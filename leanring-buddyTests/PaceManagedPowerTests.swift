@@ -27,6 +27,95 @@ struct PaceManagedPowerTests {
             ])
     }
 
+    @Test func speechRequestStrictlyValidatesTheBoundedProfileContract() {
+        #expect(PaceSpeechRequest.parse(arguments: ["text": .string("hello")]) == .init(text: "hello"))
+        #expect(PaceSpeechRequest.parse(arguments: ["text": .string("こんにちは。"), "profile": .string("japanese_female")])
+            == .init(text: "こんにちは。", profile: .japaneseFemale))
+        let invalidArguments: [[String: PaceMCPJSONValue]] = [
+            [:], ["text": .string(" \n")], ["text": .string(String(repeating: "a", count: 2001))],
+            ["text": .number(12)], ["text": .string("hello"), "profile": .number(1)],
+            ["text": .string("hello"), "profile": .null],
+            ["text": .string("hello"), "profile": .string("unknown")],
+            ["text": .string("hello"), "voice": .string("jf_alpha")],
+            ["text": .string("hello"), "language": .string("j")],
+            ["text": .string("hello"), "model": .string("kokoro")],
+            ["text": .string("hello"), "endpoint": .string("http://127.0.0.1")],
+        ]
+        for arguments in invalidArguments { #expect(PaceSpeechRequest.parse(arguments: arguments) == nil) }
+        #expect(PaceSpeechRequest.parse(arguments: ["text": .string(String(repeating: "a", count: 2000))]) != nil)
+    }
+
+    @Test func plannerSingleAndMultipleCallsPreserveMediaAndSpeechProfiles() throws {
+        let mediaArguments: [String: PaceMCPJSONValue] = ["assetID": .string("japanese-greeting-woman"), "durationSeconds": .number(6)]
+        let speechArguments: [String: PaceMCPJSONValue] = ["text": .string("こんにちは。"), "profile": .string("japanese_female")]
+        let calls: [PaceMCPJSONValue] = [
+            .object(["name": .string("present_media"), "args": .object(mediaArguments)]),
+            .object(["name": .string("speak"), "args": .object(speechArguments)]),
+        ]
+        let expected: [PaceParsedAction] = [
+            .presentMedia(.init(assetID: "japanese-greeting-woman", durationSeconds: 6, motion: nil)),
+            .speak(.init(text: "こんにちは。", profile: .japaneseFemale)),
+        ]
+        for (index, call) in calls.enumerated() {
+            let response: PaceMCPJSONValue = .object(["spokenText": .string(""), "intent": .string("action"), "payload": call])
+            let text = try #require(String(data: JSONEncoder().encode(response), encoding: .utf8))
+            #expect(PaceActionTagParser.parseActions(from: text).executionPlan.flattenedActions.map(\.approvalDescription) == [expected[index].approvalDescription])
+        }
+        let response: PaceMCPJSONValue = .object(["spokenText": .string(""), "intent": .string("action"), "payload": .object(["calls": .array(calls)])])
+        let text = try #require(String(data: JSONEncoder().encode(response), encoding: .utf8))
+        #expect(PaceActionTagParser.parseActions(from: text).executionPlan.flattenedActions.map(\.approvalDescription) == expected.map(\.approvalDescription))
+        let legacy = PaceActionTagParser.parseActions(from: #"<tool_calls>[{"tool":"present_media","arguments":{"assetID":"japanese-greeting-woman","durationSeconds":6}},{"tool":"speak","text":"こんにちは。","profile":"japanese_female"}]</tool_calls>"#)
+        #expect(legacy.executionPlan.flattenedActions.map(\.approvalDescription) == expected.map(\.approvalDescription))
+        for invalid in [
+            #"{"tool":"speak","text":12}"#,
+            #"{"tool":"speak","arguments":{"text":"hello"},"profile":null}"#,
+            #"{"tool":"speak","text":"hello","steps":null}"#,
+            #"{"tool":"speak","text":"hello","arguments":false}"#,
+        ] {
+            #expect(PaceActionTagParser.parseActions(from: "<tool_calls>[" + invalid + "]</tool_calls>").executionPlan.flattenedActions.isEmpty)
+        }
+    }
+
+    @Test func plannerMediaAndSpeechRejectInvalidArgumentsInSingleAndMultipleCalls() throws {
+        let calls: [PaceMCPJSONValue] = [
+            .object(["name": .string("speak"), "args": .object(["text": .string("hello"), "profile": .string("unknown")])]),
+            .object(["name": .string("speak"), "args": .object(["text": .number(12)])]),
+            .object(["name": .string("present_media"), "args": .object(["assetID": .string("japanese-greeting-woman"), "durationSeconds": .number(6), "path": .string("/tmp/image.gif")])]),
+            .object(["name": .string("present_media"), "args": .object(["assetID": .string("japanese-greeting-woman"), "durationSeconds": .number(31)])]),
+        ]
+        for call in calls {
+            for payload in [call, .object(["calls": .array([call])])] {
+                let response: PaceMCPJSONValue = .object(["spokenText": .string(""), "intent": .string("action"), "payload": payload])
+                let text = try #require(String(data: JSONEncoder().encode(response), encoding: .utf8))
+                #expect(PaceActionTagParser.parseActions(from: text).executionPlan.flattenedActions.isEmpty)
+            }
+        }
+    }
+
+    @Test func typedAutomationAndProgramKeepProfileThroughSavedJSONAndCompilation() throws {
+        let step = PaceAutomationStep(toolCalls: [.init(tool: "speak", arguments: [
+            "text": .string("こんにちは。"), "profile": .string("japanese_female"),
+        ])])
+        let definition = PaceAutomationDefinition(schemaVersion: 1, identifier: "japanese-greeting", name: "Japanese greeting",
+            description: "A Japanese greeting.", category: "custom", invocationPhrases: ["greet in Japanese"],
+            source: .user, executionMode: .deterministicLocal, requiredPreferences: [], steps: [step])
+        let decoded = try JSONDecoder().decode(PaceAutomationDefinition.self, from: JSONEncoder().encode(definition))
+        let actions = try PaceAutomationCompiler.compile(decoded).flattenedActions
+        #expect(actions.count == 1)
+        guard case .speak(let request) = actions.first else {
+            Issue.record("Compiled speech must retain its typed request.")
+            return
+        }
+        #expect(request == .init(text: "こんにちは。", profile: .japaneseFemale))
+        let program = PaceProgramDefinition(schemaVersion: 1, identifier: "japanese-program", name: "Japanese program",
+            description: "A Japanese greeting.", category: "custom", invocationPhrases: ["greet in Japanese"], requiredPreferences: [],
+            nodes: [.repeatTimes(count: 2, nodes: [.action(step: step)])])
+        let decodedProgram = try JSONDecoder().decode(PaceProgramDefinition.self, from: JSONEncoder().encode(program))
+        #expect(decodedProgram == program)
+        #expect(PaceProgramValidator.validationIssues(for: decodedProgram).isEmpty)
+        #expect(decodedProgram.nodes == [.repeatTimes(count: 2, nodes: [.action(step: step)])])
+    }
+
     @Test func commandsAreAnchoredAndPreserveExactMutationTargets() {
         let knownSavedNames: Set<String> = ["Settings Backup", "Mode Switch", "Options Review"]
         #expect(PacePowerCommandParser.parse("list powers") == .list)
@@ -199,7 +288,7 @@ struct PaceManagedPowerTests {
         var authorized = true
         executor.managedPowerExecutionCheck = { authorized }
         executor.presentLocalMedia = { request in events.append("visible:" + request.assetID); return .init(toolName: "present_media", summary: "Presented") }
-        executor.speakLocalText = { text in events.append("speech:" + text); return .init(toolName: "speak", summary: "Completed") }
+        executor.speakLocalText = { request in events.append("speech:" + request.text); return .init(toolName: "speak", summary: "Completed") }
         let plan = try PaceAutomationCompiler.compile(thankYou())
         _ = await executor.executeActionPlan(plan, screenCaptures: [])
         #expect(events == ["visible:thank-you-dance", "speech:thank you"])
@@ -217,7 +306,7 @@ struct PaceManagedPowerTests {
     @Test func speechFailureIsTerminalAndNeverReportedAsSuccessful() async throws {
         let executor = PaceActionExecutor(actionsAreEnabledOverride: true)
         executor.speakLocalText = { _ in .init(toolName: "speak", summary: "Playback failed", terminalReason: .managedWorkflowUnavailable) }
-        let receipt = await executor.executeActionPlan(.serial(actions: [.speak("thank you"), .speak("never reached")]), screenCaptures: [])
+        let receipt = await executor.executeActionPlan(.serial(actions: [.speak(.init(text: "thank you")), .speak(.init(text: "never reached"))]), screenCaptures: [])
         #expect(receipt.count == 1)
         #expect(receipt[0].stopsActionPlan)
         #expect(receipt[0].summary == "Playback failed")
@@ -298,15 +387,15 @@ struct PaceManagedPowerTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let definitions = PaceAutomationDefinitionLibrary.loadBundledDefinitions(allowSourceTreeFallback: true)
         let starter = try #require(definitions.first { $0.identifier == "thank-you-dance" })
-        #expect(starter.invocationPhrases == ["show me the thank you dance", "play my thank you dance", "run my thank you dance"])
+        #expect(starter.invocationPhrases == ["show me the thank you dance", "play my thank you dance", "run my thank you dance", "show me the Japanese greeting"])
         let plan = try PaceAutomationCompiler.compile(starter)
         #expect(plan.flattenedActions.count == 2)
         guard case .presentMedia(let media) = plan.flattenedActions[0], case .speak(let speech) = plan.flattenedActions[1] else {
             Issue.record("Bundled starter must present media before speech")
             return
         }
-        #expect(media.assetID == "thank-you-dance" && media.durationSeconds == 4)
-        #expect(speech == "thank you")
+        #expect(media.assetID == "japanese-greeting-woman" && media.durationSeconds == 6)
+        #expect(speech == .init(text: "こんにちは。会えてうれしいです。ありがとうございます。", profile: .japaneseFemale))
         let bundledCatalog = PaceAutomationCatalog(typedDefinitions: [starter], recordedFlows: [], skills: [], shortcutNames: [])
         let power = try store.resolve("Thank You Dance", catalog: bundledCatalog)
         #expect(!power.isUserOwned)

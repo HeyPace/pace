@@ -24,6 +24,48 @@ enum PaceTTSStopReason: Equatable {
     case manualStop
 }
 
+nonisolated enum PaceSpeechProfile: String, Codable, Equatable, Sendable {
+    case japaneseFemale = "japanese_female"
+
+    var voiceIdentifier: String { "jf_alpha" }
+    var languageCode: String { "j" }
+}
+
+nonisolated struct PaceSpeechRequest: Equatable, Sendable {
+    let text: String
+    let profile: PaceSpeechProfile?
+
+    init(text: String, profile: PaceSpeechProfile? = nil) {
+        self.text = text
+        self.profile = profile
+    }
+
+    static func parse(arguments: [String: PaceMCPJSONValue]) -> Self? {
+        guard Set(arguments.keys).isSubset(of: ["text", "profile"]),
+              case .string(let text)? = arguments["text"],
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              text.count <= 2000 else { return nil }
+        let profile: PaceSpeechProfile?
+        if let profileValue = arguments["profile"] {
+            guard case .string(let name) = profileValue,
+                  let parsedProfile = PaceSpeechProfile(rawValue: name) else { return nil }
+            profile = parsedProfile
+        } else { profile = nil }
+        return Self(text: text, profile: profile)
+    }
+}
+
+nonisolated enum PaceSpeechProfileError: LocalizedError {
+    case unsupportedBackend, synthesisOrPlaybackFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedBackend: return "The selected speech backend does not support the requested speech profile."
+        case .synthesisOrPlaybackFailed: return "The requested Japanese voice could not complete local synthesis or playback."
+        }
+    }
+}
+
 @MainActor
 protocol BuddyTTSClient: AnyObject {
     /// Accepts text into the backend queue. Legacy backends return at enqueue or
@@ -34,6 +76,8 @@ protocol BuddyTTSClient: AnyObject {
 
     /// Waits for this utterance to finish. The callback marks confirmed audio onset.
     func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws
+
+    func speakUtterance(_ request: PaceSpeechRequest, onStarted: @escaping @MainActor () -> Void) async throws
 
     /// Whether speech audio is currently being played out of the device.
     var isPlaying: Bool { get }
@@ -61,6 +105,12 @@ enum PaceUtterancePlaybackError: Error { case completionUnavailable, playbackFai
 
 extension BuddyTTSClient {
     var supportsUtteranceCompletion: Bool { false }
+
+    func speakUtterance(_ request: PaceSpeechRequest, onStarted: @escaping @MainActor () -> Void) async throws {
+        guard request.profile == nil else { throw PaceSpeechProfileError.unsupportedBackend }
+        try await speakUtterance(request.text, onStarted: onStarted)
+    }
+
     /// Optional backends must implement actual utterance events before guided autoplay can use them.
     func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws {
         throw PaceUtterancePlaybackError.completionUnavailable

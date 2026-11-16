@@ -5,10 +5,9 @@
 //  High-quality TTS via a loopback OpenAI-compatible /v1/audio/speech
 //  server — Kokoro (kokoro-fastapi, port 8880) by default, but any server
 //  speaking that API works. Mirrors the LM Studio sidecar pattern: the
-//  endpoint is loopback-guarded, and EVERY failure (server down, model
-//  missing, decode error, timeout) falls back to the AVSpeechSynthesizer
-//  client for that utterance, so the worst case is exactly yesterday's
-//  voice. A short unavailability memo skips the connection attempt for
+//  endpoint is loopback-guarded. Default speech falls back to the system
+//  voice; an explicit speech profile fails without substituting a voice.
+//  A short unavailability memo skips the connection attempt for
 //  subsequent sentences once the server has failed, keeping the fallback
 //  path effectively free.
 //
@@ -75,18 +74,33 @@ nonisolated struct LocalServerTTSConfiguration: Equatable {
         )
     }
 
-    func speechRequest(for text: String) -> URLRequest {
+    struct SynthesisIdentity: Hashable {
+        let baseURL: URL
+        let modelIdentifier: String
+        let voiceIdentifier: String
+        let languageCode: String
+        let speed: Double
+    }
+
+    func synthesisIdentity(profile: PaceSpeechProfile?) -> SynthesisIdentity {
+        SynthesisIdentity(baseURL: baseURL, modelIdentifier: modelIdentifier,
+            voiceIdentifier: profile?.voiceIdentifier ?? voiceIdentifier,
+            languageCode: profile?.languageCode ?? "a", speed: speed)
+    }
+
+    func speechRequest(for text: String, profile: PaceSpeechProfile? = nil) -> URLRequest {
         var request = URLRequest(url: baseURL.appendingPathComponent("audio/speech"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = Self.requestTimeoutInSeconds
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": modelIdentifier,
-            "voice": voiceIdentifier,
+            "voice": profile?.voiceIdentifier ?? voiceIdentifier,
             "input": text,
             "response_format": "wav",
             "speed": speed,
         ]
+        if let profile { body["lang_code"] = profile.languageCode }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return request
     }
@@ -101,9 +115,13 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
     private final class PendingUtterance {
         let id = UUID()
         let text: String
+        let profile: PaceSpeechProfile?
         var completion: CheckedContinuation<Void, Error>?
         var onStarted: (@MainActor () -> Void)?
-        init(text: String) { self.text = text }
+        init(text: String, profile: PaceSpeechProfile? = nil) {
+            self.text = text
+            self.profile = profile
+        }
         func finish(_ error: Error? = nil) {
             if let error { completion?.resume(throwing: error) } else { completion?.resume() }
             completion = nil
@@ -118,7 +136,7 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
     private var isDrainingPlaybackQueue = false
     private var audioPlayer: AVAudioPlayer?
     private var playbackContinuation: CheckedContinuation<Void, Error>?
-    private var serverUnavailableUntil: Date?
+    private var serverUnavailableUntil: [LocalServerTTSConfiguration.SynthesisIdentity: Date] = [:]
     /// Why playback last ended. The fallback client (Apple voice) has
     /// its own `lastStopReason`; the value here reflects whichever
     /// path actually stopped. Barge-in pre-stamps via
@@ -227,10 +245,17 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
     var supportsUtteranceCompletion: Bool { true }
 
     func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws {
+        try await speakUtterance(PaceSpeechRequest(text: text), onStarted: onStarted)
+    }
+
+    func speakUtterance(_ request: PaceSpeechRequest, onStarted: @escaping @MainActor () -> Void) async throws {
         try Task.checkCancellation()
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if request.profile != nil, !configuration.modelIdentifier.lowercased().contains("kokoro") {
+            throw PaceSpeechProfileError.unsupportedBackend
+        }
+        let trimmedText = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
-        let utterance = PendingUtterance(text: trimmedText)
+        let utterance = PendingUtterance(text: trimmedText, profile: request.profile)
         let generation = playbackGeneration
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -304,49 +329,50 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
         fallbackClient.stopPlayback()
     }
 
-    private func synthesizeAudioData(forText text: String) async -> Data? {
+    private func synthesizeAudioData(forText text: String, profile: PaceSpeechProfile?) async -> Data? {
         let synthesisStartedAt = Date()
         let configurationSnapshot = configuration
         let sessionSnapshot = urlSession
+        let synthesisIdentity = configurationSnapshot.synthesisIdentity(profile: profile)
         func auditSynthesis(outcome: String, outputByteCount: Int? = nil) {
             PaceAPIAuditLog.shared.record(
                 subsystem: "tts",
                 operation: "audio.speech",
-                target: "\(configurationSnapshot.modelIdentifier)/\(configurationSnapshot.voiceIdentifier)",
+                target: "\(synthesisIdentity.modelIdentifier)/\(synthesisIdentity.voiceIdentifier)/\(synthesisIdentity.languageCode)",
                 durationMilliseconds: Int(Date().timeIntervalSince(synthesisStartedAt) * 1000),
                 outcome: outcome,
                 inputCharacterCount: text.count,
                 outputCharacterCount: outputByteCount
             )
         }
-        if let serverUnavailableUntil, serverUnavailableUntil > Date() {
+        if let unavailableUntil = serverUnavailableUntil[synthesisIdentity], unavailableUntil > Date() {
             auditSynthesis(outcome: "memoized_unavailable")
-            didDetectSidecarOutageDuringCurrentSession = true
+            if profile == nil { didDetectSidecarOutageDuringCurrentSession = true }
             return nil
         }
-        serverUnavailableUntil = nil
+        serverUnavailableUntil[synthesisIdentity] = nil
         do {
             let (audioData, response) = try await sessionSnapshot.data(
-                for: configurationSnapshot.speechRequest(for: text)
+                for: configurationSnapshot.speechRequest(for: text, profile: profile)
             )
             guard !Task.isCancelled else { return nil }
             guard let httpResponse = response as? HTTPURLResponse,
                   (200..<300).contains(httpResponse.statusCode),
                   !audioData.isEmpty else {
                 auditSynthesis(outcome: "bad_response")
-                didDetectSidecarOutageDuringCurrentSession = true
+                if profile == nil { didDetectSidecarOutageDuringCurrentSession = true }
                 return nil
             }
             auditSynthesis(outcome: "ok", outputByteCount: audioData.count)
             // Successful synthesis — sidecar reachable again.
-            didDetectSidecarOutageDuringCurrentSession = false
-            serverUnavailableUntil = nil
+            if profile == nil { didDetectSidecarOutageDuringCurrentSession = false }
+            serverUnavailableUntil[synthesisIdentity] = nil
             return audioData
         } catch {
             guard !Task.isCancelled else { return nil }
             auditSynthesis(outcome: "transport_error")
-            didDetectSidecarOutageDuringCurrentSession = true
-            serverUnavailableUntil = Date().addingTimeInterval(
+            if profile == nil { didDetectSidecarOutageDuringCurrentSession = true }
+            serverUnavailableUntil[synthesisIdentity] = Date().addingTimeInterval(
                 LocalServerTTSConfiguration.unavailabilityMemoInSeconds
             )
             return nil
@@ -391,7 +417,7 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
 
     private func speakWithKokoroOrSystemFallback(utterance: PendingUtterance, generation: UInt64) async throws {
         for _ in 0..<2 {
-            let audioData = await synthesizeAudioData(forText: utterance.text)
+            let audioData = await synthesizeAudioData(forText: utterance.text, profile: utterance.profile)
             guard isCurrentPlayback(generation) else { throw CancellationError() }
             if let audioData {
                 try await playAudioDataOrFallback(audioData, text: utterance.text, utterance: utterance, generation: generation)
@@ -400,13 +426,13 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
         }
         let (firstHalf, secondHalf) = Self.splitForSynthesisRetry(utterance.text)
         if firstHalf != utterance.text {
-            let firstHalfAudio = await synthesizeAudioData(forText: firstHalf)
+            let firstHalfAudio = await synthesizeAudioData(forText: firstHalf, profile: utterance.profile)
             guard isCurrentPlayback(generation) else { throw CancellationError() }
             if let firstHalfAudio {
                 try await playAudioDataOrFallback(firstHalfAudio, text: firstHalf, utterance: utterance, generation: generation)
                 guard isCurrentPlayback(generation) else { throw CancellationError() }
                 if !secondHalf.isEmpty {
-                    let secondHalfAudio = await synthesizeAudioData(forText: secondHalf)
+                    let secondHalfAudio = await synthesizeAudioData(forText: secondHalf, profile: utterance.profile)
                     guard isCurrentPlayback(generation) else { throw CancellationError() }
                     if let secondHalfAudio {
                         try await playAudioDataOrFallback(secondHalfAudio, text: secondHalf, utterance: utterance, generation: generation)
@@ -423,6 +449,7 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
     private func speakWithSystemFallback(text: String, utterance: PendingUtterance, generation: UInt64) async throws {
         guard isCurrentPlayback(generation) else { throw CancellationError() }
         guard !text.isEmpty else { return }
+        guard utterance.profile == nil else { throw PaceSpeechProfileError.synthesisOrPlaybackFailed }
         try await fallbackClient.speakUtterance(text) { [weak self] in
             guard let self, self.isCurrentPlayback(generation) else { return }
             utterance.onStarted?()
@@ -438,7 +465,7 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
     private static func splitForSynthesisRetry(_ text: String) -> (String, String) {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedText.count > 32 else { return (trimmedText, "") }
-        let punctuationSet = CharacterSet(charactersIn: ".,;:!?—-")
+        let punctuationSet = CharacterSet(charactersIn: ".,;:!?—-。、！？")
         let halfwayCharacterIndex = trimmedText.index(
             trimmedText.startIndex,
             offsetBy: trimmedText.count / 2
@@ -471,7 +498,7 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
     private func playAudioData(_ audioData: Data, utterance: PendingUtterance, generation: UInt64) async throws {
         guard isCurrentPlayback(generation) else { throw CancellationError() }
         guard let player = try? AVAudioPlayer(data: audioData) else {
-            print("🔊 Server TTS: undecodable audio payload — using system voice")
+            print("🔊 Server TTS: undecodable audio payload")
             throw LocalTTSPlaybackError.playbackDidNotStart
         }
         audioPlayer = player

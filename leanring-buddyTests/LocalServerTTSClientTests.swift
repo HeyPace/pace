@@ -129,6 +129,18 @@ struct LocalTTSPlaybackStateTests {
     }
 
 
+    @Test func unsupportedExplicitProfileFailsBeforeNativeSpeechOrOnset() async {
+        let synthesizer = TestSpeechSynthesizer()
+        let client = LocalTTSClient(speechSynthesizer: synthesizer, auditLog: makeAuditLog())
+        var starts = 0
+        do {
+            try await client.speakUtterance(.init(text: "こんにちは。", profile: .japaneseFemale)) { starts += 1 }
+            Issue.record("An unsupported profile must fail rather than choose an English voice.")
+        } catch { #expect(error is PaceSpeechProfileError) }
+        #expect(starts == 0)
+        #expect(synthesizer.utterances.isEmpty)
+    }
+
     @Test func utteranceCompletionIsSpecificAndWaitsBeyondConfirmedStart() async throws {
         let synthesizer = TestSpeechSynthesizer()
         let client = LocalTTSClient(speechSynthesizer: synthesizer, auditLog: makeAuditLog())
@@ -519,6 +531,24 @@ struct LocalServerTTSConfigurationTests {
             )
             #expect(configuration.speed == 1.0, "expected default speed for \(badSpeed)")
         }
+    }
+
+    @Test func japaneseRequestUsesItsOwnVoiceAndLanguageWithoutChangingTheDefault() throws {
+        let configuration = LocalServerTTSConfiguration(configuredBaseURLString: nil, configuredModelIdentifier: nil,
+            configuredVoiceIdentifier: "af_bella", configuredSpeedString: "1.2")
+        let before = try JSONSerialization.jsonObject(with: #require(configuration.speechRequest(for: "hello").httpBody)) as? NSDictionary
+        let japanese = try JSONSerialization.jsonObject(with: #require(configuration.speechRequest(for: "こんにちは。", profile: .japaneseFemale).httpBody)) as? [String: Any]
+        let after = try JSONSerialization.jsonObject(with: #require(configuration.speechRequest(for: "hello").httpBody)) as? NSDictionary
+        #expect(before == after)
+        #expect(before?["voice"] as? String == "af_bella")
+        #expect(before?["lang_code"] == nil)
+        #expect(japanese?["voice"] as? String == "jf_alpha")
+        #expect(japanese?["lang_code"] as? String == "j")
+        #expect(japanese?["speed"] as? Double == 1.2)
+        #expect(configuration.synthesisIdentity(profile: nil) != configuration.synthesisIdentity(profile: .japaneseFemale))
+        let anotherConfiguration = LocalServerTTSConfiguration(configuredBaseURLString: nil, configuredModelIdentifier: "another-model",
+            configuredVoiceIdentifier: "af_bella", configuredSpeedString: "1.3")
+        #expect(configuration.synthesisIdentity(profile: .japaneseFemale) != anotherConfiguration.synthesisIdentity(profile: .japaneseFemale))
     }
 
     @Test func speechRequestCarriesAllFields() async throws {

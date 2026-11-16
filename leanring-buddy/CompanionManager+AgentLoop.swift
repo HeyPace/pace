@@ -1212,7 +1212,7 @@ extension CompanionManager {
                         preflightIssues: preflightIssues
                     )
                     let spokenActionTexts = fastActionParseResult.executionPlan.flattenedActions.compactMap { action -> String? in
-                        if case .speak(let text) = action { return text }
+                        if case .speak(let request) = action { return request.text }
                         return nil
                     }
                     explicitSpeechCompleted = !spokenActionTexts.isEmpty

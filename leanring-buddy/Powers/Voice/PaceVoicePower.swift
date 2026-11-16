@@ -16,14 +16,14 @@ nonisolated enum PaceVoicePower {
         PaceLocalToolDefinition(
             kind: .presentMedia, canonicalName: "present_media", aliases: [],
             schemaExample: #"{"tool":"present_media","assetID":"thank-you-dance","durationSeconds":4}"#,
-            description: "Present a known local media asset for one to thirty seconds without taking focus. Bundled assetID: thank-you-dance, an original animated character. Use explicitly imported IDs only when the caller supplies them as known local assets. Optional motion: none, bob, dance. No URLs or paths.",
+            description: "Present a known local media asset for one to thirty seconds without taking focus. Bundled assetIDs: thank-you-dance, an original animated character; japanese-greeting-woman, an adult anime woman. Use explicitly imported IDs only when the caller supplies them as known local assets. Optional motion: none, bob, dance. No URLs or paths.",
             riskLevel: .appOrSystemMutation, executionSummary: "Shows a bounded local animation.",
             observationSummary: "Reports actual presentation or loading failure.", exampleUtterance: "show the thank you dance"
         ),
         PaceLocalToolDefinition(
             kind: .speak, canonicalName: "speak", aliases: [],
-            schemaExample: #"{"tool":"speak","text":"thank you"}"#,
-            description: "Speak the exact requested text using local speech, up to two thousand characters. Put after present_media to speak while its animation plays; do not duplicate it in spokenText.",
+            schemaExample: #"{"tool":"speak","text":"こんにちは。","profile":"japanese_female"}"#,
+            description: "Speak the exact requested text using local speech, up to two thousand characters. Optional profile: japanese_female for a Japanese female Kokoro voice; omit profile for the configured default voice. Explicit profiles fail if unavailable and never substitute an English voice. Put after present_media to speak while its animation plays; do not duplicate it in spokenText.",
             riskLevel: .appOrSystemMutation, executionSummary: "Speaks requested text locally.",
             observationSummary: "Reports local speech completion.", exampleUtterance: "say thank you"
         ),

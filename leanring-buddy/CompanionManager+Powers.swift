@@ -16,7 +16,8 @@ extension CompanionManager {
             }
             return observation
         }
-        actionExecutor.speakLocalText = { [weak self] text in
+        actionExecutor.speakLocalText = { [weak self] request in
+            let text = request.text
             guard let self, self.managedPowerExecutionIsAuthorized else {
                 return .init(toolName: "speak", summary: "Speech stopped: power authorization changed.", terminalReason: .managedWorkflowUnavailable)
             }
@@ -28,7 +29,7 @@ extension CompanionManager {
                 return .init(toolName: "speak", summary: "This speech backend cannot verify playback completion.", terminalReason: .managedWorkflowUnavailable)
             }
             do {
-                try await self.ttsClient.speakUtterance(text, onStarted: { [weak self] in
+                try await self.ttsClient.speakUtterance(request, onStarted: { [weak self] in
                     guard let self, self.isActiveTurn(turnLease) else { return }
                     let userContext = self.hasRecordedCurrentTurnSpeechUserContext ? "" : (self.activeConversationUserEvent?.text ?? "")
                     let eventIdentifier = self.recordAssistantNarration(text, origin: .assistant,

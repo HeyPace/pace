@@ -8,6 +8,7 @@ import Testing
 struct PacePowerManagerTests {
     final class LocalSpeech: BuddyTTSClient {
         var spokenTexts: [String] = []
+        var requests: [PaceSpeechRequest] = []
         var stopCount = 0
         var isPlaying = false
         var lastStopReason: PaceTTSStopReason = .naturalCompletion
@@ -17,10 +18,14 @@ struct PacePowerManagerTests {
         struct PlaybackFailure: Error {}
         func speakText(_ text: String) async throws { try Task.checkCancellation(); spokenTexts.append(text) }
         func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws {
+            try await speakUtterance(.init(text: text), onStarted: onStarted)
+        }
+        func speakUtterance(_ request: PaceSpeechRequest, onStarted: @escaping @MainActor () -> Void) async throws {
             try Task.checkCancellation()
             utteranceCount += 1
             if utteranceCount == failingUtteranceIndex { throw PlaybackFailure() }
-            spokenTexts.append(text)
+            requests.append(request)
+            spokenTexts.append(request.text)
             onStarted()
         }
         func stopPlayback() { stopCount += 1; isPlaying = false }
@@ -121,6 +126,45 @@ struct PacePowerManagerTests {
         begin("a later unrelated question", manager: manager)
         #expect(persister.events[runUserEventIdentifier]?.deliveryState == .completed)
         #expect(persister.events.values.filter { $0.role == .pace && $0.text == "thank you" }.count == 1)
+    }
+
+    @Test func authoredJapanesePowerPreservesProfileAndRecordsOneLineWithoutGenericCompletionSpeech() async throws {
+        let (root, manager, persister, speech) = try fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        let japaneseText = "こんにちは。会えてうれしいです。ありがとうございます。"
+        let author = Author()
+        author.response = author.response.replacingOccurrences(of: #""text":"thank you""#,
+            with: #""text":"こんにちは。会えてうれしいです。ありがとうございます。","profile":"japanese_female""#)
+        manager.reusableWorkAuthoringPlannerOverride = author
+        begin("create power Thank You", manager: manager)
+        await manager.handlePowerCommand(.create("called Thank You that greets in Japanese"), transcript: "create power Thank You")
+        await manager.currentResponseTask?.value
+        let discovered = await manager.discoverAutomationCatalog()
+        let saved = try #require(discovered.typedDefinitions.first)
+        #expect(saved.steps[1].toolCalls[0].arguments["profile"] == .string("japanese_female"))
+        begin("run power Thank You", manager: manager)
+        let speechCountBeforeRun = speech.spokenTexts.count
+        await manager.handlePowerCommand(.run("Thank You"), transcript: "run power Thank You")
+        await manager.currentResponseTask?.value
+        #expect(Array(speech.spokenTexts.dropFirst(speechCountBeforeRun)) == [japaneseText])
+        #expect(speech.requests.filter { $0.profile == .japaneseFemale } == [.init(text: japaneseText, profile: .japaneseFemale)])
+        #expect(persister.events.values.filter { $0.role == .pace && $0.text == japaneseText }.count == 1)
+    }
+
+    @Test func bothMutePathsPreventJapaneseSynthesisAndHistory() async throws {
+        let (root, manager, persister, speech) = try fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        let request = PaceSpeechRequest(text: "こんにちは。", profile: .japaneseFemale)
+        for muteChat in [false, true] {
+            begin("greet in Japanese", manager: manager)
+            manager.streamingSentenceTTSPipeline.setMutedForCurrentTurn(!muteChat)
+            manager.chatSession.isChatTTSMuted = muteChat
+            let observation = await manager.actionExecutor.speakLocalText?(request)
+            #expect(observation?.terminalReason == .managedWorkflowUnavailable)
+        }
+        #expect(speech.requests.isEmpty)
+        #expect(speech.spokenTexts.isEmpty)
+        #expect(!persister.events.values.contains { $0.role == .pace && $0.text == request.text })
     }
 
     @Test func staleAuthoringReplyCannotSaveAfterItsTurnIsCancelled() async throws {

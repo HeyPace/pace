@@ -805,7 +805,7 @@ final class PaceActionExecutor {
     /// dry-run / unit-test behavior.
     var managedPowerExecutionCheck: (() -> Bool)?
     var presentLocalMedia: ((PaceMediaPresentationRequest) -> PaceActionExecutionObservation)?
-    var speakLocalText: ((String) async -> PaceActionExecutionObservation)?
+    var speakLocalText: ((PaceSpeechRequest) async -> PaceActionExecutionObservation)?
     var executeCodingSession: ((PaceCodingSessionCommand) async -> PaceActionExecutionObservation)?
 
     var startFlowRecordingCallback: (String) -> String = { flowName in
