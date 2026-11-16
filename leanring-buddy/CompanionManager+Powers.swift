@@ -52,6 +52,10 @@ extension CompanionManager {
     func authorizeManagedPower(_ entry: PaceAutomationCatalogEntry, transcript: String) -> Bool {
         let catalog = PaceAutomationCatalog(entries: [entry])
         guard let power = managedPowerStore.list(catalog: catalog).first(where: { $0.reference == entry.reference }) else { return false }
+        if let stateError = power.managementStateError {
+            handleImmediateLocalModeResponse(transcript: transcript, spokenText: stateError, shouldRecordConversationTurn: true)
+            return false
+        }
         guard power.isEnabled else {
             handleImmediateLocalModeResponse(transcript: transcript,
                 spokenText: "\(power.name) is disabled. Say enable power \(power.identifier) first.", shouldRecordConversationTurn: true)
@@ -59,10 +63,7 @@ extension CompanionManager {
         }
         if power.isUserOwned {
             activeManagedPower = power
-        } else if entry.source == .user || entry.source == .program || {
-            guard case .skill(let slug, _) = entry.reference else { return false }
-            return FileManager.default.fileExists(atPath: managedPowerStore.skillDirectoryURL.appendingPathComponent(slug + ".skill.md").path)
-        }() {
+        } else if power.isManagedUserArtifact {
             handleImmediateLocalModeResponse(transcript: transcript,
                 spokenText: "That saved power's artifact is unavailable or unsafe to access, so I didn't run it.", shouldRecordConversationTurn: true)
             return false
@@ -104,7 +105,7 @@ extension CompanionManager {
                 let builtInNames = powers.filter { $0.reference == nil }.map(\.name).joined(separator: ", ")
                 let custom = powers.filter(\.isUserOwned)
                 let installed = powers.filter { $0.reference != nil && !$0.isUserOwned }
-                let customNames = custom.prefix(8).map { $0.name + ($0.isEnabled ? "" : " (disabled)") }.joined(separator: ", ")
+                let customNames = custom.prefix(8).map { $0.name + ($0.managementStateError != nil ? " (settings unreadable)" : ($0.isEnabled ? "" : " (disabled)")) }.joined(separator: ", ")
                 let installedNames = installed.prefix(8).map(\.name).joined(separator: ", ")
                 feedback = "Built-in powers: \(builtInNames)."
                     + (custom.isEmpty ? " No saved custom powers yet." : " Custom powers: \(customNames)\(custom.count > 8 ? ", and \(custom.count - 8) more" : "").")
@@ -112,7 +113,7 @@ extension CompanionManager {
                     + " Say show power followed by an exact name for its steps and controls."
             case .show(let target):
                 let power = try store.resolve(target, catalog: discovered.catalog)
-                feedback = "\(power.name) [\(power.identifier)]. \(try store.contentSummary(power))\n\(power.isEnabled ? "Enabled" : "Disabled"). Available controls: \(power.capabilities)."
+                feedback = "\(power.name) [\(power.identifier)]. \(try store.contentSummary(power))\n\(power.managementStateError ?? (power.isEnabled ? "Enabled" : "Disabled")). Available controls: \(power.capabilities)."
             case .update(let target, let description):
                 let power = try store.resolve(target, catalog: discovered.catalog)
                 _ = try store.validateCurrent(power)

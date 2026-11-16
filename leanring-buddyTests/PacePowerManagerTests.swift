@@ -84,6 +84,7 @@ struct PacePowerManagerTests {
         let discovered = await manager.discoverAutomationCatalog()
         #expect(discovered.typedDefinitions.count == 1)
         begin("run power Thank You", manager: manager)
+        let runUserEventIdentifier = try #require(manager.activeConversationUserEvent?.eventID)
         await manager.handlePowerCommand(.run("Thank You"), transcript: "run power Thank You")
         await manager.currentResponseTask?.value
         #expect(manager.mediaOverlayController.isVisible)
@@ -91,6 +92,10 @@ struct PacePowerManagerTests {
         #expect(persister.events.values.filter { $0.role == .pace && $0.text == "thank you" }.count == 1)
         #expect(!speech.spokenTexts.contains { $0.contains("Spoke the requested") || $0.contains("Presented local media") })
         #expect(author.calls == 1)
+        #expect(persister.events[runUserEventIdentifier]?.deliveryState == .completed)
+        begin("a later unrelated question", manager: manager)
+        #expect(persister.events[runUserEventIdentifier]?.deliveryState == .completed)
+        #expect(persister.events.values.filter { $0.role == .pace && $0.text == "thank you" }.count == 1)
     }
 
     @Test func staleAuthoringReplyCannotSaveAfterItsTurnIsCancelled() async throws {
@@ -192,6 +197,71 @@ struct PacePowerManagerTests {
         #expect(saved.steps[0].toolCalls[0].tool == "present_media")
         #expect(saved.steps[0].toolCalls[0].arguments["assetID"] == .string("thank-you-dance"))
         #expect(saved.steps[1].toolCalls[0].arguments["text"] == .string("welcome"))
+    }
+
+    @Test func malformedSkillUpdatePreservesAllOriginalBytesAndReportsFailure() async throws {
+        let (root, manager, persister, _) = try fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        let skill = try #require(PaceSkillLoader.skillFromForm(name: "Morning Routine", stepsText: "Open Notes\nOpen Safari", trigger: "morning routine", notes: "Keep both steps"))
+        let empty = await manager.discoverAutomationCatalog()
+        _ = try manager.managedPowerStore.commit(.skill(skill), catalog: empty.catalog)
+        let originalURL = manager.managedPowerStore.skillDirectoryURL.appendingPathComponent(skill.slug + ".skill.md")
+        let originalBytes = try Data(contentsOf: originalURL)
+        let author = Author()
+        author.response = "invalid model output"
+        manager.reusableWorkAuthoringPlannerOverride = author
+        begin("update power Morning Routine: replace Safari with Mail", manager: manager)
+        await manager.handlePowerCommand(.update("Morning Routine", "replace Safari with Mail"), transcript: "update power Morning Routine: replace Safari with Mail")
+        await manager.currentResponseTask?.value
+        await manager.currentResponseTask?.value
+        #expect(try Data(contentsOf: originalURL) == originalBytes)
+        #expect(!FileManager.default.fileExists(atPath: manager.managedPowerStore.stateDirectoryURL.appendingPathComponent("revisions").path))
+        #expect(persister.events.values.contains { $0.text.contains("kept the saved power unchanged") })
+    }
+
+    @Test func archiveThenExplicitRecreateRunsAsNewEnabledPower() async throws {
+        let (root, manager, _, speech) = try fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        let author = Author()
+        manager.reusableWorkAuthoringPlannerOverride = author
+        begin("create power Thank You", manager: manager)
+        await manager.handlePowerCommand(.create("called Thank You"), transcript: "create power Thank You")
+        await manager.currentResponseTask?.value
+        begin("disable power Thank You", manager: manager)
+        await manager.handlePowerCommand(.setEnabled("Thank You", false), transcript: "disable power Thank You")
+        await manager.currentResponseTask?.value
+        begin("remove power Thank You", manager: manager)
+        await manager.handlePowerCommand(.remove("Thank You"), transcript: "remove power Thank You")
+        await manager.currentResponseTask?.value
+        begin("create power Thank You again", manager: manager)
+        await manager.handlePowerCommand(.create("called Thank You"), transcript: "create power Thank You again")
+        await manager.currentResponseTask?.value
+        let discovered = await manager.discoverAutomationCatalog()
+        #expect(try manager.managedPowerStore.resolve("Thank You", catalog: discovered.catalog).isEnabled)
+        begin("run power Thank You", manager: manager)
+        await manager.handlePowerCommand(.run("Thank You"), transcript: "run power Thank You")
+        await manager.currentResponseTask?.value
+        #expect(speech.spokenTexts.filter { $0 == "thank you" }.count == 1)
+    }
+
+    @Test func unreadableSettingsExplainCustomBlockWithoutBlockingProtectedWorkflow() async throws {
+        let (root, manager, persister, _) = try fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        let definition = try #require(PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: Author().response))
+        let empty = await manager.discoverAutomationCatalog()
+        _ = try manager.managedPowerStore.commit(.automation(definition), catalog: empty.catalog)
+        try Data("corrupt".utf8).write(to: manager.managedPowerStore.stateDirectoryURL.appendingPathComponent("state.json"))
+        let discovered = await manager.discoverAutomationCatalog()
+        let custom = try #require(discovered.catalog.entries.first)
+        begin("run power Thank You", manager: manager)
+        #expect(!manager.authorizeManagedPower(custom, transcript: "run power Thank You"))
+        await manager.currentResponseTask?.value
+        #expect(persister.events.values.contains { $0.text.contains("Power settings are unreadable") })
+        #expect(!persister.events.values.contains { $0.text.contains("Say enable power") })
+        let bundled = try #require(PaceAutomationDefinitionLibrary.loadBundledDefinitions(allowSourceTreeFallback: true).first { $0.identifier == "thank-you-dance" })
+        let bundledEntry = PaceAutomationCatalog(typedDefinitions: [bundled], recordedFlows: [], skills: [], shortcutNames: []).entries[0]
+        begin("run power Thank You Dance", manager: manager)
+        #expect(manager.authorizeManagedPower(bundledEntry, transcript: "run power Thank You Dance"))
     }
 
 }

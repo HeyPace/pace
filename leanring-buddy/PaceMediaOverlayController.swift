@@ -10,7 +10,7 @@ nonisolated struct PaceMediaPresentationRequest: Equatable, Sendable {
         guard Set(arguments.keys).isSubset(of: ["assetID", "durationSeconds", "motion"]),
               case .string(let assetID)? = arguments["assetID"],
               !assetID.isEmpty, assetID.count <= 80,
-              assetID.range(of: "^[a-z0-9]+(?:-[a-z0-9]+)*$", options: .regularExpression) != nil,
+              PaceManagedPowerStore.safeIdentifier(assetID),
               case .number(let durationSeconds)? = arguments["durationSeconds"],
               durationSeconds.isFinite, (1...30).contains(durationSeconds) else { return nil }
         let motion: String?

@@ -38,6 +38,11 @@ nonisolated enum PacePowerCommandParser {
             guard text.lowercased().hasPrefix(prefix) else { continue }
             let argument = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !argument.isEmpty else { return nil }
+            let normalizedArgument = argument.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".!?"))
+            let systemPowerPhrases = ["nap", "saving", "management", "supply", "consumption", "settings", "mode", "options"]
+            if action != 1 && action != 2 && systemPowerPhrases.contains(where: { normalizedArgument == $0 || normalizedArgument.hasPrefix($0 + " ") }) {
+                return nil
+            }
             switch action {
             case 0: return .show(argument)
             case 1: return .create(argument)
@@ -65,6 +70,8 @@ nonisolated struct PaceManagedPower: Equatable {
     let ownedArtifactURL: URL?
     let fingerprint: String?
     let isEnabled: Bool
+    let isManagedUserArtifact: Bool
+    let managementStateError: String?
     var isUserOwned: Bool { ownedArtifactURL != nil }
     var capabilities: String {
         if isUserOwned { return "read, run, update, enable, disable, archive" }
@@ -79,9 +86,12 @@ nonisolated enum PacePowerDraft {
 }
 
 nonisolated enum PaceManagedPowerError: Error, LocalizedError {
-    case missing, ambiguous([String]), protected, changed, invalid(String), collision
+    case missing, ambiguous([String]), protected, changed, invalid(String), collision, stateUnavailable
+    case archiveRecoveryRequired(String)
     var errorDescription: String? {
         switch self {
+        case .stateUnavailable: return "Power settings are unreadable. Saved custom powers are blocked until their local settings are repaired."
+        case .archiveRecoveryRequired(let path): return "The definition was archived, but settings cleanup failed and it could not be restored. Its recovery copy is at " + path
         case .missing: return "I couldn't find that exact power name or ID. Say list powers first."
         case .ambiguous(let identifiers): return "That name matches multiple powers. Use one exact ID: " + identifiers.joined(separator: ", ")
         case .protected: return "That power is protected. Use its existing settings or provider controls."
@@ -134,6 +144,10 @@ struct PaceManagedPowerStore {
         }
     }
     private func readState() throws -> State {
+        do { return try readStateUnchecked() }
+        catch { throw PaceManagedPowerError.stateUnavailable }
+    }
+    private func readStateUnchecked() throws -> State {
         try validateDirectoryChain(stateDirectoryURL)
         if Self.isSymbolicLink(at: stateURL) {
             throw PaceManagedPowerError.invalid("management state is a symbolic link")
@@ -144,12 +158,21 @@ struct PaceManagedPowerStore {
     func isEnabled(_ identifier: String) -> Bool {
         // Corrupt/unreadable management state must never silently re-enable work.
         guard let state = try? readState() else { return false }
-        return !state.disabledIdentifiers.contains(identifier)
+        return !state.disabledIdentifiers.contains(ownedStateKey(identifier)) && !state.disabledIdentifiers.contains(identifier)
+    }
+    private func ownedStateKey(_ identifier: String) -> String { "owned:" + identifier }
+    private func clearDisabledState(_ identifier: String, in state: inout State) {
+        state.disabledIdentifiers.remove(identifier)
+        state.disabledIdentifiers.remove(ownedStateKey(identifier))
     }
     private func writeState(_ state: State) throws {
         try validateDirectoryChain(stateDirectoryURL)
         try FileManager.default.createDirectory(at: stateDirectoryURL, withIntermediateDirectories: true)
         try JSONEncoder().encode(state).write(to: stateURL, options: .atomic)
+    }
+    nonisolated static func existsWithoutFollowingSymlinks(at url: URL) -> Bool {
+        var information = stat()
+        return lstat(url.path, &information) == 0
     }
     nonisolated static func isSymbolicLink(at url: URL) -> Bool {
         var information = stat()
@@ -163,7 +186,7 @@ struct PaceManagedPowerStore {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
     nonisolated static func safeIdentifier(_ identifier: String) -> Bool {
-        !identifier.isEmpty && identifier.range(of: "^[a-z0-9]+(?:-[a-z0-9]+)*$", options: .regularExpression) != nil
+        !identifier.isEmpty && identifier == PaceFlowStore.slug(for: identifier)
     }
     static func identifier(for entry: PaceAutomationCatalogEntry) -> String {
         switch entry.reference {
@@ -193,18 +216,33 @@ struct PaceManagedPowerStore {
         guard Self.isRegularFileWithoutFollowingSymlinks(at: url) else { return nil }
         return url
     }
+    private func isManagedUserArtifact(_ entry: PaceAutomationCatalogEntry) -> Bool {
+        switch entry.reference {
+        case .typedDefinition: return entry.source == .user
+        case .program: return true
+        case .skill(let slug, _):
+            guard Self.safeIdentifier(slug) else { return false }
+            return Self.existsWithoutFollowingSymlinks(at: skillDirectoryURL.appendingPathComponent(slug + ".skill.md"))
+        default: return false
+        }
+    }
+
     func list(catalog: PaceAutomationCatalog) -> [PaceManagedPower] {
         let compiled = PacePowerCatalog.preinstalled.powers.map {
             PaceManagedPower(identifier: $0.identifier, name: $0.title, summary: $0.summary,
-                reference: nil, ownedArtifactURL: nil, fingerprint: nil, isEnabled: true)
+                reference: nil, ownedArtifactURL: nil, fingerprint: nil, isEnabled: true,
+                isManagedUserArtifact: false, managementStateError: nil)
         }
         return compiled + catalog.entries.map { entry in
             let identifier = Self.identifier(for: entry)
             let artifactURL = artifactURL(for: entry)
+            let requiresOwnedState = isManagedUserArtifact(entry)
+            let stateError = requiresOwnedState && (try? readState()) == nil ? PaceManagedPowerError.stateUnavailable.localizedDescription : nil
             return PaceManagedPower(identifier: identifier, name: entry.name, summary: entry.description,
                 reference: entry.reference, ownedArtifactURL: artifactURL,
                 fingerprint: artifactURL.flatMap { try? Data(contentsOf: $0) }.map(Self.fingerprint),
-                isEnabled: isEnabled(identifier))
+                isEnabled: !requiresOwnedState || isEnabled(identifier),
+                isManagedUserArtifact: requiresOwnedState, managementStateError: stateError)
         }
     }
     func resolve(_ exactNameOrIdentifier: String, catalog: PaceAutomationCatalog) throws -> PaceManagedPower {
@@ -281,7 +319,8 @@ struct PaceManagedPowerStore {
     func setEnabled(_ enabled: Bool, power: PaceManagedPower) throws {
         _ = try validateCurrent(power)
         var state = try readState()
-        if enabled { state.disabledIdentifiers.remove(power.identifier) } else { state.disabledIdentifiers.insert(power.identifier) }
+        if enabled { clearDisabledState(power.identifier, in: &state) }
+        else { state.disabledIdentifiers.insert(ownedStateKey(power.identifier)) }
         try writeState(state)
         audit(enabled ? "enable" : "disable", power.identifier)
     }
@@ -293,10 +332,14 @@ struct PaceManagedPowerStore {
         try validateDirectoryChain(archiveDirectoryURL)
         try FileManager.default.createDirectory(at: archiveDirectoryURL, withIntermediateDirectories: true)
         let archiveURL = archiveDirectoryURL.appendingPathComponent(originalURL.lastPathComponent)
-        // Disable first. If the subsequent move fails, the preserved artifact remains safely disabled.
-        state.disabledIdentifiers.insert(power.identifier)
-        try writeState(state)
         try FileManager.default.moveItem(at: originalURL, to: archiveURL)
+        clearDisabledState(power.identifier, in: &state)
+        do { try writeState(state) }
+        catch {
+            do { try FileManager.default.moveItem(at: archiveURL, to: originalURL) }
+            catch { throw PaceManagedPowerError.archiveRecoveryRequired(archiveURL.path) }
+            throw PaceManagedPowerError.stateUnavailable
+        }
         audit("archive", power.identifier)
         return archiveURL
     }
@@ -364,8 +407,23 @@ struct PaceManagedPowerStore {
             try FileManager.default.createDirectory(at: revisionDirectoryURL, withIntermediateDirectories: true)
             try Data(contentsOf: originalURL).write(to: revisionDirectoryURL.appendingPathComponent(originalURL.lastPathComponent), options: .atomic)
         }
+        let stateForCreate = power == nil ? try readState() : nil
         try FileManager.default.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try encodedData.write(to: destinationURL, options: .atomic)
+        if var state = stateForCreate {
+            let namespace: String
+            switch draft {
+            case .automation: namespace = "automation:"
+            case .program: namespace = "program:"
+            case .skill: namespace = "skill:"
+            }
+            clearDisabledState(namespace + identifier, in: &state)
+            do { try writeState(state) }
+            catch {
+                try? FileManager.default.removeItem(at: destinationURL)
+                throw PaceManagedPowerError.stateUnavailable
+            }
+        }
         audit(power == nil ? "create" : "update", power?.identifier ?? identifier)
         return name
     }

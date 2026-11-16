@@ -1252,8 +1252,9 @@ extension CompanionManager {
             }
 
             guard isActiveTurn(turnLease) else { return }
-            if shouldRecordConversationTurn && !explicitSpeechCompleted {
-                recordConversationTurn(userTranscript: transcript, assistantResponse: completedActionFeedback)
+            if shouldRecordConversationTurn {
+                recordConversationTurn(userTranscript: transcript, assistantResponse: completedActionFeedback,
+                    recordsAssistantEvent: !explicitSpeechCompleted)
             }
             responseOverlayManager.updateStreamingText(completedActionFeedback)
 
@@ -3984,7 +3985,7 @@ extension CompanionManager {
                 return
             }
             guard isActiveTurn(turnLease) else { return }
-            if fallbackSkill == nil {
+            if fallbackSkill == nil && replacingPower == nil {
                 fallbackSkill = PaceSkillLoader.structureSkillDeterministically(
                     from: rawDescription
                 )
@@ -3994,7 +3995,9 @@ extension CompanionManager {
                 handleImmediateLocalModeResponse(
                     transcript: transcript,
                     spokenText:
-                        "i couldn't represent that safely. describe the steps and any trigger phrase more explicitly.",
+                        replacingPower == nil
+                            ? "i couldn't represent that safely. describe the steps and any trigger phrase more explicitly."
+                            : "I couldn't produce a complete updated definition, so I kept the saved power unchanged.",
                     shouldRecordConversationTurn: true
                 )
                 return

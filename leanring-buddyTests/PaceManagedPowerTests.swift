@@ -32,6 +32,9 @@ struct PaceManagedPowerTests {
         #expect(PacePowerCommandParser.parse("Can you create a power called Thank You") == .create("called Thank You"))
         #expect(PacePowerCommandParser.parse("Could you please list powers?") == .list)
         #expect(PacePowerCommandParser.parse("Can you explain how to create a power?") == nil)
+        #expect(PacePowerCommandParser.parse("disable power nap") == nil)
+        #expect(PacePowerCommandParser.parse("show power consumption") == nil)
+        #expect(PacePowerCommandParser.parse("disable power automation:nap") == .setEnabled("automation:nap", false))
         #expect(PacePowerCommandParser.parse("show my powers") == .list)
         #expect(PacePowerCommandParser.parse("create a power called Thank You that says thank you") == .create("called Thank You that says thank you"))
         #expect(PacePowerCommandParser.parse("update power Thank You: say welcome") == .update("Thank You", "say welcome"))
@@ -78,7 +81,7 @@ struct PaceManagedPowerTests {
         #expect(try String(contentsOf: historyURL, encoding: .utf8) == "history")
         #expect(try String(contentsOf: assetURL, encoding: .utf8) == "asset")
         #expect(catalog(store).entries.isEmpty)
-        #expect(!restarted.isEnabled(saved.identifier))
+        #expect(restarted.isEnabled(saved.identifier))
     }
 
     @Test func staleUpdateCannotOverwriteNewerContentAndDoesNotCollideWithItself() throws {
@@ -318,6 +321,89 @@ struct PaceManagedPowerTests {
         let saved = try store.resolve("Thank You", catalog: catalog(store))
         try store.setEnabled(false, power: saved)
         #expect(!store.isEnabled(saved.identifier))
+    }
+
+    @Test func removingUserSkillShadowRestoresBundledAuthorityAndClearsOwnedState() throws {
+        let (root, store) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let user = try #require(PaceSkillLoader.skillFromForm(name: "Daily Ritual", stepsText: "Open Notes", trigger: "daily ritual", notes: nil))
+        _ = try store.commit(.skill(user), catalog: catalog(store))
+        let owned = try store.resolve("skill:daily-ritual", catalog: catalog(store))
+        try store.setEnabled(false, power: owned)
+        _ = try store.archive(owned)
+        let bundled = PaceSkillFile(name: "Daily Ritual", slug: "daily-ritual", description: "Bundled default", category: "bundled", requiredPreferences: [], trigger: "daily ritual",
+            steps: [.init(instruction: "Read the default ritual", toolCall: nil)], notes: nil)
+        let bundledCatalog = PaceAutomationCatalog(typedDefinitions: [], recordedFlows: [], skills: [bundled], shortcutNames: [])
+        let restored = try store.resolve("skill:daily-ritual", catalog: bundledCatalog)
+        #expect(!restored.isUserOwned && !restored.isManagedUserArtifact)
+        #expect(restored.isEnabled && restored.managementStateError == nil)
+        #expect(store.isEnabled(owned.identifier))
+        #expect(throws: PaceManagedPowerError.self) { try store.setEnabled(false, power: restored) }
+    }
+
+    @Test func corruptStateBlocksOnlyManagedUserArtifactsAndReportsTheReason() throws {
+        let (root, store) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try store.commit(.automation(thankYou()), catalog: catalog(store))
+        try Data("corrupt".utf8).write(to: store.stateDirectoryURL.appendingPathComponent("state.json"))
+        let custom = try #require(catalog(store).entries.first)
+        let bundled = PaceAutomationCatalogEntry(name: "Bundled", description: "Bundled default", category: "custom", source: .bundled,
+            executionMode: .deterministicLocal, invocationPhrases: [], reference: .typedDefinition(identifier: "bundled"))
+        let shortcut = PaceAutomationCatalogEntry(name: "Shortcut", description: "Provider owned", category: "custom", source: .shortcuts,
+            executionMode: .externalOpaque, invocationPhrases: [], reference: .shortcut(name: "Shortcut"))
+        let flow = PaceAutomationCatalogEntry(name: "Recorded", description: "Existing replay controls", category: "custom", source: .recordedFlow,
+            executionMode: .deterministicReplay, invocationPhrases: [], reference: .recordedFlow(name: "Recorded"))
+        let entries = store.list(catalog: PaceAutomationCatalog(entries: [custom, bundled, shortcut, flow]))
+        let user = try #require(entries.first { $0.identifier == "automation:thank-you" })
+        #expect(!user.isEnabled && user.managementStateError?.contains("unreadable") == true)
+        #expect(entries.filter { !$0.isManagedUserArtifact }.allSatisfy { $0.isEnabled && $0.managementStateError == nil })
+    }
+
+    @Test func newExplicitCreateClearsOnlyItsOwnLegacyDisabledLifecycle() throws {
+        let (root, store) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: store.stateDirectoryURL, withIntermediateDirectories: true)
+        let legacyState = ["disabledIdentifiers": ["automation:thank-you", "owned:automation:other"]]
+        let stateURL = store.stateDirectoryURL.appendingPathComponent("state.json")
+        try JSONSerialization.data(withJSONObject: legacyState).write(to: stateURL)
+        #expect(!store.isEnabled("automation:thank-you"))
+        #expect(throws: (any Error).self) { try store.commit(.automation(thankYou(identifier: "../bad")), catalog: catalog(store)) }
+        #expect(!store.isEnabled("automation:thank-you"))
+        _ = try store.commit(.automation(thankYou()), catalog: catalog(store))
+        #expect(store.isEnabled("automation:thank-you"))
+        #expect(!store.isEnabled("automation:other"))
+    }
+
+    @Test func canonicalUnicodeAutomationsProgramsAndSkillsRemainLoadableAndManageable() throws {
+        let (root, store) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let identifier = PaceFlowStore.slug(for: "Café Notes")
+        let legacy = thankYou(identifier: identifier, name: "Café Notes")
+        try FileManager.default.createDirectory(at: store.automationDirectoryURL, withIntermediateDirectories: true)
+        try JSONEncoder().encode(legacy).write(to: store.automationDirectoryURL.appendingPathComponent(identifier + ".json"))
+        #expect(PaceUserAutomationStore(directoryURL: store.automationDirectoryURL).listValidDefinitions().map(\.identifier) == [identifier])
+        let saved = try store.resolve("automation:" + identifier, catalog: catalog(store))
+        try store.setEnabled(false, power: saved)
+        try store.setEnabled(true, power: saved)
+        _ = try store.commit(.automation(thankYou("welcome", identifier: identifier, name: "Café Notes")), replacing: saved, catalog: catalog(store))
+        let updated = try store.resolve(saved.identifier, catalog: catalog(store))
+        _ = try store.archive(updated)
+        let skill = try #require(PaceSkillLoader.skillFromForm(name: "中文提醒", stepsText: "Say thank you", trigger: nil, notes: nil))
+        _ = try store.commit(.skill(skill), catalog: catalog(store))
+        let savedSkill = try store.resolve("skill:" + skill.slug, catalog: catalog(store))
+        #expect(savedSkill.isUserOwned)
+        try store.setEnabled(false, power: savedSkill)
+        try store.setEnabled(true, power: savedSkill)
+        _ = try store.archive(savedSkill)
+        let program = PaceProgramDefinition(schemaVersion: 1, identifier: PaceFlowStore.slug(for: "Café Program"), name: "Café Program", description: "Unicode program", category: "custom",
+            invocationPhrases: [], requiredPreferences: [], nodes: [.repeatTimes(count: 1, nodes: [.action(step: thankYou().steps[1])])])
+        _ = try store.commit(.program(program), catalog: catalog(store))
+        let savedProgram = try store.resolve("program:" + program.identifier, catalog: catalog(store))
+        #expect(savedProgram.isUserOwned)
+        _ = try store.archive(savedProgram)
+        for invalidIdentifier in ["../secret", "a/b", "a\\b", ".hidden", "a..b", "a--b", "-a", "a-"] {
+            #expect(!PaceManagedPowerStore.safeIdentifier(invalidIdentifier))
+        }
     }
 
 }
