@@ -106,21 +106,27 @@ extension CompanionManager {
         let store = managedPowerStore
         do {
             let feedback: String
+            var spokenSummary: String? = nil
             switch command {
             case .list:
                 let powers = store.list(catalog: discovered.catalog)
-                let builtInNames = powers.filter { $0.reference == nil }.map(\.name).joined(separator: ", ")
+                let builtIn = powers.filter { $0.reference == nil }
+                let builtInNames = builtIn.map(\.name).joined(separator: ", ")
                 let custom = powers.filter(\.isUserOwned)
                 let installed = powers.filter { $0.reference != nil && !$0.isUserOwned }
                 let customNames = custom.prefix(8).map { $0.name + ($0.managementStateError != nil ? " (settings unreadable)" : ($0.isEnabled ? "" : " (disabled)")) }.joined(separator: ", ")
                 let installedNames = installed.prefix(8).map(\.name).joined(separator: ", ")
-                feedback = "Built-in powers: \(builtInNames)."
+                let countSummary = "\(builtIn.count) built-in powers, \(custom.count) custom \(custom.count == 1 ? "power" : "powers"), \(installed.count) installed \(installed.count == 1 ? "workflow" : "workflows")."
+                spokenSummary = countSummary
+                feedback = countSummary + "\nBuilt-in powers: \(builtInNames)."
                     + (custom.isEmpty ? " No saved custom powers yet." : " Custom powers: \(customNames)\(custom.count > 8 ? ", and \(custom.count - 8) more" : "").")
                     + (installed.isEmpty ? "" : " Other installed workflows: \(installedNames)\(installed.count > 8 ? ", and \(installed.count - 8) more" : "").")
                     + " Say show power followed by an exact name for its steps and controls."
             case .show(let target):
                 let power = try store.resolve(target, catalog: discovered.catalog)
-                feedback = "\(power.name) [\(power.identifier)]. \(try store.contentSummary(power))\n\(power.managementStateError ?? (power.isEnabled ? "Enabled" : "Disabled")). Available controls: \(power.capabilities)."
+                let stateSummary = power.managementStateError ?? "\(power.name) is \(power.isEnabled ? "enabled" : "disabled"); its steps are in chat."
+                spokenSummary = stateSummary
+                feedback = stateSummary + "\n\(power.name) [\(power.identifier)]. \(try store.contentSummary(power))\nAvailable controls: \(power.capabilities)."
             case .update(let target, let description):
                 let power = try store.resolve(target, catalog: discovered.catalog)
                 _ = try store.validateCurrent(power)
@@ -147,7 +153,8 @@ extension CompanionManager {
                 return
             case .create, .dismissMedia, .importMedia: return
             }
-            handleImmediateLocalModeResponse(transcript: transcript, spokenText: feedback, shouldRecordConversationTurn: true)
+            handleImmediateLocalModeResponse(transcript: transcript, spokenText: feedback, shouldRecordConversationTurn: true,
+                spokenSummary: spokenSummary)
         } catch {
             handleImmediateLocalModeResponse(transcript: transcript, spokenText: error.localizedDescription, shouldRecordConversationTurn: true)
         }

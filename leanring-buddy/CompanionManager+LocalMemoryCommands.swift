@@ -505,7 +505,8 @@ extension CompanionManager {
     func handleImmediateLocalModeResponse(
         transcript: String,
         spokenText: String,
-        shouldRecordConversationTurn: Bool = true
+        shouldRecordConversationTurn: Bool = true,
+        spokenSummary: String? = nil
     ) {
         currentTurnHUDState = .done(spokenText)
         if shouldRecordConversationTurn {
@@ -515,7 +516,7 @@ extension CompanionManager {
         responseOverlayManager.updateStreamingText(spokenText)
         currentResponseTask = Task {
             voiceState = .responding
-            await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
+            await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenSummary ?? spokenText)
             while ttsClient.isPlaying {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }

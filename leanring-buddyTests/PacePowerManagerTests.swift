@@ -91,6 +91,8 @@ struct PacePowerManagerTests {
 
     func begin(_ transcript: String, manager: CompanionManager) {
         manager.cancelActiveTurnTasks()
+        manager.ttsClient.stopPlayback()
+        manager.streamingSentenceTTSPipeline.resetForNewTurn()
         manager.beginConversationRequest(transcript)
         _ = manager.turnLeaseRegistry.beginTurn()
     }
@@ -386,6 +388,51 @@ struct PacePowerManagerTests {
         #expect(manager.activeConversationAssistantEventIdentifier == currentAssistantEventIdentifier)
         #expect(manager.hasRecordedCurrentTurnSpeechUserContext)
         #expect(manager.turnLeaseRegistry.currentLease == currentLease)
+    }
+
+    @Test func listingPowersSpeaksOnlyCountsWhileKeepingWrittenNamesAndDefaultFeedback() async throws {
+        let (root, manager, persister, speech) = try fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        let definition = try #require(PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: Author().response))
+        _ = try manager.managedPowerStore.commit(.automation(definition), catalog: (await manager.discoverAutomationCatalog()).catalog)
+        begin("list powers", manager: manager)
+        await manager.handlePowerCommand(.list, transcript: "list powers")
+        await manager.currentResponseTask?.value
+        let summary = "11 built-in powers, 1 custom power, 0 installed workflows."
+        #expect(speech.spokenTexts == [summary])
+        let written = try #require(persister.events.values.first { $0.role == .pace && $0.text.hasPrefix(summary) })
+        #expect(written.text.contains("Built-in powers: Text, Voice"))
+        #expect(written.text.contains("Custom powers: Thank You"))
+        #expect(written.text.components(separatedBy: summary).count == 2)
+        begin("show power Thank You", manager: manager)
+        await manager.handlePowerCommand(.show("Thank You"), transcript: "show power Thank You")
+        await manager.currentResponseTask?.value
+        let showSummary = "Thank You is enabled; its steps are in chat."
+        #expect(speech.spokenTexts.last == showSummary)
+        let shown = try #require(persister.events.values.first { $0.role == .pace && $0.text.hasPrefix(showSummary) })
+        #expect(shown.text.contains("thank-you-dance"))
+        #expect(shown.text.contains("Speak: thank you"))
+        #expect(shown.text.components(separatedBy: showSummary).count == 2)
+        begin("a normal local command", manager: manager)
+        manager.handleImmediateLocalModeResponse(transcript: "a normal local command", spokenText: "The default reply stays complete.")
+        await manager.currentResponseTask?.value
+        #expect(speech.spokenTexts.last == "The default reply stays complete.")
+    }
+
+    @Test func showingPowerWithCorruptStateSpeaksTheActualSettingsError() async throws {
+        let (root, manager, persister, speech) = try fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        let definition = try #require(PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: Author().response))
+        _ = try manager.managedPowerStore.commit(.automation(definition), catalog: (await manager.discoverAutomationCatalog()).catalog)
+        try Data("corrupt".utf8).write(to: manager.managedPowerStore.stateDirectoryURL.appendingPathComponent("state.json"))
+        begin("show power Thank You", manager: manager)
+        await manager.handlePowerCommand(.show("Thank You"), transcript: "show power Thank You")
+        await manager.currentResponseTask?.value
+        let stateError = PaceManagedPowerError.stateUnavailable.localizedDescription
+        #expect(speech.spokenTexts.joined(separator: " ") == stateError)
+        let written = try #require(persister.events.values.first { $0.role == .pace && $0.text.hasPrefix(stateError) })
+        #expect(written.text.contains("Speak: thank you"))
+        #expect(written.text.components(separatedBy: stateError).count == 2)
     }
 
 }
