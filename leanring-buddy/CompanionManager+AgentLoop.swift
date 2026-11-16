@@ -1441,6 +1441,7 @@ extension CompanionManager {
         wakeWordListeningWindowReleaseTask = nil
         buddyDictationManager.cancelCurrentDictation(preserveDraftText: false)
         globalPushToTalkShortcutMonitor.discardSimulatedPress()
+        currentDictationTrigger = .keyboard
         finishCaptureTranscriptFeedback()
         liveSpeechDraft = ""
         responseOverlayManager.setListeningForAudio(false)
@@ -1470,20 +1471,23 @@ extension CompanionManager {
         stopExplanationResponse()
     }
 
-    func handleVisualExplanationDismissal(ownedTurnLease: PaceTurnLease?) {
-        guard let ownedTurnLease, turnLeaseRegistry.isCurrent(ownedTurnLease),
+    func handleVisualExplanationDismissal(ownedTurnLease: PaceTurnLease?, ownedRequestIdentifiers: Set<String> = []) {
+        cancelQueuedChatTurns(eventIdentifiers: ownedRequestIdentifiers)
+        let ownsActiveRequest = activeConversationUserEvent.map { ownedRequestIdentifiers.contains($0.eventID) } ?? false
+        let ownsCurrentLease = ownedTurnLease.map(turnLeaseRegistry.isCurrent) ?? false
+        guard ownsActiveRequest || ownsCurrentLease,
               !buddyDictationManager.isDictationInProgress,
               pendingKeyboardShortcutStartTask == nil, voiceState != .listening else { return }
-        stopExplanationResponse()
+        stopExplanationResponse(clearsQueuedTurns: false)
     }
 
-    private func stopExplanationResponse() {
+    private func stopExplanationResponse(clearsQueuedTurns: Bool = true) {
         dismissCodingApprovals()
         streamingSentenceTTSPipeline.stopForUserDismissal()
         ossCommandSpeechClient?.stopPlayback()
         queuedChatTurnDrainTask?.cancel()
         queuedChatTurnDrainTask = nil
-        clearQueuedChatTurns()
+        if clearsQueuedTurns { clearQueuedChatTurns() }
         // Preserve the visible prefix in history before retiring its live mirror.
         cancelActiveTurnTasks()
         streamingSentenceTTSPipeline.finalizeInFlightStreamedTextForTurn()

@@ -87,6 +87,12 @@ struct PaceJapanesePracticeContractTests {
         for request in ["音楽をかけて。", "音楽かけてくれる？", "音楽をかけてください。", "明日の朝にリマインドして。", "リマインドしてくださいね。"] {
             #expect(decide(request) == .normalRouting)
         }
+        for ending in ["くれない", "くれませんか", "もらえる", "もらえない", "もらえませんか", "よ", "ちょうだい", "欲しい", "欲しいです", "お願いします"] {
+            #expect(decide("音楽をかけて" + ending + "？") == .normalRouting)
+            #expect(decide("リマインドして" + ending + "。") == .normalRouting)
+        }
+        #expect(decide("音楽をかけて。ありがとう。") == .normalRouting)
+        #expect(decide("リマインドしてもらえる？よろしく。") == .normalRouting)
         #expect(decide("今日はお茶を飲みました。") == .textOnlyConversation)
         #expect(decide(greeting, mode: .standard) == .normalRouting)
         #expect(decide(greeting, suggestion: true) == .normalRouting)

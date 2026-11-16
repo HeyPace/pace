@@ -184,6 +184,14 @@ extension CompanionManager {
         sendTranscriptToPlannerWithScreenshot(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
     }
 
+    func cancelQueuedChatTurns(eventIdentifiers: Set<String>) {
+        let removedTurns = chatTurnQueue.removeTurns(eventIdentifiers: eventIdentifiers)
+        queuedChatTurnCount = chatTurnQueue.count
+        for eventIdentifier in removedTurns.compactMap(\.optimisticMessageIdentifier) {
+            conversationRecorder.updateDeliveryState(.cancelled, eventIdentifier: eventIdentifier)
+        }
+    }
+
     func clearQueuedChatTurns() {
         let optimisticMessageIdentifiers = chatTurnQueue.pendingTurns.compactMap(
             \.optimisticMessageIdentifier
@@ -226,6 +234,7 @@ extension CompanionManager {
 
     func bindVisualExplanationCallbacks() {
         var diagramPresentationTurnLease: PaceTurnLease?
+        var diagramRequestIdentifiers: Set<String> = []
         var imageGenerationTurnLease: PaceTurnLease?
         annotationOverlayController.onActiveAnnotationsPresenceChanged = { [weak self] annotationsArePresent in
             guard let self else { return }
@@ -245,7 +254,9 @@ extension CompanionManager {
             }
         }
         diagramOverlayController.onUserDismissed = { [weak self] in
-            self?.handleVisualExplanationDismissal(ownedTurnLease: diagramPresentationTurnLease)
+            self?.handleVisualExplanationDismissal(ownedTurnLease: diagramPresentationTurnLease,
+                ownedRequestIdentifiers: diagramRequestIdentifiers)
+            diagramRequestIdentifiers.removeAll()
         }
         imageOverlayController.onUserDismissed = { [weak self] in
             self?.handleVisualExplanationDismissal(ownedTurnLease: imageGenerationTurnLease)
@@ -275,7 +286,10 @@ extension CompanionManager {
         }
         diagramOverlayController.onPlayLessonRequested = { [weak self] in self?.playTeachingLessonFromControls() }
         diagramOverlayController.onAskAboutPart = { [weak self] transcript in
-            self?.submitChatTranscriptFromDeepLink(transcript)
+            guard let self else { return }
+            let eventIdentifier = UUID().uuidString
+            diagramRequestIdentifiers.insert(eventIdentifier)
+            self.submitChatTranscript(transcript, optimisticMessageIdentifier: eventIdentifier)
         }
     }
 

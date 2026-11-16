@@ -251,7 +251,16 @@ struct PaceConversationRecorderTests {
         #expect(responseTask.isCancelled)
         #expect(manager.voiceState == .idle && client.stopCount == 1)
         manager.imageOverlayController.dismiss(intent: .userInitiated)
-        #expect(client.stopCount == 2)
+        #expect(client.stopCount == 1)
+
+        let imageLease = manager.turnLeaseRegistry.beginTurn()
+        let imageResponseTask = Task<Void, Never> {}
+        manager.currentResponseTask = imageResponseTask
+        manager.voiceState = .responding
+        manager.imageOverlayController.onWillGenerate?()
+        manager.imageOverlayController.dismiss(intent: .userInitiated)
+        #expect(imageResponseTask.isCancelled && !manager.turnLeaseRegistry.isCurrent(imageLease))
+        #expect(manager.voiceState == .idle && client.stopCount == 2)
     }
 
     @Test func presentingAnnotationsAutomaticallyHidesChatWithoutStoppingSpeech() async throws {

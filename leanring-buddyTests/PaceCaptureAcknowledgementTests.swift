@@ -271,37 +271,45 @@ struct PaceCaptureAcknowledgementTests {
             if case .pressed = transition { pressCount += 1 }
         }
         defer { transitionObserver.cancel(); shortcutMonitor.discardSimulatedPress() }
-        for closesSurface in [false, true] {
-            let precedingPressCount = pressCount
-            shortcutMonitor.simulateShortcutPressed()
-            #expect(shortcutMonitor.isSimulatedPressActive && pressCount == precedingPressCount + 1)
-            manager.voiceState = .processing
-            manager.liveSpeechDraft = "uncommitted voice words"
-            manager.lastPartialTranscriptFromActiveDictation = "open Music"
-            manager.transcriptArrivedSinceRelease = false
-            manager.scheduleTranscriptSafetyFallback()
-            let safetyTask = try #require(manager.transcriptSafetyTask)
-            let pendingStartTask = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
-            manager.pendingKeyboardShortcutStartTask = pendingStartTask
-            let wakeReleaseTask = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
-            manager.wakeWordListeningWindowReleaseTask = wakeReleaseTask
-            if closesSurface { manager.handleExplanationDismissal(.userInitiated) }
-            else { manager.cancelCurrentTurnFromPanel() }
-            await safetyTask.value
-            await pendingStartTask.value
-            await wakeReleaseTask.value
-            #expect(wakeReleaseTask.isCancelled && manager.wakeWordListeningWindowReleaseTask == nil)
-            #expect(!shortcutMonitor.isSimulatedPressActive && !shortcutMonitor.isShortcutCurrentlyPressed)
-            #expect(safetyTask.isCancelled && pendingStartTask.isCancelled)
-            #expect(manager.transcriptSafetyTask == nil && manager.pendingKeyboardShortcutStartTask == nil)
-            #expect(manager.transcriptArrivedSinceRelease && manager.lastPartialTranscriptFromActiveDictation == nil)
-            #expect(manager.liveSpeechDraft.isEmpty && manager.voiceState == .idle)
-            #expect(manager.chatSession.messages == originalMessages && persister.events.count == originalEventCount)
-            #expect(manager.chatSession.draftMessageText == "Keep this typed draft" && planner.calls == 0)
-            manager.beginListeningFromDeepLink()
-            #expect(shortcutMonitor.isSimulatedPressActive && shortcutMonitor.isShortcutCurrentlyPressed)
-            #expect(pressCount == precedingPressCount + 2)
-            shortcutMonitor.discardSimulatedPress()
+        for trigger in [CompanionManager.DictationTrigger.avatar, .microphoneButton, .wakeWord, .bargeIn] {
+            for closesSurface in [false, true] {
+                manager.currentDictationTrigger = trigger
+                let precedingPressCount = pressCount
+                shortcutMonitor.simulateShortcutPressed()
+                #expect(shortcutMonitor.isSimulatedPressActive && pressCount == precedingPressCount + 1)
+                manager.voiceState = .processing
+                manager.liveSpeechDraft = "uncommitted voice words"
+                manager.lastPartialTranscriptFromActiveDictation = "open Music"
+                manager.transcriptArrivedSinceRelease = false
+                manager.scheduleTranscriptSafetyFallback()
+                let safetyTask = try #require(manager.transcriptSafetyTask)
+                let pendingStartTask = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
+                manager.pendingKeyboardShortcutStartTask = pendingStartTask
+                let wakeReleaseTask = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
+                manager.wakeWordListeningWindowReleaseTask = wakeReleaseTask
+                if closesSurface { manager.handleExplanationDismissal(.userInitiated) }
+                else { manager.cancelCurrentTurnFromPanel() }
+                await safetyTask.value
+                await pendingStartTask.value
+                await wakeReleaseTask.value
+                #expect(wakeReleaseTask.isCancelled && manager.wakeWordListeningWindowReleaseTask == nil)
+                #expect(!shortcutMonitor.isSimulatedPressActive && !shortcutMonitor.isShortcutCurrentlyPressed)
+                #expect(safetyTask.isCancelled && pendingStartTask.isCancelled)
+                #expect(manager.transcriptSafetyTask == nil && manager.pendingKeyboardShortcutStartTask == nil)
+                #expect(manager.transcriptArrivedSinceRelease && manager.lastPartialTranscriptFromActiveDictation == nil)
+                #expect(manager.liveSpeechDraft.isEmpty && manager.voiceState == .idle)
+                #expect(manager.currentDictationTrigger.captureMode == .pushToTalk)
+                switch manager.currentDictationTrigger {
+                case .keyboard: break
+                default: Issue.record("Explicit capture teardown must restore the keyboard trigger.")
+                }
+                #expect(manager.chatSession.messages == originalMessages && persister.events.count == originalEventCount)
+                #expect(manager.chatSession.draftMessageText == "Keep this typed draft" && planner.calls == 0)
+                manager.beginListeningFromDeepLink()
+                #expect(shortcutMonitor.isSimulatedPressActive && shortcutMonitor.isShortcutCurrentlyPressed)
+                #expect(pressCount == precedingPressCount + 2)
+                shortcutMonitor.discardSimulatedPress()
+            }
         }
     }
 
@@ -347,6 +355,67 @@ struct PaceCaptureAcknowledgementTests {
             #expect(ownedReplyTask.isCancelled && manager.voiceState == .idle)
             #expect(speech.stopCount > precedingStopCount && persister.events.isEmpty)
         }
+    }
+
+    @Test func diagramFollowupCloseOwnsImmediateAndDrainedRequestsButPreservesUnrelatedQueue() async throws {
+        let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
+        defer { manager.cancelCurrentTurnFromPanel(); manager.clearQueuedChatTurns(); try? FileManager.default.removeItem(at: root) }
+        let planner = RecordingPlanner()
+        manager.plannerClient = planner
+        manager.textOnlyPlannerClient = planner
+        manager.intentClassifier = PaceRuleBasedIntentClassifierAdapter(classifier: PaceIntentClassifier())
+        manager.activePlannerTier = .local
+        manager.isOverlayVisible = true
+        manager.fastEverydayAnswersEnabled = false
+        manager.useLocalVLMForScreenContext = false
+        manager.actionExecutor = PaceActionExecutor(actionsAreEnabledOverride: false)
+        for startsQueued in [false, true] {
+            _ = manager.turnLeaseRegistry.beginTurn()
+            manager.diagramOverlayController.onDidPresent?()
+            manager.voiceState = startsQueued ? .responding : .idle
+            manager.diagramOverlayController.onAskAboutPart?("Explain this selected part")
+            if startsQueued {
+                #expect(manager.chatTurnQueue.count == 1)
+                manager.voiceState = .idle
+                manager.drainNextQueuedChatTurnIfPossible()
+            }
+            let ownedEventIdentifier = try #require(manager.activeConversationUserEvent?.eventID)
+            let dispatchTask = try #require(manager.currentTurnDispatchTask)
+            manager.submitChatTranscriptFromDeepLink("An unrelated queued question")
+            let unrelatedIdentifier = try #require(manager.chatTurnQueue.pendingTurns.first?.optimisticMessageIdentifier)
+            manager.diagramOverlayController.dismiss(intent: .userInitiated)
+            await dispatchTask.value
+            #expect(dispatchTask.isCancelled && manager.voiceState == .idle)
+            #expect(persister.events[ownedEventIdentifier]?.deliveryState == .cancelled)
+            #expect(manager.chatTurnQueue.pendingTurns.compactMap(\.optimisticMessageIdentifier) == [unrelatedIdentifier])
+            #expect(persister.events[unrelatedIdentifier]?.deliveryState != .cancelled)
+            manager.clearQueuedChatTurns()
+        }
+        #expect(planner.calls == 0)
+    }
+
+    @Test func closingDiagramRemovesOnlyItsQueuedFollowupWithoutCancellingUnrelatedResponse() async throws {
+        let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
+        defer { manager.cancelCurrentTurnFromPanel(); manager.clearQueuedChatTurns(); try? FileManager.default.removeItem(at: root) }
+        _ = manager.turnLeaseRegistry.beginTurn()
+        manager.diagramOverlayController.onDidPresent?()
+        manager.beginConversationRequest("Unrelated current answer")
+        let unrelatedLease = manager.turnLeaseRegistry.beginTurn()
+        let unrelatedResponse = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
+        manager.currentResponseTask = unrelatedResponse
+        manager.voiceState = .responding
+        manager.diagramOverlayController.onAskAboutPart?("Explain this selected part")
+        let diagramIdentifier = try #require(manager.chatTurnQueue.pendingTurns.first?.optimisticMessageIdentifier)
+        manager.submitChatTranscriptFromDeepLink("Keep this unrelated queued question")
+        let unrelatedQueuedIdentifier = try #require(manager.chatTurnQueue.pendingTurns.last?.optimisticMessageIdentifier)
+        manager.diagramOverlayController.dismiss(intent: .userInitiated)
+        #expect(!unrelatedResponse.isCancelled && manager.voiceState == .responding)
+        #expect(manager.turnLeaseRegistry.isCurrent(unrelatedLease))
+        #expect(manager.chatTurnQueue.pendingTurns.compactMap(\.optimisticMessageIdentifier) == [unrelatedQueuedIdentifier])
+        #expect(persister.events[diagramIdentifier]?.deliveryState == .cancelled)
+        #expect(persister.events[unrelatedQueuedIdentifier]?.deliveryState != .cancelled)
+        manager.cancelCurrentTurnFromPanel()
+        await unrelatedResponse.value
     }
 
     @Test func cancellingOldFinalizationTimerCannotOverwriteNextCaptureFeedback() async throws {

@@ -65,11 +65,18 @@ enum PaceJapanesePracticeRouting {
             "明るさ", "消して", "切り替え", "戻して", "操作", "マウス", "キーボード", "カーソル",
             "リンク", "ウェブ", "サイト", "スクショ",
         ]
-        let requestText = normalizedTranscript.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+        let requestSentences = normalizedTranscript.components(separatedBy: CharacterSet(charactersIn: "。！？!?.\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters)) }
         let operationRequests = ["音楽をかけて", "音楽かけて", "リマインドして"]
-        let politeEndings = ["", "ください", "下さい", "くださいね", "くれる", "くれますか", "もらえますか", "ほしい", "ほしいです", "ね"]
-        let hasOperationRequest = operationRequests.contains { request in
-            politeEndings.contains { requestText.hasSuffix(request + $0) }
+        let politeEndings = [
+            "", "ください", "下さい", "くださいね", "くれる", "くれますか", "くれない", "くれませんか",
+            "もらえる", "もらえない", "もらえますか", "もらえませんか", "ほしい", "ほしいです",
+            "欲しい", "欲しいです", "ね", "よ", "ちょうだい", "お願いします",
+        ]
+        let hasOperationRequest = requestSentences.contains { sentence in
+            operationRequests.contains { request in
+                politeEndings.contains { sentence.hasSuffix(request + $0) }
+            }
         }
         guard !hasOperationRequest, words.isDisjoint(with: computerWords),
               !japaneseComputerCues.contains(where: normalizedTranscript.contains),

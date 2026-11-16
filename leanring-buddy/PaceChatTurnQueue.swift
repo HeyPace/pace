@@ -51,6 +51,16 @@ struct PaceChatTurnQueue {
         return pendingTurns.removeFirst()
     }
 
+    mutating func removeTurns(eventIdentifiers: Set<String>) -> [PaceQueuedChatTurn] {
+        let removedTurns = pendingTurns.filter { turn in
+            turn.optimisticMessageIdentifier.map(eventIdentifiers.contains) ?? false
+        }
+        pendingTurns.removeAll { turn in
+            turn.optimisticMessageIdentifier.map(eventIdentifiers.contains) ?? false
+        }
+        return removedTurns
+    }
+
     mutating func removeAll() {
         pendingTurns.removeAll(keepingCapacity: true)
     }
