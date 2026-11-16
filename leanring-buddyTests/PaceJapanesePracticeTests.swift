@@ -268,6 +268,9 @@ struct PaceJapanesePracticeManagerTests {
         let delivered = await manager.beginFinalSpeechIfCurrentTurn(
             spokenText: "あいさつを表示します。", turnLease: lease, purpose: .assistantReply)
         #expect(delivered && speech.spokenTexts == ["あいさつを表示します。"])
+        let japaneseReplayRequest = PaceSpeechRequest(text: "あいさつを表示します。", profile: .japaneseFemale,
+            englishSubtitle: "I’ll show the greeting.")
+        #expect(manager.lastSpokenReplyRequest == japaneseReplayRequest)
         let feedback = try #require(PaceActionExecutionObservation.formatForUserFeedback([
             .init(toolName: "present_media", summary: "Presented local media fixture.",
                 userFacingSummary: "Presented the requested local media.")]))
@@ -281,13 +284,12 @@ struct PaceJapanesePracticeManagerTests {
         for (writtenFeedback, expectedHUD) in cases {
             manager.currentTurnHUDState = expectedHUD
             manager.voiceState = .processing
-            manager.recordConversationTurn(userTranscript: "", assistantResponse: writtenFeedback)
             let eventCount = persister.events.count
-            let continued = await manager.beginFinalSpeechIfCurrentTurn(
-                spokenText: writtenFeedback, turnLease: lease, purpose: .operationalFeedback)
+            let continued = await manager.deliverPostActionFeedbackIfCurrentTurn(writtenFeedback, turnLease: lease)
             #expect(continued && manager.currentTurnHUDState == expectedHUD)
-            #expect(manager.voiceState == .processing && persister.events.count == eventCount)
+            #expect(manager.voiceState == .processing && persister.events.count == eventCount + 1)
             #expect(speech.spokenTexts == ["あいさつを表示します。"])
+            #expect(manager.lastSpokenReplyRequest == japaneseReplayRequest)
         }
         #expect(!persister.events.values.contains { $0.origin == .failure })
         await manager.deliverCodingForegroundReply("Coding session stopped before completing the request.",
@@ -299,9 +301,14 @@ struct PaceJapanesePracticeManagerTests {
 
         manager.conversationLanguageMode = .standard
         PacePowerManagerTests().begin("Back to normal", manager: manager)
-        let standardDelivered = await manager.beginFinalSpeechIfCurrentTurn(spokenText: feedback,
-            turnLease: manager.turnLeaseRegistry.currentLease, purpose: .operationalFeedback)
+        let standardDelivered = await manager.deliverPostActionFeedbackIfCurrentTurn(feedback,
+            turnLease: manager.turnLeaseRegistry.currentLease)
         #expect(standardDelivered && speech.spokenTexts.last == feedback)
+        #expect(manager.lastSpokenReplyRequest == PaceSpeechRequest(text: feedback))
+        manager.voiceState = .idle
+        manager.replayLastSpokenReply()
+        await manager.currentResponseTask?.value
+        #expect(Array(speech.spokenTexts.suffix(2)) == [feedback, feedback])
     }
 
     @Test(.timeLimit(.minutes(1))) func unsupportedTypedPracticeCommandReturnsIdleAndDrainsTheFollowingQueuedTurn() async throws {

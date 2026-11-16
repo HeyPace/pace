@@ -1470,6 +1470,15 @@ extension CompanionManager {
         currentTurnHUDState = .idle
     }
 
+    func deliverPostActionFeedbackIfCurrentTurn(_ feedback: String, turnLease: PaceTurnLease) async -> Bool {
+        guard isActiveTurn(turnLease) else { return false }
+        recordConversationTurn(userTranscript: "", assistantResponse: feedback)
+        if activeConversationLanguageMode == .standard { noteLastSpokenReply(feedback) }
+        responseOverlayManager.updateStreamingText(feedback)
+        return await beginFinalSpeechIfCurrentTurn(
+            spokenText: feedback, turnLease: turnLease, purpose: .operationalFeedback)
+    }
+
     func beginFinalSpeechIfCurrentTurn(
         spokenText: String, turnLease: PaceTurnLease, purpose: PaceFinalSpeechDeliveryPurpose
     ) async -> Bool {
@@ -3188,10 +3197,8 @@ extension CompanionManager {
                     !pendingPostActionFeedbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                     !Task.isCancelled
                 {
-                    recordConversationTurn(userTranscript: "", assistantResponse: pendingPostActionFeedbackText)
-                    noteLastSpokenReply(pendingPostActionFeedbackText)
-                    responseOverlayManager.updateStreamingText(pendingPostActionFeedbackText)
-                    guard await beginFinalSpeechIfCurrentTurn(spokenText: pendingPostActionFeedbackText, turnLease: turnLease, purpose: .operationalFeedback) else { return }
+                    guard await deliverPostActionFeedbackIfCurrentTurn(
+                        pendingPostActionFeedbackText, turnLease: turnLease) else { return }
                 }
                 if currentTurnHUDState.status == .understanding
                     || currentTurnHUDState.status == .acting
