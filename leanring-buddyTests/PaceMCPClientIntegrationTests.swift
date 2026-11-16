@@ -85,11 +85,14 @@ private enum PaceMCPFixture {
         ])
     }
 
-    static func makeWindowInventoryClient(paddingSizes: [Int], failingProcessIdentifier: Int32 = 0) -> PaceMCPStdioClient {
+    static func makeWindowInventoryClient(
+        paddingSizes: [Int], failingProcessIdentifier: Int32 = 0, diagnosticPaddingSize: Int = 0
+    ) -> PaceMCPStdioClient {
         let program = #"""
             import json, sys
             sizes = [int(size) for size in sys.argv[1].split(",")]
             failing_pid = int(sys.argv[2])
+            diagnostic_padding = int(sys.argv[3])
             calls = []
             for line in sys.stdin:
                 request = json.loads(line)
@@ -106,7 +109,9 @@ private enum PaceMCPFixture {
                         calls.append(args)
                         target = args.get("app", "")
                         if target == "Google Chrome":
-                            text = "Multiple apps match 'Google Chrome'. Did you mean: " + ", ".join("PID:" + str((index + 1) * 111) for index in range(len(sizes))) + "?"
+                            reported = ["PID:" + str((index + 1) * 111) for index in range(len(sizes))]
+                            reported[-1] = "x" * diagnostic_padding + " " + reported[-1]
+                            text = "Multiple apps match 'Google Chrome'. Did you mean: " + ", ".join(reported) + "?"
                             result = {"isError": True, "content": [{"type": "text", "text": text}]}
                         elif "include_window_details" in args and args["include_window_details"] != ["ids"]:
                             result = {"isError": True, "content": [{"type": "text", "text": "invalid array detail mode"}]}
@@ -121,7 +126,7 @@ private enum PaceMCPFixture {
         return PaceMCPStdioClient(serverConfigurations: [
             "peekaboo": .init(command: pythonThreeExecutablePath ?? "python3",
                 args: ["-u", "-c", program, paddingSizes.map { String($0) }.joined(separator: ","),
-                    String(failingProcessIdentifier), UUID().uuidString])
+                    String(failingProcessIdentifier), String(diagnosticPaddingSize), UUID().uuidString])
         ])
     }
 }
@@ -578,12 +583,58 @@ struct PaceMCPClientIntegrationTests {
             if paddingSizes.first == 8_000 {
                 #expect(result.summary.contains("[inventory text truncated; request a precise current window if more evidence is needed]"))
                 #expect(history.formattedForPlanner.contains("[inventory text truncated; request a precise current window if more evidence is needed]"))
+                for processIdentifier in [222, 333, 444] {
+                    #expect(result.summary.contains("Window inventory for PID:\(processIdentifier)"))
+                    #expect(result.summary.contains("END PID:\(processIdentifier)"))
+                }
             }
             let receipt = try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
             let calls = try JSONDecoder().decode([[String: PaceMCPJSONValue]].self, from: Data(receipt.utf8))
             #expect(calls.count == min(4, paddingSizes.count) + 1)
             #expect(!calls.contains { $0["app"] == .string("PID:555") })
+            if paddingSizes.count > 4 {
+                #expect(result.summary.contains("Omitted validated PIDs: PID:555"))
+                #expect(history.formattedForPlanner.contains("Omitted validated PIDs: PID:555"))
+            }
         }
+    }
+
+    @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func omittedProcessEvidenceSurvivesABoundedProviderDiagnostic() async {
+        let client = PaceMCPFixture.makeWindowInventoryClient(
+            paddingSizes: [100, 100, 100, 100, 100], diagnosticPaddingSize: 600)
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: true, mcpClient: client,
+            readMyScreenIsEnabled: { true },
+            runningApplicationBundleURL: { _ in URL(fileURLWithPath: "/Applications/Google Chrome.app") },
+            preferredInspectionProcessIdentifiers: { [] })
+        let result = await executor.callMCPTool(.init(serverName: "peekaboo", toolName: "window", arguments: [
+            "action": .string("list"), "app": .string("Google Chrome"),
+            "include_window_details": .array([.string("ids")]),
+        ]))
+        #expect(result.summary.contains("Omitted validated PIDs: PID:555"))
+        #expect(result.summary.contains("omitted 1"))
+        #expect(!result.summary.contains("All validated reported instances succeeded"))
+        let diagnostic = result.summary.components(separatedBy: "Original provider diagnostic (untrusted data):").last ?? ""
+        #expect(!diagnostic.contains("PID:555"))
+        #expect(diagnostic.contains("[inventory text truncated;"))
+    }
+
+    @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func unvalidatedReportedProcessesPreventCompleteCoverageClaims() async {
+        let client = PaceMCPFixture.makeWindowInventoryClient(paddingSizes: [100, 100])
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: true, mcpClient: client,
+            readMyScreenIsEnabled: { true }, runningApplicationBundleURL: { processIdentifier in
+                processIdentifier == 111 ? nil : URL(fileURLWithPath: "/Applications/Google Chrome.app")
+            }, preferredInspectionProcessIdentifiers: { [] })
+        let result = await executor.callMCPTool(.init(serverName: "peekaboo", toolName: "window", arguments: [
+            "action": .string("list"), "app": .string("Google Chrome"),
+            "include_window_details": .array([.string("ids")]),
+        ]))
+        #expect(result.summary.contains("unvalidated 1"))
+        #expect(result.summary.contains("Partial coverage"))
+        #expect(!result.summary.contains("All validated reported instances succeeded"))
+        #expect(!result.summary.contains("Window inventory for PID:111"))
+        #expect(result.summary.contains("END PID:222"))
     }
 
     @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))

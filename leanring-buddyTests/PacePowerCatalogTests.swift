@@ -75,7 +75,7 @@ struct PacePowerCatalogTests {
 
         let normalPrompt = CompanionSystemPrompt.build(
             includeAgentMode: true, isTuitionModeEnabled: true, includeInteractiveDiagrams: true)
-        #expect(normalPrompt.contains(PaceComputerUsePower.mcpActionProtocolRules))
+        #expect(!normalPrompt.contains(PaceComputerUsePower.mcpActionProtocolRules))
         #expect(normalPrompt.contains(PaceTeachingPower.tuitionModeRules))
         #expect(normalPrompt.contains("show_diagram"))
         #expect(normalPrompt.contains("coding_session"))
