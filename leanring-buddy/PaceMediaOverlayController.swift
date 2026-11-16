@@ -61,7 +61,10 @@ final class PaceMediaOverlayController {
             imagePanel.title = "Pace power animation"
             imagePanel.setAccessibilityLabel("Pace power animation")
             imagePanel.ignoresMouseEvents = true
-            imagePanel.contentView = NSHostingView(rootView: MediaImageView(image: image, motion: request.motion))
+            let imageHostView = NSHostingView(rootView: MediaImageView(image: image, motion: request.motion)
+                .frame(width: imageSize.width, height: imageSize.height))
+            imageHostView.sizingOptions = []
+            imagePanel.contentView = imageHostView
             self.imagePanel = imagePanel
 
             let controlsPanel = makePanel(frame: CGRect(x: origin.x, y: origin.y - 40, width: imageSize.width, height: 34))
@@ -134,10 +137,16 @@ private final class PassiveMediaPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+private final class BoundedMediaImageView: NSImageView {
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
+}
+
 private struct AnimatedMediaImage: NSViewRepresentable {
     let image: NSImage
     func makeNSView(context: Context) -> NSImageView {
-        let imageView = NSImageView()
+        let imageView = BoundedMediaImageView()
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.animates = true
         imageView.image = image
@@ -153,6 +162,7 @@ private struct MediaImageView: View {
     @State private var animated = false
     var body: some View {
         AnimatedMediaImage(image: image)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .rotationEffect(.degrees(motion == "dance" && animated ? 4 : 0))
             .offset(y: ["bob", "dance"].contains(motion ?? "") && animated ? -10 : 0)
             .padding(12)
