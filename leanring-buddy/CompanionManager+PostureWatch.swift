@@ -225,7 +225,9 @@ extension CompanionManager {
         return "Click failed after trying 1 of 1 candidate: \"Missing button\"."
     }
 
-    func appendActionResult(_ actionResult: PaceActionRunRecord) {
+    func appendActionResult(_ actionResult: PaceActionRunRecord, turnIdentifier: String? = nil) {
+        var actionResult = actionResult
+        actionResult.turnIdentifier = actionResult.turnIdentifier ?? turnIdentifier
         var updatedActionResults = recentActionResults
         updatedActionResults.insert(actionResult, at: 0)
         if updatedActionResults.count > 8 {

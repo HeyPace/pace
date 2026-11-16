@@ -354,7 +354,19 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         recordAudioDispatch(outcome: "submitted", characterCount: trimmedNewPortion.count)
         do {
             if let speechProfile {
-                try await ttsClient.speakUtterance(.init(text: trimmedNewPortion, profile: speechProfile, englishSubtitle: displayText), onStarted: {})
+                let latencyBudget = PaceLatencyBudget.shared.currentTurn
+                var hasRecordedOnset = false
+                try await ttsClient.speakUtterance(
+                    .init(text: trimmedNewPortion, profile: speechProfile, englishSubtitle: displayText),
+                    onStarted: { [weak self] in
+                        guard let self, !hasRecordedOnset, !Task.isCancelled,
+                              self.dispatchGeneration == expectedDispatchGeneration,
+                              !self.hasStoppedSpeechForCurrentTurn else { return }
+                        hasRecordedOnset = true
+                        self.firstSpokenWordCharacterCount += trimmedNewPortion.count
+                        latencyBudget?.mark(.ttsFirstDispatch)
+                        self.logTimeToFirstSpokenWordIfApplicable()
+                    })
             } else if let localTTSClient = ttsClient as? LocalTTSClient {
                 // Keep late queued-playback failures scoped to this dispatch;
                 // direct speech and newer turns must not inherit its notice.
@@ -365,7 +377,8 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
             } else {
                 try await ttsClient.speakText(trimmedNewPortion)
             }
-            guard expectedDispatchGeneration == dispatchGeneration, !hasStoppedSpeechForCurrentTurn else { return }
+            guard speechProfile == nil, expectedDispatchGeneration == dispatchGeneration,
+                  !hasStoppedSpeechForCurrentTurn else { return }
             // Track total spoken character count so the speculative-
             // planner-race supersede decision can read "how much has
             // the user already heard" without subscribing to TTS state.

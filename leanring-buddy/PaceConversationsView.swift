@@ -39,6 +39,11 @@ struct PaceConversationsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             chatHeader
+            PaceJapanesePracticeControl(companionManager: companionManager)
+                .padding(.horizontal, appearance.padding(existing: 24))
+                .padding(.bottom, 10)
+            PaceDialogueCurrentStatusView(companionManager: companionManager)
+                .padding(.horizontal, appearance.padding())
             searchField
             transcriptScrollView
             chatInputRow
@@ -134,7 +139,7 @@ struct PaceConversationsView: View {
         .frame(height: 34)
         .background(
             RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
-                .fill(DS.Colors.surfaceInset)
+                .fill(Color.black)
                 .overlay {
                     RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
                         .stroke(DS.Colors.borderSubtle, lineWidth: 0.8)
@@ -158,8 +163,10 @@ struct PaceConversationsView: View {
                             switch threadRow {
                             case .message(let messageRowModel):
                                 messageRow(messageRowModel)
-                            case .toolActivity(let toolActivityRowModel):
-                                toolActivityRow(toolActivityRowModel)
+                            case .activity(let activity):
+                                PaceDialogueActivityView(activity: activity) {
+                                    PaceSettingsWindowManager.shared.show(companionManager: companionManager, destination: .doctor)
+                                }
                             }
                         }
                     }
@@ -226,167 +233,43 @@ struct PaceConversationsView: View {
         chatSession.filteredMessages(matching: searchQuery)
     }
 
-    private var filteredThreadRows: [PaceChatThreadRowModel] {
+    private var filteredThreadRows: [PaceDialogueTranscriptItem] {
         let normalizedSearchQuery =
             searchQuery
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        let actionRowModels = PaceChatTranscriptModel.toolActivityRowModels(
-            fromNewestFirstActionRunRecords: companionManager.recentActionResults
+        let actionRowModels = PaceDialogueTranscriptModel.activityRows(
+            fromNewestFirst: companionManager.recentActionResults
         ).filter { actionRowModel in
             normalizedSearchQuery.isEmpty
                 || actionRowModel.toolDisplayName.lowercased().contains(normalizedSearchQuery)
                 || actionRowModel.resultSummaryLine.lowercased().contains(normalizedSearchQuery)
         }
-        return PaceChatTranscriptModel.threadRows(
-            messageRowModels: PaceChatTranscriptModel.messageRowModels(
+        return PaceDialogueTranscriptModel.items(
+            messages: PaceChatTranscriptModel.messageRowModels(
                 fromChatMessages: filteredMessages
             ),
-            toolActivityRowModels: actionRowModels
+            activities: actionRowModels
         )
     }
 
-    private func messageRow(_ messageRowModel: PaceChatTranscriptMessageRowModel) -> some View {
-        let isFromUser = messageRowModel.author == .user
-        return HStack(alignment: .bottom, spacing: 0) {
-            if isFromUser {
-                Spacer(minLength: 120)
-            }
-
-            VStack(alignment: isFromUser ? .trailing : .leading, spacing: 5) {
-                HStack(spacing: 6) {
-                    Text(isFromUser ? "You" : "Pace")
-                        .font(DS.Typography.captionStrong)
-                    Text(messageRowModel.createdAt.formatted(date: .omitted, time: .shortened))
-                        .font(DS.Typography.caption)
-                }
-                .foregroundStyle(DS.Colors.textTertiary)
-
-                Text(messageRowModel.bodyText)
-                    .font(appearance.font(size: 13, existing: DS.Typography.body))
-                    .lineSpacing(appearance.lineSpacing())
-                    .foregroundStyle(DS.Colors.textPrimary)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous)
-                            .fill(
-                                isFromUser
-                                    ? DS.Colors.localSignal.opacity(0.20)
-                                    : DS.Colors.surfaceRaised
-                            )
-                            .overlay {
-                                RoundedRectangle(
-                                    cornerRadius: DS.Radius.surface,
-                                    style: .continuous
-                                )
-                                .stroke(
-                                    isFromUser
-                                        ? DS.Colors.localSignal.opacity(0.26)
-                                        : DS.Colors.borderSubtle.opacity(0.70),
-                                    lineWidth: 0.7
-                                )
-                            }
-                    )
-                    .contextMenu {
-                        ShareAndCopyContextMenuItems(messageBody: messageRowModel.bodyText)
-                    }
-            }
-            .frame(maxWidth: 620, alignment: isFromUser ? .trailing : .leading)
-
-            if !isFromUser {
-                Spacer(minLength: 120)
-            }
-        }
-    }
-
-    private func toolActivityRow(
-        _ toolActivityRowModel: PaceChatToolActivityRowModel
-    ) -> some View {
-        HStack(spacing: 7) {
-            Image(systemName: toolActivityRowModel.resultState.systemSymbolName)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(toolActivityColor(for: toolActivityRowModel.resultState))
-
-            Text(toolActivityRowModel.toolDisplayName)
-                .font(DS.Typography.captionStrong)
-                .foregroundStyle(DS.Colors.textSecondary)
-                .lineLimit(1)
-
-            Text(toolActivityRowModel.resultSummaryLine)
-                .font(DS.Typography.caption)
-                .foregroundStyle(DS.Colors.textTertiary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 11)
-        .frame(height: 30)
-        .background(
-            Capsule(style: .continuous)
-                .fill(DS.Colors.surfaceRaised)
-                .overlay {
-                    Capsule(style: .continuous)
-                        .stroke(DS.Colors.borderSubtle.opacity(0.75), lineWidth: 0.7)
-                }
-        )
-        .frame(maxWidth: 620, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            "\(toolActivityRowModel.resultState.displayLabel): "
-                + "\(toolActivityRowModel.toolDisplayName). "
-                + toolActivityRowModel.resultSummaryLine
-        )
-    }
-
-    private func toolActivityColor(
-        for resultState: PaceChatToolActivityResultState
-    ) -> Color {
-        switch resultState {
-        case .running:
-            return DS.Colors.localSignal
-        case .done:
-            return DS.Colors.success
-        case .failed:
-            return DS.Colors.warning
-        }
+    private func messageRow(_ message: PaceChatTranscriptMessageRowModel) -> some View {
+        PaceDialogueMessageView(
+            message: message, appearance: appearance,
+            canReplay: companionManager.canReplayChatSpeech,
+            onReplay: companionManager.replayChatSpeech)
     }
 
     @ViewBuilder
     private var streamingAssistantRowIfActive: some View {
         let streamingText = companionManager.streamingSentenceTTSPipeline.inFlightStreamedText
-        if !streamingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 6) {
-                        Text("Pace")
-                            .font(DS.Typography.captionStrong)
-                        Text("responding")
-                            .font(DS.Typography.caption)
-                    }
-                    .foregroundStyle(DS.Colors.localSignal)
-
-                    Text(streamingText)
-                        .font(appearance.font(size: 13, existing: DS.Typography.body))
-                        .lineSpacing(appearance.lineSpacing())
-                        .foregroundStyle(DS.Colors.textPrimary)
-                        .padding(.horizontal, 13)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(
-                                cornerRadius: DS.Radius.surface,
-                                style: .continuous
-                            )
-                            .fill(DS.Colors.surfaceRaised)
-                        )
-                }
-                .frame(maxWidth: 620, alignment: .leading)
-                Spacer(minLength: 120)
-            }
-        } else {
-            Color.clear.frame(height: 0)
+        if PaceDialogueTranscriptModel.shouldShowStreamingReply(
+            text: streamingText,
+            assistantEventIdentifier: companionManager.activeConversationAssistantEventIdentifier,
+            committedMessages: chatSession.messages) {
+            PaceDialogueMessageView(message: PaceChatTranscriptMessageRowModel(
+                id: "streaming-reply", author: .assistant,
+                bodyText: streamingText, createdAt: .distantFuture), appearance: appearance)
         }
     }
 
@@ -399,7 +282,7 @@ struct PaceConversationsView: View {
             )
             .lineLimit(1...4)
             .textFieldStyle(.plain)
-            .font(appearance.font(size: 13, existing: DS.Typography.body))
+            .font(appearance.font(size: 14))
             .lineSpacing(appearance.lineSpacing())
             .foregroundStyle(DS.Colors.textPrimary)
             .focused($isInputFocused)
@@ -408,7 +291,7 @@ struct PaceConversationsView: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous)
-                    .fill(DS.Colors.surfaceInset)
+                    .fill(Color.black)
                     .overlay {
                         RoundedRectangle(
                             cornerRadius: DS.Radius.surface,
@@ -464,7 +347,7 @@ struct PaceConversationsView: View {
         }
         .padding(.horizontal, appearance.padding(existing: 24))
         .padding(.vertical, 14)
-        .background(DS.Colors.surfaceRaised.opacity(0.34))
+        .background(Color.black)
         .overlay(alignment: .top) {
             Divider()
                 .background(DS.Colors.borderSubtle)
@@ -495,7 +378,7 @@ struct PaceConversationsView: View {
 /// themselves. The view embeds a hidden NSView via
 /// NSViewRepresentable so NSSharingServicePicker has a real
 /// AppKit anchor to position itself against.
-private struct ShareAndCopyContextMenuItems: View {
+struct ShareAndCopyContextMenuItems: View {
     let messageBody: String
 
     var body: some View {

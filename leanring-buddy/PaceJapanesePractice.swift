@@ -131,29 +131,44 @@ struct PaceJapanesePracticeControl: View {
     private var isEnabled: Bool { companionManager.conversationLanguageMode == .japanesePractice }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-        Button {
-            companionManager.setJapanesePracticeEnabled(!isEnabled)
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "character.bubble")
-                Text(isEnabled ? "Japanese · EN · Off" : "Practice Japanese")
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                if isEnabled {
+                    Image(systemName: "character.bubble")
+                        .foregroundStyle(DS.Colors.textSecondary)
+                    Text("Japanese practice")
+                        .foregroundStyle(DS.Colors.textSecondary)
+                    Text("· English subtitles")
+                        .foregroundStyle(DS.Colors.textTertiary)
+                    Spacer(minLength: 8)
+                    Button("End practice") { companionManager.setJapanesePracticeEnabled(false) }
+                        .help("Restore your usual language and voice")
+                        .accessibilityLabel("End Japanese practice")
+                        .paceControlHoverHighlight(cornerRadius: 4)
+                        .pointerCursor()
+                } else {
+                    Button {
+                        companionManager.setJapanesePracticeEnabled(true)
+                    } label: {
+                        Label("Practice Japanese", systemImage: "character.bubble")
+                    }
+                    .help("Speak Japanese with English subtitles; local Japanese and English recognition")
+                    .accessibilityLabel("Turn on Japanese practice")
+                    .paceControlHoverHighlight(cornerRadius: 4)
+                    .pointerCursor()
+                    Spacer(minLength: 0)
+                }
             }
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(isEnabled ? Color.white : Color.secondary)
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .help(isEnabled ? "Turn off Japanese practice and restore your usual language" : "Speak Japanese with English subtitles; local Japanese and English recognition")
-        .accessibilityLabel(isEnabled ? "Japanese practice on. Turn off" : "Turn on Japanese practice")
-        if isEnabled, !dictationManager.japanesePracticePreparationStatus.isEmpty {
-            Text(dictationManager.japanesePracticePreparationStatus)
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .help(dictationManager.japanesePracticePreparationStatus)
-        }
+            .buttonStyle(.plain)
+            .font(.system(size: 10))
+            .foregroundStyle(DS.Colors.textTertiary)
+            if isEnabled, !dictationManager.japanesePracticePreparationStatus.isEmpty {
+                Text(dictationManager.japanesePracticePreparationStatus)
+                    .font(.system(size: 9))
+                    .foregroundStyle(DS.Colors.textTertiary)
+                    .lineLimit(2)
+                    .help(dictationManager.japanesePracticePreparationStatus)
+            }
         }
     }
 }

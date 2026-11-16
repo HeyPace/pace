@@ -1146,7 +1146,8 @@ extension CompanionManager {
     func handleFastLocalActionPath(
         transcript: String,
         fastActionParseResult: PaceFastActionParseResult,
-        shouldRecordConversationTurn: Bool = true
+        shouldRecordConversationTurn: Bool = true,
+        acceptedTurnIdentifier: String? = nil
     ) {
         let turnLease = turnLeaseRegistry.currentLease
         let spokenText = fastActionParseResult.spokenText
@@ -1179,7 +1180,7 @@ extension CompanionManager {
                 .planned(
                     actionExecutionPlan: fastActionParseResult.executionPlan,
                     preflightIssues: preflightIssues
-                ))
+                ), turnIdentifier: acceptedTurnIdentifier)
 
             var fastPathDispatchSummaryForDebug = "executed"
             var explicitSpeechCompleted = false
@@ -1200,7 +1201,7 @@ extension CompanionManager {
                         ? "executed — no observations returned"
                         : PaceActionExecutionObservation.formatForPlanner(toolObservations)
                     if !toolObservations.isEmpty {
-                        appendActionResult(.completed(observations: toolObservations))
+                        appendActionResult(.completed(observations: toolObservations), turnIdentifier: acceptedTurnIdentifier)
                         noteReversibleActionExecuted(sinceMutationCount: mutationCountBeforeExecution)
                         speakFailureForClickMissedIfApplicable(
                             observations: toolObservations,
@@ -1238,7 +1239,7 @@ extension CompanionManager {
                             status: .denied,
                             title: "Action denied",
                             detail: fastActionParseResult.executionPlan.approvalSummary
-                        ))
+                        ), turnIdentifier: acceptedTurnIdentifier)
                     print("🛑 Fast local action approval denied")
                 }
             } else {
@@ -1249,7 +1250,7 @@ extension CompanionManager {
                         status: .skipped,
                         title: "Actions disabled",
                         detail: "Parsed local fast action, but EnableActions is false."
-                    ))
+                    ), turnIdentifier: acceptedTurnIdentifier)
                 print("🤖 Fast local action parsed but EnableActions is false")
             }
 
@@ -1489,6 +1490,7 @@ extension CompanionManager {
         screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
     ) async {
         guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
+        let acceptedTurnIdentifier = activeConversationUserEvent?.eventID
         actionExecutor.beginUserTurn()
         ttsClient.stopPlayback()
         pendingIntentClarification = nil
@@ -1714,7 +1716,8 @@ extension CompanionManager {
                 fastActionParseResult: PaceFastActionParseResult(
                     spokenText: "opening \(destination.displayName).",
                     executionPlan: .serial(actions: [.openURL(destination.url)])
-                )
+                ),
+                acceptedTurnIdentifier: acceptedTurnIdentifier
             )
             return
         }
@@ -2120,7 +2123,8 @@ extension CompanionManager {
             print("🎯 Intent: fastLocalAction — skipping screenshot, VLM, and planner")
             handleFastLocalActionPath(
                 transcript: transcript,
-                fastActionParseResult: fastActionParseResult
+                fastActionParseResult: fastActionParseResult,
+                acceptedTurnIdentifier: acceptedTurnIdentifier
             )
             return
         }
@@ -2889,7 +2893,7 @@ extension CompanionManager {
                             .planned(
                                 actionExecutionPlan: actionParseResult.executionPlan,
                                 preflightIssues: preflightIssues
-                            ))
+                            ), turnIdentifier: acceptedTurnIdentifier)
 
                         // Visual-target ambiguity: if the executor's click
                         // candidates have near-tied, distinguishable labels,
@@ -2962,7 +2966,7 @@ extension CompanionManager {
                                     print(
                                         "🧰 Tool observations:\n\(PaceActionExecutionObservation.formatForPlanner(toolObservations))"
                                     )
-                                    appendActionResult(.completed(observations: toolObservations))
+                                    appendActionResult(.completed(observations: toolObservations), turnIdentifier: acceptedTurnIdentifier)
                                     pendingPostActionFeedbackText =
                                         PaceActionExecutionObservation
                                         .formatForUserFeedback(toolObservations)
@@ -2988,7 +2992,7 @@ extension CompanionManager {
                                         status: .denied,
                                         title: "Action denied",
                                         detail: actionParseResult.executionPlan.approvalSummary
-                                    ))
+                                    ), turnIdentifier: acceptedTurnIdentifier)
                                 print("🛑 Pace action approval denied — stopping agent loop")
                             }
                         } else {
@@ -2998,7 +3002,7 @@ extension CompanionManager {
                                     title: "Actions disabled",
                                     detail:
                                         "Parsed \(actionParseResult.actions.count) action(s), but EnableActions is false."
-                                ))
+                                ), turnIdentifier: acceptedTurnIdentifier)
                             print(
                                 "🤖 \(actionParseResult.actions.count) action(s) parsed but EnableActions is false — exiting loop after this step"
                             )

@@ -37,6 +37,10 @@ nonisolated struct PaceChatTranscriptMessageRowModel: Identifiable, Equatable {
     let bodyText: String
     let createdAt: Date
     var isEnglishSubtitle: Bool = false
+    var speechRequest: PaceSpeechRequest? = nil
+    var turnIdentifier: String? = nil
+    var origin: ConversationEvent.Origin? = nil
+    var originalResponse: String? = nil
 
     /// User rows dock to the trailing (right) edge; assistant rows dock
     /// to the leading (left) edge.
@@ -92,6 +96,8 @@ nonisolated struct PaceChatToolActivityRowModel: Identifiable, Equatable {
     let resultState: PaceChatToolActivityResultState
     let resultSummaryLine: String
     let occurredAt: Date
+    var turnIdentifier: String? = nil
+    var fullDetail: String? = nil
 }
 
 /// A single row in the merged conversation timeline — either a chat
@@ -151,7 +157,14 @@ nonisolated enum PaceChatTranscriptModel {
             author: chatMessage.role == .user ? .user : .assistant,
             bodyText: displayedBodyText(forChatMessage: chatMessage),
             createdAt: chatMessage.createdAt,
-            isEnglishSubtitle: chatMessage.speechRequest?.profile == .japaneseFemale
+            isEnglishSubtitle: chatMessage.speechRequest?.englishSubtitle.map {
+                let subtitle = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                return !subtitle.isEmpty && subtitle == displayedBodyText(forChatMessage: chatMessage)
+            } ?? false,
+            speechRequest: chatMessage.speechRequest,
+            turnIdentifier: chatMessage.turnIdentifier ?? chatMessage.persistedTurnIdentifier,
+            origin: chatMessage.origin,
+            originalResponse: displayedBodyText(forChatMessage: chatMessage) == chatMessage.body ? nil : chatMessage.body
         )
     }
 
@@ -307,7 +320,9 @@ nonisolated enum PaceChatTranscriptModel {
             resultSummaryLine: oneLineSummary(
                 fromRawSummary: trimmedDetail.isEmpty ? actionRunRecord.title : trimmedDetail
             ),
-            occurredAt: actionRunRecord.createdAt
+            occurredAt: actionRunRecord.createdAt,
+            turnIdentifier: actionRunRecord.turnIdentifier,
+            fullDetail: actionRunRecord.detail
         )
     }
 

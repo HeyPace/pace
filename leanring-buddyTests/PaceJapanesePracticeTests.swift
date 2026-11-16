@@ -88,6 +88,7 @@ struct PaceJapanesePracticeManagerTests {
         let displayName = "Practice fixture"
         let supportsImageInput = false
         var calls = 0
+        var emitsUnsafePartial = true
         var capturedSystemPrompt = ""
         var response = #"{"spokenText":"今日は何をしましたか。","intent":"answer","payload":{"englishSubtitle":"What did you do today?"}}"#
         func generateResponseStreaming(images: [(data: Data, label: String)], systemPrompt: String,
@@ -95,7 +96,7 @@ struct PaceJapanesePracticeManagerTests {
             onTextChunk: @MainActor @Sendable (String) -> Void) async throws -> (text: String, duration: TimeInterval) {
             calls += 1
             capturedSystemPrompt = systemPrompt
-            onTextChunk("This partial English prose must never be spoken in practice.")
+            if emitsUnsafePartial { onTextChunk("This partial English prose must never be spoken in practice.") }
             onTextChunk(response)
             return (response, 0)
         }
@@ -129,6 +130,7 @@ struct PaceJapanesePracticeManagerTests {
         #expect(manager.buddyDictationManager.japanesePracticePreparationStatus.isEmpty)
         PacePowerManagerTests().begin("Back in English", manager: manager)
         planner.response = "Your usual English voice is back."
+        planner.emitsUnsafePartial = false
         manager.handleTextOnlyPlannerFastPath(transcript: "Back in English")
         await manager.currentResponseTask?.value
         #expect(speech.spokenTexts.last == "Your usual English voice is back.")

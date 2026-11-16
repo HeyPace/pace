@@ -125,6 +125,38 @@ extension CompanionManager {
         }
     }
 
+    var canReplayChatSpeech: Bool {
+        voiceState == .idle && !chatSession.isChatTTSMuted
+            && !streamingSentenceTTSPipeline.isMutedForCurrentTurn
+    }
+
+    func replayChatSpeech(_ request: PaceSpeechRequest) {
+        guard canReplayChatSpeech else { return }
+        if let profile = request.profile, !ttsClient.supportsSpeechProfile(profile) {
+            currentTurnHUDState = .failed("The selected speech backend cannot play this reply’s voice.")
+            return
+        }
+        let replayLease = turnLeaseRegistry.currentLease
+        voiceState = .responding
+        currentResponseTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.turnLeaseRegistry.isCurrent(replayLease), !Task.isCancelled {
+                    self.voiceState = .idle
+                }
+            }
+            guard self.isActiveTurn(replayLease), !self.chatSession.isChatTTSMuted,
+                  !self.streamingSentenceTTSPipeline.isMutedForCurrentTurn else { return }
+            do {
+                if request.profile == nil { try await self.ttsClient.speakText(request.text) }
+                else { try await self.ttsClient.speakUtterance(request, onStarted: {}) }
+            } catch {
+                guard self.isActiveTurn(replayLease) else { return }
+                self.currentTurnHUDState = .failed("Replay did not complete. \(error.localizedDescription)")
+            }
+        }
+    }
+
     /// Composes and speaks a plain-language failure message for one of
     /// the documented `PaceFailureKind` cases. Flows through
     /// `PaceRestraintGate.decide(...)` so failure speech respects

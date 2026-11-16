@@ -62,7 +62,12 @@ struct PaceChatPanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerStrip
+            PaceJapanesePracticeControl(companionManager: companionManager)
+                .padding(.horizontal, appearance.padding(existing: 14))
+                .padding(.vertical, 7)
             Divider().background(DS.Colors.borderSubtle)
+            PaceDialogueCurrentStatusView(companionManager: companionManager)
+                .padding(.horizontal, appearance.padding())
             transcriptColumn
             Divider().background(DS.Colors.borderSubtle)
             dockedInputRow
@@ -108,8 +113,6 @@ struct PaceChatPanelView: View {
             )
 
             Spacer()
-            PaceJapanesePracticeControl(companionManager: companionManager)
-
             Button(action: {
                 PaceSettingsWindowManager.shared.show(companionManager: companionManager)
             }) {
@@ -183,8 +186,10 @@ struct PaceChatPanelView: View {
                             switch threadRow {
                             case .message(let messageRowModel):
                                 messageBubbleRow(messageRowModel)
-                            case .toolActivity(let toolActivityRowModel):
-                                toolActivityRow(toolActivityRowModel)
+                            case .activity(let activity):
+                                PaceDialogueActivityView(activity: activity) {
+                                    PaceSettingsWindowManager.shared.show(companionManager: companionManager, destination: .doctor)
+                                }
                             }
                         }
                     }
@@ -224,13 +229,13 @@ struct PaceChatPanelView: View {
 
     /// Merged conversation timeline. All merge/sort/state decisions live
     /// in the pure `PaceChatTranscriptModel` layer (unit-tested there).
-    private var threadRows: [PaceChatThreadRowModel] {
-        PaceChatTranscriptModel.threadRows(
-            messageRowModels: PaceChatTranscriptModel.messageRowModels(
+    private var threadRows: [PaceDialogueTranscriptItem] {
+        PaceDialogueTranscriptModel.items(
+            messages: PaceChatTranscriptModel.messageRowModels(
                 fromChatMessages: chatSession.messages
             ),
-            toolActivityRowModels: PaceChatTranscriptModel.toolActivityRowModels(
-                fromNewestFirstActionRunRecords: companionManager.recentActionResults
+            activities: PaceDialogueTranscriptModel.activityRows(
+                fromNewestFirst: companionManager.recentActionResults
             )
         )
     }
@@ -279,141 +284,32 @@ struct PaceChatPanelView: View {
 
     // MARK: - Message bubbles
 
-    private func messageBubbleRow(
-        _ messageRowModel: PaceChatTranscriptMessageRowModel
-    ) -> some View {
-        HStack {
-            if messageRowModel.isAlignedToTrailingEdge {
-                Spacer(minLength: 32)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                if messageRowModel.isEnglishSubtitle {
-                    Text("ENGLISH SUBTITLES")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(DS.Colors.textTertiary)
-                }
-                Text(messageRowModel.bodyText)
-            }
-                .font(appearance.font(size: 13))
-                .lineSpacing(appearance.lineSpacing(existing: 3))
-                .foregroundColor(DS.Colors.textPrimary)
-                .textSelection(.enabled)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(
-                            messageRowModel.usesAccentTintedBubble
-                                ? DS.Colors.accent.opacity(0.22)
-                                : Color.white.opacity(0.05)
-                        )
-                )
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: messageRowModel.isAlignedToTrailingEdge ? .trailing : .leading
-                )
-            if !messageRowModel.isAlignedToTrailingEdge {
-                Spacer(minLength: 32)
-            }
-        }
+    private func messageBubbleRow(_ message: PaceChatTranscriptMessageRowModel) -> some View {
+        PaceDialogueMessageView(
+            message: message, appearance: appearance,
+            canReplay: companionManager.canReplayChatSpeech,
+            onReplay: companionManager.replayChatSpeech)
     }
 
-    // MARK: - Inline tool activity
-
-    /// Compact row under the assistant bubble it belongs to: state icon,
-    /// tool name, one-line result. Per PRD: tool name + one-line result
-    /// state (running / done / failed).
-    private func toolActivityRow(
-        _ toolActivityRowModel: PaceChatToolActivityRowModel
-    ) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: toolActivityRowModel.resultState.systemSymbolName)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(toolActivityResultStateColor(toolActivityRowModel.resultState))
-
-            Text(toolActivityRowModel.toolDisplayName)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(DS.Colors.textTertiary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Text(toolActivityRowModel.resultSummaryLine)
-                .font(.system(size: 11))
-                .foregroundColor(DS.Colors.textTertiary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(
-            Capsule(style: .continuous).fill(Color.white.opacity(0.05))
-        )
-    }
-
-    private func toolActivityResultStateColor(
-        _ resultState: PaceChatToolActivityResultState
-    ) -> Color {
-        switch resultState {
-        case .running:
-            return DS.Colors.accent
-        case .done:
-            return DS.Colors.success
-        case .failed:
-            return DS.Colors.warning
-        }
-    }
-
-    // MARK: - Live speech + streaming reply
-
-    /// The user's words as they speak — a right-aligned in-progress
-    /// bubble, slightly more saturated than a committed user bubble so
-    /// it reads as "in progress". Replaced by the committed message when
-    /// `recordConversationTurn` lands the turn.
     @ViewBuilder
     private var liveSpeechDraftBubbleRow: some View {
-        if !companionManager.liveSpeechDraft
-            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            HStack {
-                Spacer(minLength: 32)
-                Text(companionManager.liveSpeechDraft)
-                    .font(appearance.font(size: 13))
-                    .lineSpacing(appearance.lineSpacing(existing: 3))
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(DS.Colors.accent.opacity(0.30))
-                    )
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
+        if !companionManager.liveSpeechDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            PaceDialogueMessageView(message: PaceChatTranscriptMessageRowModel(
+                id: "live-speech-draft", author: .user,
+                bodyText: companionManager.liveSpeechDraft, createdAt: .distantFuture), appearance: appearance)
         }
     }
 
-    /// Pace's reply as it streams — the same `inFlightStreamedText` the
-    /// TTS pipeline publishes, so a spoken turn appears in the transcript
-    /// exactly like a typed one. Retired by `recordConversationTurn` when
-    /// the committed assistant message lands.
     @ViewBuilder
     private var streamingReplyBubbleRow: some View {
-        if !streamingSentenceTTSPipeline.inFlightStreamedText
-            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            HStack {
-                Text(streamingSentenceTTSPipeline.inFlightStreamedText)
-                    .font(appearance.font(size: 13))
-                    .lineSpacing(appearance.lineSpacing(existing: 3))
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.white.opacity(0.05))
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Spacer(minLength: 32)
-            }
+        let streamingText = streamingSentenceTTSPipeline.inFlightStreamedText
+        if PaceDialogueTranscriptModel.shouldShowStreamingReply(
+            text: streamingText,
+            assistantEventIdentifier: companionManager.activeConversationAssistantEventIdentifier,
+            committedMessages: chatSession.messages) {
+            PaceDialogueMessageView(message: PaceChatTranscriptMessageRowModel(
+                id: "streaming-reply", author: .assistant,
+                bodyText: streamingText, createdAt: .distantFuture), appearance: appearance)
         }
     }
 
@@ -663,7 +559,7 @@ struct PaceChatPanelView: View {
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.06))
+                        .fill(Color.black)
                         .overlay(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
                                 .stroke(DS.Colors.borderSubtle, lineWidth: 0.7)

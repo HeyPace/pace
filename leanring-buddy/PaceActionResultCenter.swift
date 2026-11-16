@@ -48,6 +48,7 @@ nonisolated struct PaceActionRunRecord: Identifiable, Equatable {
     let showsInConversation: Bool
     let diagnosticDetail: String?
     let targetResolution: PaceApplicationTargetResolution?
+    var turnIdentifier: String? = nil
 
     init(
         id: UUID = UUID(),
