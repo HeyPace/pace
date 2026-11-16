@@ -127,6 +127,11 @@ extension CompanionManager {
             currentTurnHUDState = .failed("The selected speech backend cannot play this reply’s voice.")
             return
         }
+        if let activeConversationUserEvent,
+            conversationRecorder.event(withIdentifier: activeConversationUserEvent.eventID)?.deliveryState == .completed {
+            // Replay owns playback only; closing it must not interrupt the completed original reply.
+            interruptConversationRequest()
+        }
         let replayLease = turnLeaseRegistry.currentLease
         voiceState = .responding
         currentResponseTask = Task { @MainActor [weak self] in

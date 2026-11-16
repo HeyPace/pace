@@ -8,6 +8,7 @@ struct PaceDialogueReplayTests {
         var isPlaying = false
         var lastStopReason: PaceTTSStopReason = .naturalCompletion
         var supportsUtteranceCompletion: Bool { true }
+        func supportsSpeechProfile(_ profile: PaceSpeechProfile) -> Bool { true }
         var requests: [PaceSpeechRequest] = []
         var legacySubmissionCount = 0
         var stopCount = 0
@@ -70,6 +71,45 @@ struct PaceDialogueReplayTests {
         #expect(manager.voiceState == .idle)
         #expect(manager.chatSession.messages == originalMessages && persister.events.count == originalEvents)
         #expect(manager.chatSession.draftMessageText == "Keep this draft")
+    }
+
+    @Test func closingMessageAndNotchReplayPreservesCompletedCanonicalEventsIncludingSpeechMetadata() async throws {
+        let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
+        let speech = ControlledEnglishSpeech()
+        defer { speech.stopPlayback(); manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        manager.ttsClient = speech
+        manager.streamingSentenceTTSPipeline = StreamingSentenceTTSPipeline(ttsClient: speech)
+        manager.conversationLanguageMode = .japanesePractice
+        let reply = try PaceBilingualReply.parse(#"{"spokenText":"こんにちは。","intent":"answer","payload":{"englishSubtitle":"Hello."}}"#)
+        for usesNotchDelegate in [false, true] {
+            PacePowerManagerTests().begin("Greet me", manager: manager)
+            manager.activeBilingualReply = reply
+            manager.recordConversationTurn(userTranscript: "Greet me", assistantResponse: reply.speechRequest.text)
+            manager.voiceState = .idle
+            let completedUser = try #require(manager.activeConversationUserEvent)
+            let completedAssistantIdentifier = try #require(manager.lastConversationAssistantEventIdentifier)
+            #expect(persister.events[completedUser.eventID]?.deliveryState == .completed)
+            #expect(persister.events[completedAssistantIdentifier]?.deliveryState == .completed)
+            #expect(persister.events[completedAssistantIdentifier]?.speechRequest == reply.speechRequest)
+            let originalEvents = persister.events
+            let originalMessages = manager.chatSession.messages
+            manager.chatSession.draftMessageText = "Keep my next question"
+            manager.lastSpokenReplyRequest = reply.speechRequest
+            if usesNotchDelegate { manager.replayLastSpokenReply() }
+            else { manager.replayChatSpeech(reply.speechRequest) }
+            for _ in 0..<1000 {
+                if speech.completion != nil { break }
+                await Task.yield()
+            }
+            #expect(speech.completion != nil && speech.isPlaying && manager.voiceState == .responding)
+            let replayTask = manager.currentResponseTask
+            manager.handleExplanationDismissal(.userInitiated)
+            await replayTask?.value
+            #expect(!speech.isPlaying && manager.voiceState == .idle)
+            #expect(speech.requests.last == reply.speechRequest)
+            #expect(persister.events == originalEvents && manager.chatSession.messages == originalMessages)
+            #expect(manager.chatSession.draftMessageText == "Keep my next question")
+        }
     }
 
     @Test func selectedReplyReplaysItsOwnSpeechWithoutAddingHistoryOrChangingDraft() async throws {
