@@ -166,7 +166,12 @@ controls and remain protected. Disabling applies to exact and natural run aliase
 and persists across restarts. Enabling keeps all existing permission gates.
 
 **Local expressive media** — Say “show me the thank you dance” or “run power
-Thank You Dance” for the protected bundled starter. Saved custom workflows can
+Thank You Dance” for the protected bundled starter, which keeps its original
+animation and configured default voice saying “thank you”. Say “show me the
+Japanese greeting” for the separate Japanese Greeting starter with an adult anime
+woman and Japanese female speech. That starter requires Kokoro and explicit
+Japanese setup with `scripts/start-tts-server.sh --install-japanese`; unavailable
+Japanese speech reports failure. Saved custom workflows can
 present the same original `thank-you-dance` animation and speak requested text
 with local TTS. The animation
 preserves keyboard and mouse control, stays visible for one to thirty seconds,
@@ -199,7 +204,7 @@ interpretation. Every program branch validates before persistence; runs flatten
 into the typed action pipeline without invoking a model. Raw Lua, JavaScript,
 shell, network, arbitrary file, and direct Accessibility authority are not
 available. User typed definitions and programs live in separate Application
-Support directories. The 18 bundled
+Support directories. The 19 bundled
 entries span Notes templates, Calendar reads, timers, Finder folders,
 current-window layouts, bounded media control, weekly review, and end-of-day
 reset. Recorded flows, skills, Shortcuts, cron, and background agents keep their

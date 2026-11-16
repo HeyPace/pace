@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "identifier": "japanese-greeting",
+  "name": "Japanese Greeting",
+  "description": "Present an adult anime woman for six seconds and speak a Japanese greeting. Requires Japanese-enabled Kokoro speech.",
+  "category": "media",
+  "invocationPhrases": [
+    "show me the Japanese greeting",
+    "play my Japanese greeting",
+    "run my Japanese greeting"
+  ],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "present_media",
+          "arguments": {
+            "assetID": "japanese-greeting-woman",
+            "durationSeconds": 6
+          }
+        }
+      ]
+    },
+    {
+      "toolCalls": [
+        {
+          "tool": "speak",
+          "arguments": {
+            "text": "こんにちは。会えてうれしいです。ありがとうございます。",
+            "profile": "japanese_female"
+          }
+        }
+      ]
+    }
+  ]
+}

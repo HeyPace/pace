@@ -387,21 +387,36 @@ struct PaceManagedPowerTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let definitions = PaceAutomationDefinitionLibrary.loadBundledDefinitions(allowSourceTreeFallback: true)
         let starter = try #require(definitions.first { $0.identifier == "thank-you-dance" })
-        #expect(starter.invocationPhrases == ["show me the thank you dance", "play my thank you dance", "run my thank you dance", "show me the Japanese greeting"])
+        #expect(starter.invocationPhrases == ["show me the thank you dance", "play my thank you dance", "run my thank you dance"])
         let plan = try PaceAutomationCompiler.compile(starter)
         #expect(plan.flattenedActions.count == 2)
         guard case .presentMedia(let media) = plan.flattenedActions[0], case .speak(let speech) = plan.flattenedActions[1] else {
             Issue.record("Bundled starter must present media before speech")
             return
         }
-        #expect(media.assetID == "japanese-greeting-woman" && media.durationSeconds == 6)
-        #expect(speech == .init(text: "こんにちは。会えてうれしいです。ありがとうございます。", profile: .japaneseFemale))
+        #expect(media.assetID == "thank-you-dance" && media.durationSeconds == 4)
+        #expect(speech == .init(text: "thank you"))
         let bundledCatalog = PaceAutomationCatalog(typedDefinitions: [starter], recordedFlows: [], skills: [], shortcutNames: [])
         let power = try store.resolve("Thank You Dance", catalog: bundledCatalog)
         #expect(!power.isUserOwned)
         #expect(power.capabilities.contains("run"))
         #expect(!power.capabilities.contains("disable"))
         #expect(throws: PaceManagedPowerError.self) { try store.archive(power) }
+    }
+
+    @Test func bundledJapaneseGreetingHasSeparateAliasesMediaAndExplicitSpeechProfile() throws {
+        let definitions = PaceAutomationDefinitionLibrary.loadBundledDefinitions(allowSourceTreeFallback: true)
+        let starter = try #require(definitions.first { $0.identifier == "japanese-greeting" })
+        #expect(starter.name == "Japanese Greeting")
+        #expect(starter.invocationPhrases == ["show me the Japanese greeting", "play my Japanese greeting", "run my Japanese greeting"])
+        let plan = try PaceAutomationCompiler.compile(starter)
+        #expect(plan.flattenedActions.count == 2)
+        guard case .presentMedia(let media) = plan.flattenedActions[0], case .speak(let speech) = plan.flattenedActions[1] else {
+            Issue.record("Japanese greeting must present media before speech")
+            return
+        }
+        #expect(media.assetID == "japanese-greeting-woman" && media.durationSeconds == 6)
+        #expect(speech == .init(text: "こんにちは。会えてうれしいです。ありがとうございます。", profile: .japaneseFemale))
     }
 
     @Test func macOSSystemTemporaryAliasesWorkWhileManagedChildLinksRemainRejected() throws {

@@ -2,13 +2,12 @@
   "schemaVersion": 1,
   "identifier": "thank-you-dance",
   "name": "Thank You Dance",
-  "description": "Present an adult anime woman for six seconds and greet and thank you in Japanese locally.",
+  "description": "Present an original dancing character for four seconds and say thank you locally.",
   "category": "media",
   "invocationPhrases": [
     "show me the thank you dance",
     "play my thank you dance",
-    "run my thank you dance",
-    "show me the Japanese greeting"
+    "run my thank you dance"
   ],
   "source": "bundled",
   "executionMode": "deterministicLocal",
@@ -19,8 +18,8 @@
         {
           "tool": "present_media",
           "arguments": {
-            "assetID": "japanese-greeting-woman",
-            "durationSeconds": 6
+            "assetID": "thank-you-dance",
+            "durationSeconds": 4
           }
         }
       ]
@@ -30,8 +29,7 @@
         {
           "tool": "speak",
           "arguments": {
-            "text": "こんにちは。会えてうれしいです。ありがとうございます。",
-            "profile": "japanese_female"
+            "text": "thank you"
           }
         }
       ]

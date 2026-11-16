@@ -424,6 +424,9 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
                 return
             }
         }
+        // Explicit profiles must have the whole utterance ready before onset so
+        // a later split failure cannot leave an unspoken line in narration history.
+        guard utterance.profile == nil else { throw PaceSpeechProfileError.synthesisOrPlaybackFailed }
         let (firstHalf, secondHalf) = Self.splitForSynthesisRetry(utterance.text)
         if firstHalf != utterance.text {
             let firstHalfAudio = await synthesizeAudioData(forText: firstHalf, profile: utterance.profile)

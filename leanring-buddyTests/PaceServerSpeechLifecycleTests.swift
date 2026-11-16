@@ -126,7 +126,12 @@ struct PaceServerSpeechLifecycleTests {
     }
     private func fixtureRequests() async throws -> [[String: Any]] {
         let (data, _) = try await URLSession.shared.data(from: URL(string: "http://127.0.0.1:8898/requests")!)
-        return try #require(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+        let requests = try #require(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+        // Constructor warmup is separate from every whole or partial user utterance.
+        return requests.filter { request in
+            guard let text = request["input"] as? String else { return true }
+            return text != "." && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
 
     private func expectJapaneseRequests(_ requests: [[String: Any]], count: Int) {
@@ -149,31 +154,45 @@ struct PaceServerSpeechLifecycleTests {
         }
     }
 
-    @Test func japaneseRetryAndBothSplitHalvesKeepVoiceAndLanguage() async throws {
+    @Test func japaneseWholeUtteranceRetryKeepsVoiceAndLanguage() async throws {
         try await withFixture { client, fallback in
             var starts = 0
             try await client.speakUtterance(.init(text: "profile retry", profile: .japaneseFemale)) { starts += 1 }
-            let splitText = "profile split. first half has enough words to cross the retry boundary. second half completes the requested utterance with the same Japanese voice."
-            try await client.speakUtterance(.init(text: splitText, profile: .japaneseFemale)) { starts += 1 }
-            let requests = try await fixtureRequests().filter { ($0["input"] as? String ?? "").hasPrefix("profile") || ($0["input"] as? String ?? "").hasPrefix("second half") }
-            expectJapaneseRequests(requests, count: 6)
-            #expect(Set(requests.compactMap { $0["input"] as? String }).count == 4)
-            #expect(starts == 2)
+            let requests = try await fixtureRequests()
+            expectJapaneseRequests(requests, count: 2)
+            #expect(requests.allSatisfy { $0["input"] as? String == "profile retry" })
+            #expect(starts == 1)
             #expect(fallback.spokenTexts.isEmpty)
         }
     }
 
-    @Test func explicitJapaneseNeverFallsBackOnSynthesisDecodeOrSecondHalfFailure() async throws {
+    @Test func explicitJapaneseNeverFallsBackOnSynthesisOrDecodeFailure() async throws {
         try await withFixture { client, fallback in
             var starts = 0
-            for text in ["profile synthesis failure", "profile invalid WAV",
-                "profile split fail. first half has enough words to cross the retry boundary. second-half-fail completes the requested utterance with the same Japanese voice."] {
+            for text in ["profile synthesis failure", "profile invalid WAV"] {
                 do {
                     try await client.speakUtterance(.init(text: text, profile: .japaneseFemale)) { starts += 1 }
                     Issue.record("Explicit Japanese must fail without a system voice substitute.")
                 } catch { #expect(error is PaceSpeechProfileError) }
             }
-            #expect(starts == 1)
+            #expect(starts == 0)
+            #expect(fallback.spokenTexts.isEmpty)
+            #expect(!client.isPlaying)
+        }
+    }
+
+    @Test func failedLongJapaneseUtteranceNeverSplitsOrStartsPartialSpeech() async throws {
+        try await withFixture { client, fallback in
+            let text = "profile split fail. first half has enough words to cross the retry boundary. second-half-fail completes the requested utterance with the same Japanese voice."
+            var starts = 0
+            do {
+                try await client.speakUtterance(.init(text: text, profile: .japaneseFemale)) { starts += 1 }
+                Issue.record("Failed whole Japanese synthesis must fail before partial playback.")
+            } catch { #expect(error is PaceSpeechProfileError) }
+            let requests = try await fixtureRequests()
+            expectJapaneseRequests(requests, count: 2)
+            #expect(requests.allSatisfy { $0["input"] as? String == text })
+            #expect(starts == 0)
             #expect(fallback.spokenTexts.isEmpty)
             #expect(!client.isPlaying)
         }
