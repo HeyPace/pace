@@ -63,9 +63,15 @@ enum PaceJapanesePracticeRouting {
             "アイコン", "タブ", "サイドバー", "ツールバー", "ダイアログ",
             "入力欄", "チェックボックス", "押して", "押す", "選ん", "移動", "音量", "ミュート",
             "明るさ", "消して", "切り替え", "戻して", "操作", "マウス", "キーボード", "カーソル",
-            "リンク", "ウェブ", "サイト", "スクショ", "音楽をかけて", "音楽かけて", "リマインドして",
+            "リンク", "ウェブ", "サイト", "スクショ",
         ]
-        guard words.isDisjoint(with: computerWords),
+        let requestText = normalizedTranscript.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+        let operationRequests = ["音楽をかけて", "音楽かけて", "リマインドして"]
+        let politeEndings = ["", "ください", "下さい", "くださいね", "くれる", "くれますか", "もらえますか", "ほしい", "ほしいです", "ね"]
+        let hasOperationRequest = operationRequests.contains { request in
+            politeEndings.contains { requestText.hasSuffix(request + $0) }
+        }
+        guard !hasOperationRequest, words.isDisjoint(with: computerWords),
               !japaneseComputerCues.contains(where: normalizedTranscript.contains),
               !normalizedTranscript.contains("://") else { return .normalRouting }
         return .textOnlyConversation

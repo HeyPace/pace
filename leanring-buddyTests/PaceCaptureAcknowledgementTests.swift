@@ -250,7 +250,7 @@ struct PaceCaptureAcknowledgementTests {
         #expect(manager.pendingKeyboardShortcutStartTask == nil && !manager.buddyDictationManager.isDictationInProgress)
     }
 
-    @Test func explicitStopAndCloseCancelCaptureFinalizationWithoutRevivingUncommittedWords() async throws {
+    @Test func explicitStopAndCloseCancelPendingCaptureAndAllowNextSimulatedPress() async throws {
         let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
         defer { manager.transcriptSafetyTask?.cancel(); manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
         let planner = RecordingPlanner()
@@ -265,7 +265,16 @@ struct PaceCaptureAcknowledgementTests {
         let originalMessages = manager.chatSession.messages
         let originalEventCount = persister.events.count
         manager.chatSession.draftMessageText = "Keep this typed draft"
+        let shortcutMonitor = manager.globalPushToTalkShortcutMonitor
+        var pressCount = 0
+        let transitionObserver = shortcutMonitor.shortcutTransitionPublisher.sink { transition in
+            if case .pressed = transition { pressCount += 1 }
+        }
+        defer { transitionObserver.cancel(); shortcutMonitor.discardSimulatedPress() }
         for closesSurface in [false, true] {
+            let precedingPressCount = pressCount
+            shortcutMonitor.simulateShortcutPressed()
+            #expect(shortcutMonitor.isSimulatedPressActive && pressCount == precedingPressCount + 1)
             manager.voiceState = .processing
             manager.liveSpeechDraft = "uncommitted voice words"
             manager.lastPartialTranscriptFromActiveDictation = "open Music"
@@ -274,16 +283,69 @@ struct PaceCaptureAcknowledgementTests {
             let safetyTask = try #require(manager.transcriptSafetyTask)
             let pendingStartTask = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
             manager.pendingKeyboardShortcutStartTask = pendingStartTask
+            let wakeReleaseTask = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
+            manager.wakeWordListeningWindowReleaseTask = wakeReleaseTask
             if closesSurface { manager.handleExplanationDismissal(.userInitiated) }
             else { manager.cancelCurrentTurnFromPanel() }
             await safetyTask.value
             await pendingStartTask.value
+            await wakeReleaseTask.value
+            #expect(wakeReleaseTask.isCancelled && manager.wakeWordListeningWindowReleaseTask == nil)
+            #expect(!shortcutMonitor.isSimulatedPressActive && !shortcutMonitor.isShortcutCurrentlyPressed)
             #expect(safetyTask.isCancelled && pendingStartTask.isCancelled)
             #expect(manager.transcriptSafetyTask == nil && manager.pendingKeyboardShortcutStartTask == nil)
             #expect(manager.transcriptArrivedSinceRelease && manager.lastPartialTranscriptFromActiveDictation == nil)
             #expect(manager.liveSpeechDraft.isEmpty && manager.voiceState == .idle)
             #expect(manager.chatSession.messages == originalMessages && persister.events.count == originalEventCount)
             #expect(manager.chatSession.draftMessageText == "Keep this typed draft" && planner.calls == 0)
+            manager.beginListeningFromDeepLink()
+            #expect(shortcutMonitor.isSimulatedPressActive && shortcutMonitor.isShortcutCurrentlyPressed)
+            #expect(pressCount == precedingPressCount + 2)
+            shortcutMonitor.discardSimulatedPress()
+        }
+    }
+
+    @Test func oldVisualClosePreservesNewerPendingCaptureAndCurrentVisualCloseStopsOwnedReply() async throws {
+        let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
+        defer { manager.cancelCurrentTurnFromPanel(); try? FileManager.default.removeItem(at: root) }
+        for isDiagram in [true, false] {
+            _ = manager.turnLeaseRegistry.beginTurn()
+            if isDiagram { manager.diagramOverlayController.onDidPresent?() }
+            else { manager.imageOverlayController.onWillGenerate?() }
+            let newLease = manager.turnLeaseRegistry.beginTurn()
+            manager.voiceState = .listening
+            manager.currentTurnHUDState = .listening
+            manager.liveSpeechDraft = "new capture words"
+            manager.lastPartialTranscriptFromActiveDictation = "new capture words"
+            manager.transcriptArrivedSinceRelease = false
+            manager.scheduleTranscriptSafetyFallback()
+            let safetyTask = try #require(manager.transcriptSafetyTask)
+            let pendingStartTask = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
+            manager.pendingKeyboardShortcutStartTask = pendingStartTask
+            let stopCount = speech.stopCount
+            if isDiagram { manager.diagramOverlayController.dismiss(intent: .userInitiated) }
+            else { manager.imageOverlayController.dismiss(intent: .userInitiated) }
+            #expect(!pendingStartTask.isCancelled && !safetyTask.isCancelled)
+            #expect(manager.turnLeaseRegistry.isCurrent(newLease) && manager.voiceState == .listening)
+            #expect(manager.currentTurnHUDState == .listening && manager.liveSpeechDraft == "new capture words")
+            #expect(manager.lastPartialTranscriptFromActiveDictation == "new capture words")
+            #expect(!manager.transcriptArrivedSinceRelease && speech.stopCount == stopCount)
+            manager.cancelCurrentTurnFromPanel()
+            await pendingStartTask.value
+            await safetyTask.value
+
+            _ = manager.turnLeaseRegistry.beginTurn()
+            if isDiagram { manager.diagramOverlayController.onDidPresent?() }
+            else { manager.imageOverlayController.onWillGenerate?() }
+            let ownedReplyTask = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
+            manager.currentResponseTask = ownedReplyTask
+            manager.voiceState = .responding
+            let precedingStopCount = speech.stopCount
+            if isDiagram { manager.diagramOverlayController.dismiss(intent: .userInitiated) }
+            else { manager.imageOverlayController.dismiss(intent: .userInitiated) }
+            await ownedReplyTask.value
+            #expect(ownedReplyTask.isCancelled && manager.voiceState == .idle)
+            #expect(speech.stopCount > precedingStopCount && persister.events.isEmpty)
         }
     }
 

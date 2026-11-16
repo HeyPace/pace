@@ -1434,16 +1434,23 @@ extension CompanionManager {
         }
     }
 
+    private func cancelConversationCapture() {
+        pendingKeyboardShortcutStartTask?.cancel()
+        pendingKeyboardShortcutStartTask = nil
+        wakeWordListeningWindowReleaseTask?.cancel()
+        wakeWordListeningWindowReleaseTask = nil
+        buddyDictationManager.cancelCurrentDictation(preserveDraftText: false)
+        globalPushToTalkShortcutMonitor.discardSimulatedPress()
+        finishCaptureTranscriptFeedback()
+        liveSpeechDraft = ""
+        responseOverlayManager.setListeningForAudio(false)
+    }
+
     /// Stops the current turn without closing the conversation surface. A
     /// completed system action is never rolled back; cancellation only prevents
     /// the remaining planner, speech, and follow-up steps from continuing.
     func cancelCurrentTurnFromPanel() {
-        pendingKeyboardShortcutStartTask?.cancel()
-        pendingKeyboardShortcutStartTask = nil
-        buddyDictationManager.cancelCurrentDictation(preserveDraftText: false)
-        finishCaptureTranscriptFeedback()
-        liveSpeechDraft = ""
-        responseOverlayManager.setListeningForAudio(false)
+        cancelConversationCapture()
         if let ownership = pendingTeachingPreviewOwnership {
             finishPendingTeachingPreview(for: ownership.turnLease, dismissIfOwned: true)
         }
@@ -1459,12 +1466,18 @@ extension CompanionManager {
 
     func handleExplanationDismissal(_ intent: PaceExplanationDismissalIntent) {
         guard intent == .userInitiated else { return }
-        pendingKeyboardShortcutStartTask?.cancel()
-        pendingKeyboardShortcutStartTask = nil
-        buddyDictationManager.cancelCurrentDictation(preserveDraftText: false)
-        finishCaptureTranscriptFeedback()
-        liveSpeechDraft = ""
-        responseOverlayManager.setListeningForAudio(false)
+        cancelConversationCapture()
+        stopExplanationResponse()
+    }
+
+    func handleVisualExplanationDismissal(ownedTurnLease: PaceTurnLease?) {
+        guard let ownedTurnLease, turnLeaseRegistry.isCurrent(ownedTurnLease),
+              !buddyDictationManager.isDictationInProgress,
+              pendingKeyboardShortcutStartTask == nil, voiceState != .listening else { return }
+        stopExplanationResponse()
+    }
+
+    private func stopExplanationResponse() {
         dismissCodingApprovals()
         streamingSentenceTTSPipeline.stopForUserDismissal()
         ossCommandSpeechClient?.stopPlayback()

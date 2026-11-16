@@ -225,6 +225,8 @@ extension CompanionManager {
     }
 
     func bindVisualExplanationCallbacks() {
+        var diagramPresentationTurnLease: PaceTurnLease?
+        var imageGenerationTurnLease: PaceTurnLease?
         annotationOverlayController.onActiveAnnotationsPresenceChanged = { [weak self] annotationsArePresent in
             guard let self else { return }
             if annotationsArePresent {
@@ -243,12 +245,13 @@ extension CompanionManager {
             }
         }
         diagramOverlayController.onUserDismissed = { [weak self] in
-            self?.handleExplanationDismissal(.userInitiated)
+            self?.handleVisualExplanationDismissal(ownedTurnLease: diagramPresentationTurnLease)
         }
         imageOverlayController.onUserDismissed = { [weak self] in
-            self?.handleExplanationDismissal(.userInitiated)
+            self?.handleVisualExplanationDismissal(ownedTurnLease: imageGenerationTurnLease)
         }
         diagramOverlayController.onDidPresent = { [weak self] in
+            diagramPresentationTurnLease = self?.turnLeaseRegistry.currentLease
             self?.imageOverlayController.hideForDiagramReplacement()
             NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
         }
@@ -257,6 +260,7 @@ extension CompanionManager {
             return self.canGenerateImagesWithCodex
         }
         imageOverlayController.onWillGenerate = { [weak self] in
+            imageGenerationTurnLease = self?.turnLeaseRegistry.currentLease
             self?.diagramOverlayController.hideForImageReplacement()
             NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
         }

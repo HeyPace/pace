@@ -81,7 +81,12 @@ struct PaceJapanesePracticeContractTests {
         }
         let greeting = "こんにちは。短く返事してください。"
         #expect(decide(greeting) == .textOnlyConversation)
-        #expect(decide("音楽が好きです。") == .textOnlyConversation)
+        for conversation in ["音楽が好きです。", "昨日、音楽をかけて踊りました。", "リマインドしてくれてありがとう。", "音楽かけて踊るのが好きです。"] {
+            #expect(decide(conversation) == .textOnlyConversation)
+        }
+        for request in ["音楽をかけて。", "音楽かけてくれる？", "音楽をかけてください。", "明日の朝にリマインドして。", "リマインドしてくださいね。"] {
+            #expect(decide(request) == .normalRouting)
+        }
         #expect(decide("今日はお茶を飲みました。") == .textOnlyConversation)
         #expect(decide(greeting, mode: .standard) == .normalRouting)
         #expect(decide(greeting, suggestion: true) == .normalRouting)
