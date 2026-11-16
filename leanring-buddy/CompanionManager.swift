@@ -112,6 +112,10 @@ final class CompanionManager: ObservableObject {
     /// Identical to what flowed through TTS — `<think>` blocks, tool
     /// calls, action tags, and `[POINT:…]` already stripped. The reply
     /// replay button replays exactly this text.
+    @Published var conversationLanguageMode: PaceConversationLanguageMode = .standard
+    var activeConversationLanguageMode: PaceConversationLanguageMode = .standard
+    var activeBilingualReply: PaceBilingualReply?
+    var lastSpokenReplyRequest: PaceSpeechRequest?
     @Published var lastSpokenReplyText: String?
 
     /// Timestamp of when `lastSpokenReplyText` was set. The notch

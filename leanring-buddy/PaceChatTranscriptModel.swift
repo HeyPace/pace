@@ -36,6 +36,7 @@ nonisolated struct PaceChatTranscriptMessageRowModel: Identifiable, Equatable {
     let author: PaceChatTranscriptRowAuthor
     let bodyText: String
     let createdAt: Date
+    var isEnglishSubtitle: Bool = false
 
     /// User rows dock to the trailing (right) edge; assistant rows dock
     /// to the leading (left) edge.
@@ -149,7 +150,8 @@ nonisolated enum PaceChatTranscriptModel {
             id: "message-\(chatMessage.id)",
             author: chatMessage.role == .user ? .user : .assistant,
             bodyText: displayedBodyText(forChatMessage: chatMessage),
-            createdAt: chatMessage.createdAt
+            createdAt: chatMessage.createdAt,
+            isEnglishSubtitle: chatMessage.speechRequest?.profile == .japaneseFemale
         )
     }
 

@@ -31,17 +31,19 @@ nonisolated enum PaceSpeechProfile: String, Codable, Equatable, Sendable {
     var languageCode: String { "j" }
 }
 
-nonisolated struct PaceSpeechRequest: Equatable, Sendable {
+nonisolated struct PaceSpeechRequest: Codable, Equatable, Sendable {
     let text: String
     let profile: PaceSpeechProfile?
+    let englishSubtitle: String?
 
-    init(text: String, profile: PaceSpeechProfile? = nil) {
+    init(text: String, profile: PaceSpeechProfile? = nil, englishSubtitle: String? = nil) {
         self.text = text
         self.profile = profile
+        self.englishSubtitle = englishSubtitle
     }
 
     static func parse(arguments: [String: PaceMCPJSONValue]) -> Self? {
-        guard Set(arguments.keys).isSubset(of: ["text", "profile"]),
+        guard Set(arguments.keys).isSubset(of: ["text", "profile", "englishSubtitle"]),
               case .string(let text)? = arguments["text"],
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               text.count <= 2000 else { return nil }
@@ -51,7 +53,14 @@ nonisolated struct PaceSpeechRequest: Equatable, Sendable {
                   let parsedProfile = PaceSpeechProfile(rawValue: name) else { return nil }
             profile = parsedProfile
         } else { profile = nil }
-        return Self(text: text, profile: profile)
+        let englishSubtitle: String?
+        if let subtitleValue = arguments["englishSubtitle"] {
+            guard case .string(let subtitle) = subtitleValue,
+                  !subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  subtitle.count <= 4000 else { return nil }
+            englishSubtitle = subtitle
+        } else { englishSubtitle = nil }
+        return Self(text: text, profile: profile, englishSubtitle: englishSubtitle)
     }
 }
 
@@ -73,6 +82,7 @@ protocol BuddyTTSClient: AnyObject {
     func speakText(_ text: String) async throws
 
     var supportsUtteranceCompletion: Bool { get }
+    func supportsSpeechProfile(_ profile: PaceSpeechProfile) -> Bool
 
     /// Waits for this utterance to finish. The callback marks confirmed audio onset.
     func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws
@@ -105,6 +115,7 @@ enum PaceUtterancePlaybackError: Error { case completionUnavailable, playbackFai
 
 extension BuddyTTSClient {
     var supportsUtteranceCompletion: Bool { false }
+    func supportsSpeechProfile(_ profile: PaceSpeechProfile) -> Bool { false }
 
     func speakUtterance(_ request: PaceSpeechRequest, onStarted: @escaping @MainActor () -> Void) async throws {
         guard request.profile == nil else { throw PaceSpeechProfileError.unsupportedBackend }

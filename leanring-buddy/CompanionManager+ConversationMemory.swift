@@ -43,6 +43,9 @@ extension CompanionManager {
 
     func beginConversationRequest(_ transcript: String, screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil) {
         hasRecordedCurrentTurnSpeechUserContext = false
+        activeConversationLanguageMode = conversationLanguageMode
+        activeBilingualReply = nil
+        streamingSentenceTTSPipeline.setConversationLanguageModeForCurrentTurn(activeConversationLanguageMode)
         let typedEventIdentifier = pendingTypedConversationEventIdentifier
         pendingTypedConversationEventIdentifier = nil
         activeConversationScreenSuggestionContext = screenSuggestionContextForCurrentPrivacyGate(screenSuggestionContext
@@ -103,6 +106,7 @@ extension CompanionManager {
     }
 
     func updateAssistantStreamingText(_ text: String) {
+        guard activeConversationLanguageMode != .japanesePractice else { return }
         activeConversationVisibleAssistantText = text == "…" ? ""
             : StreamingSentenceTTSPipeline.computeSpeakableSafePrefix(from: text, requiresCompleteSentence: false)
         responseOverlayManager.updateStreamingText(text)
@@ -112,9 +116,10 @@ extension CompanionManager {
     func recordAssistantNarration(_ text: String, origin: ConversationEvent.Origin = .assistant,
                                   eventIdentifier: String = UUID().uuidString,
                                   turnIdentifier: String? = nil, recordedAt: Date = Date(),
-                                  plannerContext: String = "", recordsDerivedMemory: Bool = true) -> String {
+                                  plannerContext: String = "", recordsDerivedMemory: Bool = true,
+                                  speechRequest: PaceSpeechRequest? = nil) -> String {
         let event = ConversationEvent(eventID: eventIdentifier, turnID: turnIdentifier,
-            role: .pace, origin: origin, text: text, createdAt: recordedAt)
+            role: .pace, origin: origin, text: text, createdAt: recordedAt, speechRequest: speechRequest)
         let isNewEvent = conversationRecorder.event(withIdentifier: eventIdentifier) == nil
         conversationRecorder.record(event)
         if recordsDerivedMemory, recordsDerivedConversationMemory, isNewEvent && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -136,6 +141,8 @@ extension CompanionManager {
         recordsAssistantEvent: Bool = true,
         recordsAssistantDerivedMemory: Bool = true
     ) {
+        let visibleAssistantResponse = conversationDisplayText(for: assistantResponse)
+        let spokenRequest = conversationSpeechRequest(for: assistantResponse)
         let ownsActiveStream = userEventIdentifier == nil || userEventIdentifier == activeConversationUserEvent?.eventID
         if ownsActiveStream, let activePacePadTurnIdentifier {
             _ = pacePadOutputDelegate?.deliverAssistantResponse(
@@ -183,7 +190,7 @@ extension CompanionManager {
         let assistantEventIdentifier = (ownsActiveStream ? activeConversationAssistantEventIdentifier : nil) ?? UUID().uuidString
         if recordsAssistantEvent {
             conversationRecorder.record(ConversationEvent(eventID: assistantEventIdentifier,
-                turnID: stableTurnId, role: .pace, origin: .assistant, text: assistantResponse, createdAt: recordedAt))
+                turnID: stableTurnId, role: .pace, origin: .assistant, text: visibleAssistantResponse, createdAt: recordedAt, speechRequest: spokenRequest))
         }
         if ownsActiveStream {
             if recordsAssistantEvent { lastConversationAssistantEventIdentifier = assistantEventIdentifier }

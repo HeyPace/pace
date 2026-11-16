@@ -133,7 +133,7 @@ extension CompanionManager {
         }
         recordAssistantNarration(spokenText)
         Task { @MainActor in
-            try? await self.ttsClient.speakText(spokenText)
+            try? await self.speakStandardNarration(spokenText)
         }
     }
 

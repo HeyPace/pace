@@ -271,7 +271,7 @@ extension CompanionManager {
         let spokenText = parseResult.spokenText
         currentTurnHUDState = .understanding("calculating on this Mac")
         responseOverlayManager.showOverlayAndBeginStreaming()
-        responseOverlayManager.updateStreamingText(spokenText)
+        responseOverlayManager.updateStreamingText(conversationDisplayText(for: spokenText))
         recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
         recordToolCallDebug(
             PaceToolCallDebugRecord(
@@ -718,7 +718,7 @@ extension CompanionManager {
                 }
                 let selectedTextPlanner = usesOffDeviceTextPlanner ? plannerClient : textOnlyPlannerClient
                 let effectivePurpose: PaceTextAnswerPurpose =
-                    screenSuggestionContext == nil && diagramOverlayController.document == nil
+                    activeConversationLanguageMode != .japanesePractice && screenSuggestionContext == nil && diagramOverlayController.document == nil
                         && imageOverlayController.lastSuccessfulArtifact == nil
                     ? purpose : .selectedPlanner
                 let historyForPlanner = conversationHistory.map { entry in
@@ -738,10 +738,10 @@ extension CompanionManager {
 
                 let threadSummaryInjectionForTurn = threadMemory.injectionPrefix()
                 let ambientContextInjectionForTurn = PaceAmbientContextStore.shared.ambientPromptFragment
-                let selectedSystemPromptForTurn = CompanionSystemPrompt.buildTextOnly(
+                let selectedSystemPromptForTurn = activeConversationLanguageMode.applying(to: CompanionSystemPrompt.buildTextOnly(
                     threadSummaryInjection: threadSummaryInjectionForTurn,
                     ambientContextInjection: ambientContextInjectionForTurn,
-                    includeInteractiveDiagrams: true)
+                    includeInteractiveDiagrams: true))
                 let everydaySystemPromptForTurn = CompanionSystemPrompt.buildTextOnly(
                     threadSummaryInjection: threadSummaryInjectionForTurn,
                     ambientContextInjection: ambientContextInjectionForTurn,
@@ -819,6 +819,7 @@ extension CompanionManager {
                 guard !Task.isCancelled else { return }
                 PaceLatencyBudget.shared.mark(.plannerComplete)
 
+                try prepareBilingualReplyIfNeeded(fullResponseText, turnLease: turnLease)
                 var actionParseResult = PaceActionTagParser.parseActions(from: fullResponseText)
                 let (_, textAfterDoneStrip) = PaceTagParsers.parseAndStripDoneSignal(from: actionParseResult.spokenText)
                 let pointingParseResult = PaceTagParsers.parsePointingCoordinates(from: textAfterDoneStrip)
@@ -836,7 +837,7 @@ extension CompanionManager {
                     return false
                 }
                 let qualityVerdict: PaceResponseQualityVerdict =
-                    usesOffDeviceTextPlanner || includesValidatedDiagram
+                    activeConversationLanguageMode == .japanesePractice || usesOffDeviceTextPlanner || includesValidatedDiagram
                     ? .adequate
                     : await responseQualityChecker.check(query: transcript, response: spokenText)
                 var qualityReRouted = false
@@ -1010,7 +1011,7 @@ extension CompanionManager {
                 recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText,
                     recordsAssistantEvent: actionParseResult.teachingDelivery == nil)
 
-                if actionParseResult.teachingDelivery == nil { responseOverlayManager.updateStreamingText(spokenText) }
+                if actionParseResult.teachingDelivery == nil { responseOverlayManager.updateStreamingText(conversationDisplayText(for: spokenText)) }
                 if actionParseResult.teachingDelivery?.handlesSpeech != true, !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     guard await beginFinalSpeechIfCurrentTurn(spokenText: spokenText, turnLease: turnLease) else { return }
                 }
@@ -1151,7 +1152,7 @@ extension CompanionManager {
         let spokenText = fastActionParseResult.spokenText
         currentTurnHUDState = .acting(fastActionParseResult.executionPlan.approvalSummary)
         responseOverlayManager.showOverlayAndBeginStreaming()
-        responseOverlayManager.updateStreamingText(spokenText)
+        responseOverlayManager.updateStreamingText(conversationDisplayText(for: spokenText))
         recordAssistantNarration(spokenText, origin: .progress, turnIdentifier: activeConversationUserEvent?.eventID)
 
         currentResponseTask = Task {
@@ -1212,7 +1213,7 @@ extension CompanionManager {
                         preflightIssues: preflightIssues
                     )
                     let spokenActionTexts = fastActionParseResult.executionPlan.flattenedActions.compactMap { action -> String? in
-                        if case .speak(let request) = action { return request.text }
+                        if case .speak(let request) = action { return request.englishSubtitle ?? request.text }
                         return nil
                     }
                     explicitSpeechCompleted = !spokenActionTexts.isEmpty
@@ -1317,7 +1318,7 @@ extension CompanionManager {
         recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
 
         responseOverlayManager.showOverlayAndBeginStreaming()
-        responseOverlayManager.updateStreamingText(spokenText)
+        responseOverlayManager.updateStreamingText(conversationDisplayText(for: spokenText))
 
         currentResponseTask = Task {
             voiceState = .responding
@@ -1385,7 +1386,7 @@ extension CompanionManager {
             self.currentTurnHUDState = .done(spokenText)
             self.recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
             self.responseOverlayManager.showOverlayAndBeginStreaming()
-            self.responseOverlayManager.updateStreamingText(spokenText)
+            self.responseOverlayManager.updateStreamingText(conversationDisplayText(for: spokenText))
             await self.streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
             while self.ttsClient.isPlaying && self.isActiveTurn(turnLease) {
                 try? await Task.sleep(nanoseconds: 80_000_000)
@@ -1470,6 +1471,12 @@ extension CompanionManager {
 
     func beginFinalSpeechIfCurrentTurn(spokenText: String, turnLease: PaceTurnLease) async -> Bool {
         guard isActiveTurn(turnLease) else { return false }
+        if activeConversationLanguageMode == .japanesePractice {
+            voiceState = .responding
+            if let request = conversationSpeechRequest(for: spokenText) {
+                noteLastSpokenReply(spokenText, profile: request.profile)
+            }
+        }
         await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenText)
         guard isActiveTurn(turnLease) else { return false }
         voiceState = .responding
@@ -1506,6 +1513,11 @@ extension CompanionManager {
             recordConversationTurn(userTranscript: transcript, assistantResponse: "Diagram closed.")
             currentTurnHUDState = .done("diagram closed")
             voiceState = .idle
+            return
+        }
+
+        if let mode = PaceConversationLanguageMode.command(transcript) {
+            setJapanesePracticeEnabled(mode == .japanesePractice, transcript: transcript)
             return
         }
 
@@ -1596,7 +1608,7 @@ extension CompanionManager {
             recordConversationTurn(userTranscript: transcript, assistantResponse: "Stopped.")
             currentTurnHUDState = .done("stopped researching")
             Task { [weak self] in
-                try? await self?.ttsClient.speakText("Stopped.")
+                try? await self?.speakStandardNarration("Stopped.")
             }
             return
         }
@@ -1912,7 +1924,7 @@ extension CompanionManager {
                 currentTurnHUDState = .understanding("researching with \(upstreamLabel)\(researchModelSuffix)…")
                 recordAssistantNarration("Researching that — give me a minute.", origin: .progress, turnIdentifier: activeConversationUserEvent?.eventID)
                 Task { [weak self] in
-                    try? await self?.ttsClient.speakText(
+                    try? await self?.speakStandardNarration(
                         "Researching that — give me a minute."
                     )
                 }
@@ -1938,7 +1950,7 @@ extension CompanionManager {
                     )
                     recordAssistantNarration("Researching that — give me a minute.", origin: .progress, turnIdentifier: activeConversationUserEvent?.eventID)
                     Task { [weak self] in
-                        try? await self?.ttsClient.speakText(
+                        try? await self?.speakStandardNarration(
                             "Researching that — give me a minute."
                         )
                     }
@@ -2004,7 +2016,7 @@ extension CompanionManager {
                 // bridge's spin-up latency, so the user isn't left in silence.
                 recordAssistantNarration("Let me phone a friend for this one — give me a sec.", origin: .progress, turnIdentifier: activeConversationUserEvent?.eventID)
                 Task { [weak self] in
-                    try? await self?.ttsClient.speakText(
+                    try? await self?.speakStandardNarration(
                         "Let me phone a friend for this one — give me a sec."
                     )
                 }
@@ -2302,16 +2314,16 @@ extension CompanionManager {
                     // shipping the agent-mode tool docs would just
                     // confuse the headless CLI into returning Pace
                     // action JSON instead of a spoken research answer.
-                    let systemPromptForTurn: String
+                    let baseSystemPromptForTurn: String
                     if initialInspectionPlan != nil {
-                        systemPromptForTurn = CompanionSystemPrompt.buildForWindowInventory()
+                        baseSystemPromptForTurn = CompanionSystemPrompt.buildForWindowInventory()
                     } else if isResearchTurn {
-                        systemPromptForTurn = CompanionSystemPrompt.buildForResearchTurn(
+                        baseSystemPromptForTurn = CompanionSystemPrompt.buildForResearchTurn(
                             threadSummaryInjection: threadSummaryInjectionForTurn,
                             includeInteractiveDiagrams: true
                         )
                     } else {
-                        systemPromptForTurn = CompanionSystemPrompt.build(
+                        baseSystemPromptForTurn = CompanionSystemPrompt.build(
                             includeAgentMode: isAgentModeEnabled && !usesPassiveScreenPrompt,
                             isTuitionModeEnabled: isTuitionModeEnabled,
                             threadSummaryInjection: threadSummaryInjectionForTurn,
@@ -2321,6 +2333,7 @@ extension CompanionManager {
                             includeInteractiveDiagrams: !usesPassiveScreenPrompt
                         )
                     }
+                    let systemPromptForTurn = activeConversationLanguageMode.applying(to: baseSystemPromptForTurn)
                     // Mark this turn as off-device for the amber-tint
                     // capsule when the active planner is anything other
                     // than the on-device tiers (DirectAPI, alwaysBridge).
@@ -2362,7 +2375,7 @@ extension CompanionManager {
                         underRecommendation: thermalStateAdvisor.currentRecommendation
                     )
                     let useSpeculativeRace =
-                        isFirstStep
+                        activeConversationLanguageMode != .japanesePractice && isFirstStep
                         && screenSuggestionContext == nil
                         && !isResearchTurn
                         && !activePlannerTierIsOffDevice
@@ -2632,6 +2645,7 @@ extension CompanionManager {
                     // 6. Parse: action tags → [DONE] flag → pointing tag.
                     //    Each pass strips its own tag class so the final
                     //    `spokenText` is clean enough to play via TTS.
+                    try prepareBilingualReplyIfNeeded(fullResponseText, turnLease: turnLease)
                     let rawActionParseResult = PaceActionTagParser.parseActions(from: fullResponseText)
                     if finishInitialInspectionIfOutOfScope(
                         initialInspectionPlan: initialInspectionPlan,
@@ -2752,7 +2766,7 @@ extension CompanionManager {
                     // Replace the raw-with-tags streaming view with the
                     // cleaned spoken text now that tags are stripped.
                     if actionParseResult.teachingDelivery == nil {
-                        responseOverlayManager.updateStreamingText(spokenText.isEmpty ? "…" : spokenText)
+                        responseOverlayManager.updateStreamingText(spokenText.isEmpty ? "…" : conversationDisplayText(for: spokenText))
                     }
                     // Note the spoken text so the notch panel can show
                     // the reply-replay button for the next 30 seconds.
@@ -3894,7 +3908,7 @@ extension CompanionManager {
         let turnLease = turnLeaseRegistry.currentLease
         currentResponseTask = Task { @MainActor in
             recordAssistantNarration(setupSpokenText, origin: .progress, turnIdentifier: activeConversationUserEvent?.eventID)
-            try? await ttsClient.speakText(setupSpokenText)
+            try? await speakStandardNarration(setupSpokenText)
             guard isActiveTurn(turnLease) else { return }
 
             let authoringPlanner = reusableWorkAuthoringPlannerOverride ?? (

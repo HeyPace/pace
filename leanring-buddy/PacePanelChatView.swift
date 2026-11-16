@@ -141,6 +141,7 @@ struct PacePanelChatView: View {
             Text(showsHistory ? "History" : isEmbeddedInNotch ? "Conversation" : "Quick chat")
                 .font(.system(size: 11))
                 .foregroundStyle(DS.Colors.textTertiary)
+            PaceJapanesePracticeControl(companionManager: companionManager)
             Spacer()
             if selectedQuestionIdentifier != nil && !showsHistory {
                 iconButton(systemName: "arrow.uturn.backward", help: "Return to latest conversation") {
@@ -541,6 +542,11 @@ struct PacePanelChatView: View {
         let hasOriginalResponse = !isFromUser && displayedBody != message.body
         let showsOriginal = expandedOriginalResponseIdentifiers.contains(message.id)
         return VStack(alignment: .leading, spacing: 8) {
+            if message.speechRequest?.profile == .japaneseFemale {
+                Text("ENGLISH SUBTITLES")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(DS.Colors.textTertiary)
+            }
             Text(readableMessage(displayedBody))
                 .font(appearance.font(size: isFromUser ? 15 : 14, weight: isFromUser ? .medium : .regular))
                 .tracking(isFromUser ? -0.15 : 0)

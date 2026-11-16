@@ -459,7 +459,7 @@ nonisolated enum PaceParsedAction {
         case .downloadFile(let downloadRequest):
             return "Download file to ~/Downloads: \(downloadRequest.url.absoluteString)"
         case .presentMedia(let request): return "Present local media: \(request.assetID) for \(request.durationSeconds) seconds"
-        case .speak(let request): return "Speak\(request.profile.map { " [" + $0.rawValue + "]" } ?? ""): \(Self.truncatedForApproval(request.text))"
+        case .speak(let request): return "Speak\(request.profile.map { " [" + $0.rawValue + "]" } ?? ""): \(Self.truncatedForApproval(request.text))\(request.englishSubtitle.map { " · English subtitles: " + Self.truncatedForApproval($0) } ?? "")"
         case .startTimer(let timerRequest):
             let durationMinutes = Int((timerRequest.durationInSeconds / 60.0).rounded())
             if durationMinutes >= 1, !timerRequest.label.isEmpty {

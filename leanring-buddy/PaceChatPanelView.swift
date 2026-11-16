@@ -108,6 +108,7 @@ struct PaceChatPanelView: View {
             )
 
             Spacer()
+            PaceJapanesePracticeControl(companionManager: companionManager)
 
             Button(action: {
                 PaceSettingsWindowManager.shared.show(companionManager: companionManager)
@@ -285,7 +286,14 @@ struct PaceChatPanelView: View {
             if messageRowModel.isAlignedToTrailingEdge {
                 Spacer(minLength: 32)
             }
-            Text(messageRowModel.bodyText)
+            VStack(alignment: .leading, spacing: 4) {
+                if messageRowModel.isEnglishSubtitle {
+                    Text("ENGLISH SUBTITLES")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(DS.Colors.textTertiary)
+                }
+                Text(messageRowModel.bodyText)
+            }
                 .font(appearance.font(size: 13))
                 .lineSpacing(appearance.lineSpacing(existing: 3))
                 .foregroundColor(DS.Colors.textPrimary)

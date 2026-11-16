@@ -30,7 +30,8 @@
           "tool": "speak",
           "arguments": {
             "text": "こんにちは。会えてうれしいです。ありがとうございます。",
-            "profile": "japanese_female"
+            "profile": "japanese_female",
+            "englishSubtitle": "Hello. It’s lovely to see you. Thank you."
           }
         }
       ]

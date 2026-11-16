@@ -18,6 +18,7 @@ nonisolated struct PaceChatMessage: Identifiable, Equatable {
     let role: PaceChatRole
     let body: String
     let createdAt: Date
+    var speechRequest: PaceSpeechRequest? = nil
 
     var isInternalRuntimeEvent: Bool {
         guard role == .user else { return false }
@@ -182,7 +183,7 @@ final class PaceChatSession: ObservableObject {
 
     func upsertConversationEvent(_ event: ConversationEvent) {
         upsertMessage(PaceChatMessage(id: event.eventID, role: event.role,
-            body: event.text, createdAt: event.createdAt))
+            body: event.text, createdAt: event.createdAt, speechRequest: event.speechRequest))
         if event.role == .pace, event.origin == .proactive, event.deliveryState == .completed,
            event.eventID.hasPrefix("screen-suggestion-"),
            !event.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,

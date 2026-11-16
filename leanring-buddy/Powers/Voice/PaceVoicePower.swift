@@ -22,8 +22,8 @@ nonisolated enum PaceVoicePower {
         ),
         PaceLocalToolDefinition(
             kind: .speak, canonicalName: "speak", aliases: [],
-            schemaExample: #"{"tool":"speak","text":"thank you"}"#,
-            description: "Speak the exact requested text using local speech, up to two thousand characters. Omit profile for the configured default voice. Only when Japanese speech is explicitly requested, optional profile japanese_female selects a Japanese female Kokoro voice, for example {\"tool\":\"speak\",\"text\":\"こんにちは。\",\"profile\":\"japanese_female\"}. Explicit profiles fail if unavailable and never substitute an English voice. Put after present_media to speak while its animation plays; do not duplicate it in spokenText.",
+            schemaExample: #"{"tool":"speak","text":"thank you","englishSubtitle":"Thank you."}"#,
+            description: "Speak the exact requested text using local speech, up to two thousand characters. Omit profile for the configured default voice. Only when Japanese speech is explicitly requested, optional profile japanese_female selects a Japanese female Kokoro voice, for example {\"tool\":\"speak\",\"text\":\"こんにちは。\",\"profile\":\"japanese_female\"}. Explicit profiles fail if unavailable and never substitute an English voice. Optional englishSubtitle is the visible English translation, up to four thousand characters; audio always uses text. The subtitle and speech share one history entry. Put after present_media to speak while its animation plays; do not duplicate it in spokenText.",
             riskLevel: .appOrSystemMutation, executionSummary: "Speaks requested text locally.",
             observationSummary: "Reports local speech completion.", exampleUtterance: "say thank you"
         ),

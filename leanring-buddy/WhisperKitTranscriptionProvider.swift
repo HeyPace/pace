@@ -45,12 +45,30 @@ final class WhisperKitTranscriptionProvider: BuddyTranscriptionProvider {
             .appendingPathComponent(modelName)
     }
 
-    let displayName = "WhisperKit"
+    nonisolated enum LanguageMode: Equatable, Sendable {
+        case english, automaticJapaneseEnglish
+
+        var modelName: String { self == .english ? "openai_whisper-base.en" : "openai_whisper-base" }
+        var decodingLanguage: String? { self == .english ? "en" : nil }
+        var detectsLanguage: Bool { self == .automaticJapaneseEnglish }
+        var modelFolderURL: URL {
+            WhisperKitTranscriptionProvider.modelFolderURL.deletingLastPathComponent().appendingPathComponent(modelName)
+        }
+    }
+
+    let languageMode: LanguageMode
+    var displayName: String { languageMode == .english ? "WhisperKit" : "WhisperKit · Japanese / English" }
+
+    init(languageMode: LanguageMode = .english) { self.languageMode = languageMode }
     let requiresSpeechRecognitionPermission = false
 
     // One pipeline per app lifetime (~146 MB of CoreML assets); concurrent
     // first-callers await the same load.
-    private static let runtime = WhisperKitRuntimeCache()
+    private static let runtime = WhisperKitRuntimeCache(languageMode: .english)
+    private static let multilingualRuntime = WhisperKitRuntimeCache(languageMode: .automaticJapaneseEnglish)
+    private var runtime: WhisperKitRuntimeCache {
+        languageMode == .english ? Self.runtime : Self.multilingualRuntime
+    }
 
     func startStreamingSession(
         contextualPhrases: [String],
@@ -58,20 +76,30 @@ final class WhisperKitTranscriptionProvider: BuddyTranscriptionProvider {
         onFinalTranscriptReady: @escaping (String) -> Void,
         onError: @escaping (Error) -> Void
     ) async throws -> any BuddyStreamingTranscriptionSession {
-        let pipeline = try await Self.runtime.pipeline()
+        let pipeline = try await runtime.pipeline()
         return WhisperKitStreamingSession(
             pipeline: pipeline,
+            languageMode: languageMode,
             onTranscriptUpdate: onTranscriptUpdate,
             onFinalTranscriptReady: onFinalTranscriptReady,
             onError: onError
         )
     }
 
+    func prepare() async throws { _ = try await runtime.pipeline() }
+
+    func transcribeAudioFile(_ fileURL: URL) async throws -> String {
+        let pipeline = try await runtime.pipeline()
+        let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: fileURL.path)
+        return try await WhisperKitStreamingSession.transcribe(samples, pipeline: pipeline, languageMode: languageMode)
+    }
+
     func warmUpModelInBackground(onReady: @escaping @Sendable @MainActor () -> Void) {
+        let runtime = runtime
         Task.detached(priority: .utility) {
             // Best-effort: a failed warm-up surfaces as a thrown error on the
             // first real session instead.
-            _ = try? await Self.runtime.pipeline()
+            _ = try? await runtime.pipeline()
             await MainActor.run { onReady() }
         }
     }
@@ -96,6 +124,8 @@ private struct WhisperKitBox: @unchecked Sendable {
 /// shared load `Task`, which is what serialized concurrent first-callers before
 /// — same behavior, no boundary crossing.
 private final class WhisperKitRuntimeCache: @unchecked Sendable {
+    private let languageMode: WhisperKitTranscriptionProvider.LanguageMode
+    init(languageMode: WhisperKitTranscriptionProvider.LanguageMode) { self.languageMode = languageMode }
     private let loadTaskLock = NSLock()
     private var loadTask: Task<WhisperKitBox, Error>?
 
@@ -105,15 +135,15 @@ private final class WhisperKitRuntimeCache: @unchecked Sendable {
                 return existingLoadTask
             }
             let newLoadTask = Task<WhisperKitBox, Error> {
-                let folder = WhisperKitTranscriptionProvider.modelFolderURL
+                let folder = self.languageMode.modelFolderURL
                 guard FileManager.default.fileExists(atPath: folder.path) else {
                     throw WhisperKitTranscriptionProviderError(
                         message:
-                            "WhisperKit model not found at \(folder.path). Run python3 scripts/setup-whisperkit.py."
+                            "WhisperKit model not found at \(folder.path). Run python3 scripts/setup-whisperkit.py\(self.languageMode == .automaticJapaneseEnglish ? " --multilingual" : "")."
                     )
                 }
                 let config = WhisperKitConfig(
-                    model: WhisperKitTranscriptionProvider.modelName,
+                    model: self.languageMode.modelName,
                     modelFolder: folder.path,
                     download: false
                 )
@@ -149,6 +179,7 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
     private static let partialCadenceSeconds = 1.2
 
     private let pipeline: WhisperKit
+    private let languageMode: WhisperKitTranscriptionProvider.LanguageMode
     private let onTranscriptUpdate: (String) -> Void
     private let onFinalTranscriptReady: (String) -> Void
     private let onError: (Error) -> Void
@@ -163,10 +194,12 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
     private var lastPartialAt = Date.distantPast
 
     init(pipeline: WhisperKit,
+         languageMode: WhisperKitTranscriptionProvider.LanguageMode,
          onTranscriptUpdate: @escaping (String) -> Void,
          onFinalTranscriptReady: @escaping (String) -> Void,
          onError: @escaping (Error) -> Void) {
         self.pipeline = pipeline
+        self.languageMode = languageMode
         self.onTranscriptUpdate = onTranscriptUpdate
         self.onFinalTranscriptReady = onFinalTranscriptReady
         self.onError = onError
@@ -244,10 +277,16 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
     }
 
     private func transcribe(_ audio: [Float]) async throws -> String {
+        try await Self.transcribe(audio, pipeline: pipeline, languageMode: languageMode)
+    }
+
+    static func transcribe(_ audio: [Float], pipeline: WhisperKit,
+                           languageMode: WhisperKitTranscriptionProvider.LanguageMode) async throws -> String {
         guard !audio.isEmpty else { return "" }
         guard try PaceSileroSpeechDetector.containsSpeech(in: audio) else { return "" }
         var options = DecodingOptions()
-        options.language = "en"          // Pace doctrine: English-only v1
+        options.language = languageMode.decodingLanguage
+        options.detectLanguage = languageMode.detectsLanguage
         options.temperature = 0
         let results = try await pipeline.transcribe(audioArray: audio, decodeOptions: options)
         return results.map(\.text)

@@ -16,12 +16,14 @@ nonisolated struct ConversationEvent: Codable, Equatable, Identifiable, Sendable
     var text: String
     let createdAt: Date
     var deliveryState: DeliveryState
+    let speechRequest: PaceSpeechRequest?
 
     var id: String { eventID }
 
     init(eventID: String = UUID().uuidString, turnID: String? = nil,
          role: PaceChatRole, origin: Origin, text: String,
-         createdAt: Date = Date(), deliveryState: DeliveryState = .completed) {
+         createdAt: Date = Date(), deliveryState: DeliveryState = .completed,
+         speechRequest: PaceSpeechRequest? = nil) {
         self.eventID = eventID
         self.turnID = turnID
         self.role = role
@@ -29,6 +31,7 @@ nonisolated struct ConversationEvent: Codable, Equatable, Identifiable, Sendable
         self.text = text
         self.createdAt = createdAt
         self.deliveryState = deliveryState
+        self.speechRequest = speechRequest
     }
 }
 

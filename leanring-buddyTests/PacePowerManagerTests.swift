@@ -13,6 +13,7 @@ struct PacePowerManagerTests {
         var isPlaying = false
         var lastStopReason: PaceTTSStopReason = .naturalCompletion
         var supportsUtteranceCompletion: Bool { true }
+        func supportsSpeechProfile(_ profile: PaceSpeechProfile) -> Bool { true }
         var failingUtteranceIndex: Int?
         private var utteranceCount = 0
         struct PlaybackFailure: Error {}

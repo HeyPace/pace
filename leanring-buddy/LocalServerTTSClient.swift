@@ -243,6 +243,9 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
     }
 
     var supportsUtteranceCompletion: Bool { true }
+    func supportsSpeechProfile(_ profile: PaceSpeechProfile) -> Bool {
+        configuration.modelIdentifier.lowercased().contains("kokoro")
+    }
 
     func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws {
         try await speakUtterance(PaceSpeechRequest(text: text), onStarted: onStarted)
@@ -250,7 +253,7 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
 
     func speakUtterance(_ request: PaceSpeechRequest, onStarted: @escaping @MainActor () -> Void) async throws {
         try Task.checkCancellation()
-        if request.profile != nil, !configuration.modelIdentifier.lowercased().contains("kokoro") {
+        if let profile = request.profile, !supportsSpeechProfile(profile) {
             throw PaceSpeechProfileError.unsupportedBackend
         }
         let trimmedText = request.text.trimmingCharacters(in: .whitespacesAndNewlines)

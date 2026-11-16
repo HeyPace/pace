@@ -18,6 +18,7 @@ extension CompanionManager {
         }
         actionExecutor.speakLocalText = { [weak self] request in
             let text = request.text
+            let displayedText = request.englishSubtitle ?? text
             guard let self, self.managedPowerExecutionIsAuthorized else {
                 return .init(toolName: "speak", summary: "Speech stopped: power authorization changed.", terminalReason: .managedWorkflowUnavailable)
             }
@@ -32,15 +33,16 @@ extension CompanionManager {
                 try await self.ttsClient.speakUtterance(request, onStarted: { [weak self] in
                     guard let self, self.isActiveTurn(turnLease) else { return }
                     let userContext = self.hasRecordedCurrentTurnSpeechUserContext ? "" : (self.activeConversationUserEvent?.text ?? "")
-                    let eventIdentifier = self.recordAssistantNarration(text, origin: .assistant,
-                        turnIdentifier: self.activeConversationUserEvent?.eventID, plannerContext: userContext)
+                    let eventIdentifier = self.recordAssistantNarration(displayedText, origin: .assistant,
+                        turnIdentifier: self.activeConversationUserEvent?.eventID, plannerContext: userContext, speechRequest: request)
                     self.hasRecordedCurrentTurnSpeechUserContext = true
                     if self.recordsDerivedConversationMemory {
-                        self.recordUnifiedMemoryTurn(userTranscript: userContext, assistantResponse: text,
+                        self.recordUnifiedMemoryTurn(userTranscript: userContext, assistantResponse: displayedText,
                             turnId: eventIdentifier, recordedAt: Date())
                     }
-                    self.noteLastSpokenReply(text)
-                    self.responseOverlayManager.updateStreamingText(text)
+                    self.noteLastSpokenReply(text, profile: request.profile)
+                    self.lastSpokenReplyRequest = request
+                    self.responseOverlayManager.updateStreamingText(displayedText)
                 })
                 guard self.isActiveTurn(turnLease) else { throw CancellationError() }
                 return .init(toolName: "speak", summary: "Spoke the requested text locally.")

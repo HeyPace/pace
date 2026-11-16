@@ -103,6 +103,18 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// next `markIntentCommitted()` so the next turn starts clean.
     private var hasStoppedSpeechForCurrentTurn: Bool = false
     private var dispatchGeneration: UInt64 = 0
+    private var conversationLanguageMode: PaceConversationLanguageMode = .standard
+    private var bilingualReply: PaceBilingualReply?
+
+    func setConversationLanguageModeForCurrentTurn(_ mode: PaceConversationLanguageMode) {
+        conversationLanguageMode = mode
+        bilingualReply = nil
+    }
+
+    func setBilingualReplyForCurrentTurn(_ reply: PaceBilingualReply) {
+        bilingualReply = reply
+    }
+
 
     /// Public read of whether the LAST completed turn was interrupted
     /// by a barge-in. Tests assert on this; the CompanionManager uses
@@ -120,6 +132,8 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// history so the next chunk starts a fresh queue.
     func resetForNewTurn() {
         dispatchGeneration &+= 1
+        conversationLanguageMode = .standard
+        bilingualReply = nil
         alreadyDispatchedSafeText = ""
         intentCommittedAt = nil
         hasLoggedTimeToFirstSpokenWord = false
@@ -233,6 +247,7 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// "speakable, complete sentence" prefix and queues just the
     /// delta to TTS. Cheap; safe to call N times per second.
     func acceptStreamedText(_ accumulatedPlannerText: String) async {
+        guard conversationLanguageMode != .japanesePractice else { return }
         let speakableSafePrefix = Self.computeSpeakableSafePrefix(from: accumulatedPlannerText)
         await dispatchDeltaIfReady(speakableSafePrefix: speakableSafePrefix)
     }
@@ -252,14 +267,25 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// the fully-stripped spoken text from `parsePointingCoordinates`.
     /// Speaks any tail beyond what's already been queued.
     func flushFinal(finalSpokenText: String) async {
-        await dispatchDeltaIfReady(speakableSafePrefix: finalSpokenText, allowShortFinalChunk: true)
+        if conversationLanguageMode == .japanesePractice {
+            guard let bilingualReply, bilingualReply.speechRequest.text == finalSpokenText else {
+                recordAudioDispatch(outcome: "skipped_missing_bilingual_reply", characterCount: finalSpokenText.count)
+                return
+            }
+            await dispatchDeltaIfReady(speakableSafePrefix: finalSpokenText, allowShortFinalChunk: true,
+                displayText: bilingualReply.englishSubtitle, speechProfile: bilingualReply.speechRequest.profile)
+        } else {
+            await dispatchDeltaIfReady(speakableSafePrefix: finalSpokenText, allowShortFinalChunk: true)
+        }
     }
 
     // MARK: - Internals
 
     private func dispatchDeltaIfReady(
         speakableSafePrefix: String,
-        allowShortFinalChunk: Bool = false
+        allowShortFinalChunk: Bool = false,
+        displayText: String? = nil,
+        speechProfile: PaceSpeechProfile? = nil
     ) async {
         // Mirror the current speakable prefix to the chat-stream
         // publisher, even when the delta is whitespace-only or below the
@@ -269,8 +295,8 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         // we STOP mirroring so the live row can't reappear over the
         // committed message — but audio dispatch below still runs, so
         // `flushFinal`'s tail still plays.
-        if !hasFinalizedStreamedTextForTurn && speakableSafePrefix != inFlightStreamedText {
-            inFlightStreamedText = speakableSafePrefix
+        if !hasFinalizedStreamedTextForTurn && (displayText ?? speakableSafePrefix) != inFlightStreamedText {
+            inFlightStreamedText = displayText ?? speakableSafePrefix
         }
 
         // Barge-in lock: once the user has interrupted, no more audio
@@ -327,7 +353,9 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         let expectedDispatchGeneration = dispatchGeneration
         recordAudioDispatch(outcome: "submitted", characterCount: trimmedNewPortion.count)
         do {
-            if let localTTSClient = ttsClient as? LocalTTSClient {
+            if let speechProfile {
+                try await ttsClient.speakUtterance(.init(text: trimmedNewPortion, profile: speechProfile, englishSubtitle: displayText), onStarted: {})
+            } else if let localTTSClient = ttsClient as? LocalTTSClient {
                 // Keep late queued-playback failures scoped to this dispatch;
                 // direct speech and newer turns must not inherit its notice.
                 try await localTTSClient.speakText(trimmedNewPortion, onPlaybackFailure: { [weak self] in

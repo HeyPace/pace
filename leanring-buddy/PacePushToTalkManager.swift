@@ -235,7 +235,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
     }
 
     var needsInitialPermissionPrompt: Bool {
-        if transcriptionProvider.requiresSpeechRecognitionPermission {
+        if selectedTranscriptionProvider.requiresSpeechRecognitionPermission {
             return AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined
                 || SFSpeechRecognizer.authorizationStatus() == .notDetermined
         }
@@ -244,6 +244,38 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
     }
 
     let transcriptionProvider: any BuddyTranscriptionProvider
+    @Published private(set) var japanesePracticePreparationStatus = ""
+    private var japanesePracticePreparationTask: Task<Void, Never>?
+    private var isJapanesePracticeTranscriptionReady = false
+    var usesJapanesePracticeTranscription = false {
+        didSet {
+            transcriptionProviderDisplayName = selectedTranscriptionProvider.displayName
+            japanesePracticePreparationTask?.cancel()
+            isJapanesePracticeTranscriptionReady = false
+            guard usesJapanesePracticeTranscription else {
+                japanesePracticePreparationStatus = ""
+                return
+            }
+            japanesePracticePreparationStatus = "Preparing local Japanese / English microphone…"
+            japanesePracticePreparationTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    try await japanesePracticeTranscriptionProvider.prepare()
+                    guard !Task.isCancelled, usesJapanesePracticeTranscription else { return }
+                    isJapanesePracticeTranscriptionReady = true
+                    japanesePracticePreparationStatus = "Japanese / English microphone ready"
+                } catch {
+                    guard !Task.isCancelled, usesJapanesePracticeTranscription else { return }
+                    japanesePracticePreparationStatus = error.localizedDescription
+                    lastErrorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+    private let japanesePracticeTranscriptionProvider = WhisperKitTranscriptionProvider(languageMode: .automaticJapaneseEnglish)
+    var selectedTranscriptionProvider: any BuddyTranscriptionProvider {
+        usesJapanesePracticeTranscription ? japanesePracticeTranscriptionProvider : transcriptionProvider
+    }
     private let audioEngine = AVAudioEngine()
     private var activeTranscriptionSession: (any BuddyStreamingTranscriptionSession)?
 
@@ -440,6 +472,10 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         speculativeFastAction: ((String) -> Void)? = nil
     ) async {
         guard !isDictationInProgress else { return }
+        guard !usesJapanesePracticeTranscription || isJapanesePracticeTranscriptionReady else {
+            lastErrorMessage = japanesePracticePreparationStatus
+            return
+        }
 
         print("🎙️ PacePushToTalkManager: start requested (\(startSource))")
 
@@ -614,6 +650,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         activeTranscriptionSession?.cancel()
         activeTranscriptionSession = nil
 
+        let transcriptionProvider = selectedTranscriptionProvider
         print("🎙️ PacePushToTalkManager: opening transcription provider \(transcriptionProvider.displayName)")
         let contextualPhrases = PaceTranscriptionContextualPhraseBuilder.phrasesForCurrentTurn()
         if !contextualPhrases.isEmpty {
@@ -1049,7 +1086,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
             return false
         }
 
-        guard transcriptionProvider.requiresSpeechRecognitionPermission else {
+        guard selectedTranscriptionProvider.requiresSpeechRecognitionPermission else {
             return true
         }
 

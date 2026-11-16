@@ -139,7 +139,7 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `leanring-buddyTests/PacePadPhysicalSceneRequestParserTests.swift` | ~30 | Positive and negative coverage for the explicit physical-scene phrases that permit one expiring camera still. |
 | `BuddyTranscriptionProvider.swift` | ~110 | Protocol surface and provider factory for voice transcription backends. Sessions receive per-turn contextual phrase hints. Factory reads `TranscriptionProvider` Info.plist key, and when unset AUTO-PREFERS WhisperKit if the model is on disk (the install-time presence is the user's opt-in signal). Explicit `appleSpeech` / `apple` always wins over an installed WhisperKit; explicit `whisperKit` falls back to Apple Speech with a "WhisperKit fallback" display-name suffix if the model is missing. `isWhisperKitModelInstalledOnDisk()` is a cheap FileManager probe — the pipeline itself still loads lazily on first session. |
 | `AppleSpeechTranscriptionProvider.swift` | ~152 | Default on-device transcription provider backed by Apple's Speech framework (`SFSpeechRecognizer` with `requiresOnDeviceRecognition=true`). Applies Pace's local contextual phrases through `contextualStrings`; also carries the explicit WhisperKit fallback display name when needed. |
-| `WhisperKitTranscriptionProvider.swift` | ~256 | Production local ASR using the small English base.en CoreML model in Application Support. Shared lazy pipeline; streaming partials and final transcription reject silence through Silero. |
+| `WhisperKitTranscriptionProvider.swift` | ~296 | Production local ASR using the small English base.en CoreML model in Application Support. Shared lazy pipeline; streaming partials and final transcription reject silence through Silero. |
 | `PaceTranscriptionContextualPhraseBuilder.swift` | ~80 | Local vocabulary-hint builder for ASR. Combines the frontmost app name, Pace product/runtime terms, and `PaceToolRegistry` names/aliases so Apple Speech and future WhisperKit sessions get the same biasing input. |
 | `PaceUtilityCommand.swift` | ~84 | Shared text/voice commands for read-aloud, explicit Kokoro, audio-file transcription and Sparkle update checks. |
 | `PaceSileroSpeechDetector.swift` | ~23 | Bundled Silero v6 CoreML speech gate shared by streaming and file transcription. |
@@ -368,10 +368,12 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 
 | Source | Approx. lines | Purpose |
 | --- | --- | --- |
+| `PaceJapanesePractice.swift` | ~158 | Session-only Japanese practice mode, bounded bilingual reply contract, one-call teacher instructions and existing chat control. |
+| `leanring-buddyTests/PaceJapanesePracticeTests.swift` | ~223 | Practice/parser/history/profile/default-language checks and opt-in local Japanese/English WAV transcription qualification. |
 | `PaceCLIProcessRunner.swift` | ~233 | Cancellable bounded subprocess stream with UTF-8 framing, private stderr capture and awaited owned-worker/process-group teardown. |
 | `PaceDesktopRequests.swift` | ~300 | Typed browser/profile, native capture, meeting control, and folder-specific interactive Codex-in-Warp actions. |
 | `PaceScreenRecordingController.swift` | ~140 | Owned native main-display recording lifecycle, bounded stop and shutdown, and saved-movie validation. |
-| `scripts/setup-whisperkit.py` | ~47 | Standard-library provisioner for pinned WhisperKit base.en assets and local tokenizer under Application Support. |
+| `scripts/setup-whisperkit.py` | ~57 | Standard-library provisioner for pinned English base.en and optional `--multilingual` base assets and local tokenizers under Application Support. |
 | `../leanring-buddyTests/PaceInventoryContextBenchmarkTests.swift` | ~112 | Opt-in, fixed synthetic two-window answer comparison through the selected Codex CLI. Alternates frozen broad context and scoped inventory context; validates both answers and performs no desktop actions. |
 
 | `Resources/OpenSourceNotices.txt` | license text | Offline copyright and licenses for pinned Swift dependencies and optional external helpers, opened from About. |

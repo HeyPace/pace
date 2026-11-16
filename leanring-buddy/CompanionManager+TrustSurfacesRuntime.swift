@@ -78,10 +78,12 @@ extension CompanionManager {
     /// seconds. The text passed in is the already-post-processed
     /// spoken text (think blocks + action tags stripped), so replay
     /// speaks the same syllables the user just missed.
-    func noteLastSpokenReply(_ spokenText: String) {
+    func noteLastSpokenReply(_ spokenText: String, profile: PaceSpeechProfile? = nil) {
         let trimmedSpokenText = spokenText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedSpokenText.isEmpty else { return }
         lastSpokenReplyText = trimmedSpokenText
+        lastSpokenReplyRequest = conversationSpeechRequest(for: spokenText)
+            ?? PaceSpeechRequest(text: trimmedSpokenText, profile: profile)
         lastSpokenReplyAt = Date()
 
         // Privacy-safe activation evidence for the automation matrix.
@@ -100,6 +102,7 @@ extension CompanionManager {
     /// button never lingers past the next push-to-talk press.
     func clearLastSpokenReplyState() {
         lastSpokenReplyText = nil
+        lastSpokenReplyRequest = nil
         lastSpokenReplyAt = nil
     }
 
@@ -107,16 +110,15 @@ extension CompanionManager {
     /// notch panel's replay button. Reuses the SAME text that already
     /// went through TTS — doesn't re-stream the planner.
     func replayLastSpokenReply() {
-        guard
-            let textToReplay = lastSpokenReplyText?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            !textToReplay.isEmpty
-        else {
-            return
-        }
-        Task { @MainActor in
+        guard let request = lastSpokenReplyRequest ?? lastSpokenReplyText.map({ PaceSpeechRequest(text: $0) }),
+              !chatSession.isChatTTSMuted, !streamingSentenceTTSPipeline.isMutedForCurrentTurn else { return }
+        guard conversationLanguageMode == .standard || request.profile != nil else { return }
+        let replayLease = turnLeaseRegistry.currentLease
+        currentResponseTask = Task { @MainActor [weak self] in
+            guard let self, self.isActiveTurn(replayLease) else { return }
             do {
-                try await ttsClient.speakText(textToReplay)
+                if request.profile == nil { try await ttsClient.speakText(request.text) }
+                else { try await ttsClient.speakUtterance(request, onStarted: {}) }
             } catch {
                 print("⚠️ Replay TTS failed: \(error.localizedDescription)")
             }
@@ -163,7 +165,7 @@ extension CompanionManager {
             print("⚠️ Failure narration (\(context ?? "no-context")): \(narration.spokenText)")
             Task { @MainActor in
                 do {
-                    try await ttsClient.speakText(narration.spokenText)
+                    try await speakStandardNarration(narration.spokenText)
                 } catch {
                     print("⚠️ Failure narration TTS failed: \(error.localizedDescription)")
                 }

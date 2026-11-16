@@ -94,7 +94,7 @@ struct PaceManagedPowerTests {
 
     @Test func typedAutomationAndProgramKeepProfileThroughSavedJSONAndCompilation() throws {
         let step = PaceAutomationStep(toolCalls: [.init(tool: "speak", arguments: [
-            "text": .string("こんにちは。"), "profile": .string("japanese_female"),
+            "text": .string("こんにちは。"), "profile": .string("japanese_female"), "englishSubtitle": .string("Hello."),
         ])])
         let definition = PaceAutomationDefinition(schemaVersion: 1, identifier: "japanese-greeting", name: "Japanese greeting",
             description: "A Japanese greeting.", category: "custom", invocationPhrases: ["greet in Japanese"],
@@ -106,7 +106,7 @@ struct PaceManagedPowerTests {
             Issue.record("Compiled speech must retain its typed request.")
             return
         }
-        #expect(request == .init(text: "こんにちは。", profile: .japaneseFemale))
+        #expect(request == .init(text: "こんにちは。", profile: .japaneseFemale, englishSubtitle: "Hello."))
         let program = PaceProgramDefinition(schemaVersion: 1, identifier: "japanese-program", name: "Japanese program",
             description: "A Japanese greeting.", category: "custom", invocationPhrases: ["greet in Japanese"], requiredPreferences: [],
             nodes: [.repeatTimes(count: 2, nodes: [.action(step: step)])])
@@ -416,7 +416,7 @@ struct PaceManagedPowerTests {
             return
         }
         #expect(media.assetID == "japanese-greeting-woman" && media.durationSeconds == 6)
-        #expect(speech == .init(text: "こんにちは。会えてうれしいです。ありがとうございます。", profile: .japaneseFemale))
+        #expect(speech == .init(text: "こんにちは。会えてうれしいです。ありがとうございます。", profile: .japaneseFemale, englishSubtitle: "Hello. It’s lovely to see you. Thank you."))
     }
 
     @Test func macOSSystemTemporaryAliasesWorkWhileManagedChildLinksRemainRejected() throws {
