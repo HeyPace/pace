@@ -314,7 +314,7 @@ nonisolated struct PaceMCPStdioClient {
         try await toolCatalog(serverName: serverName, allowedNames: nil)
     }
 
-    private func toolCatalog(serverName: String, allowedNames: Set<String>?) async throws -> String {
+    func toolCatalog(serverName: String, allowedNames: Set<String>?) async throws -> String {
         guard let configuration = serverConfigurationsProvider()[serverName] else {
             throw PaceMCPClientError.serverNotConfigured(serverName)
         }

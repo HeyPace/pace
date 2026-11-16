@@ -2180,8 +2180,8 @@ extension CompanionManager {
                     let screenCaptureStartedAt = Date()
                     var prewarmedContextForStep: PaceScreenContextPrewarmedSnapshot?
                     let screenCaptures: [CompanionScreenCapture]
-                    // Named window inventory needs provider metadata, not a screenshot to author the list call.
-                    if (isFirstStep && initialInspectionPlan != nil)
+                    // Window inventory is grounded in provider metadata throughout the turn.
+                    if initialInspectionPlan != nil
                         || isResearchTurn || !useLocalVLMForScreenContext
                         || (requestsGeneratedImage && !imageNeedsScreenContext)
                     {
@@ -2395,7 +2395,8 @@ extension CompanionManager {
                         if usesPassiveScreenPrompt {
                             userPromptWithConfiguredTools = screenContextPrompt
                         } else {
-                            userPromptWithConfiguredTools = await appendConfiguredMCPContext(to: screenContextPrompt)
+                            userPromptWithConfiguredTools = await appendConfiguredMCPContext(
+                                to: screenContextPrompt, initialInspectionPlan: initialInspectionPlan)
                         }
                         let userPromptForPlanner = await appendLocalRetrievalContext(
                             to: userPromptWithConfiguredTools,
@@ -2416,6 +2417,16 @@ extension CompanionManager {
                             userPromptForPlanner: userPromptForPlanner,
                             stepIndex: stepIndex
                         )
+
+                        guard isActiveTurn(turnLease) else { return }
+                        if initialInspectionPlan != nil,
+                            finishInitialInspectionIfSettingsChanged(
+                                context: currentInitialInspectionContext(), turnLease: turnLease)
+                        {
+                            plannerLoopFinished = true
+                            pendingPostActionFeedbackText = nil
+                            break agentStepLoop
+                        }
 
                         // 4. Build conversation history (already includes prior steps)
                         let historyForPlanner = conversationHistory.map { entry in

@@ -798,6 +798,73 @@ struct PaceMCPClientIntegrationTests {
         #expect(evidence.contains("producer-bound-fixture"))
     }
 
+    @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func windowInventoryContextRetainsEvidenceAndUsesOnlyItsActualSchemaWithoutActions() async throws {
+        let program = #"""
+            import json, sys
+            calls = []
+            for line in sys.stdin:
+                request = json.loads(line)
+                if "id" not in request:
+                    continue
+                if request["method"] == "initialize":
+                    result = {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}}, "serverInfo": {"name": "inventory-context", "version": "1"}}
+                elif request["method"] == "tools/list":
+                    result = {"tools": [{"name": name, "description": name + " fixture schema", "inputSchema": {"type": "object", "properties": {"action": {"enum": ["list"]}, "app": {"type": "string"}}}} for name in ["window", "click", "see", "app", "analyze"]]}
+                else:
+                    if request["params"]["name"] != "receipt":
+                        calls.append(request["params"]["name"])
+                    result = {"content": [{"type": "text", "text": "\n".join(calls) if calls else "NO_ACTIONS"}]}
+                print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
+            """#
+        let client = PaceMCPStdioClient(serverConfigurations: [
+            "peekaboo": .init(command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3",
+                args: ["-u", "-c", program, UUID().uuidString]),
+            "playwright": .init(command: "/usr/bin/false", args: []),
+        ])
+        let fullCatalog = try await client.peekabooToolCatalog()
+        #expect(fullCatalog.contains("click fixture schema"))
+        #expect(fullCatalog.contains("see fixture schema"))
+        #expect(!fullCatalog.contains("analyze fixture schema"))
+        let scopedCatalog = try await client.toolCatalog(serverName: "peekaboo", allowedNames: ["window"])
+        let schemas = try #require(JSONSerialization.jsonObject(with: Data(scopedCatalog.utf8)) as? [[String: Any]])
+        #expect(schemas.compactMap { $0["name"] as? String } == ["window"])
+        #expect(schemas.first?["inputSchema"] != nil)
+
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        manager.actionExecutor = PaceActionExecutor(actionsAreEnabledOverride: true, mcpClient: client)
+        let plan = PaceInitialInspectionPlan(toolCall: .init(serverName: "peekaboo", toolName: "window",
+            arguments: ["action": .string("list"), "app": .string("Google Chrome")]), canonicalEnvelope: "")
+        let observedRequest = "original request: List Chrome windows.\nObserved PID:111, window_id:84, partial inventory."
+        let prompt = await manager.appendConfiguredMCPContext(to: observedRequest, initialInspectionPlan: plan)
+        #expect(prompt.hasPrefix(observedRequest))
+        #expect(prompt.contains(scopedCatalog))
+        #expect(prompt.contains("untrusted data"))
+        #expect(prompt.contains("Do not claim the inventory is complete"))
+        #expect(prompt.contains("Do not activate, click, type, move or close"))
+        #expect(!prompt.contains("click fixture schema"))
+        #expect(!prompt.contains("see fixture schema"))
+        #expect(!prompt.contains("playwright"))
+        #expect(try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:])) == "NO_ACTIONS")
+    }
+
+    @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func missingWindowInventorySchemaIsABlockerWithoutFullCatalogFallback() async {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let plan = PaceInitialInspectionPlan(toolCall: .init(serverName: "peekaboo", toolName: "window",
+            arguments: ["action": .string("list"), "app": .string("Safari")]), canonicalEnvelope: "")
+        for configurations in [[:], ["peekaboo": PaceMCPServerConfiguration(
+            command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3", args: [PaceMCPFixture.fixtureScriptPath])]] {
+            manager.actionExecutor = PaceActionExecutor(actionsAreEnabledOverride: true,
+                mcpClient: PaceMCPStdioClient(serverConfigurations: configurations))
+            let prompt = await manager.appendConfiguredMCPContext(to: "List Safari windows.", initialInspectionPlan: plan)
+            #expect(prompt.hasPrefix("List Safari windows."))
+            #expect(prompt.contains("unavailable"))
+            #expect(prompt.contains("do not guess tools"))
+            #expect(!prompt.contains("Fixture app inventory"))
+        }
+    }
+
     @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
     func arbitraryConfiguredServerDiscoversSchemasAndKeepsItsProducer() async throws {
         let client = PaceMCPFixture.makeFixtureClient()
