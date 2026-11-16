@@ -58,12 +58,15 @@ extension CompanionManager {
 
     func finishInitialInspectionIfOutOfScope(
         initialInspectionPlan: PaceInitialInspectionPlan?, executionPlan: PaceActionExecutionPlan,
-        turnLease: PaceTurnLease
+        turnLease: PaceTurnLease, debugRecord: PaceToolCallDebugRecord,
+        systemPromptForExport: String? = nil
     ) -> Bool {
         guard let initialInspectionPlan, !initialInspectionPlan.permitsContinuation(executionPlan) else { return false }
-        return finishInitialInspection(
+        guard finishInitialInspection(
             message: "I stopped the window check because the planner requested something outside a window inventory. No actions from that plan were executed.",
-            turnLease: turnLease)
+            turnLease: turnLease) else { return false }
+        recordToolCallDebug(debugRecord, systemPromptForExport: systemPromptForExport)
+        return true
     }
 
     private func finishInitialInspection(message: String, turnLease: PaceTurnLease) -> Bool {
@@ -2612,7 +2615,23 @@ extension CompanionManager {
                     let rawActionParseResult = PaceActionTagParser.parseActions(from: fullResponseText)
                     if finishInitialInspectionIfOutOfScope(
                         initialInspectionPlan: initialInspectionPlan,
-                        executionPlan: rawActionParseResult.executionPlan, turnLease: turnLease)
+                        executionPlan: rawActionParseResult.executionPlan, turnLease: turnLease,
+                        debugRecord: PaceToolCallDebugRecord(
+                            transcript: isFirstStep ? transcript : "(agent step \(stepIndex))",
+                            lane: .planner,
+                            routingDetail:
+                                "\(intentPrediction.intent.rawValue) · conf \(String(format: "%.2f", intentPrediction.confidence)) · \(intentPrediction.route.rawValue)",
+                            plannerPathDetail: "blocked window-inventory plan",
+                            screenElementCount: lastPlannerElementLineCountForDebug,
+                            rawPlannerOutput: fullResponseText,
+                            spokenText: "",
+                            parsedActionsSummary: Self.toolCallDebugSummary(
+                                for: rawActionParseResult.executionPlan),
+                            dispatchSummary: "blocked by window-inventory scope — no actions executed",
+                            plannerLatencyMs: plannerSectionElapsedMs,
+                            totalTurnLatencyMs: Int(Date().timeIntervalSince(turnStartedAt) * 1000),
+                            userPrompt: userPromptForPlannerForDebug
+                        ), systemPromptForExport: isResearchTurn ? nil : systemPromptForTurn)
                     {
                         plannerLoopFinished = true
                         pendingPostActionFeedbackText = nil

@@ -186,10 +186,17 @@ struct PaceInitialInspectionPlanResolverTests {
         let plan = try #require(PaceInitialInspectionPlanResolver.resolve(
             transcript: "List Safari windows.", context: eligibleContext))
         let unexpectedPlan = PaceActionExecutionPlan.serial(actions: [.readClipboard])
+        let debugRecord = PaceToolCallDebugRecord(
+            transcript: "List Safari windows.", lane: .planner, routingDetail: "inventory continuation",
+            rawPlannerOutput: #"{"tool":"read_clipboard"}"#, spokenText: "",
+            parsedActionsSummary: "read_clipboard", dispatchSummary: "blocked — no actions executed")
         #expect(!manager.finishInitialInspectionIfOutOfScope(
-            initialInspectionPlan: nil, executionPlan: unexpectedPlan, turnLease: turnLease))
+            initialInspectionPlan: nil, executionPlan: unexpectedPlan, turnLease: turnLease,
+            debugRecord: debugRecord))
+        #expect(manager.recentToolCallDebugRecords.isEmpty)
         #expect(manager.finishInitialInspectionIfOutOfScope(
-            initialInspectionPlan: plan, executionPlan: unexpectedPlan, turnLease: turnLease))
+            initialInspectionPlan: plan, executionPlan: unexpectedPlan, turnLease: turnLease,
+            debugRecord: debugRecord))
         #expect(manager.currentTurnHUDState.status == .failed)
         let message = try #require(manager.currentTurnHUDState.detail)
         #expect(message.contains("No actions from that plan were executed"))
@@ -197,11 +204,14 @@ struct PaceInitialInspectionPlanResolverTests {
         #expect(persister.events.values.filter { $0.role == .pace }.count == 1)
         #expect(client.spokenTexts.isEmpty)
         #expect(manager.actionExecutor.mutationLog.isEmpty)
+        #expect(manager.recentToolCallDebugRecords == [debugRecord])
 
         let newerTurnLease = manager.turnLeaseRegistry.beginTurn()
         manager.currentTurnHUDState = .understanding("New request")
         #expect(!manager.finishInitialInspectionIfOutOfScope(
-            initialInspectionPlan: plan, executionPlan: unexpectedPlan, turnLease: turnLease))
+            initialInspectionPlan: plan, executionPlan: unexpectedPlan, turnLease: turnLease,
+            debugRecord: debugRecord))
+        #expect(manager.recentToolCallDebugRecords == [debugRecord])
         #expect(manager.isActiveTurn(newerTurnLease))
         #expect(persister.events.values.filter { $0.role == .pace }.count == 1)
         #expect(manager.currentTurnHUDState == .understanding("New request"))
