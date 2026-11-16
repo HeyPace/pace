@@ -146,7 +146,7 @@ struct PaceJapanesePracticeManagerTests {
         planner.response = #"{"spokenText":"七かける九は六十三です。","intent":"answer","payload":{"englishSubtitle":"Seven times nine is sixty-three."}}"#
         manager.plannerClient = planner
         manager.textOnlyPlannerClient = planner
-        manager.intentClassifier = PaceIntentClassifier()
+        manager.intentClassifier = PaceRuleBasedIntentClassifierAdapter(classifier: PaceIntentClassifier())
         manager.activePlannerTier = .local
         manager.useLocalVLMForScreenContext = false
         await manager.sendTranscriptToPlannerWithScreenshotAsync(
