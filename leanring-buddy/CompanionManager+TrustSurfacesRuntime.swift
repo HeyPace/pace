@@ -148,8 +148,21 @@ extension CompanionManager {
             guard self.isActiveTurn(replayLease), !self.chatSession.isChatTTSMuted,
                   !self.streamingSentenceTTSPipeline.isMutedForCurrentTurn else { return }
             do {
-                if request.profile == nil { try await self.ttsClient.speakText(request.text) }
-                else { try await self.ttsClient.speakUtterance(request, onStarted: {}) }
+                if self.ttsClient.supportsUtteranceCompletion || request.profile != nil {
+                    try await self.ttsClient.speakUtterance(request, onStarted: {})
+                } else {
+                    try await self.ttsClient.speakText(request.text)
+                    // Legacy providers expose playing state but no completion event.
+                    let deadline = ContinuousClock.now.advanced(by: .seconds(300))
+                    while self.ttsClient.isPlaying {
+                        guard self.isActiveTurn(replayLease) else { return }
+                        guard ContinuousClock.now < deadline else {
+                            self.ttsClient.stopPlayback()
+                            throw PaceUtterancePlaybackError.playbackFailed
+                        }
+                        try await Task.sleep(for: .milliseconds(100))
+                    }
+                }
             } catch {
                 guard self.isActiveTurn(replayLease) else { return }
                 self.currentTurnHUDState = .failed("Replay did not complete. \(error.localizedDescription)")
