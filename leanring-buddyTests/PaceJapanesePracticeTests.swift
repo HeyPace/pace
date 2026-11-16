@@ -249,7 +249,7 @@ struct PaceJapanesePracticeManagerTests {
         #expect(playbackFailures == 1 && speech.requests.isEmpty)
     }
 
-    @Test func unsupportedTypedPracticeCommandReturnsIdleAndDrainsTheFollowingQueuedTurn() async throws {
+    @Test(.timeLimit(.minutes(1))) func unsupportedTypedPracticeCommandReturnsIdleAndDrainsTheFollowingQueuedTurn() async throws {
         let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
         defer {
             manager.cancelActiveTurnTasks()
@@ -260,6 +260,18 @@ struct PaceJapanesePracticeManagerTests {
         let speech = PaceConversationRecorderTests.DismissalTTSClient()
         manager.ttsClient = speech
         manager.streamingSentenceTTSPipeline = StreamingSentenceTTSPipeline(ttsClient: speech)
+        let planner = Planner()
+        planner.emitsUnsafePartial = false
+        planner.response = "63."
+        manager.plannerClient = planner
+        manager.textOnlyPlannerClient = planner
+        manager.intentClassifier = PaceRuleBasedIntentClassifierAdapter(classifier: PaceIntentClassifier())
+        manager.activePlannerTier = .local
+        manager.fastEverydayAnswersEnabled = false
+        manager.useLocalVLMForScreenContext = false
+        let (states, stateContinuation) = AsyncStream<CompanionVoiceState>.makeStream()
+        let stateObservation = manager.$voiceState.sink { stateContinuation.yield($0) }
+        defer { stateObservation.cancel(); stateContinuation.finish() }
         manager.isOverlayVisible = true
         manager.bindQueuedChatTurnDrainObservation()
         manager.voiceState = .processing
@@ -268,13 +280,13 @@ struct PaceJapanesePracticeManagerTests {
         #expect(manager.queuedChatTurnCount == 2)
         manager.voiceState = .idle
         manager.drainNextQueuedChatTurnIfPossible()
-        for _ in 0..<2000 {
-            if speech.spokenTexts.contains(where: { $0.contains("63") }), manager.voiceState == .idle { break }
-            await Task.yield()
+        for await state in states {
+            if state == .idle, manager.voiceState == .idle, manager.queuedChatTurnCount == 0 { break }
         }
         #expect(manager.conversationLanguageMode == .standard)
         #expect(manager.voiceState == .idle && manager.queuedChatTurnCount == 0)
         #expect(speech.spokenTexts.contains { $0.contains("63") })
+        #expect(planner.calls == 1)
         #expect(persister.events.values.contains { $0.role == .pace && $0.text.contains("needs the local Kokoro Japanese voice") })
     }
 
