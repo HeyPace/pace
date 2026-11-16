@@ -27,6 +27,49 @@ nonisolated enum PaceConversationLanguageMode: Equatable, Sendable {
     """
 }
 
+enum PaceJapanesePracticeRouting {
+    enum Decision: Equatable {
+        case normalRouting
+        case textOnlyConversation
+    }
+
+    static func decision(
+        mode: PaceConversationLanguageMode, route: PaceIntentRoute, transcript: String,
+        hasScreenSuggestion: Bool, hasActiveVisualContext: Bool
+    ) -> Decision {
+        guard mode == .japanesePractice, route == .fullPipeline,
+              !hasScreenSuggestion, !hasActiveVisualContext else { return .normalRouting }
+        let normalizedTranscript = transcript.lowercased()
+        let words = Set(normalizedTranscript.components(separatedBy: CharacterSet.alphanumerics.inverted))
+        let computerWords: Set<String> = [
+            "screen", "screens", "window", "windows", "app", "apps", "application", "browser",
+            "computer", "desktop", "file", "files", "folder", "folders", "menu", "button", "tab",
+            "click", "tap", "press", "drag", "scroll", "open", "close", "launch", "navigate",
+            "save", "delete", "send", "type", "paste", "copy", "select", "download", "upload",
+            "run", "execute", "play", "pause", "stop",
+            "record", "screenshot", "camera", "microphone", "terminal", "code", "coding",
+            "email", "calendar", "reminder", "research", "search", "investigate", "compare",
+            "power", "powers", "workflow", "shortcut", "chrome", "safari", "website", "url",
+        ]
+        let japaneseComputerCues = [
+            "画面", "スクリーン", "ウィンドウ", "アプリ", "ブラウザ", "パソコン", "コンピュータ",
+            "ファイル", "フォルダ", "メニュー", "ボタン", "クリック", "タップ", "ドラッグ", "スクロール",
+            "起動", "開いて", "開く", "閉じ", "保存", "削除", "送信", "入力", "実行", "再生", "停止",
+            "検索", "調べ", "ダウンロード", "アップロード", "貼り付け", "コピー", "選択", "設定",
+            "録画", "録音", "メール", "カレンダー", "リマインダー", "パワー", "ショートカット",
+            "ワークフロー", "コード", "ターミナル", "見せて", "見て", "描いて", "ここを",
+            "アイコン", "タブ", "サイドバー", "ツールバー", "ダイアログ",
+            "入力欄", "チェックボックス", "押して", "押す", "選ん", "移動", "音量", "ミュート",
+            "明るさ", "消して", "切り替え", "戻して", "操作", "マウス", "キーボード", "カーソル",
+            "リンク", "ウェブ", "サイト", "スクショ",
+        ]
+        guard words.isDisjoint(with: computerWords),
+              !japaneseComputerCues.contains(where: normalizedTranscript.contains),
+              !normalizedTranscript.contains("://") else { return .normalRouting }
+        return .textOnlyConversation
+    }
+}
+
 nonisolated enum PaceFinalSpeechDeliveryPurpose: Equatable, Sendable {
     case assistantReply
     case operationalFeedback

@@ -1864,6 +1864,14 @@ extension CompanionManager {
         PaceLatencyBudget.shared.mark(.intentClassified)
         lastIntentRouteForEpisodicExtraction = intentPrediction.intent
         currentTurnHUDState = .understanding(routeHUDDetail(for: intentPrediction))
+        if PaceJapanesePracticeRouting.decision(
+            mode: activeConversationLanguageMode, route: intentPrediction.route, transcript: transcript,
+            hasScreenSuggestion: screenSuggestionContext != nil,
+            hasActiveVisualContext: hasActiveDiagram || hasActiveImage || requestsInteractiveDiagram || requestsGeneratedImage
+        ) == .textOnlyConversation {
+            handleTextOnlyPlannerFastPath(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
+            return
+        }
         if let clarification = PaceIntentClarifier.clarification(for: transcript) {
             print("❔ Intent clarification: \(clarification.question)")
             handleClarificationTurn(transcript: transcript, clarification: clarification)
@@ -2285,10 +2293,10 @@ extension CompanionManager {
                             print("👁️  First step using pre-warmed capture(s): \(screenCaptures.count)")
                         } else {
                             print("⚠️ Pre-warm capture unavailable — capturing screens now")
-                            screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                            screenCaptures = try await captureScreensForPlanner()
                         }
                     } else {
-                        screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                        screenCaptures = try await captureScreensForPlanner()
                     }
                     guard !Task.isCancelled else { return }
                     let usesPassiveScreenPrompt = CompanionSystemPrompt.shouldUsePassiveScreenPrompt(

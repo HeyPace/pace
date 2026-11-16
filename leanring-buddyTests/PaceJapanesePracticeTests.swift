@@ -73,6 +73,31 @@ struct PaceJapanesePracticeContractTests {
         #expect(PaceSpeechRequest.parse(arguments: ["text": .string("hello")])?.englishSubtitle == nil)
     }
 
+    @MainActor @Test func practiceUnknownConversationDefaultsToTextOnlyButMachineAndKnownRoutesStayIntact() {
+        func decide(_ transcript: String, mode: PaceConversationLanguageMode = .japanesePractice,
+                    route: PaceIntentRoute = .fullPipeline, suggestion: Bool = false, visual: Bool = false) -> PaceJapanesePracticeRouting.Decision {
+            PaceJapanesePracticeRouting.decision(mode: mode, route: route, transcript: transcript,
+                hasScreenSuggestion: suggestion, hasActiveVisualContext: visual)
+        }
+        let greeting = "こんにちは。短く返事してください。"
+        #expect(decide(greeting) == .textOnlyConversation)
+        #expect(decide("今日はお茶を飲みました。") == .textOnlyConversation)
+        #expect(decide(greeting, mode: .standard) == .normalRouting)
+        #expect(decide(greeting, suggestion: true) == .normalRouting)
+        #expect(decide(greeting, visual: true) == .normalRouting)
+        let knownRoutes: [PaceIntentRoute] = [.readScreen, .executeTool, .research, .phoneLargeModel,
+                                              .escalateToLargeModel, .chitchatFastPath, .answerDirectly]
+        for route in knownRoutes {
+            #expect(decide(greeting, route: route) == .normalRouting)
+        }
+        for command in ["画面を見て説明して", "ブラウザを開いて", "左のアイコンを押して", "メールを送信して",
+                        "フォルダを削除して", "日本語のパワーを実行して", "音量を上げて", "サイトを検索して",
+                        "Click the save button", "Open Chrome", "run power Japanese Greeting", "research this topic",
+                        "Show the screen", "type this into the terminal", "https://example.com"] {
+            #expect(decide(command) == .normalRouting)
+        }
+    }
+
     @Test func multilingualConfigurationNeverReplacesEnglishDefaults() {
         let standard = WhisperKitTranscriptionProvider.LanguageMode.english
         let practice = WhisperKitTranscriptionProvider.LanguageMode.automaticJapaneseEnglish
@@ -91,11 +116,13 @@ struct PaceJapanesePracticeManagerTests {
         var calls = 0
         var emitsUnsafePartial = true
         var capturedSystemPrompt = ""
+        var imageCounts: [Int] = []
         var response = #"{"spokenText":"今日は何をしましたか。","intent":"answer","payload":{"englishSubtitle":"What did you do today?"}}"#
         func generateResponseStreaming(images: [(data: Data, label: String)], systemPrompt: String,
             conversationHistory: [(userPlaceholder: String, assistantResponse: String)], userPrompt: String,
             onTextChunk: @MainActor @Sendable (String) -> Void) async throws -> (text: String, duration: TimeInterval) {
             calls += 1
+            imageCounts.append(images.count)
             capturedSystemPrompt = systemPrompt
             if emitsUnsafePartial { onTextChunk("This partial English prose must never be spoken in practice.") }
             onTextChunk(response)
@@ -135,6 +162,52 @@ struct PaceJapanesePracticeManagerTests {
         manager.handleTextOnlyPlannerFastPath(transcript: "Back in English")
         await manager.currentResponseTask?.value
         #expect(speech.spokenTexts.last == "Your usual English voice is back.")
+    }
+
+    private final class UnknownConversationClassifier: PaceIntentClassifying {
+        var calls = 0
+        func classify(_ transcript: String) async -> PaceIntentPrediction {
+            calls += 1
+            return PaceIntentPrediction(intent: .unknown, confidence: 0)
+        }
+        func classify(_ transcript: String,
+            conversationHistory: [(userTranscript: String, assistantResponse: String)]) async -> PaceIntentPrediction {
+            await classify(transcript)
+        }
+    }
+
+    @Test func typedUnknownJapaneseGreetingUsesOneSelectedPlannerWithoutCapturingEvenWithReadMyScreenOn() async throws {
+        let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        let transcript = "こんにちは。短く返事してください。"
+        let planner = Planner()
+        planner.response = #"{"spokenText":"こんにちは。お元気ですか。","intent":"answer","payload":{"englishSubtitle":"Hello. How are you?"}}"#
+        let classifier = UnknownConversationClassifier()
+        manager.plannerClient = planner
+        manager.textOnlyPlannerClient = planner
+        manager.intentClassifier = classifier
+        manager.activePlannerTier = .local
+        manager.fastEverydayAnswersEnabled = false
+        manager.conversationLanguageMode = .japanesePractice
+        manager.useLocalVLMForScreenContext = true
+        manager.isOverlayVisible = true
+        var captureAttempts = 0
+        manager.captureScreensForPlanner = {
+            captureAttempts += 1
+            throw NSError(domain: "PracticeGreetingCaptureFixture", code: 1)
+        }
+        manager.submitChatTranscriptFromDeepLink(transcript)
+        await manager.currentTurnDispatchTask?.value
+        await manager.currentResponseTask?.value
+        #expect(manager.useLocalVLMForScreenContext)
+        #expect(classifier.calls == 1 && planner.calls == 1)
+        #expect(planner.imageCounts == [0] && captureAttempts == 0)
+        #expect(planner.capturedSystemPrompt.contains("englishSubtitle"))
+        #expect(speech.requests == [.init(text: "こんにちは。お元気ですか。", profile: .japaneseFemale,
+            englishSubtitle: "Hello. How are you?")])
+        #expect(persister.events.values.filter { $0.role == .pace }.map(\.text) == ["Hello. How are you?"])
+        #expect(persister.events.values.contains { $0.origin == .typed && $0.text == transcript })
+        #expect(manager.voiceState == .idle)
     }
 
     @Test func practiceMathRoutesThroughTheSelectedBilingualPlannerAndSpeaksJapanese() async throws {

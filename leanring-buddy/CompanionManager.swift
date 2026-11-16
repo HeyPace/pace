@@ -571,6 +571,10 @@ final class CompanionManager: ObservableObject {
     // closure reads the live `@Published` value so toggling the
     // preference in Settings takes effect immediately without a
     // service restart.
+    var captureScreensForPlanner: () async throws -> [CompanionScreenCapture] = {
+        try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+    }
+
     lazy var screenContextService: PaceScreenContextService = {
         PaceScreenContextService(
             screenAnalysisClient: PaceScreenAnalysisClientFactory.makeDefaultClient(),
