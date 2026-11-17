@@ -138,6 +138,13 @@ struct PacePowerCardTests {
             #expect(manager.mediaOverlayController.handleCardInteraction(ifGenerationMatches: generation, interaction: .select(pageIndex: 0, choiceIndex: 0)))
         }
         #expect(persister.events.count == beforeRepeatedChoiceCount + 2)
+        let lastSelection = persister.events.values.filter { $0.origin == .progress && $0.text.hasPrefix("Selected") }
+            .max { $0.createdAt < $1.createdAt }
+        let lastFeedback = persister.events.values.filter { $0.role == .pace && $0.origin == .assistant }
+            .max { $0.createdAt < $1.createdAt }
+        #expect(lastSelection?.text.contains("Selected “Thank you”") == true)
+        #expect(lastFeedback?.text == "Correct. Arigatou means thank you.")
+        #expect(manager.chatSession.messages.last?.body == lastFeedback?.text)
         let discovery = await manager.discoverAutomationCatalog()
         let power = try manager.managedPowerStore.resolve("Japanese practice", catalog: discovery.catalog)
         try manager.managedPowerStore.setEnabled(false, power: power)

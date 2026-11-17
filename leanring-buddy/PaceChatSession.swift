@@ -180,8 +180,12 @@ final class PaceChatSession: ObservableObject {
         // Main-actor events that arrived or changed while disk was being read win.
         for message in currentMessages { upsertMessage(message) }
         if let currentScreenSuggestionEvent { upsertConversationEvent(currentScreenSuggestionEvent) }
-        messages.sort { $0.createdAt < $1.createdAt }
+        orderMessagesChronologically()
         hasLoadedHistory = true
+    }
+
+    func orderMessagesChronologically() {
+        messages.sort { $0.createdAt < $1.createdAt }
     }
 
     func upsertConversationEvent(_ event: ConversationEvent) {
