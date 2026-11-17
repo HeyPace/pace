@@ -21,6 +21,7 @@ nonisolated struct PaceChatMessage: Identifiable, Equatable {
     var speechRequest: PaceSpeechRequest? = nil
     var turnIdentifier: String? = nil
     var origin: ConversationEvent.Origin? = nil
+    var deliveryState: ConversationEvent.DeliveryState? = nil
 
     var isInternalRuntimeEvent: Bool {
         guard role == .user else { return false }
@@ -186,7 +187,7 @@ final class PaceChatSession: ObservableObject {
     func upsertConversationEvent(_ event: ConversationEvent) {
         upsertMessage(PaceChatMessage(id: event.eventID, role: event.role,
             body: event.text, createdAt: event.createdAt, speechRequest: event.speechRequest,
-            turnIdentifier: event.turnID, origin: event.origin))
+            turnIdentifier: event.turnID, origin: event.origin, deliveryState: event.deliveryState))
         if event.role == .pace, event.origin == .proactive, event.deliveryState == .completed,
            event.eventID.hasPrefix("screen-suggestion-"),
            !event.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -256,7 +257,10 @@ final class PaceChatSession: ObservableObject {
                 id: pendingMessageId,
                 role: .user,
                 body: trimmedTranscript,
-                createdAt: now
+                createdAt: now,
+                turnIdentifier: pendingMessageId,
+                origin: .typed,
+                deliveryState: .accepted
             )
         )
         transcriptSubmitter.submitChatTranscript(

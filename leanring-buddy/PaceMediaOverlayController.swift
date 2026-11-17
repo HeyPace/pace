@@ -109,7 +109,7 @@ final class PaceMediaOverlayController {
             self?.dismissPresentation(ifGenerationMatches: generation, cancelOwnedRun: true)
         }
         if showsWindows {
-            guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+            guard let screen = PaceActiveDisplayCoordinator.shared.targetScreen ?? NSScreen.main ?? NSScreen.screens.first else {
                 dismiss(cancelOwnedRun: false)
                 return .init(toolName: "present_media", summary: "No display available for local media.", terminalReason: .managedWorkflowUnavailable)
             }

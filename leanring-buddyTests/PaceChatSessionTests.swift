@@ -9,13 +9,43 @@
 //  so we don't need a live `CompanionManager`.
 //
 
+import AppKit
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import Pace
 
 @MainActor
 struct PaceChatSessionTests {
+
+    @Test func typedReceiptExistsBeforeTheAgentSubmissionCallback() {
+        let submitter = FakeTranscriptSubmitter()
+        let session = PaceChatSession(historySource: FakeHistorySource(), transcriptSubmitter: submitter)
+        submitter.onSubmit = {
+            let row = session.messages.last.map(PaceChatTranscriptModel.messageRowModel(fromChatMessage:))
+            #expect(row?.submissionReceipt == "Sent")
+            #expect(row?.bodyText == "run power Bouncing Ball")
+            #expect(row?.turnIdentifier == submitter.optimisticMessageIdentifiers.last)
+        }
+        session.submitUserMessage("run power Bouncing Ball")
+        #expect(submitter.submittedTranscripts.count == 1)
+        submitter.onSubmit = nil
+    }
+
+    @Test func receiptFollowsCanonicalCancellationAndSurvivesReload() {
+        let history = FakeHistorySource()
+        let session = PaceChatSession(historySource: history, transcriptSubmitter: FakeTranscriptSubmitter())
+        let event = ConversationEvent(eventID: "queued-ball", turnID: "queued-ball", role: .user,
+            origin: .typed, text: "run power Bouncing Ball", deliveryState: .cancelled)
+        session.upsertConversationEvent(event)
+        #expect(PaceChatTranscriptModel.messageRowModel(fromChatMessage: session.messages[0]).submissionReceipt == "Cancelled")
+        history.stubbedTurns = [historyTurn(for: event)]
+        session.loadHistory()
+        #expect(PaceChatTranscriptModel.messageRowModel(fromChatMessage: session.messages[0]).submissionReceipt == "Cancelled")
+        let voice = PaceChatMessage(id: "spoken", role: .user, body: "Hello", createdAt: Date(), origin: .voice, deliveryState: .accepted)
+        #expect(PaceChatTranscriptModel.messageRowModel(fromChatMessage: voice).submissionReceipt == nil)
+    }
 
     // MARK: - Test doubles
 
@@ -30,6 +60,7 @@ struct PaceChatSessionTests {
     }
 
     final class FakeTranscriptSubmitter: PaceChatTranscriptSubmitting {
+        var onSubmit: (() -> Void)?
         var submittedTranscripts: [String] = []
         var optimisticMessageIdentifiers: [String] = []
 
@@ -39,6 +70,7 @@ struct PaceChatSessionTests {
         ) {
             submittedTranscripts.append(transcript)
             optimisticMessageIdentifiers.append(optimisticMessageIdentifier)
+            onSubmit?()
         }
     }
 
@@ -525,5 +557,47 @@ struct PaceChatSessionTests {
         )
         #expect(userText == "only the user said something")
         #expect(paceText == "")
+    }
+}
+
+@MainActor @Suite(.serialized)
+struct PaceChatComposerReturnTests {
+    @Test func nativeConfirmationSendsOnceWithoutActivatingTheApp() async throws {
+        final class Input { var text = "run power Bouncing Ball"; var sent: [String] = [] }
+        let input = Input()
+        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let field = TextField("Message", text: Binding(get: { input.text }, set: { input.text = $0 }), axis: .vertical)
+            .lineLimit(1...4)
+            .paceChatSubmitOnReturn {
+                guard !input.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                input.sent.append(input.text)
+                input.text = ""
+            }
+        let host = NSHostingView(rootView: field.frame(width: 360, height: 100))
+        let panel = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 360, height: 100),
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.isReleasedWhenClosed = false
+        panel.contentView = host
+        defer { panel.contentView = nil; panel.close() }
+        host.layoutSubtreeIfNeeded()
+        func textField(in view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField { return field }
+            return view.subviews.lazy.compactMap { textField(in: $0) }.first
+        }
+        var nativeField: NSTextField?
+        for _ in 0..<50 {
+            nativeField = textField(in: host)
+            if nativeField != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let resolvedField = try #require(nativeField)
+        #expect(panel.makeFirstResponder(resolvedField))
+        let enter = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: 0, windowNumber: panel.windowNumber, context: nil, characters: "\r",
+            charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        panel.sendEvent(enter)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(input.sent == ["run power Bouncing Ball"])
+        #expect(NSWorkspace.shared.frontmostApplication?.processIdentifier == frontmostPID)
     }
 }

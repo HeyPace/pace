@@ -533,7 +533,7 @@ struct PacePanelChatView: View {
                     .foregroundStyle(DS.Colors.textPrimary)
                     .lineLimit(1...4)
                     .focused($isInputFocused)
-                    .onSubmit(submitDraft)
+                    .paceChatSubmitOnReturn(submitDraft)
                     .accessibilityLabel("Message Pace")
                     .padding(.vertical, 5)
                 iconButton(
@@ -645,8 +645,8 @@ struct PacePanelChatView: View {
         guard !trimmed.isEmpty else { return }
         selectedQuestionIdentifier = nil
         showsHistory = false
-        chatSession.submitUserMessage(trimmed)
         chatSession.draftMessageText = ""
+        chatSession.submitUserMessage(trimmed)
         isInputFocused = true
     }
 

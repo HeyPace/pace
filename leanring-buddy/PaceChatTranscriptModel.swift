@@ -41,6 +41,17 @@ nonisolated struct PaceChatTranscriptMessageRowModel: Identifiable, Equatable {
     var turnIdentifier: String? = nil
     var origin: ConversationEvent.Origin? = nil
     var originalResponse: String? = nil
+    var deliveryState: ConversationEvent.DeliveryState? = nil
+
+    var submissionReceipt: String? {
+        guard author == .user, origin == .typed else { return nil }
+        switch deliveryState {
+        case .accepted, .completed: return "Sent"
+        case .cancelled: return "Cancelled"
+        case .interrupted: return "Stopped"
+        case nil: return nil
+        }
+    }
 
     /// User rows dock to the trailing (right) edge; assistant rows dock
     /// to the leading (left) edge.
@@ -164,7 +175,8 @@ nonisolated enum PaceChatTranscriptModel {
             speechRequest: chatMessage.speechRequest,
             turnIdentifier: chatMessage.turnIdentifier ?? chatMessage.persistedTurnIdentifier,
             origin: chatMessage.origin,
-            originalResponse: displayedBodyText(forChatMessage: chatMessage) == chatMessage.body ? nil : chatMessage.body
+            originalResponse: displayedBodyText(forChatMessage: chatMessage) == chatMessage.body ? nil : chatMessage.body,
+            deliveryState: chatMessage.deliveryState
         )
     }
 

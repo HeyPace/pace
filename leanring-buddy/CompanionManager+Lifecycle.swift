@@ -166,7 +166,7 @@ extension CompanionManager {
         lastTranscript = transcript
         _ = PaceAPIAuditLog.shared.beginTurn()
         PaceAnalytics.trackUserMessageSent(transcript: transcript)
-        currentTurnHUDState = .understanding("classifying intent")
+        currentTurnHUDState = .understanding("Message received · Working…")
         responseOverlayManager.setAnchor(.belowRightOfCursor)
         responseOverlayManager.showOverlayAndBeginStreaming()
         responseOverlayManager.updateStreamingText(transcript)

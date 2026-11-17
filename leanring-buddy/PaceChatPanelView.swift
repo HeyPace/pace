@@ -554,7 +554,7 @@ struct PaceChatPanelView: View {
                 .foregroundColor(DS.Colors.textPrimary)
                 .lineLimit(1...4)
                 .focused($isChatInputFocused)
-                .onSubmit(submitDraftMessageText)
+                .paceChatSubmitOnReturn(submitDraftMessageText)
                 .padding(.horizontal, 11)
                 .padding(.vertical, 8)
                 .background(
@@ -595,8 +595,8 @@ struct PaceChatPanelView: View {
         let trimmedDraftMessageText = chatSession.draftMessageText
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDraftMessageText.isEmpty else { return }
-        chatSession.submitUserMessage(trimmedDraftMessageText)
         chatSession.draftMessageText = ""
+        chatSession.submitUserMessage(trimmedDraftMessageText)
         isChatInputFocused = true
     }
 }

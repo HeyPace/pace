@@ -26,6 +26,12 @@ struct PaceDialogueMessageView: View {
                     .foregroundStyle(isFromUser ? DS.Colors.textSecondary : DS.Colors.textPrimary.opacity(0.94))
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
+                if let receipt = message.submissionReceipt {
+                    Label(receipt, systemImage: receipt == "Sent" ? "checkmark" : "xmark")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(DS.Colors.textTertiary)
+                        .accessibilityLabel("Message " + receipt.lowercased())
+                }
                 if !isFromUser, let speechRequest = message.speechRequest {
                     speechControls(speechRequest)
                     if showsJapaneseOriginal {
@@ -212,5 +218,21 @@ struct PaceDialogueCurrentStatusView: View {
             }
             .padding(.vertical, 8)
         }
+    }
+}
+
+@MainActor
+extension View {
+    func paceChatSubmitOnReturn(_ submit: @escaping () -> Void) -> some View {
+        onSubmit(submit)
+            .onKeyPress(.return, phases: .down) { keyPress in
+                guard !keyPress.modifiers.contains(.shift) else { return .ignored }
+                // Let the input method finish a Japanese or other composed word first.
+                if let editor = NSApp.keyWindow?.firstResponder as? NSTextView, editor.hasMarkedText() {
+                    return .ignored
+                }
+                submit()
+                return .handled
+            }
     }
 }
