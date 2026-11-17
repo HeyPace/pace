@@ -122,8 +122,8 @@ final class PaceMediaOverlayController {
             imagePanel.setAccessibilityLabel("Pace power animation")
             imagePanel.ignoresMouseEvents = true
             if let renderer {
-                renderer.webView.frame = CGRect(origin: .zero, size: imageSize)
-                imagePanel.contentView = renderer.webView
+                renderer.view.frame = CGRect(origin: .zero, size: imageSize)
+                imagePanel.contentView = renderer.view
             } else if let image {
                 let imageHostView = NSHostingView(rootView: MediaImageView(image: image, motion: request.motion)
                     .frame(width: imageSize.width, height: imageSize.height))

@@ -159,22 +159,17 @@ struct PaceGeneratedSVGTests {
         panel.ignoresMouseEvents = true
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.contentView = renderer.webView
-        panel.orderFrontRegardless()
         defer { renderer.stop(); panel.orderOut(nil); panel.close() }
         try await renderer.prepare(try #require(PaceGeneratedSVG.parse(drawing)))
-        #expect(!renderer.webView.configuration.defaultWebpagePreferences.allowsContentJavaScript)
-        #expect(!renderer.webView.configuration.websiteDataStore.isPersistent)
-        #expect(renderer.webView.configuration.userContentController.userScripts.isEmpty)
-        #expect(renderer.webView.url?.absoluteString == "about:blank")
+        panel.contentView = renderer.view
+        panel.orderFrontRegardless()
+        #expect(!renderer.configuration.defaultNavigationPreferences.allowsContentJavaScript)
+        #expect(!renderer.configuration.websiteDataStore.isPersistent)
+        #expect(renderer.configuration.userContentController.userScripts.isEmpty)
+        #expect(renderer.page.url?.absoluteString == "about:blank")
         try await Task.sleep(for: .milliseconds(150))
-        let image: NSImage = try await withCheckedThrowingContinuation { continuation in
-            renderer.webView.takeSnapshot(with: nil) { image, error in
-                if let image { continuation.resume(returning: image) }
-                else { continuation.resume(throwing: error ?? CocoaError(.fileReadUnknown)) }
-            }
-        }
-        let bitmap = try #require(image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
+        let imageData = try await renderer.page.exported(as: .image(allowTransparentBackground: true))
+        let bitmap = try #require(NSBitmapImageRep(data: imageData))
         var coloredPixels = 0
         for pixelY in stride(from: 0, to: bitmap.pixelsHigh, by: 2) {
             for pixelX in stride(from: 0, to: bitmap.pixelsWide, by: 2) {
@@ -183,8 +178,26 @@ struct PaceGeneratedSVGTests {
             }
         }
         #expect(coloredPixels > 100, "The data-image must actually draw the requested blue circle")
+        var replacementCommitted = false
+        let blockedBefore = renderer.blockedNavigationCount
+        let replacementURL = try #require(URL(string: "data:text/html,unexpected-replacement"))
+        let rejectedLoad = Task { @MainActor in
+            do {
+                for try await event in renderer.page.load(replacementURL) {
+                    if event == .committed || event == .finished { replacementCommitted = true }
+                }
+            } catch { }
+        }
+        for _ in 0..<100 {
+            if renderer.blockedNavigationCount > blockedBefore || replacementCommitted { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        rejectedLoad.cancel()
+        #expect(renderer.blockedNavigationCount > blockedBefore)
+        #expect(!replacementCommitted, "Only the initial host document may navigate")
+        #expect(renderer.page.url?.absoluteString == "about:blank")
         renderer.stop()
-        #expect(renderer.webView.navigationDelegate == nil)
-        #expect(renderer.webView.superview == nil)
+        #expect(renderer.isStopped)
+        #expect(renderer.view.superview == nil)
     }
 }

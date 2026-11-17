@@ -1,29 +1,49 @@
 import AppKit
+import SwiftUI
 import WebKit
 
 @MainActor
-final class PaceGeneratedSVGRenderer: NSObject, WKNavigationDelegate {
-    let webView: WKWebView
+final class PaceGeneratedSVGRenderer {
+    let page: WebPage
+    let view: NSView
+    let configuration: WebPage.Configuration
     var onRenderFailure: (() -> Void)?
+    private(set) var isStopped = false
+    private let navigationDecider: PaceSVGNavigationDecider
+    var blockedNavigationCount: Int { navigationDecider.blockedNavigationCount }
     private var readiness: CheckedContinuation<Void, Error>?
     private var ruleReadiness: CheckedContinuation<WKContentRuleList, Error>?
     private var timeoutTask: Task<Void, Never>?
-    private var permitsInitialNavigation = true
-    private var stopped = false
+    private var loadTask: Task<Void, Never>?
+    private var navigationMonitor: Task<Void, Never>?
+    private var hasPrepared = false
 
-    override init() {
-        let configuration = WKWebViewConfiguration()
+    init() {
+        var configuration = WebPage.Configuration()
         configuration.websiteDataStore = .nonPersistent()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-        configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
-        webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 240, height: 320), configuration: configuration)
-        super.init()
-        webView.navigationDelegate = self
-        webView.underPageBackgroundColor = .clear
+        configuration.userContentController = WKUserContentController()
+        configuration.defaultNavigationPreferences.allowsContentJavaScript = false
+        configuration.deviceSensorAuthorization = .init(decision: .deny)
+        self.configuration = configuration
+        let navigationDecider = PaceSVGNavigationDecider()
+        self.navigationDecider = navigationDecider
+        let page = WebPage(configuration: configuration, navigationDecider: navigationDecider)
+        self.page = page
+        let hostingView = NSHostingView(rootView: WebView(page)
+            .webViewContentBackground(.hidden)
+            .webViewBackForwardNavigationGestures(.disabled)
+            .webViewMagnificationGestures(.disabled)
+            .webViewTextSelection(.disabled)
+            .allowsHitTesting(false)
+            .frame(width: 240, height: 320))
+        hostingView.sizingOptions = []
+        hostingView.frame = CGRect(x: 0, y: 0, width: 240, height: 320)
+        view = hostingView
     }
 
     func prepare(_ svg: PaceGeneratedSVG) async throws {
-        guard !stopped, permitsInitialNavigation, ruleReadiness == nil, readiness == nil else { throw CancellationError() }
+        guard !isStopped, !hasPrepared else { throw CancellationError() }
+        hasPrepared = true
         try await withTaskCancellationHandler {
             timeoutTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(5))
@@ -43,15 +63,28 @@ final class PaceGeneratedSVGRenderer: NSObject, WKNavigationDelegate {
                 }
             }
             try Task.checkCancellation()
-            guard !stopped else { throw CancellationError() }
-            webView.configuration.userContentController.add(list)
+            guard !isStopped else { throw CancellationError() }
+            configuration.userContentController.add(list)
             let encodedSVG = Data(svg.markup.utf8).base64EncodedString()
             let document = """
             <!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; connect-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}img{display:block;width:100%;height:100%;object-fit:contain}</style></head><body><img alt="Generated Power drawing" src="data:image/svg+xml;base64,\(encodedSVG)"></body></html>
             """
+            let events = page.navigations
+            navigationMonitor = Task { @MainActor [weak self] in
+                do { for try await _ in events { if Task.isCancelled { return } } }
+                catch { if !Task.isCancelled { self?.handleFailure(error) } }
+            }
             try await withCheckedThrowingContinuation { continuation in
                 readiness = continuation
-                webView.loadHTMLString(document, baseURL: nil)
+                loadTask = Task { @MainActor [weak self, page] in
+                    do {
+                        for try await event in page.load(html: document) {
+                            guard !Task.isCancelled else { return }
+                            if event == .finished { self?.finish(.success(())); return }
+                        }
+                        self?.handleFailure(CocoaError(.fileReadUnknown))
+                    } catch { if !Task.isCancelled { self?.handleFailure(error) } }
+                }
             }
             try Task.checkCancellation()
         } onCancel: {
@@ -60,15 +93,19 @@ final class PaceGeneratedSVGRenderer: NSObject, WKNavigationDelegate {
     }
 
     func stop() {
-        guard !stopped else { return }
-        stopped = true
+        guard !isStopped else { return }
+        isStopped = true
         onRenderFailure = nil
         finish(.failure(CancellationError()))
-        webView.stopLoading()
-        webView.navigationDelegate = nil
-        webView.loadHTMLString("", baseURL: nil)
-        webView.configuration.userContentController.removeAllContentRuleLists()
-        webView.removeFromSuperview()
+        loadTask?.cancel()
+        loadTask = nil
+        navigationMonitor?.cancel()
+        navigationMonitor = nil
+        page.stopLoading()
+        navigationDecider.permitEmptyTeardown()
+        page.load(html: "<!doctype html><meta http-equiv='Content-Security-Policy' content=\"default-src 'none'\">")
+        configuration.userContentController.removeAllContentRuleLists()
+        view.removeFromSuperview()
     }
 
     private func finish(_ result: Result<Void, Error>) {
@@ -84,20 +121,37 @@ final class PaceGeneratedSVGRenderer: NSObject, WKNavigationDelegate {
         continuation?.resume(with: result)
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { finish(.success(())) }
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { finish(.failure(error)) }
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { finish(.failure(error)) }
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        let wasPreparing = readiness != nil
-        finish(.failure(CocoaError(.fileReadUnknown)))
-        if !wasPreparing, !stopped { onRenderFailure?() }
+    private func handleFailure(_ error: Error) {
+        guard !isStopped else { return }
+        let wasPreparing = ruleReadiness != nil || readiness != nil
+        finish(.failure(error))
+        if !wasPreparing { onRenderFailure?() }
+    }
+}
+
+@MainActor
+private final class PaceSVGNavigationDecider: WebPage.NavigationDeciding {
+    private var permitsHostBlank = true
+    private(set) var blockedNavigationCount = 0
+
+    func permitEmptyTeardown() { permitsHostBlank = true }
+
+    func decidePolicy(for action: WebPage.NavigationAction, preferences: inout WebPage.NavigationPreferences) async -> WKNavigationActionPolicy {
+        preferences.allowsContentJavaScript = false
+        guard permitsHostBlank, action.target?.isMainFrame == true, action.navigationType == .other,
+              !action.shouldPerformDownload, action.request.url?.absoluteString == "about:blank" else {
+            blockedNavigationCount += 1
+            return .cancel
+        }
+        permitsHostBlank = false
+        return .allow
     }
 
-    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        if permitsInitialNavigation, navigationAction.targetFrame?.isMainFrame == true,
-           navigationAction.navigationType == .other, navigationAction.request.url?.absoluteString == "about:blank" {
-            permitsInitialNavigation = false
-            decisionHandler(.allow)
-        } else { decisionHandler(.cancel) }
+    func decidePolicy(for response: WebPage.NavigationResponse) async -> WKNavigationResponsePolicy {
+        response.response.url?.absoluteString == "about:blank" && response.canShowMimeType ? .allow : .cancel
+    }
+
+    func decideAuthenticationChallengeDisposition(for challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        (.cancelAuthenticationChallenge, nil)
     }
 }
