@@ -284,7 +284,7 @@ struct PaceJavaScriptPowerTests {
             callbackCount += 1
             #expect(manager?.voiceState == .responding)
             try? Data("changed artifact".utf8).write(to: artifact, options: .atomic)
-            return .init(toolName: "speak", summary: "Owned test artifact changed", terminalReason: .managedWorkflowUnavailable)
+            return .init(toolName: "speak", summary: "Owned test artifact changed")
         }
         helpers.begin("run power Runtime Greeting", manager: manager)
         await manager.handlePowerCommand(.run("Runtime Greeting"), transcript: "run power Runtime Greeting")
