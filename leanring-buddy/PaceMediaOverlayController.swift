@@ -5,14 +5,36 @@ nonisolated struct PaceMediaPresentationRequest: Equatable, Sendable {
     enum Source: Equatable, Sendable {
         case catalogAsset(String)
         case generatedSVG(PaceGeneratedSVG)
+        case interactiveCard(PacePowerCard)
     }
     let source: Source
     let durationSeconds: Double
     let motion: String?
 
     // Existing catalog callers retain their original identifier accessor.
-    var assetID: String { if case .catalogAsset(let identifier) = source { return identifier }; return "generated-svg" }
-    var presentationSummary: String { if case .generatedSVG = source { return "generated drawing" }; return "local media " + assetID }
+    var assetID: String {
+        switch source {
+        case .catalogAsset(let identifier): return identifier
+        case .generatedSVG: return "generated-svg"
+        case .interactiveCard: return "generated-card"
+        }
+    }
+    var presentationSummary: String {
+        switch source {
+        case .catalogAsset: return "local media " + assetID
+        case .generatedSVG: return "generated drawing"
+        case .interactiveCard(let card): return "interactive card “" + card.title + "”"
+        }
+    }
+    var maximumDurationSeconds: Double { if case .interactiveCard = source { return 300 }; return 30 }
+    var card: PacePowerCard? { if case .interactiveCard(let card) = source { return card }; return nil }
+    var illustration: PaceGeneratedSVG? {
+        switch source {
+        case .generatedSVG(let svg): return svg
+        case .interactiveCard(let card): return card.illustration
+        case .catalogAsset: return nil
+        }
+    }
 
     init(assetID: String, durationSeconds: Double, motion: String?) {
         source = .catalogAsset(assetID)
@@ -26,10 +48,23 @@ nonisolated struct PaceMediaPresentationRequest: Equatable, Sendable {
         motion = nil
     }
 
+    init(card: PacePowerCard, durationSeconds: Double) {
+        source = .interactiveCard(card)
+        self.durationSeconds = durationSeconds
+        motion = nil
+    }
+
     static func parse(arguments: [String: PaceMCPJSONValue]) -> Self? {
-        guard Set(arguments.keys).isSubset(of: ["assetID", "svg", "durationSeconds", "motion"]),
+        guard Set(arguments.keys).isSubset(of: ["assetID", "svg", "card", "durationSeconds", "motion"]),
               case .number(let durationSeconds)? = arguments["durationSeconds"],
-              durationSeconds.isFinite, (1...30).contains(durationSeconds) else { return nil }
+              durationSeconds.isFinite else { return nil }
+        if let cardValue = arguments["card"] {
+            guard arguments["assetID"] == nil, arguments["svg"] == nil, arguments["motion"] == nil,
+                  (1...300).contains(durationSeconds), case .string(let source) = cardValue,
+                  let card = PacePowerCard.parse(source) else { return nil }
+            return Self(card: card, durationSeconds: durationSeconds)
+        }
+        guard (1...30).contains(durationSeconds) else { return nil }
         if let svgValue = arguments["svg"] {
             guard arguments["assetID"] == nil, arguments["motion"] == nil,
                   case .string(let source) = svgValue, let svg = PaceGeneratedSVG.parse(source) else { return nil }
@@ -65,17 +100,41 @@ final class PaceMediaOverlayController {
     private var dismissalTask: Task<Void, Never>?
     private var generatedRenderer: PaceGeneratedSVGRenderer?
     private var pendingRenderer: PaceGeneratedSVGRenderer?
+    private var authorizeCardInteraction: ((String, String) -> Bool)?
     var prepareGeneratedRenderer: (PaceGeneratedSVGRenderer, PaceGeneratedSVG) async throws -> Void = { renderer, svg in try await renderer.prepare(svg) }
 
     func presentGenerated(_ request: PaceMediaPresentationRequest, mayPresent: () -> Bool,
                           onDismiss: @escaping (UUID) -> Void) async -> PaceActionExecutionObservation {
         guard case .generatedSVG(let svg) = request.source else { return present(request) }
-        guard request.durationSeconds.isFinite, (1...30).contains(request.durationSeconds) else {
+        return await prepareVisual(request, svg: svg, mayPresent: mayPresent, onDismiss: onDismiss)
+    }
+
+    func presentCard(_ request: PaceMediaPresentationRequest, mayPresent: () -> Bool,
+                     authorizeInteraction: @escaping (String, String) -> Bool,
+                     onDismiss: @escaping (UUID) -> Void) async -> PaceActionExecutionObservation {
+        guard request.card != nil else {
+            return .init(toolName: "present_media", summary: "Invalid Power card.", terminalReason: .managedWorkflowUnavailable)
+        }
+        let result = await prepareVisual(request, svg: request.illustration, mayPresent: mayPresent, onDismiss: onDismiss)
+        if result.terminalReason == nil { authorizeCardInteraction = authorizeInteraction }
+        return result
+    }
+
+    private func prepareVisual(_ request: PaceMediaPresentationRequest, svg: PaceGeneratedSVG?, mayPresent: () -> Bool,
+                               onDismiss: @escaping (UUID) -> Void) async -> PaceActionExecutionObservation {
+        guard request.durationSeconds.isFinite, (1...request.maximumDurationSeconds).contains(request.durationSeconds) else {
             return .init(toolName: "present_media", summary: "Generated drawing duration is invalid.", terminalReason: .managedWorkflowUnavailable)
         }
         dismiss(cancelOwnedRun: false)
         let preparationGeneration = presentationGeneration
-        let renderer = PaceGeneratedSVGRenderer()
+        guard let svg else {
+            guard !Task.isCancelled, mayPresent() else {
+                return .init(toolName: "present_media", summary: "Power card stopped before presentation.", terminalReason: .managedWorkflowUnavailable)
+            }
+            onUserDismiss = onDismiss
+            return show(request, image: nil, renderer: nil)
+        }
+        let renderer = PaceGeneratedSVGRenderer(viewportSize: request.card == nil ? CGSize(width: 240, height: 320) : CGSize(width: 376, height: 180))
         pendingRenderer = renderer
         do {
             try await prepareGeneratedRenderer(renderer, svg)
@@ -114,14 +173,25 @@ final class PaceMediaOverlayController {
                 return .init(toolName: "present_media", summary: "No display available for local media.", terminalReason: .managedWorkflowUnavailable)
             }
             let visibleFrame = screen.visibleFrame
-            let imageSize = CGSize(width: 240, height: 320)
-            let origin = CGPoint(x: visibleFrame.maxX - imageSize.width - 36, y: visibleFrame.minY + 110)
+            let imageSize = request.card == nil ? CGSize(width: 240, height: 320)
+                : CGSize(width: min(420, visibleFrame.width - 72), height: min(580, visibleFrame.height - 100))
+            let origin = CGPoint(x: visibleFrame.maxX - imageSize.width - 36,
+                                 y: request.card == nil ? visibleFrame.minY + 110 : visibleFrame.maxY - imageSize.height - 50)
             let imagePanel = makePanel(frame: CGRect(origin: origin, size: imageSize))
             imagePanel.identifier = NSUserInterfaceItemIdentifier("pace.power.media")
-            imagePanel.title = "Pace power animation"
-            imagePanel.setAccessibilityLabel("Pace power animation")
-            imagePanel.ignoresMouseEvents = true
-            if let renderer {
+            imagePanel.title = request.card == nil ? "Pace power animation" : "Pace Power card"
+            imagePanel.setAccessibilityLabel(imagePanel.title)
+            imagePanel.ignoresMouseEvents = request.card == nil
+            if let card = request.card {
+                let host = NSHostingView(rootView: PacePowerCardView(card: card, illustrationView: renderer?.view,
+                    authorizeInteraction: { [weak self] selection, feedback in
+                        self?.handleCardInteraction(ifGenerationMatches: generation, selection: selection, feedback: feedback) == true
+                    }, dismiss: { [weak self] in
+                        self?.dismissPresentation(ifGenerationMatches: generation, cancelOwnedRun: true)
+                    }).frame(width: imageSize.width, height: imageSize.height))
+                host.sizingOptions = []
+                imagePanel.contentView = host
+            } else if let renderer {
                 renderer.view.frame = CGRect(origin: .zero, size: imageSize)
                 imagePanel.contentView = renderer.view
             } else if let image {
@@ -132,17 +202,19 @@ final class PaceMediaOverlayController {
             }
             self.imagePanel = imagePanel
 
-            let controlsPanel = makePanel(frame: CGRect(x: origin.x, y: origin.y - 40, width: imageSize.width, height: 34))
-            controlsPanel.identifier = NSUserInterfaceItemIdentifier("pace.power.media.controls")
-            controlsPanel.title = "Pace power animation controls"
-            controlsPanel.setAccessibilityLabel("Pace power animation controls")
-            controlsPanel.contentView = NSHostingView(rootView: MediaControlsView {
-                self.dismissPresentation(ifGenerationMatches: generation, cancelOwnedRun: true)
-            })
-            self.controlsPanel = controlsPanel
+            if request.card == nil {
+                let controlsPanel = makePanel(frame: CGRect(x: origin.x, y: origin.y - 40, width: imageSize.width, height: 34))
+                controlsPanel.identifier = NSUserInterfaceItemIdentifier("pace.power.media.controls")
+                controlsPanel.title = "Pace power animation controls"
+                controlsPanel.setAccessibilityLabel("Pace power animation controls")
+                controlsPanel.contentView = NSHostingView(rootView: MediaControlsView {
+                    self.dismissPresentation(ifGenerationMatches: generation, cancelOwnedRun: true)
+                })
+                self.controlsPanel = controlsPanel
+                controlsPanel.orderFrontRegardless()
+            }
             imagePanel.orderFrontRegardless()
-            controlsPanel.orderFrontRegardless()
-            isVisible = imagePanel.isVisible && controlsPanel.isVisible
+            isVisible = imagePanel.isVisible && (request.card != nil || controlsPanel?.isVisible == true)
         } else { isVisible = true }
         guard isVisible else {
             dismiss(cancelOwnedRun: false)
@@ -154,6 +226,16 @@ final class PaceMediaOverlayController {
             self.finishPresentation(ifGenerationMatches: generation)
         }
         return .init(toolName: "present_media", summary: "Presented \(request.presentationSummary) for \(request.durationSeconds) seconds.")
+    }
+
+    @discardableResult
+    func handleCardInteraction(ifGenerationMatches generation: UUID, selection: String, feedback: String) -> Bool {
+        guard isVisible, presentationGeneration == generation else { return false }
+        guard authorizeCardInteraction?(selection, feedback) == true else {
+            dismissPresentation(ifGenerationMatches: generation, cancelOwnedRun: true)
+            return false
+        }
+        return true
     }
 
     func dismissPresentation(ifGenerationMatches expectedGeneration: UUID, cancelOwnedRun: Bool) {
@@ -185,6 +267,7 @@ final class PaceMediaOverlayController {
         imagePanel = nil
         controlsPanel = nil
         isVisible = false
+        authorizeCardInteraction = nil
         if cancelOwnedRun && hadPresentation { onUserDismiss?(dismissedGeneration) }
     }
 

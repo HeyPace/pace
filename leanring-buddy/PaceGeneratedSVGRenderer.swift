@@ -18,7 +18,7 @@ final class PaceGeneratedSVGRenderer {
     private var navigationMonitor: Task<Void, Never>?
     private var hasPrepared = false
 
-    init() {
+    init(viewportSize: CGSize = CGSize(width: 240, height: 320)) {
         var configuration = WebPage.Configuration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.userContentController = WKUserContentController()
@@ -35,9 +35,9 @@ final class PaceGeneratedSVGRenderer {
             .webViewMagnificationGestures(.disabled)
             .webViewTextSelection(.disabled)
             .allowsHitTesting(false)
-            .frame(width: 240, height: 320))
+            .frame(width: viewportSize.width, height: viewportSize.height))
         hostingView.sizingOptions = []
-        hostingView.frame = CGRect(x: 0, y: 0, width: 240, height: 320)
+        hostingView.frame = CGRect(origin: .zero, size: viewportSize)
         view = hostingView
     }
 

@@ -93,7 +93,10 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `PaceManagedPowerStore.swift` | ~485 | Exact power command parser and typed management facade over existing automation/program/skill artifacts, protected capabilities, atomic validated updates with recovery revisions, persistent execution state and reversible owned-artifact archive. |
 | `CompanionManager+Powers.swift` | ~265 | Shared power command routing, authoring commit boundary, saved-snapshot execution authorization, media/speech tool lifecycle binding and canonical conversation delivery. |
 | `PaceLocalMediaCatalog.swift` | ~125 | Bounded bundled and explicitly imported GIF/PNG asset catalog, content/frame/size validation, immutable owned copy, hash/provenance manifest and collision protection. |
-| `PaceMediaOverlayController.swift` | ~255 | Typed catalog/generated media request, transparent nonactivating GIF/SVG panel, black close control, click-through input coexistence, renderer readiness and generation-scoped dismissal. |
+| `PaceMediaOverlayController.swift` | ~340 | Typed catalog/SVG/card presentation in nonactivating panels, renderer readiness, generation-scoped dismissal and authorized card interactions. |
+| `PacePowerCard.swift` | ~100 | Strict bounded card/page/choice data validation and authorized local selection/navigation state. |
+| `PacePowerCardView.swift` | ~130 | Native black teaching cards, optional SVG illustration, choice feedback and Back/Next controls; no generated callbacks. |
+| `leanring-buddyTests/PacePowerCardTests.swift` | ~130 | Actual worker and manager creation/run boundary, invalid whole-plan rejection, durable interaction history, disabled/stale presentation checks. |
 | `PaceGeneratedSVG.swift` | ~190 | Bounded XML vector-source validator, canonical serializer, strict element/attribute/CSS subset and resource/entity rejection. |
 | `PaceGeneratedSVGRenderer.swift` | ~170 | Public SwiftUI WebView renderer with nonpersistent website data with content scripts disabled, host CSP, resource rules, bounded readiness, navigation denial and teardown. |
 | `scripts/GeneratedSVGOverlayProbe.swift` | ~105 | Standalone nonactivating, click-through renderer probe and native PNG pixel inspector; exposes only its owned window ID and polls an explicit stop marker. |

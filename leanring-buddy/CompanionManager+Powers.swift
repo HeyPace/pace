@@ -12,6 +12,31 @@ extension CompanionManager {
                 guard let self, self.turnLeaseRegistry.isCurrent(turnLease) else { return }
                 self.cancelCurrentTurnFromPanel()
             }
+            if let card = request.card {
+                let presentedPower = self.activeManagedPower
+                let userEventIdentifier = self.activeConversationUserEvent?.eventID
+                let isAuthorized: () -> Bool = { [weak self] in
+                    guard let self, self.turnLeaseRegistry.isCurrent(turnLease) else { return false }
+                    guard let presentedPower else { return true }
+                    return self.managedPowerStore.isEnabled(presentedPower.identifier)
+                        && (try? self.managedPowerStore.validateCurrent(presentedPower)) != nil
+                }
+                let observation = await self.mediaOverlayController.presentCard(request, mayPresent: isAuthorized,
+                    authorizeInteraction: { [weak self] selection, feedback in
+                        guard let self, isAuthorized() else { return false }
+                        self.conversationRecorder.record(ConversationEvent(turnID: userEventIdentifier,
+                            role: .user, origin: .typed, text: card.title + ": " + selection))
+                        self.recordAssistantNarration(feedback, turnIdentifier: userEventIdentifier, recordsDerivedMemory: false)
+                        PaceAPIAuditLog.shared.record(subsystem: "power-ui", operation: "card_interaction",
+                            target: presentedPower?.identifier ?? "interactive-card", durationMilliseconds: 0, outcome: "ok")
+                        return true
+                    }, onDismiss: dismissOwnedTurn)
+                if observation.terminalReason == nil {
+                    self.recordAssistantNarration(card.title + "\n" + card.pages[0].transcript,
+                        turnIdentifier: userEventIdentifier, recordsDerivedMemory: false)
+                }
+                return observation
+            }
             if case .generatedSVG = request.source {
                 return await self.mediaOverlayController.presentGenerated(request, mayPresent: { [weak self] in
                     guard let self else { return false }
@@ -109,7 +134,7 @@ extension CompanionManager {
             guard !description.isEmpty else {
                 pendingPowerDescription = .init(requestedAt: Date())
                 handleImmediateLocalModeResponse(transcript: transcript,
-                    spokenText: "What should your Power do? For example, say: Call it Hello and greet me with a GIF. It can compute, speak, draw animated SVG, and show saved media.", shouldRecordConversationTurn: true)
+                    spokenText: "What should your Power do? For example, say: Call it Hello and greet me with a GIF. It can show interactive lessons and quizzes, compute, speak, draw animated SVG, and show saved media.", shouldRecordConversationTurn: true)
                 return
             }
             handleCreateReusableWork(rawDescription: description, transcript: transcript,
@@ -242,7 +267,7 @@ extension CompanionManager {
 nonisolated extension PacePowerDraft {
     var javaScriptCapabilitySummary: String {
         if case .program(let program) = self, program.nodes.containsJavaScript {
-            return " It runs computed JavaScript locally and can speak, draw animated SVG, or show saved media."
+            return " It runs locally and can show interactive cards, speak, draw animated SVG, or show saved media."
         }
         return ""
     }

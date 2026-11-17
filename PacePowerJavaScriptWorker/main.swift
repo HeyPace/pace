@@ -85,6 +85,16 @@ private enum PacePowerJavaScriptWorker {
                 argumentsObject.durationSeconds = String(duration);
                 append("present_media", argumentsObject);
             };
+            pace.presentCard = function (card, cardOptions) {
+                const parsedOptions = options(cardOptions, ["durationSeconds"]);
+                if (card === null || typeof card !== "object" || Array.isArray(card)) fail();
+                const serialized = stringify(card);
+                const argumentsObject = create(null); argumentsObject.card = text(serialized, 49152);
+                const duration = parsedOptions.durationSeconds === undefined ? 120 : parsedOptions.durationSeconds;
+                if (typeof duration !== "number" || !Number.isFinite(duration) || duration < 1 || duration > 300) fail();
+                argumentsObject.durationSeconds = String(duration);
+                append("present_media", argumentsObject);
+            };
             const immutableContext = create(null); immutableContext.localHour = localHour; immutableContext.weekday = weekday;
             const result = new NativeFunction("pace", "context", '"use strict";\n' + source)(freeze(pace), freeze(immutableContext));
             if (result !== undefined || invalid) fail();
