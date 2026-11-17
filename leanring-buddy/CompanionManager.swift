@@ -37,6 +37,11 @@ final class CompanionManager: ObservableObject {
     @Published var voiceState: CompanionVoiceState = .idle {
         didSet {
             if voiceState != .idle, isWatchModeEnabled { screenSuggestionCoordinator.invalidate() }
+            if voiceState == .idle {
+                currentRequestStartedAt = nil
+            } else if currentRequestStartedAt == nil {
+                currentRequestStartedAt = Date()
+            }
         }
     }
     weak var pacePadOutputDelegate: PacePadOutputDelegate?

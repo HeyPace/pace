@@ -498,7 +498,7 @@ struct PacePanelChatView: View {
                     .padding(.vertical, 5)
                 iconButton(
                     systemName: companionManager.voiceState == .listening ? "mic.fill" : "mic",
-                    help: companionManager.buddyDictationManager.isDictationInProgress ? "Finish recording" : "Speak to Pace"
+                    help: companionManager.buddyDictationManager.isFinalizingTranscript ? "Transcribing…" : (companionManager.buddyDictationManager.isDictationInProgress ? "Finish recording" : "Speak to Pace")
                 ) {
                     companionManager.handleMicrophoneButtonTapped()
                 }

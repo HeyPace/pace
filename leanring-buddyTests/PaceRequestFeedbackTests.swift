@@ -64,7 +64,7 @@ struct PaceRequestFeedbackTests {
         manager.handleShortcutTransition(.pressed)
         #expect(presentations == [.preview])
         #expect(presentations.allSatisfy { !$0.requestsKeyboardFocus })
-        #expect(manager.currentRequestStartedAt != nil)
+        #expect(manager.currentRequestStartedAt == nil)
         #expect(manager.currentTurnHUDState.status == .failed)
         #expect(!manager.buddyDictationManager.isDictationInProgress)
         withExtendedLifetime(observation) { }
@@ -79,13 +79,29 @@ struct PaceRequestFeedbackTests {
         manager.voiceState = .processing
         var presentations: [PaceConversationPanelPresentationIntent] = []
         let observation = manager.conversationPanelPresentationRequests.sink { presentations.append($0) }
-        manager.buddyDictationManager.lastErrorMessage = "Microphone access is unavailable. Open voice setup."
+        manager.buddyDictationManager.reportCaptureFailure("Microphone access is unavailable. Open voice setup.")
         #expect(manager.currentTurnHUDState.detail == "Microphone access is unavailable. Open voice setup.")
         #expect(manager.voiceState == .idle && presentations == [.preview])
         manager.buddyDictationManager.onNoSpeechRecognized?()
         #expect(manager.currentTurnHUDState.detail == "Microphone access is unavailable. Open voice setup.")
         #expect(persister.events.isEmpty)
         withExtendedLifetime(observation) { }
+    }
+
+    @Test func backgroundPreparationErrorCannotFailAnUnrelatedRequestAndClockResets() throws {
+        let (root, manager, _, _) = try PacePowerManagerTests().fixture()
+        defer { manager.voiceStateCancellable?.cancel(); manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        manager.bindVoiceStateObservation()
+        manager.voiceStateCancellable?.cancel()
+        manager.currentTurnHUDState = .understanding("Working")
+        manager.voiceState = .processing
+        #expect(manager.currentRequestStartedAt != nil)
+        manager.buddyDictationManager.lastErrorMessage = "Background Japanese model preparation failed"
+        #expect(manager.voiceState == .processing && manager.currentTurnHUDState.status == .understanding)
+        manager.voiceState = .idle
+        #expect(manager.currentRequestStartedAt == nil)
+        manager.voiceState = .processing
+        #expect(manager.currentRequestStartedAt != nil)
     }
 
     @Test func completedForegroundReplyReappearsPassivelyButCancelledAndRemoteRepliesDoNot() throws {

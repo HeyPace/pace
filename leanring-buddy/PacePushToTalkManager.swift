@@ -227,10 +227,11 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
     @Published private(set) var microphoneButtonRecordingStartedAt: Date?
     @Published private(set) var transcriptionProviderDisplayName = ""
     @Published private(set) var latestStablePartialTranscript = ""
-    @Published var lastErrorMessage: String? {
-        didSet {
-            if let message = lastErrorMessage, !message.isEmpty { onCaptureFailure?(message) }
-        }
+    @Published var lastErrorMessage: String?
+
+    func reportCaptureFailure(_ message: String) {
+        lastErrorMessage = message
+        onCaptureFailure?(message)
     }
     var onCaptureFailure: ((String) -> Void)?
     @Published private(set) var currentPermissionProblem: BuddyDictationPermissionProblem?
@@ -511,7 +512,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
     ) async {
         guard !isDictationInProgress else { return }
         guard !usesJapanesePracticeTranscription || isJapanesePracticeTranscriptionReady else {
-            lastErrorMessage = japanesePracticePreparationStatus
+            reportCaptureFailure(japanesePracticePreparationStatus)
             return
         }
 
@@ -536,8 +537,13 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         currentPermissionProblem = nil
         isPreparingToRecord = true
 
-        guard await requestMicrophoneAndSpeechPermissionsWithoutDuplicatePrompts() else {
-            print("🎙️ PacePushToTalkManager: permissions missing or denied")
+        let hasPermissions = await requestMicrophoneAndSpeechPermissionsWithoutDuplicatePrompts()
+        guard pendingStartRequestIdentifier == startRequestIdentifier, !Task.isCancelled else {
+            isPreparingToRecord = false
+            return
+        }
+        guard hasPermissions else {
+            reportCaptureFailure(lastErrorMessage ?? "Microphone or speech recognition permission is required. Open voice setup.")
             isPreparingToRecord = false
             return
         }
@@ -623,10 +629,10 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         } catch {
             guard activeCaptureSessionIdentifier == captureSessionIdentifier else { return }
             isPreparingToRecord = false
-            lastErrorMessage = userFacingErrorMessage(
+            reportCaptureFailure(userFacingErrorMessage(
                 from: error,
                 fallback: "couldn't start voice input. try again."
-            )
+            ))
             print("❌ PacePushToTalkManager: failed to start recognition session (\(transcriptionProvider.displayName)): \(error)")
             resetSessionState()
         }
@@ -892,10 +898,10 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
             )
         } else {
             print("❌ Buddy dictation error (\(transcriptionProvider.displayName)): \(error)")
-            lastErrorMessage = userFacingErrorMessage(
+            reportCaptureFailure(userFacingErrorMessage(
                 from: error,
                 fallback: "couldn't transcribe that. try again."
-            )
+            ))
             cancelCurrentDictation(preserveDraftText: false)
         }
     }

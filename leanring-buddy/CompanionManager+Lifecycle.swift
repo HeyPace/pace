@@ -27,9 +27,9 @@ extension CompanionManager {
     }
 
     func handleMicrophoneButtonTapped() {
-        if buddyDictationManager.isFinalizingTranscript {
-            buddyDictationManager.cancelCurrentDictation()
-            globalPushToTalkShortcutMonitor.discardSimulatedPress()
+        guard !buddyDictationManager.isFinalizingTranscript else {
+            revealRequestFeedback()
+            return
         }
         if buddyDictationManager.isDictationInProgress || globalPushToTalkShortcutMonitor.isSimulatedPressActive {
             globalPushToTalkShortcutMonitor.simulateShortcutReleased()
