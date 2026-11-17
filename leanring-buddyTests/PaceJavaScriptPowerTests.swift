@@ -120,6 +120,7 @@ struct PaceJavaScriptPowerTests {
         await manager.commitPowerDraft(.program(conditional), replacing: nil, transcript: "add a power Weekend Greeting",
             turnLease: manager.turnLeaseRegistry.currentLease)
         #expect(PaceUserProgramStore(directoryURL: manager.managedPowerStore.programDirectoryURL).listValidPrograms().count == 1)
+        #expect(speech.spokenTexts.contains { $0.contains("Its test produced no actions in the current context") })
         helpers.begin("run power Runtime Greeting", manager: manager)
         await manager.handlePowerCommand(.run("Runtime Greeting"), transcript: "run power Runtime Greeting")
         await manager.currentResponseTask?.value
@@ -289,7 +290,8 @@ struct PaceJavaScriptPowerTests {
         #expect(pending.resolve("cancel", now: date) == .cancelled)
         #expect(pending.resolve("never mind", now: date) == .cancelled)
         for transcript in ["list powers", "add a power called New", "open Safari", "set volume to 30", "what time is it", "hello", "import power media /tmp/hello.gif as hello",
-            "pause", "mute", "next track", "volume down", "lock my screen", "play some jazz", "tell me a joke"] {
+            "pause", "mute", "next track", "volume down", "lock my screen", "play some jazz", "tell me a joke",
+            "open the folder called Downloads", "play the song named Yesterday", "I want to listen to jazz"] {
             #expect(pending.resolve(transcript, now: date) == .unrelated)
         }
         #expect(pending.resolve("A Power called Greeting", now: date.addingTimeInterval(121)) == .unrelated)
@@ -307,6 +309,7 @@ struct PaceJavaScriptPowerTests {
         await manager.handlePowerCommand(.add(""), transcript: "Add a Power")
         await manager.currentResponseTask?.value
         #expect(manager.pendingPowerDescription != nil)
+        #expect(persister.events.values.contains { $0.role == .pace && $0.text.contains("Call it Hello and greet me with a GIF") })
         #expect(author.calls == 0)
         let description = "A Power called Runtime Greeting that computes a local greeting"
         helpers.begin(description, manager: manager)
@@ -325,7 +328,8 @@ struct PaceJavaScriptPowerTests {
         defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
         let author = PacePowerManagerTests.Author()
         manager.reusableWorkAuthoringPlannerOverride = author
-        for transcript in ["cancel", "list powers", "what time is it?", "hello", "pause", "mute", "next track", "volume down", "tell me a joke"] {
+        for transcript in ["cancel", "list powers", "what time is it?", "hello", "pause", "mute", "next track", "volume down", "tell me a joke",
+            "open the folder called Downloads", "play the song named Yesterday", "I want to listen to jazz"] {
             helpers.begin("Add a Power", manager: manager)
             await manager.handlePowerCommand(.add(""), transcript: "Add a Power")
             await manager.currentResponseTask?.value

@@ -78,9 +78,8 @@ nonisolated struct PacePendingPowerDescription: Equatable {
         if ["cancel", "cancel that", "never mind", "nevermind", "stop", "forget it"].contains(normalized) { return .cancelled }
         guard !description.isEmpty, !description.hasSuffix("?"),
               PacePowerCommandParser.parse(description) == nil else { return .unrelated }
-        let descriptionPrefixes = ["a power ", "the power ", "when i run ", "when i say ", "whenever ", "it should ", "call it ", "named ", "called ", "i want "]
-        let hasName = normalized.range(of: #"\b(called|named)\s+\S"#, options: .regularExpression) != nil
-        return descriptionPrefixes.contains(where: normalized.hasPrefix) || hasName ? .description(description) : .unrelated
+        let descriptionPrefixes = ["a power ", "the power ", "when i run ", "when i say ", "whenever ", "it should ", "call it ", "named ", "called ", "i want a power ", "i want it to "]
+        return descriptionPrefixes.contains(where: normalized.hasPrefix) ? .description(description) : .unrelated
     }
 }
 

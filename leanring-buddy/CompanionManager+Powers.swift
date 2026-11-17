@@ -104,7 +104,7 @@ extension CompanionManager {
             guard !description.isEmpty else {
                 pendingPowerDescription = .init(requestedAt: Date())
                 handleImmediateLocalModeResponse(transcript: transcript,
-                    spokenText: "What should your Power do? Tell me its name and description. It can compute, speak, and show saved media.", shouldRecordConversationTurn: true)
+                    spokenText: "What should your Power do? For example, say: Call it Hello and greet me with a GIF. It can compute, speak, and show saved media.", shouldRecordConversationTurn: true)
                 return
             }
             handleCreateReusableWork(rawDescription: description, transcript: transcript,
@@ -184,10 +184,11 @@ extension CompanionManager {
     func commitPowerDraft(_ draft: PacePowerDraft, replacing power: PaceManagedPower?, transcript: String,
                           turnLease: PaceTurnLease) async {
         do {
+            var previewFeedback = ""
             if case .program(let program) = draft, program.nodes.containsJavaScript {
                 switch try await PaceJavaScriptPowerRuntime.compile(program, context: PaceProgramContext.current()) {
                 case .executionPlan(let plan): try validateJavaScriptPowerMedia(plan)
-                case .noActionsMatched: break
+                case .noActionsMatched: previewFeedback = " Its test produced no actions in the current context."
                 }
             }
             let discovered = await discoverAutomationCatalog()
@@ -195,7 +196,7 @@ extension CompanionManager {
             try Task.checkCancellation()
             let name = try managedPowerStore.commit(draft, replacing: power, catalog: discovered.catalog)
             handleImmediateLocalModeResponse(transcript: transcript,
-                spokenText: "\(power == nil ? "Saved" : "Updated") \(name). Say run power \(name) to use it.\(draft.javaScriptCapabilitySummary)", shouldRecordConversationTurn: true)
+                spokenText: "\(power == nil ? "Saved" : "Updated") \(name). Say run power \(name) to use it.\(draft.javaScriptCapabilitySummary)\(previewFeedback)", shouldRecordConversationTurn: true)
             await currentResponseTask?.value
         } catch {
             guard isActiveTurn(turnLease) else { return }
