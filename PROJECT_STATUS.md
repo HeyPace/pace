@@ -286,7 +286,7 @@ Menu bar capsule (PaceMenuBarOverlay) → floating panel + optional cursor overl
 Five complementary "do more than talk" layers, from most literal to most flexible:
 - **Tools** (`PaceToolRegistry`) — atomic built-in capabilities (click, type, open app…).
 - **Automations** (`PaceAutomationCatalog`) — bundled and Shortcuts-backed typed action sequences, semantically resolved from ordinary requests and run through the fast local action path.
-- **Programs** (`PaceProgramDefinition`) — user-taught, versioned condition/repetition graphs that compile deterministically into the same typed actions. Natural-language authoring stays local; raw Lua, JavaScript, and shell are not accepted.
+- **Programs** (`PaceProgramDefinition`) — user-taught condition/repetition graphs and isolated JavaScript Powers that compile into the same validated typed actions. “Add a Power” uses the selected consented authoring planner; saved code runs locally without rebuilding. The SDK supports speech, local media, animated SVG and native interactive teaching cards. It does not expose shell, files, network or arbitrary UI callbacks. Runtime and card contracts: [systems](docs/architecture/systems.md).
 - **Flows** (`record_flow`) — user-recorded AX steps, replayed **verbatim** (pixel tier).
 - **Skills** (`.skill.md`) — natural-language step lists the planner **re-grounds each run** (intent tier). **Teachable by telling** (PRD `docs/product/prds/teachable-skills.md`): say "teach a skill …" or use Settings → Skills → "Teach a skill"; a privacy-pinned LOCAL planner structures the description into a `.skill.md` (deterministic fallback if the planner is unavailable), saved to `~/Library/Application Support/Pace/skills/` and runnable via "run <name>". Fully on-device.
 
