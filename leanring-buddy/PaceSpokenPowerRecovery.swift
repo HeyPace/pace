@@ -98,12 +98,27 @@ nonisolated enum PaceSpokenPowerRecovery {
         if words.count < name.count {
             return similarity(words.joined(), name.joined())
         }
-        return (0...(words.count - name.count)).map { start in
-            zip(words[start..<(start + name.count)], name).map { spoken, saved in
-                guard spoken.first == saved.first else { return 0.0 }
-                return max(similarity(spoken, saved), similarity(phonetic(spoken), phonetic(saved)))
-            }.reduce(0, +) / Double(name.count)
+        let trailingName = Array(words.suffix(name.count))
+        let leadingWords = words.count - name.count
+        let directScore = alignedScore(trailingName, name: name) - 0.12 * Double(max(0, leadingWords - 1))
+        guard leadingWords == 1 else { return directScore }
+
+        // Speech recognition can split one word in a saved name into two.
+        let joinedScore = words.indices.dropLast().map { index in
+            var joinedWords = words
+            joinedWords.replaceSubrange(index...index + 1, with: [words[index] + words[index + 1]])
+            return alignedScore(joinedWords, name: name)
         }.max() ?? 0
+        return max(directScore, joinedScore - 0.08)
+    }
+
+    private static func alignedScore(_ words: [String], name: [String]) -> Double {
+        zip(words, name).map { spoken, saved in
+            let spellingScore = similarity(spoken, saved)
+            guard spoken.first == saved.first else { return spellingScore >= 0.6 ? spellingScore : 0 }
+            guard spoken.count >= 3, saved.count >= 3 else { return spellingScore }
+            return max(spellingScore, similarity(phonetic(spoken), phonetic(saved)))
+        }.reduce(0, +) / Double(name.count)
     }
 
     private static func similarity(_ first: String, _ second: String) -> Double {

@@ -14,6 +14,33 @@ struct PaceSpokenPowerRecoveryTests {
         return try manager.managedPowerStore.resolve(name, catalog: await manager.discoverAutomationCatalog().catalog)
     }
 
+    @Test func unfamiliarNamesRecoverWithoutMatchingOrdinaryRequests() async throws {
+        let (root, manager, _, _) = try PacePowerManagerTests().fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        var powers: [PaceManagedPower] = []
+        for (name, identifier) in [("Meeting Digest", "meeting-digest"), ("Café Notes", "cafe-notes"),
+            ("Daily Brief", "daily-brief"), ("Daily Breeze", "daily-breeze"), ("Go", "go-power"),
+            ("Weekly Forecast", "weekly-forecast"), ("Invoice Summary", "invoice-summary"),
+            ("Inbox Sweep", "inbox-sweep")] {
+            powers.append(try await savePower(name, identifier: identifier, manager: manager))
+        }
+        for (transcript, expected) in [
+            ("Power meeting dye jest", ["Meeting Digest"]),
+            ("Power cafe note", ["Café Notes"]),
+            ("Power weekly fore cast", ["Weekly Forecast"]),
+            ("Power invoice summa ree", ["Invoice Summary"]),
+            ("Power daily bree", ["Daily Brief", "Daily Breeze"]),
+            ("Run meeting digest through the summarizer", []),
+            ("Run daily brief and send it to everyone", []),
+            ("Run power get", []),
+            ("Power washing the driveway", [])
+        ] {
+            let target = transcript == "Run power get" ? "get" : nil
+            let candidates = PaceSpokenPowerRecovery.candidates(for: transcript, powers: powers, explicitRunTarget: target)
+            #expect(Set(candidates.map(\.name)) == Set(expected), "Unexpected matches for \(transcript)")
+        }
+    }
+
     @Test func aMisheardExplicitPowerRequestOffersTheSavedNameWithoutRunningIt() async throws {
         let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
         defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
