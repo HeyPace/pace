@@ -224,4 +224,21 @@ struct PaceSpokenPowerRecoveryTests {
         #expect(manager.pendingSpokenPowerClarification == nil)
     }
 
+    @Test func exactOfferedLabelsOwnTheConfirmationBeforeOtherNamespaces() async throws {
+        let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        for (name, identifier) in [("Skill Tracker", "skill-tracker"), ("Daily Shortcut", "daily-shortcut")] {
+            let power = try await savePower(name, identifier: identifier, manager: manager)
+            manager.offerSpokenPowerClarification([power], transcript: "Near match")
+            await manager.currentResponseTask?.value
+            let label = "Run " + name
+            manager.pendingTypedConversationEventIdentifier = manager.acceptConversationRequest(label, origin: .typed).eventID
+            PacePowerManagerTests().begin(label, manager: manager)
+            #expect(await manager.handleSpokenPowerRecoveryIfNeeded(label))
+            await manager.currentResponseTask?.value
+            #expect(speech.spokenTexts.filter { $0 == "Selected " + name }.count == 1)
+            #expect(manager.pendingSpokenPowerClarification == nil)
+        }
+    }
+
 }

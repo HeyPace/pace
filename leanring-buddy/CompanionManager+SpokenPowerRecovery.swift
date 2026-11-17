@@ -16,14 +16,6 @@ extension CompanionManager {
 
     @discardableResult
     func handleSpokenPowerRecoveryIfNeeded(_ transcript: String, now: Date = Date()) async -> Bool {
-        let command = PacePowerCommandParser.parse(transcript, isKnownSavedPowerName: managedPowerStore.hasExactSavedPowerName)
-        if command == nil,
-           PaceAutomationCatalogCommandParser.parse(transcript) != nil
-            || PaceShortcutCommandParser.parse(transcript) != nil
-            || PaceSkillCommandParser.parse(transcript) != nil {
-            pendingSpokenPowerClarification = nil
-            return false
-        }
         let isDirectUserReply = activeConversationUserEvent?.origin == .voice || activeConversationUserEvent?.origin == .typed
         if let pending = pendingSpokenPowerClarification, isDirectUserReply {
             switch pending.resolve(transcript, now: now) {
@@ -46,6 +38,14 @@ extension CompanionManager {
             }
         }
         guard activeConversationUserEvent?.origin == .voice else {
+            pendingSpokenPowerClarification = nil
+            return false
+        }
+        let command = PacePowerCommandParser.parse(transcript, isKnownSavedPowerName: managedPowerStore.hasExactSavedPowerName)
+        if command == nil,
+           PaceAutomationCatalogCommandParser.parse(transcript) != nil
+            || PaceShortcutCommandParser.parse(transcript) != nil
+            || PaceSkillCommandParser.parse(transcript) != nil {
             pendingSpokenPowerClarification = nil
             return false
         }
