@@ -881,7 +881,7 @@ nonisolated enum PaceActionTagParser {
             }
         case "present.media":
             if PaceMediaPresentationRequest.parse(arguments: arguments) == nil {
-                issues.append("requires a catalog assetID, durationSeconds from one to thirty, and optional supported motion")
+                issues.append("requires either a catalog assetID with optional supported motion or a validated generated svg, and durationSeconds from one to thirty")
             }
         case "meeting":
             if parseMeetingArguments(arguments) == nil { issues.append("requires action start, stop, or status") }
@@ -1660,7 +1660,7 @@ nonisolated enum PaceActionTagParser {
             }
         case .presentMedia:
             if toolCall.strictArguments.flatMap(PaceMediaPresentationRequest.parse(arguments:)) == nil {
-                issues.append("requires a catalog assetID, durationSeconds from one to thirty, and optional supported motion")
+                issues.append("requires either a catalog assetID with optional supported motion or a validated generated svg, and durationSeconds from one to thirty")
             }
         case .speak:
             if toolCall.strictArguments.flatMap(PaceSpeechRequest.parse(arguments:)) == nil {

@@ -2,17 +2,41 @@ import AppKit
 import SwiftUI
 
 nonisolated struct PaceMediaPresentationRequest: Equatable, Sendable {
-    let assetID: String
+    enum Source: Equatable, Sendable {
+        case catalogAsset(String)
+        case generatedSVG(PaceGeneratedSVG)
+    }
+    let source: Source
     let durationSeconds: Double
     let motion: String?
 
+    // Existing catalog callers retain their original identifier accessor.
+    var assetID: String { if case .catalogAsset(let identifier) = source { return identifier }; return "generated-svg" }
+    var presentationSummary: String { if case .generatedSVG = source { return "generated drawing" }; return "local media " + assetID }
+
+    init(assetID: String, durationSeconds: Double, motion: String?) {
+        source = .catalogAsset(assetID)
+        self.durationSeconds = durationSeconds
+        self.motion = motion
+    }
+
+    init(svg: PaceGeneratedSVG, durationSeconds: Double) {
+        source = .generatedSVG(svg)
+        self.durationSeconds = durationSeconds
+        motion = nil
+    }
+
     static func parse(arguments: [String: PaceMCPJSONValue]) -> Self? {
-        guard Set(arguments.keys).isSubset(of: ["assetID", "durationSeconds", "motion"]),
-              case .string(let assetID)? = arguments["assetID"],
-              !assetID.isEmpty, assetID.count <= 80,
-              PaceManagedPowerStore.safeIdentifier(assetID),
+        guard Set(arguments.keys).isSubset(of: ["assetID", "svg", "durationSeconds", "motion"]),
               case .number(let durationSeconds)? = arguments["durationSeconds"],
               durationSeconds.isFinite, (1...30).contains(durationSeconds) else { return nil }
+        if let svgValue = arguments["svg"] {
+            guard arguments["assetID"] == nil, arguments["motion"] == nil,
+                  case .string(let source) = svgValue, let svg = PaceGeneratedSVG.parse(source) else { return nil }
+            return Self(svg: svg, durationSeconds: durationSeconds)
+        }
+        guard case .string(let assetID)? = arguments["assetID"], !assetID.isEmpty, assetID.count <= 80,
+              PaceManagedPowerStore.safeIdentifier(assetID) else { return nil }
         let motion: String?
         if let motionValue = arguments["motion"] {
             guard case .string(let value) = motionValue, ["none", "bob", "dance"].contains(value) else { return nil }
@@ -39,18 +63,54 @@ final class PaceMediaOverlayController {
     private var imagePanel: NSPanel?
     private var controlsPanel: NSPanel?
     private var dismissalTask: Task<Void, Never>?
+    private var generatedRenderer: PaceGeneratedSVGRenderer?
+    private var pendingRenderer: PaceGeneratedSVGRenderer?
+    var prepareGeneratedRenderer: (PaceGeneratedSVGRenderer, PaceGeneratedSVG) async throws -> Void = { renderer, svg in try await renderer.prepare(svg) }
+
+    func presentGenerated(_ request: PaceMediaPresentationRequest, mayPresent: () -> Bool,
+                          onDismiss: @escaping (UUID) -> Void) async -> PaceActionExecutionObservation {
+        guard case .generatedSVG(let svg) = request.source else { return present(request) }
+        guard request.durationSeconds.isFinite, (1...30).contains(request.durationSeconds) else {
+            return .init(toolName: "present_media", summary: "Generated drawing duration is invalid.", terminalReason: .managedWorkflowUnavailable)
+        }
+        dismiss(cancelOwnedRun: false)
+        let preparationGeneration = presentationGeneration
+        let renderer = PaceGeneratedSVGRenderer()
+        pendingRenderer = renderer
+        do {
+            try await prepareGeneratedRenderer(renderer, svg)
+            guard !Task.isCancelled, presentationGeneration == preparationGeneration, mayPresent() else { throw CancellationError() }
+            pendingRenderer = nil
+            onUserDismiss = onDismiss
+            return show(request, image: nil, renderer: renderer)
+        } catch {
+            renderer.stop()
+            if pendingRenderer === renderer { pendingRenderer = nil }
+            return .init(toolName: "present_media", summary: "Generated drawing stopped or could not render.", terminalReason: .managedWorkflowUnavailable)
+        }
+    }
 
     @discardableResult
     func present(_ request: PaceMediaPresentationRequest) -> PaceActionExecutionObservation {
-        guard request.durationSeconds.isFinite, (1...30).contains(request.durationSeconds),
-              let image = resolveImage(request.assetID), image.isValid else {
+        guard case .catalogAsset(let identifier) = request.source,
+              request.durationSeconds.isFinite, (1...30).contains(request.durationSeconds),
+              let image = resolveImage(identifier), image.isValid else {
             return .init(toolName: "present_media", summary: "Could not load the requested local media asset.", terminalReason: .managedWorkflowUnavailable)
         }
+        return show(request, image: image, renderer: nil)
+    }
+
+    private func show(_ request: PaceMediaPresentationRequest, image: NSImage?, renderer: PaceGeneratedSVGRenderer?) -> PaceActionExecutionObservation {
         dismiss(cancelOwnedRun: false)
+        generatedRenderer = renderer
         let generation = UUID()
         presentationGeneration = generation
+        renderer?.onRenderFailure = { [weak self] in
+            self?.dismissPresentation(ifGenerationMatches: generation, cancelOwnedRun: true)
+        }
         if showsWindows {
             guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+                dismiss(cancelOwnedRun: false)
                 return .init(toolName: "present_media", summary: "No display available for local media.", terminalReason: .managedWorkflowUnavailable)
             }
             let visibleFrame = screen.visibleFrame
@@ -61,10 +121,15 @@ final class PaceMediaOverlayController {
             imagePanel.title = "Pace power animation"
             imagePanel.setAccessibilityLabel("Pace power animation")
             imagePanel.ignoresMouseEvents = true
-            let imageHostView = NSHostingView(rootView: MediaImageView(image: image, motion: request.motion)
-                .frame(width: imageSize.width, height: imageSize.height))
-            imageHostView.sizingOptions = []
-            imagePanel.contentView = imageHostView
+            if let renderer {
+                renderer.webView.frame = CGRect(origin: .zero, size: imageSize)
+                imagePanel.contentView = renderer.webView
+            } else if let image {
+                let imageHostView = NSHostingView(rootView: MediaImageView(image: image, motion: request.motion)
+                    .frame(width: imageSize.width, height: imageSize.height))
+                imageHostView.sizingOptions = []
+                imagePanel.contentView = imageHostView
+            }
             self.imagePanel = imagePanel
 
             let controlsPanel = makePanel(frame: CGRect(x: origin.x, y: origin.y - 40, width: imageSize.width, height: 34))
@@ -88,7 +153,7 @@ final class PaceMediaOverlayController {
             guard !Task.isCancelled, let self, self.presentationGeneration == generation else { return }
             self.finishPresentation(ifGenerationMatches: generation)
         }
-        return .init(toolName: "present_media", summary: "Presented local media \(request.assetID) for \(request.durationSeconds) seconds.")
+        return .init(toolName: "present_media", summary: "Presented \(request.presentationSummary) for \(request.durationSeconds) seconds.")
     }
 
     func dismissPresentation(ifGenerationMatches expectedGeneration: UUID, cancelOwnedRun: Bool) {
@@ -105,6 +170,10 @@ final class PaceMediaOverlayController {
         let hadPresentation = isVisible
         let dismissedGeneration = presentationGeneration
         presentationGeneration = UUID()
+        pendingRenderer?.stop()
+        pendingRenderer = nil
+        generatedRenderer?.stop()
+        generatedRenderer = nil
         dismissalTask?.cancel()
         dismissalTask = nil
         imagePanel?.orderOut(nil)

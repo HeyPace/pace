@@ -3992,7 +3992,7 @@ extension CompanionManager {
                     guard let program = PaceNaturalLanguageProgramStructurer.program(fromStructuredJSON: result.text),
                           program.schemaVersion == PaceProgramValidator.javaScriptSchemaVersion,
                           program.nodes.containsJavaScript else {
-                        throw PaceJavaScriptPowerError.invalid("I couldn't produce executable code for that outcome. Available capabilities are local computation, speech and saved media.")
+                        throw PaceJavaScriptPowerError.invalid("I couldn't produce executable code for that outcome. Available capabilities are local computation, speech, generated SVG drawings and animation, and saved media.")
                     }
                     await commitPowerDraft(.program(program), replacing: replacingPower, transcript: transcript, turnLease: turnLease)
                 } catch {

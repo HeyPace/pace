@@ -8,13 +8,18 @@ extension CompanionManager {
         actionExecutor.presentLocalMedia = { [weak self] request in
             guard let self else { return .init(toolName: "present_media", summary: "Media unavailable.", terminalReason: .managedWorkflowUnavailable) }
             let turnLease = self.turnLeaseRegistry.currentLease
-            let observation = self.mediaOverlayController.present(request)
-            let presentationGeneration = self.mediaOverlayController.presentationGeneration
-            self.mediaOverlayController.onUserDismiss = { [weak self] dismissedGeneration in
-                guard let self, dismissedGeneration == presentationGeneration,
-                      self.turnLeaseRegistry.isCurrent(turnLease) else { return }
+            let dismissOwnedTurn: (UUID) -> Void = { [weak self] _ in
+                guard let self, self.turnLeaseRegistry.isCurrent(turnLease) else { return }
                 self.cancelCurrentTurnFromPanel()
             }
+            if case .generatedSVG = request.source {
+                return await self.mediaOverlayController.presentGenerated(request, mayPresent: { [weak self] in
+                    guard let self else { return false }
+                    return self.isActiveTurn(turnLease) && self.managedPowerExecutionIsAuthorized
+                }, onDismiss: dismissOwnedTurn)
+            }
+            let observation = self.mediaOverlayController.present(request)
+            self.mediaOverlayController.onUserDismiss = dismissOwnedTurn
             return observation
         }
         actionExecutor.speakLocalText = { [weak self] request in
@@ -104,7 +109,7 @@ extension CompanionManager {
             guard !description.isEmpty else {
                 pendingPowerDescription = .init(requestedAt: Date())
                 handleImmediateLocalModeResponse(transcript: transcript,
-                    spokenText: "What should your Power do? For example, say: Call it Hello and greet me with a GIF. It can compute, speak, and show saved media.", shouldRecordConversationTurn: true)
+                    spokenText: "What should your Power do? For example, say: Call it Hello and greet me with a GIF. It can compute, speak, draw animated SVG, and show saved media.", shouldRecordConversationTurn: true)
                 return
             }
             handleCreateReusableWork(rawDescription: description, transcript: transcript,
@@ -227,7 +232,7 @@ extension CompanionManager {
             return image.isValid
         }
         for action in plan.flattenedActions {
-            if case .presentMedia(let request) = action, !assetIsValid(request.assetID) {
+            if case .presentMedia(let request) = action, case .catalogAsset(let identifier) = request.source, !assetIsValid(identifier) {
                 throw PaceJavaScriptPowerError.invalid("the local media asset is unavailable")
             }
         }
@@ -237,7 +242,7 @@ extension CompanionManager {
 nonisolated extension PacePowerDraft {
     var javaScriptCapabilitySummary: String {
         if case .program(let program) = self, program.nodes.containsJavaScript {
-            return " It runs computed JavaScript locally and can speak or show saved media."
+            return " It runs computed JavaScript locally and can speak, draw animated SVG, or show saved media."
         }
         return ""
     }

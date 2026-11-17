@@ -804,7 +804,7 @@ final class PaceActionExecutor {
     /// executor folds into its observation. Default no-op preserves
     /// dry-run / unit-test behavior.
     var managedPowerExecutionCheck: (() -> Bool)?
-    var presentLocalMedia: ((PaceMediaPresentationRequest) -> PaceActionExecutionObservation)?
+    var presentLocalMedia: ((PaceMediaPresentationRequest) async -> PaceActionExecutionObservation)?
     var speakLocalText: ((PaceSpeechRequest) async -> PaceActionExecutionObservation)?
     var executeCodingSession: ((PaceCodingSessionCommand) async -> PaceActionExecutionObservation)?
 

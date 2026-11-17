@@ -15,8 +15,8 @@ nonisolated enum PaceVoicePower {
     static let tools: [PaceLocalToolDefinition] = [
         PaceLocalToolDefinition(
             kind: .presentMedia, canonicalName: "present_media", aliases: [],
-            schemaExample: #"{"tool":"present_media","assetID":"thank-you-dance","durationSeconds":4}"#,
-            description: "Present a known local media asset for one to thirty seconds without taking focus. Bundled assetIDs: thank-you-dance, an original animated character; japanese-greeting-woman, an adult anime woman. Use explicitly imported IDs only when the caller supplies them as known local assets. Optional motion: none, bob, dance. No URLs or paths.",
+            schemaExample: #"{"tool":"present_media","svg":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 240 320\"><circle cx=\"120\" cy=\"160\" r=\"24\" fill=\"cornflowerblue\"/></svg>","durationSeconds":4}"#,
+            description: "Present a known local media asset for one to thirty seconds without taking focus. Bundled assetIDs: thank-you-dance, an original animated character; japanese-greeting-woman, an adult anime woman. Use explicitly imported IDs only when the caller supplies them as known local assets. Optional motion: none, bob, dance. Alternatively supply svg instead of assetID/motion for a generated vector drawing with inline CSS keyframe animation, root SVG namespace, at most 32 KiB, 512 elements and depth 24. No script, event handlers, embedded images, filters, SMIL, links or external resources. No URLs or paths.",
             riskLevel: .appOrSystemMutation, executionSummary: "Shows a bounded local animation.",
             observationSummary: "Reports actual presentation or loading failure.", exampleUtterance: "show the thank you dance"
         ),

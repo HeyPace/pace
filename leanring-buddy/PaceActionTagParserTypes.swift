@@ -458,7 +458,7 @@ nonisolated enum PaceParsedAction {
             return "Open Messages"
         case .downloadFile(let downloadRequest):
             return "Download file to ~/Downloads: \(downloadRequest.url.absoluteString)"
-        case .presentMedia(let request): return "Present local media: \(request.assetID) for \(request.durationSeconds) seconds"
+        case .presentMedia(let request): return "Present \(request.presentationSummary) for \(request.durationSeconds) seconds"
         case .speak(let request): return "Speak\(request.profile.map { " [" + $0.rawValue + "]" } ?? ""): \(Self.truncatedForApproval(request.text))\(request.englishSubtitle.map { " · English subtitles: " + Self.truncatedForApproval($0) } ?? "")"
         case .startTimer(let timerRequest):
             let durationMinutes = Int((timerRequest.durationInSeconds / 60.0).rounded())

@@ -231,7 +231,7 @@ struct PacePowerManagerTests {
         try manager.managedPowerStore.setEnabled(false, power: power)
         #expect(!manager.isActiveTurn(oldLease))
         manager.activeManagedPower = nil
-        _ = manager.actionExecutor.presentLocalMedia?(.init(assetID: "thank-you-dance", durationSeconds: 4, motion: nil))
+        _ = await manager.actionExecutor.presentLocalMedia?(.init(assetID: "thank-you-dance", durationSeconds: 4, motion: nil))
         let oldGeneration = manager.mediaOverlayController.presentationGeneration
         let retainedOldClose = manager.mediaOverlayController.onUserDismiss
         begin("new unrelated answer", manager: manager)

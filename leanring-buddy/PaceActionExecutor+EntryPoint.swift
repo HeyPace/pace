@@ -244,8 +244,8 @@ extension PaceActionExecutor {
         case .downloadFile(let downloadRequest):
             return await downloadFile(downloadRequest)
         case .presentMedia(let request):
-            guard actionsAreEnabled else { return .init(toolName: "present_media", summary: "Would present local media: \(request.assetID)") }
-            return presentLocalMedia?(request) ?? .init(toolName: "present_media", summary: "Media unavailable; lifecycle binding missing.", terminalReason: .managedWorkflowUnavailable)
+            guard actionsAreEnabled else { return .init(toolName: "present_media", summary: "Would present \(request.presentationSummary)") }
+            return await presentLocalMedia?(request) ?? .init(toolName: "present_media", summary: "Media unavailable; lifecycle binding missing.", terminalReason: .managedWorkflowUnavailable)
         case .speak(let request):
             guard actionsAreEnabled else { return .init(toolName: "speak", summary: "Would speak local text.") }
             guard let speakLocalText else { return .init(toolName: "speak", summary: "Local speech unavailable; lifecycle binding missing.", terminalReason: .managedWorkflowUnavailable) }

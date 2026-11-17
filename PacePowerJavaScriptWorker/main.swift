@@ -77,6 +77,14 @@ private enum PacePowerJavaScriptWorker {
                 }
                 append("present_media", argumentsObject);
             };
+            pace.presentSVG = function (svg, svgOptions) {
+                const parsedOptions = options(svgOptions, ["durationSeconds"]);
+                const argumentsObject = create(null); argumentsObject.svg = text(svg, 32768);
+                const duration = parsedOptions.durationSeconds === undefined ? 8 : parsedOptions.durationSeconds;
+                if (typeof duration !== "number" || !Number.isFinite(duration) || duration < 1 || duration > 30) fail();
+                argumentsObject.durationSeconds = String(duration);
+                append("present_media", argumentsObject);
+            };
             const immutableContext = create(null); immutableContext.localHour = localHour; immutableContext.weekday = weekday;
             const result = new NativeFunction("pace", "context", '"use strict";\n' + source)(freeze(pace), freeze(immutableContext));
             if (result !== undefined || invalid) fail();
