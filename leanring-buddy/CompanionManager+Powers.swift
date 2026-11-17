@@ -172,9 +172,12 @@ extension CompanionManager {
             return
         }
         let turnLease = turnLeaseRegistry.currentLease
-        let discovered = await discoverAutomationCatalog(refreshShortcutCatalog: expectedPower == nil)
-        guard isActiveTurn(turnLease) else { return }
         let store = managedPowerStore
+        let isSavedPowerRun: Bool
+        if case .run(let target) = command { isSavedPowerRun = store.hasExactSavedPowerName(target) }
+        else { isSavedPowerRun = false }
+        let discovered = await discoverAutomationCatalog(refreshShortcutCatalog: expectedPower == nil && !isSavedPowerRun)
+        guard isActiveTurn(turnLease) else { return }
         do {
             let feedback: String
             var spokenSummary: String? = nil
