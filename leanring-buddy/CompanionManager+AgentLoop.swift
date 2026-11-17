@@ -354,7 +354,11 @@ extension CompanionManager {
         }
     }
 
-    func resolveClarification(option: String) {
+    func resolveClarification(option: String, powerClarificationIdentifier: UUID? = nil) {
+        if powerClarificationIdentifier != nil || pendingSpokenPowerClarification != nil {
+            resolveSpokenPowerClarification(option: option, expectedIdentifier: powerClarificationIdentifier)
+            return
+        }
         // A pending click-target clarification carries an exact target the
         // user just chose, so it takes precedence over the transcript-rewrite
         // path: resolving it clicks the chosen candidate directly instead of
@@ -1453,6 +1457,7 @@ extension CompanionManager {
     /// the remaining planner, speech, and follow-up steps from continuing.
     func cancelCurrentTurnFromPanel() {
         pendingPowerDescription = nil
+        pendingSpokenPowerClarification = nil
         cancelConversationCapture()
         if let ownership = pendingTeachingPreviewOwnership {
             finishPendingTeachingPreview(for: ownership.turnLease, dismissIfOwned: true)
@@ -1484,6 +1489,7 @@ extension CompanionManager {
     }
 
     private func stopExplanationResponse(clearsQueuedTurns: Bool = true) {
+        pendingSpokenPowerClarification = nil
         dismissCodingApprovals()
         streamingSentenceTTSPipeline.stopForUserDismissal()
         ossCommandSpeechClient?.stopPlayback()
@@ -1540,6 +1546,7 @@ extension CompanionManager {
         screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
     ) async {
         guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
+        if await handleSpokenPowerRecoveryIfNeeded(transcript) { return }
         let acceptedTurnIdentifier = activeConversationUserEvent?.eventID
         actionExecutor.beginUserTurn()
         ttsClient.stopPlayback()

@@ -147,6 +147,7 @@ final class CompanionManager: ObservableObject {
     var lastSidecarTTSOfflineNarratedAt: Date?
 
     var pendingPowerDescription: PacePendingPowerDescription?
+    @Published var pendingSpokenPowerClarification: PacePendingSpokenPowerClarification?
 
     var pendingIntentClarification: PacePendingIntentClarification?
 

@@ -234,6 +234,7 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         onCaptureFailure?(message)
     }
     var onCaptureFailure: ((String) -> Void)?
+    var additionalContextualPhrases: (() -> [String])?
     @Published private(set) var currentPermissionProblem: BuddyDictationPermissionProblem?
 
     var isDictationInProgress: Bool {
@@ -710,7 +711,8 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
 
         let transcriptionProvider = selectedTranscriptionProvider
         print("🎙️ PacePushToTalkManager: opening transcription provider \(transcriptionProvider.displayName)")
-        let contextualPhrases = PaceTranscriptionContextualPhraseBuilder.phrasesForCurrentTurn()
+        let contextualPhrases = PaceTranscriptionContextualPhraseBuilder.phrasesForCurrentTurn(
+            additionalTerms: additionalContextualPhrases?() ?? [])
         if !contextualPhrases.isEmpty {
             print("🎙️ PacePushToTalkManager: biasing transcription with \(contextualPhrases.count) local phrases")
         }

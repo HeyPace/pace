@@ -4,8 +4,8 @@
 //
 //  WhisperKit (base.en on ANE) streaming ASR behind
 //  BuddyTranscriptionProvider. Qualified 2026-06-08: ~1s warm load,
-//  ~9x realtime, transcribes "Pace" correctly without phrase biasing —
-//  which is why contextualPhrases is accepted but unused for now.
+//  ~9x realtime. Per-capture local vocabulary conditions partial and final
+//  decoding without forcing transcript prefixes.
 //
 //  Streaming strategy: push-to-talk utterances are short (seconds, not
 //  minutes), so the session accumulates 16 kHz mono samples and
@@ -80,10 +80,32 @@ final class WhisperKitTranscriptionProvider: BuddyTranscriptionProvider {
         return WhisperKitStreamingSession(
             pipeline: pipeline,
             languageMode: languageMode,
+            contextualPromptTokens: Self.contextualPromptTokens(contextualPhrases,
+                encode: pipeline.tokenizer.map { tokenizer in { tokenizer.encode(text: $0) } },
+                specialTokenBegin: pipeline.tokenizer?.specialTokens.specialTokenBegin ?? 0),
             onTranscriptUpdate: onTranscriptUpdate,
             onFinalTranscriptReady: onFinalTranscriptReady,
             onError: onError
         )
+    }
+
+    nonisolated static func contextualPromptTokens(_ phrases: [String], encode: ((String) -> [Int])?, specialTokenBegin: Int) -> [Int] {
+        guard let encode else { return [] }
+        let vocabulary = phrases.prefix(80).map { String($0.prefix(80)) }.joined(separator: ", ")
+        guard !vocabulary.isEmpty else { return [] }
+        return Array(encode(" " + vocabulary).filter { $0 >= 0 && $0 < specialTokenBegin }.prefix(192))
+    }
+
+    nonisolated static func decodingOptions(languageMode: LanguageMode, contextualPromptTokens: [Int] = []) -> DecodingOptions {
+        var options = DecodingOptions()
+        options.language = languageMode.decodingLanguage
+        options.detectLanguage = languageMode.detectsLanguage
+        options.temperature = 0
+        if !contextualPromptTokens.isEmpty {
+            options.promptTokens = contextualPromptTokens
+            options.usePrefillPrompt = true
+        }
+        return options
     }
 
     func prepare() async throws { _ = try await runtime.pipeline() }
@@ -179,7 +201,7 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
     private static let partialCadenceSeconds = 1.2
 
     private let pipeline: WhisperKit
-    private let languageMode: WhisperKitTranscriptionProvider.LanguageMode
+    private let decodingOptions: DecodingOptions
     private let onTranscriptUpdate: (String) -> Void
     private let onFinalTranscriptReady: (String) -> Void
     private let onError: (Error) -> Void
@@ -195,11 +217,13 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
 
     init(pipeline: WhisperKit,
          languageMode: WhisperKitTranscriptionProvider.LanguageMode,
+         contextualPromptTokens: [Int],
          onTranscriptUpdate: @escaping (String) -> Void,
          onFinalTranscriptReady: @escaping (String) -> Void,
          onError: @escaping (Error) -> Void) {
         self.pipeline = pipeline
-        self.languageMode = languageMode
+        self.decodingOptions = WhisperKitTranscriptionProvider.decodingOptions(languageMode: languageMode,
+            contextualPromptTokens: contextualPromptTokens)
         self.onTranscriptUpdate = onTranscriptUpdate
         self.onFinalTranscriptReady = onFinalTranscriptReady
         self.onError = onError
@@ -277,18 +301,19 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
     }
 
     private func transcribe(_ audio: [Float]) async throws -> String {
-        try await Self.transcribe(audio, pipeline: pipeline, languageMode: languageMode)
+        try await Self.transcribe(audio, pipeline: pipeline, decodingOptions: decodingOptions)
     }
 
     static func transcribe(_ audio: [Float], pipeline: WhisperKit,
                            languageMode: WhisperKitTranscriptionProvider.LanguageMode) async throws -> String {
+        try await transcribe(audio, pipeline: pipeline,
+            decodingOptions: WhisperKitTranscriptionProvider.decodingOptions(languageMode: languageMode))
+    }
+
+    private static func transcribe(_ audio: [Float], pipeline: WhisperKit, decodingOptions: DecodingOptions) async throws -> String {
         guard !audio.isEmpty else { return "" }
         guard try PaceSileroSpeechDetector.containsSpeech(in: audio) else { return "" }
-        var options = DecodingOptions()
-        options.language = languageMode.decodingLanguage
-        options.detectLanguage = languageMode.detectsLanguage
-        options.temperature = 0
-        let results = try await pipeline.transcribe(audioArray: audio, decodeOptions: options)
+        let results = try await pipeline.transcribe(audioArray: audio, decodeOptions: decodingOptions)
         return results.map(\.text)
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)

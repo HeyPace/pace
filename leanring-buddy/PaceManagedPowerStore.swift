@@ -250,10 +250,14 @@ struct PaceManagedPowerStore {
         return candidates
     }
 
-    func hasExactSavedPowerName(_ requestedName: String) -> Bool {
-        let savedNames = PaceUserAutomationStore(directoryURL: automationDirectoryURL).listValidDefinitions().map(\.name)
+    func savedPowerNames() -> [String] {
+        PaceUserAutomationStore(directoryURL: automationDirectoryURL).listValidDefinitions().map(\.name)
             + PaceUserProgramStore(directoryURL: programDirectoryURL).listValidPrograms().map(\.name)
             + PaceSkillLoader.listUserSkills(in: skillDirectoryURL).map(\.name)
+    }
+
+    func hasExactSavedPowerName(_ requestedName: String) -> Bool {
+        let savedNames = savedPowerNames()
         return Self.exactSpokenTargetCandidates(requestedName).contains { candidate in
             savedNames.contains { PaceAutomationCatalog.normalizedName($0) == PaceAutomationCatalog.normalizedName(candidate) }
         }

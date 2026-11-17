@@ -205,11 +205,14 @@ struct PaceDialogueCurrentStatusView: View {
     }
 
     private func status(at date: Date) -> some View {
+        let powerClarificationIdentifier = companionManager.pendingSpokenPowerClarification?.identifier
         let feedback = PaceRequestFeedback.resolve(state: signalState,
             hudDetail: companionManager.currentTurnHUDState.detail,
             isPreparing: companionManager.buddyDictationManager.isPreparingToRecord,
             isFinalizing: companionManager.buddyDictationManager.isFinalizingTranscript,
             startedAt: companionManager.currentRequestStartedAt, now: date)
+        let displayedTitle = companionManager.currentTurnHUDState.status == .needsClarification
+            ? companionManager.currentTurnHUDState.title : feedback.title
         return HStack(alignment: .top, spacing: 10) {
             Group {
                 if feedback.showsSpinner && !reduceMotion {
@@ -222,8 +225,26 @@ struct PaceDialogueCurrentStatusView: View {
                 }
             }.frame(width: 28, height: 20)
             VStack(alignment: .leading, spacing: 4) {
-                Text(feedback.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                if let detail = feedback.detail {
+                Text(displayedTitle)
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                if companionManager.currentTurnHUDState.status == .needsClarification {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 6) {
+                            ForEach(companionManager.currentTurnHUDState.options, id: \.self) { option in
+                                Button(option) {
+                                    companionManager.resolveClarification(option: option,
+                                        powerClarificationIdentifier: powerClarificationIdentifier)
+                                }
+                                .buttonStyle(.plain).font(.system(size: 12, weight: .medium))
+                                .padding(.horizontal, 10).padding(.vertical, 7)
+                                .background(.black, in: Capsule())
+                                .overlay(Capsule().stroke(Color.white.opacity(0.2), lineWidth: 0.7))
+                                .paceControlHoverHighlight(cornerRadius: 12).pointerCursor().fixedSize()
+                            }
+                        }
+                    }.scrollIndicators(.hidden)
+                }
+                if companionManager.currentTurnHUDState.status != .needsClarification, let detail = feedback.detail {
                     Text(detail).font(.system(size: 12)).foregroundStyle(DS.Colors.textSecondary).lineLimit(2)
                 }
                 if companionManager.queuedChatTurnCount > 0 {
@@ -249,6 +270,6 @@ struct PaceDialogueCurrentStatusView: View {
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 0.5))
         .padding(.vertical, 8)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Pace request status: " + feedback.title)
+        .accessibilityLabel("Pace request status: " + displayedTitle)
     }
 }

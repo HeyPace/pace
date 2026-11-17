@@ -4,6 +4,9 @@ import Foundation
 @MainActor
 extension CompanionManager {
     func bindPowerToolCallbacks() {
+        buddyDictationManager.additionalContextualPhrases = { [weak self] in
+            self?.managedPowerStore.savedPowerNames() ?? []
+        }
         actionExecutor.managedPowerExecutionCheck = { [weak self] in self?.managedPowerExecutionIsAuthorized == true }
         actionExecutor.presentLocalMedia = { [weak self] request in
             guard let self else { return .init(toolName: "present_media", summary: "Media unavailable.", terminalReason: .managedWorkflowUnavailable) }
@@ -134,7 +137,7 @@ extension CompanionManager {
         return true
     }
 
-    func handlePowerCommand(_ command: PacePowerCommand, transcript: String) async {
+    func handlePowerCommand(_ command: PacePowerCommand, transcript: String, expectedPower: PaceManagedPower? = nil) async {
         pendingPowerDescription = nil
         if command == .dismissMedia {
             mediaOverlayController.dismiss(cancelOwnedRun: true)
@@ -169,7 +172,7 @@ extension CompanionManager {
             return
         }
         let turnLease = turnLeaseRegistry.currentLease
-        let discovered = await discoverAutomationCatalog()
+        let discovered = await discoverAutomationCatalog(refreshShortcutCatalog: expectedPower == nil)
         guard isActiveTurn(turnLease) else { return }
         let store = managedPowerStore
         do {
@@ -216,6 +219,10 @@ extension CompanionManager {
                 feedback = "Archived \(power.name). Its history and assets are preserved."
             case .run(let target):
                 let power = try store.resolve(target, catalog: discovered.catalog)
+                if let expectedPower {
+                    guard power == expectedPower, power.isEnabled, power.managementStateError == nil else { throw PaceManagedPowerError.changed }
+                    _ = try store.validateCurrent(expectedPower)
+                }
                 guard let reference = power.reference,
                       let entry = discovered.catalog.entries.first(where: { $0.reference == reference }) else {
                     throw PaceManagedPowerError.protected
@@ -229,6 +236,16 @@ extension CompanionManager {
             handleImmediateLocalModeResponse(transcript: transcript, spokenText: feedback, shouldRecordConversationTurn: true,
                 spokenSummary: spokenSummary)
         } catch {
+            if expectedPower == nil, activeConversationUserEvent?.origin == .voice,
+               case .run(let target) = command, let powerError = error as? PaceManagedPowerError,
+               case .missing = powerError {
+                let candidates = PaceSpokenPowerRecovery.candidates(for: transcript,
+                    powers: store.list(catalog: discovered.catalog), explicitRunTarget: target)
+                if !candidates.isEmpty {
+                    offerSpokenPowerClarification(candidates, transcript: transcript)
+                    return
+                }
+            }
             handleImmediateLocalModeResponse(transcript: transcript, spokenText: error.localizedDescription, shouldRecordConversationTurn: true)
         }
     }
