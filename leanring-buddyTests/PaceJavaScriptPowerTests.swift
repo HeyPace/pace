@@ -84,9 +84,9 @@ struct PaceJavaScriptPowerTests {
         #expect(media == .init(assetID: "japanese-greeting-woman", durationSeconds: 6, motion: "bob"))
     }
 
-    @Test func actualXPCWorkerRejectsSyntaxThrowEmptyAsyncAndInvalidSDKArguments() async {
+    @Test func actualXPCWorkerRejectsSyntaxThrowAsyncAndInvalidSDKArguments() async {
         for source in [
-            "const = ;", "pace.speak('never emitted'); throw Error('failure');", "const computed = 2 + 2;",
+            "const = ;", "pace.speak('never emitted'); throw Error('failure');",
             "return Promise.resolve('not synchronous');", "pace.speak(42);", "pace.speak('');",
             "pace.speak('hello', {voice:'arbitrary'});", "pace.speak('hello', {profile:'unknown'});",
             "pace.presentMedia('../image');", "pace.presentMedia('thank-you-dance', {durationSeconds:31});",
@@ -100,6 +100,38 @@ struct PaceJavaScriptPowerTests {
         #expect(await rejects("for (let index=0; index<51; index++) pace.speak(String(index));"))
         #expect(await rejects("for (let index=0; index<40; index++) pace.speak('a'.repeat(2000));"))
         #expect(await rejects("pace.speak('a'.repeat(2001));"))
+    }
+
+    @Test func conditionalPowerCanBeSavedWithoutActionsUnderTheCurrentContext() async throws {
+        let source = "if (context.weekday === 1) pace.speak('Sunday greeting');"
+        guard case .noActionsMatched = try await PaceJavaScriptPowerRuntime.compile(program(source), context: context(weekday: 2)) else {
+            Issue.record("A condition that does not match must produce no actions"); return
+        }
+        guard case .executionPlan(let matchingPlan) = try await PaceJavaScriptPowerRuntime.compile(program(source), context: context(weekday: 1)) else {
+            Issue.record("The same saved code must produce actions when its condition matches"); return
+        }
+        #expect(matchingPlan.flattenedActions.count == 1)
+
+        let helpers = PacePowerManagerTests()
+        let (root, manager, _, speech) = try helpers.fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        let conditional = program("if (context.localHour < 0) pace.speak('not today');")
+        helpers.begin("add a power Weekend Greeting", manager: manager)
+        await manager.commitPowerDraft(.program(conditional), replacing: nil, transcript: "add a power Weekend Greeting",
+            turnLease: manager.turnLeaseRegistry.currentLease)
+        #expect(PaceUserProgramStore(directoryURL: manager.managedPowerStore.programDirectoryURL).listValidPrograms().count == 1)
+        helpers.begin("run power Runtime Greeting", manager: manager)
+        await manager.handlePowerCommand(.run("Runtime Greeting"), transcript: "run power Runtime Greeting")
+        await manager.currentResponseTask?.value
+        #expect(!speech.spokenTexts.contains("not today"))
+        #expect(speech.spokenTexts.contains { $0.contains("didn't have any actions for the current conditions") })
+    }
+
+    @Test func compilerFailuresDescribeTheValidationProblemInPlainText() {
+        let invalidProgram = PaceProgramCompilationError.invalidProgram(["JavaScript requires schemaVersion 2"])
+        #expect(invalidProgram.localizedDescription == "JavaScript requires schemaVersion 2")
+        let invalidAutomation = PaceAutomationCompilationError.invalidDefinition(["requires a supported tool"])
+        #expect(invalidAutomation.localizedDescription == "requires a supported tool")
     }
 
     @Test func actualXPCWatchdogStopsInfiniteCodeAndNextRunSucceeds() async throws {
@@ -256,7 +288,8 @@ struct PaceJavaScriptPowerTests {
         #expect(pending.resolve("It should greet me with the current hour", now: date) == .description("It should greet me with the current hour"))
         #expect(pending.resolve("cancel", now: date) == .cancelled)
         #expect(pending.resolve("never mind", now: date) == .cancelled)
-        for transcript in ["list powers", "add a power called New", "open Safari", "set volume to 30", "what time is it", "hello", "import power media /tmp/hello.gif as hello"] {
+        for transcript in ["list powers", "add a power called New", "open Safari", "set volume to 30", "what time is it", "hello", "import power media /tmp/hello.gif as hello",
+            "pause", "mute", "next track", "volume down", "lock my screen", "play some jazz", "tell me a joke"] {
             #expect(pending.resolve(transcript, now: date) == .unrelated)
         }
         #expect(pending.resolve("A Power called Greeting", now: date.addingTimeInterval(121)) == .unrelated)
@@ -292,7 +325,7 @@ struct PaceJavaScriptPowerTests {
         defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
         let author = PacePowerManagerTests.Author()
         manager.reusableWorkAuthoringPlannerOverride = author
-        for transcript in ["cancel", "list powers", "what time is it?", "hello"] {
+        for transcript in ["cancel", "list powers", "what time is it?", "hello", "pause", "mute", "next track", "volume down", "tell me a joke"] {
             helpers.begin("Add a Power", manager: manager)
             await manager.handlePowerCommand(.add(""), transcript: "Add a Power")
             await manager.currentResponseTask?.value

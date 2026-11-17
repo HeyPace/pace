@@ -187,7 +187,7 @@ extension CompanionManager {
             if case .program(let program) = draft, program.nodes.containsJavaScript {
                 switch try await PaceJavaScriptPowerRuntime.compile(program, context: PaceProgramContext.current()) {
                 case .executionPlan(let plan): try validateJavaScriptPowerMedia(plan)
-                case .noActionsMatched: throw PaceJavaScriptPowerError.invalid("the test produced no actions")
+                case .noActionsMatched: break
                 }
             }
             let discovered = await discoverAutomationCatalog()
@@ -196,9 +196,11 @@ extension CompanionManager {
             let name = try managedPowerStore.commit(draft, replacing: power, catalog: discovered.catalog)
             handleImmediateLocalModeResponse(transcript: transcript,
                 spokenText: "\(power == nil ? "Saved" : "Updated") \(name). Say run power \(name) to use it.\(draft.javaScriptCapabilitySummary)", shouldRecordConversationTurn: true)
+            await currentResponseTask?.value
         } catch {
             guard isActiveTurn(turnLease) else { return }
             handleImmediateLocalModeResponse(transcript: transcript, spokenText: error.localizedDescription, shouldRecordConversationTurn: true)
+            await currentResponseTask?.value
         }
     }
 

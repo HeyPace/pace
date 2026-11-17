@@ -76,16 +76,11 @@ nonisolated struct PacePendingPowerDescription: Equatable {
         let description = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = description.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".!?"))
         if ["cancel", "cancel that", "never mind", "nevermind", "stop", "forget it"].contains(normalized) { return .cancelled }
-        let descriptionPrefixes = ["when i run", "when i say", "whenever ", "it should ", "call it ", "named ", "called ", "i want "]
-        if descriptionPrefixes.contains(where: normalized.hasPrefix) { return .description(description) }
-        let unrelatedPrefixes = ["add ", "create power ", "create a power ", "show ", "list ", "run ", "enable ", "disable ", "delete ", "remove ", "update ",
-            "what ", "when ", "where ", "why ", "who ", "how ", "can you ", "could you ", "please ",
-            "open ", "close ", "set ", "turn ", "start ", "stop ", "remember ", "forget ", "switch ", "mute ", "unmute ", "dismiss ",
-            "import ", "record ", "replay ", "pause ", "resume ", "quit ", "exit "]
         guard !description.isEmpty, !description.hasSuffix("?"),
-              !["hi", "hello", "thanks", "thank you", "yes", "no"].contains(normalized),
-              !unrelatedPrefixes.contains(where: normalized.hasPrefix) else { return .unrelated }
-        return .description(description)
+              PacePowerCommandParser.parse(description) == nil else { return .unrelated }
+        let descriptionPrefixes = ["a power ", "the power ", "when i run ", "when i say ", "whenever ", "it should ", "call it ", "named ", "called ", "i want "]
+        let hasName = normalized.range(of: #"\b(called|named)\s+\S"#, options: .regularExpression) != nil
+        return descriptionPrefixes.contains(where: normalized.hasPrefix) || hasName ? .description(description) : .unrelated
     }
 }
 

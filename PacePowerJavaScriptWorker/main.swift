@@ -16,7 +16,7 @@ private enum PacePowerJavaScriptWorker {
               !failed, result.isString, let serialized = result.toString(),
               let data = serialized.data(using: .utf8), data.count <= PaceJavaScriptPowerLimits.maximumOutputBytes,
               let actions = try? JSONDecoder().decode([PaceJavaScriptPowerAction].self, from: data),
-              !actions.isEmpty, actions.count <= PaceJavaScriptPowerLimits.maximumActions else {
+              actions.count <= PaceJavaScriptPowerLimits.maximumActions else {
             return response(failure: "JavaScript failed validation or execution. Use only the supported Pace SDK with bounded output.")
         }
         return (try? JSONEncoder().encode(PaceJavaScriptPowerResponse(actions: actions, failure: nil))) ?? Data()
@@ -79,7 +79,7 @@ private enum PacePowerJavaScriptWorker {
             };
             const immutableContext = create(null); immutableContext.localHour = localHour; immutableContext.weekday = weekday;
             const result = new NativeFunction("pace", "context", '"use strict";\n' + source)(freeze(pace), freeze(immutableContext));
-            if (result !== undefined || invalid || actions.length === 0) fail();
+            if (result !== undefined || invalid) fail();
             return stringify(actions);
         };
     })()

@@ -98,10 +98,12 @@ nonisolated struct PaceAutomationValidationIssue: Equatable, CustomStringConvert
     }
 }
 
-nonisolated enum PaceAutomationCompilationError: Error, Equatable, CustomStringConvertible {
+nonisolated enum PaceAutomationCompilationError: Error, LocalizedError, Equatable, CustomStringConvertible {
     case invalidDefinition([String])
     case couldNotEncodeToolCalls
     case partiallyParsed(expectedStepActionCounts: [Int], actualStepActionCounts: [Int])
+
+    var errorDescription: String? { description }
 
     var description: String {
         switch self {

@@ -369,11 +369,13 @@ extension CompanionManager {
                     case .noActionsMatched:
                         handleImmediateLocalModeResponse(transcript: transcript,
                             spokenText: "\(program.name) didn't have any actions for the current conditions.", shouldRecordConversationTurn: true)
+                        await currentResponseTask?.value
                     }
                 } catch {
                     guard isActiveTurn(turnLease) else { return }
                     handleImmediateLocalModeResponse(transcript: transcript,
                         spokenText: "I couldn't run that Power. " + error.localizedDescription, shouldRecordConversationTurn: true)
+                    await currentResponseTask?.value
                 }
             }
 

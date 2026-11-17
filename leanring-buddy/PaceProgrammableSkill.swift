@@ -352,9 +352,11 @@ nonisolated enum PaceProgramCompilationOutcome {
     case noActionsMatched
 }
 
-nonisolated enum PaceProgramCompilationError: Error, Equatable, CustomStringConvertible {
+nonisolated enum PaceProgramCompilationError: Error, LocalizedError, Equatable, CustomStringConvertible {
     case invalidProgram([String])
     case typedCompilationFailed(String)
+
+    var errorDescription: String? { description }
 
     var description: String {
         switch self {
