@@ -554,7 +554,7 @@ struct PaceChatPanelView: View {
                 .foregroundColor(DS.Colors.textPrimary)
                 .lineLimit(1...4)
                 .focused($isChatInputFocused)
-                .paceChatSubmitOnReturn(submitDraftMessageText)
+                .onSubmit(submitDraftMessageText)
                 .padding(.horizontal, 11)
                 .padding(.vertical, 8)
                 .background(

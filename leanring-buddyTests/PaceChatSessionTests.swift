@@ -9,9 +9,7 @@
 //  so we don't need a live `CompanionManager`.
 //
 
-import AppKit
 import Foundation
-import SwiftUI
 import Testing
 
 @testable import Pace
@@ -557,73 +555,5 @@ struct PaceChatSessionTests {
         )
         #expect(userText == "only the user said something")
         #expect(paceText == "")
-    }
-}
-
-@MainActor @Suite(.serialized)
-struct PaceChatComposerReturnTests {
-    @Test func modifiedReturnInsertsNativeNewlinesWithoutSubmitting() {
-        for modifiers: NSEvent.ModifierFlags in [.shift, .option, .control] {
-            let editor = NSTextView(frame: .zero)
-            editor.isFieldEditor = true
-            editor.string = "line one"
-            editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
-            var submissions = 0
-            #expect(PaceChatReturnHandling.handle(modifiers: modifiers, editor: editor) { submissions += 1 })
-            #expect(submissions == 0)
-            #expect(editor.string == "line one\n")
-        }
-    }
-
-    @Test func markedJapaneseTextIsLeftToTheInputMethod() {
-        let editor = NSTextView(frame: .zero)
-        editor.setMarkedText("あ", selectedRange: NSRange(location: 1, length: 0),
-            replacementRange: NSRange(location: NSNotFound, length: 0))
-        #expect(editor.hasMarkedText())
-        var submissions = 0
-        #expect(!PaceChatReturnHandling.handle(modifiers: [], editor: editor) { submissions += 1 })
-        #expect(submissions == 0)
-        #expect(editor.hasMarkedText())
-        #expect(editor.string == "あ")
-        #expect(!PaceChatReturnHandling.handle(modifiers: [], editor: nil) { submissions += 1 })
-    }
-
-    @Test func nativeConfirmationSendsOnceWithoutActivatingTheApp() async throws {
-        final class Input { var text = "run power Bouncing Ball"; var sent: [String] = [] }
-        let input = Input()
-        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        let field = TextField("Message", text: Binding(get: { input.text }, set: { input.text = $0 }), axis: .vertical)
-            .lineLimit(1...4)
-            .paceChatSubmitOnReturn {
-                guard !input.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                input.sent.append(input.text)
-                input.text = ""
-            }
-        let host = NSHostingView(rootView: field.frame(width: 360, height: 100))
-        let panel = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 360, height: 100),
-            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.isReleasedWhenClosed = false
-        panel.contentView = host
-        defer { panel.contentView = nil; panel.close() }
-        host.layoutSubtreeIfNeeded()
-        func textField(in view: NSView) -> NSTextField? {
-            if let field = view as? NSTextField { return field }
-            return view.subviews.lazy.compactMap { textField(in: $0) }.first
-        }
-        var nativeField: NSTextField?
-        for _ in 0..<50 {
-            nativeField = textField(in: host)
-            if nativeField != nil { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        let resolvedField = try #require(nativeField)
-        #expect(panel.makeFirstResponder(resolvedField))
-        let enter = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
-            timestamp: 0, windowNumber: panel.windowNumber, context: nil, characters: "\r",
-            charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
-        panel.sendEvent(enter)
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(input.sent == ["run power Bouncing Ball"])
-        #expect(NSWorkspace.shared.frontmostApplication?.processIdentifier == frontmostPID)
     }
 }

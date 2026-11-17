@@ -533,7 +533,7 @@ struct PacePanelChatView: View {
                     .foregroundStyle(DS.Colors.textPrimary)
                     .lineLimit(1...4)
                     .focused($isInputFocused)
-                    .paceChatSubmitOnReturn(submitDraft)
+                    .onSubmit(submitDraft)
                     .accessibilityLabel("Message Pace")
                     .padding(.vertical, 5)
                 iconButton(
