@@ -250,6 +250,24 @@ struct PaceJavaScriptPowerTests {
         await task?.value
         #expect(!speech.spokenTexts.contains("stale output"))
         #expect(!manager.managedPowerExecutionIsAuthorized)
+        #expect(manager.voiceState == .idle)
+    }
+
+    @Test func programPreparationExposesStopAndCancellationRestoresIdle() async throws {
+        let helpers = PacePowerManagerTests()
+        let (root, manager, _, speech) = try helpers.fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        _ = try manager.managedPowerStore.commit(.program(program("while (true) {}")),
+            catalog: (await manager.discoverAutomationCatalog()).catalog)
+        helpers.begin("run power Runtime Greeting", manager: manager)
+        await manager.handlePowerCommand(.run("Runtime Greeting"), transcript: "run power Runtime Greeting")
+        let task = manager.currentResponseTask
+        #expect(manager.voiceState == .processing)
+        try await Task.sleep(for: .milliseconds(50))
+        manager.cancelCurrentTurnFromPanel()
+        await task?.value
+        #expect(manager.voiceState == .idle)
+        #expect(!speech.spokenTexts.contains { $0.contains("couldn't run") })
     }
 
     @Test func persistedCodeUsesExistingCRUDAndUpdateRetainsRepresentation() async throws {

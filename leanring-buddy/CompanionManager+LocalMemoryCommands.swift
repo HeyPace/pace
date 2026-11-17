@@ -354,7 +354,16 @@ extension CompanionManager {
             }
             let turnLease = turnLeaseRegistry.currentLease
             let context = PaceProgramContext.current()
+            voiceState = .processing
+            currentTurnHUDState = .understanding("preparing \(program.name)")
+            responseOverlayManager.showOverlayAndBeginStreaming()
             currentResponseTask = Task { @MainActor in
+                defer {
+                    if turnLeaseRegistry.isCurrent(turnLease), voiceState == .processing {
+                        voiceState = .idle
+                        responseOverlayManager.finishStreaming()
+                    }
+                }
                 do {
                     let outcome = try await PaceJavaScriptPowerRuntime.compile(program, context: context)
                     guard isActiveTurn(turnLease) else { return }
