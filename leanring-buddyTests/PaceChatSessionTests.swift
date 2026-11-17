@@ -562,6 +562,32 @@ struct PaceChatSessionTests {
 
 @MainActor @Suite(.serialized)
 struct PaceChatComposerReturnTests {
+    @Test func modifiedReturnInsertsNativeNewlinesWithoutSubmitting() {
+        for modifiers: NSEvent.ModifierFlags in [.shift, .option, .control] {
+            let editor = NSTextView(frame: .zero)
+            editor.isFieldEditor = true
+            editor.string = "line one"
+            editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
+            var submissions = 0
+            #expect(PaceChatReturnHandling.handle(modifiers: modifiers, editor: editor) { submissions += 1 })
+            #expect(submissions == 0)
+            #expect(editor.string == "line one\n")
+        }
+    }
+
+    @Test func markedJapaneseTextIsLeftToTheInputMethod() {
+        let editor = NSTextView(frame: .zero)
+        editor.setMarkedText("あ", selectedRange: NSRange(location: 1, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(editor.hasMarkedText())
+        var submissions = 0
+        #expect(!PaceChatReturnHandling.handle(modifiers: [], editor: editor) { submissions += 1 })
+        #expect(submissions == 0)
+        #expect(editor.hasMarkedText())
+        #expect(editor.string == "あ")
+        #expect(!PaceChatReturnHandling.handle(modifiers: [], editor: nil) { submissions += 1 })
+    }
+
     @Test func nativeConfirmationSendsOnceWithoutActivatingTheApp() async throws {
         final class Input { var text = "run power Bouncing Ball"; var sent: [String] = [] }
         let input = Input()

@@ -222,17 +222,68 @@ struct PaceDialogueCurrentStatusView: View {
 }
 
 @MainActor
+enum PaceChatReturnHandling {
+    @discardableResult
+    static func handle(modifiers: NSEvent.ModifierFlags, editor: NSTextView?, submit: () -> Void) -> Bool {
+        guard let editor, !editor.hasMarkedText() else { return false }
+        if !modifiers.intersection([.shift, .option, .control]).isEmpty {
+            editor.insertNewlineIgnoringFieldEditor(nil)
+        } else {
+            submit()
+        }
+        return true
+    }
+}
+
+@MainActor
+private final class PaceChatComposerContext {
+    weak var anchor: NSView?
+    var editor: NSTextView? { anchor?.window?.firstResponder as? NSTextView }
+}
+
+private struct PaceChatComposerAnchor: NSViewRepresentable {
+    let composerContext: PaceChatComposerContext
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        composerContext.anchor = view
+        return view
+    }
+    func updateNSView(_ view: NSView, context: Context) { }
+}
+
+private struct PaceChatReturnSubmitModifier: ViewModifier {
+    let submit: () -> Void
+    @State private var composerContext = PaceChatComposerContext()
+
+    func body(content: Content) -> some View {
+        content
+            .background(PaceChatComposerAnchor(composerContext: composerContext)
+                .frame(width: 0, height: 0).allowsHitTesting(false))
+            .onSubmit {
+                guard composerContext.editor?.hasMarkedText() != true else { return }
+                if let event = NSApp.currentEvent, let window = composerContext.anchor?.window,
+                    event.window === window, event.type == .keyDown, [36, 76].contains(event.keyCode) {
+                    PaceChatReturnHandling.handle(modifiers: event.modifierFlags,
+                        editor: composerContext.editor, submit: submit)
+                } else {
+                    submit()
+                }
+            }
+            .onKeyPress(.return, phases: .down) { keyPress in
+                var modifiers: NSEvent.ModifierFlags = []
+                if keyPress.modifiers.contains(.shift) { modifiers.insert(.shift) }
+                if keyPress.modifiers.contains(.option) { modifiers.insert(.option) }
+                if keyPress.modifiers.contains(.control) { modifiers.insert(.control) }
+                if keyPress.modifiers.contains(.command) { modifiers.insert(.command) }
+                return PaceChatReturnHandling.handle(modifiers: modifiers,
+                    editor: composerContext.editor, submit: submit) ? .handled : .ignored
+            }
+    }
+}
+
+@MainActor
 extension View {
     func paceChatSubmitOnReturn(_ submit: @escaping () -> Void) -> some View {
-        onSubmit(submit)
-            .onKeyPress(.return, phases: .down) { keyPress in
-                guard !keyPress.modifiers.contains(.shift) else { return .ignored }
-                // Let the input method finish a Japanese or other composed word first.
-                if let editor = NSApp.keyWindow?.firstResponder as? NSTextView, editor.hasMarkedText() {
-                    return .ignored
-                }
-                submit()
-                return .handled
-            }
+        modifier(PaceChatReturnSubmitModifier(submit: submit))
     }
 }
