@@ -32,6 +32,7 @@ private enum PacePowerJavaScriptWorker {
         const push = Function.call.bind(Array.prototype.push);
         const NativeFunction = Function;
         const NativeError = Error;
+        const codePointAt = Function.call.bind(String.prototype.codePointAt);
         freeze(Object.prototype); freeze(Array.prototype); freeze(Function.prototype); freeze(JSON);
         return function (source, localHour, weekday) {
             const actions = [];
@@ -90,6 +91,13 @@ private enum PacePowerJavaScriptWorker {
                 if (card === null || typeof card !== "object" || Array.isArray(card)) fail();
                 const serialized = stringify(card);
                 const argumentsObject = create(null); argumentsObject.card = text(serialized, 49152);
+                let byteCount = 0;
+                for (let index = 0; index < serialized.length; index++) {
+                    const point = codePointAt(serialized, index);
+                    byteCount += point < 128 ? 1 : (point < 2048 ? 2 : (point < 65536 ? 3 : 4));
+                    if (point > 65535) index++;
+                    if (byteCount > 49152) fail();
+                }
                 const duration = parsedOptions.durationSeconds === undefined ? 120 : parsedOptions.durationSeconds;
                 if (typeof duration !== "number" || !Number.isFinite(duration) || duration < 1 || duration > 300) fail();
                 argumentsObject.durationSeconds = String(duration);

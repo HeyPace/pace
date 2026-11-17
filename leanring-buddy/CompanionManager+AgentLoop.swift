@@ -142,6 +142,7 @@ extension CompanionManager {
                   self.diagramOverlayController.lessonPlaybackGeneration == expectedPlaybackGeneration,
                   self.diagramOverlayController.document?.lesson != nil else { return }
             self.ttsClient.stopPlayback()
+            self.mediaOverlayController.dismiss(cancelOwnedRun: false)
             let lease = self.turnLeaseRegistry.beginTurn()
             _ = await self.runTeachingLesson(turnLease: lease, muteOverride: shouldMute, fromControls: true)
             guard self.isActiveTurn(lease) else { return }

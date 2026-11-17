@@ -47,6 +47,11 @@ struct PacePowerCardTests {
               case .presentMedia(let request) = plan.flattenedActions.first else { Issue.record("Card did not reach typed executor"); return }
         #expect(request.card == PacePowerCard.parse(definition))
         #expect(request.durationSeconds == 120)
+        let oversizedJapanese = "pace.presentCard({title:'Too large', pages:[], extra:'あ'.repeat(17000)});"
+        do {
+            _ = try await PaceJavaScriptPowerRun().evaluate(source: oversizedJapanese, context: context)
+            Issue.record("Worker accepted a card exceeding the UTF-8 byte budget")
+        } catch { }
         for invalid in [source(definition, options: ", {durationSeconds:301}"), source("{title:'Bad',pages:[],onClick:'shell'}")] {
             do {
                 _ = try await PaceJavaScriptPowerRuntime.compile(program("pace.speak('must not run');" + invalid), context: context)
@@ -57,15 +62,15 @@ struct PacePowerCardTests {
 
     @Test func localChoicesAndNavigationRequireAuthorizationAndPreserveSelections() throws {
         var session = PacePowerCardSession(card: try #require(PacePowerCard.parse(definition)))
-        var receipts: [String] = []
-        let authorize: (String, String) -> Bool = { selection, feedback in receipts.append(selection + "\n" + feedback); return true }
-        session.select(0, authorize: { _, _ in false })
+        var receipts: [PacePowerCardInteraction] = []
+        let authorize: (PacePowerCardInteraction) -> Bool = { interaction in receipts.append(interaction); return true }
+        session.select(0, authorize: { _ in false })
         #expect(session.selectedChoice == nil)
         session.select(1, authorize: authorize)
         #expect(session.selectedChoice == 1)
         session.select(1, authorize: authorize)
         #expect(receipts.count == 1)
-        session.move(by: 1, authorize: { _, _ in false })
+        session.move(by: 1, authorize: { _ in false })
         #expect(session.pageIndex == 0)
         session.move(by: 1, authorize: authorize)
         #expect(session.pageIndex == 1)
@@ -83,16 +88,16 @@ struct PacePowerCardTests {
         var authorized = true
         var interactions = 0
         var dismissals = 0
-        let present = { await controller.presentCard(request, mayPresent: { authorized }, authorizeInteraction: { _, _ in
+        let present = { await controller.presentCard(request, mayPresent: { authorized }, authorizeInteraction: { _ in
             guard authorized else { return false }; interactions += 1; return true
         }, onDismiss: { _ in dismissals += 1 }) }
         _ = await present()
         let firstGeneration = controller.presentationGeneration
-        #expect(controller.handleCardInteraction(ifGenerationMatches: firstGeneration, selection: "Thank you", feedback: "Correct"))
+        #expect(controller.handleCardInteraction(ifGenerationMatches: firstGeneration, interaction: .select(pageIndex: 0, choiceIndex: 0)))
         _ = await present()
-        #expect(!controller.handleCardInteraction(ifGenerationMatches: firstGeneration, selection: "Stale", feedback: "Ignore"))
+        #expect(!controller.handleCardInteraction(ifGenerationMatches: firstGeneration, interaction: .select(pageIndex: 0, choiceIndex: 0)))
         authorized = false
-        #expect(!controller.handleCardInteraction(ifGenerationMatches: controller.presentationGeneration, selection: "Late", feedback: "Ignore"))
+        #expect(!controller.handleCardInteraction(ifGenerationMatches: controller.presentationGeneration, interaction: .select(pageIndex: 0, choiceIndex: 0)))
         #expect(!controller.isVisible)
         #expect(interactions == 1)
         #expect(dismissals == 1)
@@ -114,13 +119,20 @@ struct PacePowerCardTests {
         #expect(manager.mediaOverlayController.isVisible)
         let generation = manager.mediaOverlayController.presentationGeneration
         #expect(manager.mediaOverlayController.handleCardInteraction(ifGenerationMatches: generation,
-            selection: "A greeting — Thank you", feedback: "Correct. Arigatou means thank you."))
-        #expect(persister.events.values.contains(where: { $0.role == .user && $0.text.contains("A greeting — Thank you") }))
+            interaction: .select(pageIndex: 0, choiceIndex: 0)))
+        #expect(persister.events.values.contains(where: { $0.origin == .progress && $0.text.contains("Selected “Thank you”") }))
         #expect(persister.events.values.contains(where: { $0.role == .pace && $0.text == "Correct. Arigatou means thank you." }))
+        let priorUserCount = persister.events.values.filter { $0.role == .user }.count
+        for _ in 0..<3 {
+            #expect(manager.mediaOverlayController.handleCardInteraction(ifGenerationMatches: generation, interaction: .navigate(pageIndex: 1)))
+            #expect(manager.mediaOverlayController.handleCardInteraction(ifGenerationMatches: generation, interaction: .navigate(pageIndex: 0)))
+        }
+        #expect(persister.events.values.filter { $0.role == .user }.count == priorUserCount)
+        #expect(persister.events.values.filter { $0.text == "Use it\nSay ありがとう when someone helps you." }.count == 1)
         let discovery = await manager.discoverAutomationCatalog()
         let power = try manager.managedPowerStore.resolve("Japanese practice", catalog: discovery.catalog)
         try manager.managedPowerStore.setEnabled(false, power: power)
-        #expect(!manager.mediaOverlayController.handleCardInteraction(ifGenerationMatches: generation, selection: "Next", feedback: "Not allowed"))
+        #expect(!manager.mediaOverlayController.handleCardInteraction(ifGenerationMatches: generation, interaction: .navigate(pageIndex: 1)))
         #expect(!manager.mediaOverlayController.isVisible)
     }
 }

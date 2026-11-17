@@ -15,6 +15,7 @@ extension CompanionManager {
             if let card = request.card {
                 let presentedPower = self.activeManagedPower
                 let userEventIdentifier = self.activeConversationUserEvent?.eventID
+                var recordedPageIndices: Set<Int> = [0]
                 let isAuthorized: () -> Bool = { [weak self] in
                     guard let self, self.turnLeaseRegistry.isCurrent(turnLease) else { return false }
                     guard let presentedPower else { return true }
@@ -22,11 +23,23 @@ extension CompanionManager {
                         && (try? self.managedPowerStore.validateCurrent(presentedPower)) != nil
                 }
                 let observation = await self.mediaOverlayController.presentCard(request, mayPresent: isAuthorized,
-                    authorizeInteraction: { [weak self] selection, feedback in
+                    authorizeInteraction: { [weak self] interaction in
                         guard let self, isAuthorized() else { return false }
-                        self.conversationRecorder.record(ConversationEvent(turnID: userEventIdentifier,
-                            role: .user, origin: .typed, text: card.title + ": " + selection))
-                        self.recordAssistantNarration(feedback, turnIdentifier: userEventIdentifier, recordsDerivedMemory: false)
+                        switch interaction {
+                        case .select(let pageIndex, let choiceIndex):
+                            guard card.pages.indices.contains(pageIndex), card.pages[pageIndex].choices.indices.contains(choiceIndex) else { return false }
+                            let page = card.pages[pageIndex]
+                            let choice = page.choices[choiceIndex]
+                            self.recordAssistantNarration("Selected “" + choice.label + "” in “" + page.title + "” (" + card.title + ").",
+                                origin: .progress, turnIdentifier: userEventIdentifier, recordsDerivedMemory: false)
+                            self.recordAssistantNarration(choice.feedback, turnIdentifier: userEventIdentifier, recordsDerivedMemory: false)
+                        case .navigate(let pageIndex):
+                            guard card.pages.indices.contains(pageIndex) else { return false }
+                            if recordedPageIndices.insert(pageIndex).inserted {
+                                self.recordAssistantNarration(card.pages[pageIndex].transcript,
+                                    turnIdentifier: userEventIdentifier, recordsDerivedMemory: false)
+                            }
+                        }
                         PaceAPIAuditLog.shared.record(subsystem: "power-ui", operation: "card_interaction",
                             target: presentedPower?.identifier ?? "interactive-card", durationMilliseconds: 0, outcome: "ok")
                         return true

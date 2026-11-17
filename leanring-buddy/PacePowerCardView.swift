@@ -4,12 +4,12 @@ import SwiftUI
 struct PacePowerCardView: View {
     let card: PacePowerCard
     let illustrationView: NSView?
-    let authorizeInteraction: (String, String) -> Bool
+    let authorizeInteraction: (PacePowerCardInteraction) -> Bool
     let dismiss: () -> Void
     @State private var session: PacePowerCardSession
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(card: PacePowerCard, illustrationView: NSView?, authorizeInteraction: @escaping (String, String) -> Bool,
+    init(card: PacePowerCard, illustrationView: NSView?, authorizeInteraction: @escaping (PacePowerCardInteraction) -> Bool,
          dismiss: @escaping () -> Void) {
         self.card = card
         self.illustrationView = illustrationView
@@ -28,12 +28,13 @@ struct PacePowerCardView: View {
                     .buttonStyle(CardButtonStyle()).accessibilityLabel("Close Power card")
             }.padding(18)
             Divider().overlay(.white.opacity(0.1))
+            if let illustrationView {
+                CardIllustrationView(view: illustrationView)
+                    .frame(maxWidth: .infinity).frame(height: 180).allowsHitTesting(false)
+                    .padding(.top, 14)
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    if let illustrationView {
-                        CardIllustrationView(view: illustrationView)
-                            .frame(maxWidth: .infinity).frame(height: 180).allowsHitTesting(false)
-                    }
                     Text("STEP \(session.pageIndex + 1) OF \(card.pages.count)")
                         .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.45))
@@ -54,6 +55,7 @@ struct PacePowerCardView: View {
                         }
                         .buttonStyle(CardButtonStyle(selected: session.selectedChoice == index))
                         .accessibilityLabel("Answer: " + choice.label)
+                        .accessibilityValue(session.selectedChoice == index ? "Selected" : "")
                     }
                     if let selected = session.selectedChoice {
                         let choice = session.page.choices[selected]
@@ -82,8 +84,8 @@ struct PacePowerCardView: View {
                         Label("Next", systemImage: "chevron.right").padding(.horizontal, 12).padding(.vertical, 9)
                     }.buttonStyle(CardButtonStyle(selected: true)).accessibilityLabel("Next card step")
                 } else {
-                    Button(action: dismiss) { Text("Done").padding(.horizontal, 12).padding(.vertical, 9) }
-                        .buttonStyle(CardButtonStyle(selected: true)).accessibilityLabel("Finish Power card")
+                    Button(action: dismiss) { Text("Close").padding(.horizontal, 12).padding(.vertical, 9) }
+                        .buttonStyle(CardButtonStyle(selected: true)).accessibilityLabel("Close lesson")
                 }
             }.padding(16)
         }

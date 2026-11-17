@@ -100,7 +100,7 @@ final class PaceMediaOverlayController {
     private var dismissalTask: Task<Void, Never>?
     private var generatedRenderer: PaceGeneratedSVGRenderer?
     private var pendingRenderer: PaceGeneratedSVGRenderer?
-    private var authorizeCardInteraction: ((String, String) -> Bool)?
+    private var authorizeCardInteraction: ((PacePowerCardInteraction) -> Bool)?
     var prepareGeneratedRenderer: (PaceGeneratedSVGRenderer, PaceGeneratedSVG) async throws -> Void = { renderer, svg in try await renderer.prepare(svg) }
 
     func presentGenerated(_ request: PaceMediaPresentationRequest, mayPresent: () -> Bool,
@@ -110,7 +110,7 @@ final class PaceMediaOverlayController {
     }
 
     func presentCard(_ request: PaceMediaPresentationRequest, mayPresent: () -> Bool,
-                     authorizeInteraction: @escaping (String, String) -> Bool,
+                     authorizeInteraction: @escaping (PacePowerCardInteraction) -> Bool,
                      onDismiss: @escaping (UUID) -> Void) async -> PaceActionExecutionObservation {
         guard request.card != nil else {
             return .init(toolName: "present_media", summary: "Invalid Power card.", terminalReason: .managedWorkflowUnavailable)
@@ -184,8 +184,8 @@ final class PaceMediaOverlayController {
             imagePanel.ignoresMouseEvents = request.card == nil
             if let card = request.card {
                 let host = NSHostingView(rootView: PacePowerCardView(card: card, illustrationView: renderer?.view,
-                    authorizeInteraction: { [weak self] selection, feedback in
-                        self?.handleCardInteraction(ifGenerationMatches: generation, selection: selection, feedback: feedback) == true
+                    authorizeInteraction: { [weak self] interaction in
+                        self?.handleCardInteraction(ifGenerationMatches: generation, interaction: interaction) == true
                     }, dismiss: { [weak self] in
                         self?.dismissPresentation(ifGenerationMatches: generation, cancelOwnedRun: true)
                     }).frame(width: imageSize.width, height: imageSize.height))
@@ -229,9 +229,9 @@ final class PaceMediaOverlayController {
     }
 
     @discardableResult
-    func handleCardInteraction(ifGenerationMatches generation: UUID, selection: String, feedback: String) -> Bool {
+    func handleCardInteraction(ifGenerationMatches generation: UUID, interaction: PacePowerCardInteraction) -> Bool {
         guard isVisible, presentationGeneration == generation else { return false }
-        guard authorizeCardInteraction?(selection, feedback) == true else {
+        guard authorizeCardInteraction?(interaction) == true else {
             dismissPresentation(ifGenerationMatches: generation, cancelOwnedRun: true)
             return false
         }

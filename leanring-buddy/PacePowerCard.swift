@@ -68,6 +68,11 @@ nonisolated struct PacePowerCard: Equatable, Sendable {
 }
 
 /// UI state is local to one validated presentation, never executable generated code.
+nonisolated enum PacePowerCardInteraction: Equatable {
+    case select(pageIndex: Int, choiceIndex: Int)
+    case navigate(pageIndex: Int)
+}
+
 nonisolated struct PacePowerCardSession {
     let card: PacePowerCard
     private(set) var pageIndex = 0
@@ -75,18 +80,17 @@ nonisolated struct PacePowerCardSession {
     var page: PacePowerCard.Page { card.pages[pageIndex] }
     var selectedChoice: Int? { selections[pageIndex] }
 
-    mutating func select(_ choiceIndex: Int, authorize: (String, String) -> Bool) {
+    mutating func select(_ choiceIndex: Int, authorize: (PacePowerCardInteraction) -> Bool) {
         guard page.choices.indices.contains(choiceIndex), selectedChoice != choiceIndex else { return }
-        let choice = page.choices[choiceIndex]
-        guard authorize(page.title + " — " + choice.label, choice.feedback) else { return }
+        guard authorize(.select(pageIndex: pageIndex, choiceIndex: choiceIndex)) else { return }
         selections[pageIndex] = choiceIndex
     }
 
-    mutating func move(by offset: Int, authorize: (String, String) -> Bool) {
+    mutating func move(by offset: Int, authorize: (PacePowerCardInteraction) -> Bool) {
         guard offset == -1 || offset == 1 else { return }
         let destination = pageIndex + offset
         guard card.pages.indices.contains(destination),
-              authorize(offset > 0 ? "Next step" : "Previous step", card.pages[destination].transcript) else { return }
+              authorize(.navigate(pageIndex: destination)) else { return }
         pageIndex = destination
     }
 }
