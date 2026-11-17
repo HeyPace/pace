@@ -15,8 +15,10 @@ nonisolated struct PacePendingSpokenPowerClarification: Equatable {
 
     var options: [String] {
         candidates.map { candidate in
-            candidates.filter { $0.name == candidate.name }.count > 1
-                ? candidate.name + " [" + candidate.identifier + "]" : candidate.name
+            let matchingNames = candidates.filter {
+                PaceSpokenPowerRecovery.normalized($0.name) == PaceSpokenPowerRecovery.normalized(candidate.name)
+            }
+            return "Run " + candidate.name + (matchingNames.count > 1 ? " [" + candidate.identifier + "]" : "")
         }
     }
 
@@ -24,23 +26,36 @@ nonisolated struct PacePendingSpokenPowerClarification: Equatable {
         let text = PaceSpokenPowerRecovery.normalized(response)
         if ["cancel", "cancel that", "never mind", "nevermind", "no", "stop"].contains(text) { return .cancelled }
         let affirmative = ["yes", "yes please", "yes run it", "go ahead", "yeah", "yep", "correct", "do it", "run it", "that one"].contains(text)
-        var selectedIndex = options.firstIndex { PaceSpokenPowerRecovery.normalized($0) == text }
-        if selectedIndex == nil {
-            let target = text.hasPrefix("run power ") ? String(text.dropFirst(10)) : text
-            let matchingIndices = candidates.indices.filter { PaceSpokenPowerRecovery.normalized(candidates[$0].name) == target }
-            if matchingIndices.count == 1 { selectedIndex = matchingIndices.first }
+        let ordinalIndex = [["first", "first one", "one", "1"], ["second", "second one", "two", "2"], ["third", "third one", "three", "3"]]
+            .firstIndex { $0.contains(text) }
+        var selectedIndex: Int?
+        var requiresSpecificChoice = false
+        if affirmative {
+            if candidates.count == 1 { selectedIndex = 0 }
+            requiresSpecificChoice = true
+        } else if let ordinalIndex {
+            if candidates.indices.contains(ordinalIndex) { selectedIndex = ordinalIndex }
+            requiresSpecificChoice = true
+        } else if let exactOptionIndex = options.firstIndex(of: response.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            selectedIndex = exactOptionIndex
+        } else {
+            let matchingOptions = options.indices.filter { PaceSpokenPowerRecovery.normalized(options[$0]) == text }
+            let target: String
+            if text.hasPrefix("run power ") { target = String(text.dropFirst(10)) }
+            else if text.hasPrefix("run the ") { target = String(text.dropFirst(8)) }
+            else if text.hasPrefix("run ") { target = String(text.dropFirst(4)) }
+            else { target = text }
+            let matchingNames = candidates.indices.filter { PaceSpokenPowerRecovery.normalized(candidates[$0].name) == target }
+            let matchingIndices = matchingOptions.isEmpty ? matchingNames : matchingOptions
+            if matchingIndices.count == 1 { selectedIndex = matchingIndices[0] }
+            requiresSpecificChoice = matchingIndices.count > 1
         }
-        if selectedIndex == nil {
-            for (index, words) in [["first", "first one", "one", "1"], ["second", "second one", "two", "2"], ["third", "third one", "three", "3"]].enumerated() {
-                if words.contains(text), candidates.indices.contains(index) { selectedIndex = index }
-            }
-        }
-        if affirmative, candidates.count == 1 { selectedIndex = 0 }
-        guard selectedIndex != nil || affirmative else { return .unrelated }
+        guard selectedIndex != nil || requiresSpecificChoice else { return .unrelated }
         guard now.timeIntervalSince(createdAt) >= 0, now.timeIntervalSince(createdAt) < Self.lifetime else { return .expired }
         guard let selectedIndex else { return .needsSelection }
         return .selected(candidates[selectedIndex])
     }
+
 }
 
 nonisolated enum PaceSpokenPowerRecovery {
@@ -57,7 +72,7 @@ nonisolated enum PaceSpokenPowerRecovery {
             words.removeFirst()
             if words.first == "power" { words.removeFirst() }
             guard !["nap", "supply", "saving", "management", "consumption", "settings", "mode", "options"].contains(words.first ?? ""),
-                  !words.contains(where: { ["terminal", "browser", "click", "open", "type", "command", "script", "tests", "test"].contains($0) }) else { return [] }
+                  !words.contains(where: { ["terminal", "browser", "click", "open", "type", "command", "script", "tests", "test", "automation", "shortcut", "flow", "skill", "workflow"].contains($0) }) else { return [] }
         }
         words.removeAll { ["and", "the", "a", "please"].contains($0) }
         guard !words.isEmpty, words.count <= 8 else { return [] }
@@ -66,7 +81,7 @@ nonisolated enum PaceSpokenPowerRecovery {
         for power in savedPowers.prefix(64) {
             let nameWords = normalized(power.name).split(separator: " ").map(String.init)
             let candidateScore = score(words, name: nameWords)
-            if explicitRunTarget != nil || candidateScore >= 0.6 {
+            if candidateScore >= 0.6 {
                 ranked.append((power: power, score: candidateScore))
             }
         }

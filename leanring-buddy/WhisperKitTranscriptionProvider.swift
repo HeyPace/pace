@@ -93,7 +93,7 @@ final class WhisperKitTranscriptionProvider: BuddyTranscriptionProvider {
         guard let encode else { return [] }
         let vocabulary = phrases.prefix(80).map { String($0.prefix(80)) }.joined(separator: ", ")
         guard !vocabulary.isEmpty else { return [] }
-        return Array(encode(" " + vocabulary).filter { $0 >= 0 && $0 < specialTokenBegin }.prefix(192))
+        return Array(encode(" " + vocabulary).filter { $0 >= 0 && $0 < specialTokenBegin }.prefix(max(0, (Constants.maxTokenContext / 2) - 1)))
     }
 
     nonisolated static func decodingOptions(languageMode: LanguageMode, contextualPromptTokens: [Int] = []) -> DecodingOptions {

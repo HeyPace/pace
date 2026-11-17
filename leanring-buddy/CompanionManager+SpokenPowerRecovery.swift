@@ -16,11 +16,16 @@ extension CompanionManager {
 
     @discardableResult
     func handleSpokenPowerRecoveryIfNeeded(_ transcript: String, now: Date = Date()) async -> Bool {
-        guard activeConversationUserEvent?.origin == .voice else {
+        let command = PacePowerCommandParser.parse(transcript, isKnownSavedPowerName: managedPowerStore.hasExactSavedPowerName)
+        if command == nil,
+           PaceAutomationCatalogCommandParser.parse(transcript) != nil
+            || PaceShortcutCommandParser.parse(transcript) != nil
+            || PaceSkillCommandParser.parse(transcript) != nil {
             pendingSpokenPowerClarification = nil
             return false
         }
-        if let pending = pendingSpokenPowerClarification {
+        let isDirectUserReply = activeConversationUserEvent?.origin == .voice || activeConversationUserEvent?.origin == .typed
+        if let pending = pendingSpokenPowerClarification, isDirectUserReply {
             switch pending.resolve(transcript, now: now) {
             case .selected(let power):
                 pendingSpokenPowerClarification = nil
@@ -40,13 +45,17 @@ extension CompanionManager {
             case .unrelated: pendingSpokenPowerClarification = nil
             }
         }
-        let command = PacePowerCommandParser.parse(transcript, isKnownSavedPowerName: managedPowerStore.hasExactSavedPowerName)
+        guard activeConversationUserEvent?.origin == .voice else {
+            pendingSpokenPowerClarification = nil
+            return false
+        }
         let explicitTarget: String?
         if let command {
             guard case .run(let target) = command else { return false }
             guard !managedPowerStore.hasExactSavedPowerName(target) else { return false }
             explicitTarget = target
         } else {
+            if PaceFlowCommandParser.parse(transcript, isRecordedFlow: { self.flowStore.load(named: $0) != nil }) != nil { return false }
             let firstWord = PaceSpokenPowerRecovery.normalized(transcript).split(separator: " ").first
             guard firstWord == "run" || firstWord == "power" else { return false }
             explicitTarget = nil
@@ -57,6 +66,11 @@ extension CompanionManager {
         if let explicitTarget, (try? managedPowerStore.resolve(explicitTarget, catalog: discovered.catalog)) != nil {
             return false
         }
+        switch await PaceAutomationNaturalLanguageMatcher.match(transcript: transcript, catalog: discovered.catalog, embedder: nil) {
+        case .unique(_, .exactInvocationPhrase, _), .ambiguous(_, .exactInvocationPhrase): return false
+        default: break
+        }
+        guard isActiveTurn(turnLease) else { return true }
         let candidates = PaceSpokenPowerRecovery.candidates(for: transcript,
             powers: managedPowerStore.list(catalog: discovered.catalog), explicitRunTarget: explicitTarget)
         guard !candidates.isEmpty else { return false }

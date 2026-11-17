@@ -94,7 +94,7 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `CompanionManager+Powers.swift` | ~265 | Shared power command routing, authoring commit boundary, saved-snapshot execution authorization, media/speech tool lifecycle binding and canonical conversation delivery. |
 | `PaceSpokenPowerRecovery.swift` | ~130 | Bounded catalog-name ranking and expiring immutable spoken-Power choices; no approximate execution. |
 | `CompanionManager+SpokenPowerRecovery.swift` | ~100 | Local voice/chip confirmation routing before general planning, with exact artifact revalidation and no awaited Shortcut discovery. |
-| `leanring-buddyTests/PaceSpokenPowerRecoveryTests.swift` | ~145 | Actual misheard requests, nearest-name choices, voice-only routing, mutation isolation, stale/disabled/replaced/expired selection and explicit confirmation. |
+| `leanring-buddyTests/PaceSpokenPowerRecoveryTests.swift` | ~250 | Actual misheard requests, nearest-name choices, voice-only routing, mutation isolation, stale/disabled/replaced/expired selection and explicit confirmation. |
 | `leanring-buddyTests/PaceWhisperVocabularyTests.swift` | ~25 | Bounded real decoder prompt-token options, immutable partial/final vocabulary, no forced prefix and unchanged file/language settings. |
 | `PaceLocalMediaCatalog.swift` | ~125 | Bounded bundled and explicitly imported GIF/PNG asset catalog, content/frame/size validation, immutable owned copy, hash/provenance manifest and collision protection. |
 | `PaceMediaOverlayController.swift` | ~340 | Typed catalog/SVG/card presentation in nonactivating panels, renderer readiness, generation-scoped dismissal and authorized card interactions. |
