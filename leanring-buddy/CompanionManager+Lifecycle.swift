@@ -21,6 +21,24 @@ extension CompanionManager {
 
     // MARK: - Lifecycle & permissions
 
+    func revealRequestFeedback() {
+        guard activePacePadTurnIdentifier == nil else { return }
+        conversationPanelPresentationRequests.send(.preview)
+    }
+
+    func handleMicrophoneButtonTapped() {
+        if buddyDictationManager.isFinalizingTranscript {
+            buddyDictationManager.cancelCurrentDictation()
+            globalPushToTalkShortcutMonitor.discardSimulatedPress()
+        }
+        if buddyDictationManager.isDictationInProgress || globalPushToTalkShortcutMonitor.isSimulatedPressActive {
+            globalPushToTalkShortcutMonitor.simulateShortcutReleased()
+        } else {
+            currentDictationTrigger = .microphoneButton
+            globalPushToTalkShortcutMonitor.simulateShortcutPressed()
+        }
+    }
+
     func handleAvatarTapped() {
         switch voiceState {
         case .idle:
@@ -93,6 +111,7 @@ extension CompanionManager {
         optimisticMessageIdentifier: String?,
         screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
     ) {
+        revealRequestFeedback()
         let acceptedEvent = acceptConversationRequest(transcript, origin: .typed,
             eventIdentifier: optimisticMessageIdentifier ?? UUID().uuidString)
         let queuedTurn = PaceQueuedChatTurn(
@@ -130,6 +149,7 @@ extension CompanionManager {
     }
 
     private func startQueuedChatTurn(_ queuedTurn: PaceQueuedChatTurn) {
+        currentRequestStartedAt = Date()
         let screenSuggestionContext = screenSuggestionContextForCurrentPrivacyGate(queuedTurn.screenSuggestionContext)
         guard !discardScreenSuggestionRequestIfUnavailable(screenSuggestionContext,
             eventIdentifier: queuedTurn.optimisticMessageIdentifier) else { return }

@@ -60,7 +60,13 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         // Restarting resets isShortcutCurrentlyPressed, which would kill
         // the waveform overlay mid-press when the permission poller calls
         // refreshAllPermissions → start() every few seconds.
-        guard globalEventTap == nil else { return }
+        if let globalEventTap {
+            if !CGEvent.tapIsEnabled(tap: globalEventTap) {
+                CGEvent.tapEnable(tap: globalEventTap, enable: true)
+            }
+            recoverMissedModifierRelease(modifierFlagsRawValue: CGEventSource.flagsState(.combinedSessionState).rawValue)
+            return
+        }
 
         let monitoredEventTypes: [CGEventType] = [.flagsChanged, .keyDown, .keyUp]
         let eventMask = monitoredEventTypes.reduce(CGEventMask(0)) { currentMask, eventType in
@@ -126,7 +132,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         }
     }
 
-    private func handleGlobalEventTap(
+    func handleGlobalEventTap(
         eventType: CGEventType,
         event: CGEvent
     ) -> Unmanaged<CGEvent>? {
@@ -152,12 +158,32 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
             isShortcutCurrentlyPressed = true
             isSimulatedPressActive = false
             shortcutTransitionPublisher.send(.pressed)
+            recordHardwareTransition("keyboard_pressed")
         case .released:
             isShortcutCurrentlyPressed = false
             isSimulatedPressActive = false
             shortcutTransitionPublisher.send(.released)
+            recordHardwareTransition("keyboard_released")
         }
 
         return Unmanaged.passUnretained(event)
+    }
+
+    private func recordHardwareTransition(_ operation: String) {
+        // Never perform file I/O inside the event tap; it must stay listen-only and fast.
+        Task { @MainActor in
+            PaceAPIAuditLog.shared.record(subsystem: "dictation", operation: operation,
+                target: "push-to-talk", durationMilliseconds: 0, outcome: "received",
+                detail: "pid=\(ProcessInfo.processInfo.processIdentifier)")
+        }
+    }
+
+    func recoverMissedModifierRelease(modifierFlagsRawValue: UInt64) {
+        guard isShortcutCurrentlyPressed, !isSimulatedPressActive,
+              BuddyPushToTalkShortcut.shortcutTransition(for: .flagsChanged, keyCode: 0,
+                modifierFlagsRawValue: modifierFlagsRawValue, wasShortcutPreviouslyPressed: true) == .released else { return }
+        isShortcutCurrentlyPressed = false
+        shortcutTransitionPublisher.send(.released)
+        recordHardwareTransition("keyboard_recovered_release")
     }
 }

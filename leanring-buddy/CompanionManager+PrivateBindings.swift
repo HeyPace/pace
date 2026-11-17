@@ -354,8 +354,12 @@ extension CompanionManager {
     func handleCaptureWithoutSpeech(_ message: String) {
         finishCaptureTranscriptFeedback()
         guard voiceState != .responding else { return }
+        guard currentTurnHUDState.status != .failed else { return }
         liveSpeechDraft = ""
         currentTurnHUDState = .failed(message)
+        revealRequestFeedback()
+        PaceAPIAuditLog.shared.record(subsystem: "dictation", operation: "capture_failed",
+            target: buddyDictationManager.transcriptionProvider.displayName, durationMilliseconds: 0, outcome: "failed")
         responseOverlayManager.setListeningForAudio(false)
         responseOverlayManager.updateStreamingText(message)
         responseOverlayManager.finishStreaming()
@@ -363,6 +367,7 @@ extension CompanionManager {
     }
 
     func bindVoiceStateObservation() {
+        buddyDictationManager.onCaptureFailure = { [weak self] message in self?.handleCaptureWithoutSpeech(message) }
         buddyDictationManager.onAudioCaptured = { [weak self] captured in self?.handleAudioCaptured(captured) }
         buddyDictationManager.onTranscriptFinalized = { [weak self] in self?.finishCaptureTranscriptFeedback() }
         buddyDictationManager.onNoSpeechRecognized = { [weak self] in
@@ -376,8 +381,13 @@ extension CompanionManager {
                 buddyDictationManager.$isRecordingFromMicrophoneButton
             )
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] isRecordingFromShortcut, isFinalizing, isPreparing, isRecordingFromButton in
+            .sink { [weak self] _, _, _, _ in
                 guard let self else { return }
+                // Read the current capture state, not an older queued publication.
+                let isRecordingFromShortcut = self.buddyDictationManager.isRecordingFromKeyboardShortcut
+                let isRecordingFromButton = self.buddyDictationManager.isRecordingFromMicrophoneButton
+                let isFinalizing = self.buddyDictationManager.isFinalizingTranscript
+                let isPreparing = self.buddyDictationManager.isPreparingToRecord
                 let observedDictationInProgress =
                     isRecordingFromShortcut || isRecordingFromButton || isFinalizing || isPreparing
                 if observedDictationInProgress {
@@ -396,10 +406,17 @@ extension CompanionManager {
 
                 if isFinalizing {
                     self.voiceState = .processing
-                } else if isRecordingFromShortcut || isRecordingFromButton {
-                    self.voiceState = .listening
                 } else if isPreparing {
                     self.voiceState = .processing
+                } else if isRecordingFromShortcut || isRecordingFromButton {
+                    self.voiceState = .listening
+                    self.currentTurnHUDState = .listening
+                    if !self.hasAnnouncedCurrentCaptureReady {
+                        self.hasAnnouncedCurrentCaptureReady = true
+                        if !self.chatSession.isChatTTSMuted && !self.streamingSentenceTTSPipeline.isMutedForCurrentTurn {
+                            self.playListeningReadyCue()
+                        }
+                    }
                 } else {
                     self.voiceState = .idle
                     // If the user pressed and released the hotkey without
@@ -522,7 +539,13 @@ extension CompanionManager {
     func handleShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
         switch transition {
         case .pressed:
+            revealRequestFeedback()
             guard !buddyDictationManager.isDictationInProgress else { return }
+            currentRequestStartedAt = Date()
+            hasAnnouncedCurrentCaptureReady = false
+            PaceAPIAuditLog.shared.record(subsystem: "dictation", operation: "input_pressed",
+                target: String(describing: currentDictationTrigger), durationMilliseconds: 0, outcome: "received",
+                detail: "pid=\(ProcessInfo.processInfo.processIdentifier)")
             if buddyDictationManager.usesJapanesePracticeTranscription,
                 !buddyDictationManager.isJapanesePracticeTranscriptionReady {
                 ignoresRejectedPracticeShortcutRelease = true
@@ -553,13 +576,7 @@ extension CompanionManager {
                 isOverlayVisible = true
             }
 
-            // Dismiss the menu bar panel so it doesn't cover the screen.
-            // NOT in mascot mode — there the panel IS the conversation
-            // surface, so dismissing it on push-to-talk is the open/close
-            // flicker. presentConversationPanel keeps it up instead.
-            if !mascotModeActive {
-                NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
-            }
+            // Keep the existing conversation visible while voice input starts.
 
             // Cancel any in-progress response and TTS from a previous utterance
             // Barge-in already cancelled and drained the reply. A second stop
@@ -584,7 +601,8 @@ extension CompanionManager {
             // was the "had to repeat it once" bug. Forcing idle here unblocks
             // the observer's normal state transitions for the new turn.
             voiceState = .idle
-            currentTurnHUDState = .listening
+            currentTurnHUDState = .understanding("Starting microphone…")
+            voiceState = .processing
     
 
             PaceAnalytics.trackPushToTalkStarted()
@@ -706,7 +724,7 @@ extension CompanionManager {
                         // Mark STT complete in the latency budget.
                         PaceLatencyBudget.shared.mark(.sttComplete)
                         PaceAnalytics.trackUserMessageSent(transcript: finalTranscript)
-                        self.currentTurnHUDState = .understanding("classifying intent")
+                        self.currentTurnHUDState = .understanding("Heard you · Working…")
                         self.responseOverlayManager.updateStreamingText(finalTranscript)
                         self.sendTranscriptToPlannerWithScreenshot(transcript: finalTranscript)
                     },
@@ -726,6 +744,9 @@ extension CompanionManager {
                 )
             }
         case .released:
+            PaceAPIAuditLog.shared.record(subsystem: "dictation", operation: "input_released",
+                target: String(describing: currentDictationTrigger), durationMilliseconds: 0, outcome: "received",
+                detail: "pid=\(ProcessInfo.processInfo.processIdentifier)")
             if ignoresRejectedPracticeShortcutRelease {
                 ignoresRejectedPracticeShortcutRelease = false
                 return
@@ -749,7 +770,7 @@ extension CompanionManager {
                 handleCaptureWithoutSpeech("No audio captured. Try again.")
                 return
             case .ignored:
-                if currentTurnHUDState.status == .listening {
+                if currentTurnHUDState.status == .listening || currentTurnHUDState.detail == "Starting microphone…" {
                     handleCaptureWithoutSpeech("No audio captured. Try again.")
                 }
                 return

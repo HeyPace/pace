@@ -68,7 +68,7 @@ private final class PaceMenuBarOverlayPanel: NSPanel {
 }
 
 private final class PaceMenuBarOverlayHostingView<Content: View>: NSHostingView<Content> {
-    var onMouseDown: (() -> Void)?
+    var onMouseDown: ((CGPoint) -> Void)?
     var onHoverChanged: ((Bool) -> Void)?
 
     private var mouseTrackingArea: NSTrackingArea?
@@ -103,7 +103,8 @@ private final class PaceMenuBarOverlayHostingView<Content: View>: NSHostingView<
     }
 
     override func mouseDown(with event: NSEvent) {
-        onMouseDown?()
+        let point = convert(event.locationInWindow, from: nil)
+        onMouseDown?(CGPoint(x: point.x, y: isFlipped ? point.y : bounds.height - point.y))
     }
 
 }
@@ -254,8 +255,8 @@ final class PaceMenuBarOverlayManager {
         hostingView.autoresizingMask = [.width, .height]
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = NSColor.clear.cgColor
-        hostingView.onMouseDown = { [weak self] in
-            self?.handleTap()
+        hostingView.onMouseDown = { [weak self] point in
+            self?.handleTap(at: point)
         }
         hostingView.onHoverChanged = { [weak self] isHovering in
             self?.handleHoverChanged(isHovering)
@@ -412,13 +413,18 @@ final class PaceMenuBarOverlayManager {
         onTap(anchorFrame)
     }
 
-    private func handleTap() {
+    private func handleTap(at point: CGPoint) {
         guard let overlayPanel else { return }
         let conversationAnchor =
             PaceLivingNotchScreenGeometryResolver.geometry(displayMode: .active)?.presentationFrame
             ?? overlayPanel.frame
         activeDisplayCoordinator.selectDisplay(containing: conversationAnchor)
-        onTap(conversationAnchor)
+        if PaceNotchTapAction.resolve(point: point, surfaceWidth: overlayPanel.frame.width,
+            housingWidth: surfaceModel.physicalHousingWidth, housingHeight: surfaceModel.physicalHousingHeight) == .microphone {
+            companionManager?.handleMicrophoneButtonTapped()
+        } else {
+            onTap(conversationAnchor)
+        }
     }
 
     private func handleHoverChanged(_ isHovering: Bool) {
@@ -496,7 +502,7 @@ private struct PaceMenuBarOverlayView: View {
             persistentStatus: companionControlCenter.preferences.isCompanionModeEnabled
                 ? companionControlCenter.runtimeStatusText : nil,
             companionStatusColor: companionStatusColor,
-            onBrandTap: openConversation,
+            onBrandTap: { companionManager.handleMicrophoneButtonTapped() },
             onChatTap: openConversation
         )
         .contentShape(Rectangle())

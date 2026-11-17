@@ -227,7 +227,12 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
     @Published private(set) var microphoneButtonRecordingStartedAt: Date?
     @Published private(set) var transcriptionProviderDisplayName = ""
     @Published private(set) var latestStablePartialTranscript = ""
-    @Published var lastErrorMessage: String?
+    @Published var lastErrorMessage: String? {
+        didSet {
+            if let message = lastErrorMessage, !message.isEmpty { onCaptureFailure?(message) }
+        }
+    }
+    var onCaptureFailure: ((String) -> Void)?
     @Published private(set) var currentPermissionProblem: BuddyDictationPermissionProblem?
 
     var isDictationInProgress: Bool {

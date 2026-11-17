@@ -869,6 +869,13 @@ final class CompanionManager: ObservableObject {
         sound.volume = 0.12
         sound.play()
     }
+    var playListeningReadyCue: () -> Void = {
+        guard let sound = NSSound(named: NSSound.Name("Pop")) else { return }
+        sound.volume = 0.10
+        sound.play()
+    }
+    var hasAnnouncedCurrentCaptureReady = false
+    @Published var currentRequestStartedAt: Date?
     var ignoresRejectedPracticeShortcutRelease = false
     var pendingKeyboardShortcutStartTask: Task<Void, Never>?
     var lastCalendarRetrievalRefreshAt: Date?

@@ -1,9 +1,29 @@
 import Combine
+import CoreGraphics
 import Testing
 @testable import Pace
 
 @MainActor
 struct GlobalPushToTalkShortcutMonitorTests {
+    @Test func missedPhysicalModifierReleaseRecoversWithoutCancellingHandsFreeCapture() throws {
+        let monitor = GlobalPushToTalkShortcutMonitor()
+        let event = try #require(CGEvent(source: nil))
+        event.flags = [.maskControl, .maskAlternate]
+        var transitions = 0
+        let observation = monitor.shortcutTransitionPublisher.sink { _ in transitions += 1 }
+        _ = monitor.handleGlobalEventTap(eventType: .flagsChanged, event: event)
+        #expect(monitor.isShortcutCurrentlyPressed && !monitor.isSimulatedPressActive)
+        monitor.recoverMissedModifierRelease(modifierFlagsRawValue: event.flags.rawValue)
+        #expect(monitor.isShortcutCurrentlyPressed)
+        monitor.recoverMissedModifierRelease(modifierFlagsRawValue: 0)
+        monitor.recoverMissedModifierRelease(modifierFlagsRawValue: 0)
+        #expect(!monitor.isShortcutCurrentlyPressed && transitions == 2)
+        monitor.simulateShortcutPressed()
+        monitor.recoverMissedModifierRelease(modifierFlagsRawValue: 0)
+        #expect(monitor.isShortcutCurrentlyPressed && monitor.isSimulatedPressActive)
+        monitor.simulateShortcutReleased()
+        withExtendedLifetime(observation) { }
+    }
     @Test
     func simulatedPressAndReleasePublishOneBoundedTransitionPair() {
         let monitor = GlobalPushToTalkShortcutMonitor()

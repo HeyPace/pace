@@ -181,48 +181,8 @@ struct PacePanelChatView: View {
     }
 
     private var turnStage: some View {
-        HStack(spacing: 8) {
-            if showsActiveSignal {
-                PaceSignalView(
-                    state: signalState,
-                    isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
-                    audioPowerLevel: companionManager.currentAudioPowerLevel,
-                    lineCount: 1,
-                    colorRoleOverride: companionManager.nativeEffectiveSignalColorRoleOverride
-                )
-                .frame(width: 24, height: 14)
-            } else {
-                Image(systemName: "exclamationmark.circle")
-                    .foregroundStyle(DS.Colors.failure)
-            }
-            Text(currentTurnDetail ?? signalPresentation.label)
-                .font(.system(size: 11))
-                .foregroundStyle(DS.Colors.textSecondary)
-                .lineLimit(2)
-                .accessibilityLabel(currentTurnDetail ?? signalPresentation.label)
-            Spacer(minLength: 0)
-            if companionManager.currentTurnHUDState.status == .failed {
-                Button("Details") {
-                    PaceSettingsWindowManager.shared.show(companionManager: companionManager, destination: .doctor)
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 11))
-                .pointerCursor()
-            }
-        }
-        .padding(.horizontal, appearance.padding())
-        .padding(.vertical, 10)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(signalPresentation.accessibilityValue)
-    }
-
-    private var showsActiveSignal: Bool {
-        switch signalState {
-        case .listening, .understanding, .awaitingApproval, .acting, .speaking:
-            return true
-        case .ready, .completed, .blocked, .failed:
-            return false
-        }
+        PaceDialogueCurrentStatusView(companionManager: companionManager)
+            .padding(.horizontal, appearance.padding())
     }
 
     private func iconButton(
@@ -538,19 +498,9 @@ struct PacePanelChatView: View {
                     .padding(.vertical, 5)
                 iconButton(
                     systemName: companionManager.voiceState == .listening ? "mic.fill" : "mic",
-                    help: companionManager.allPermissionsGranted
-                        ? (companionManager.voiceState == .listening ? "Finish recording" : "Speak to Pace")
-                        : "Set up voice"
+                    help: companionManager.buddyDictationManager.isDictationInProgress ? "Finish recording" : "Speak to Pace"
                 ) {
-                    if companionManager.allPermissionsGranted {
-                        if companionManager.voiceState == .listening {
-                            companionManager.handleStopButtonTapped()
-                        } else {
-                            companionManager.beginListeningFromDeepLink()
-                        }
-                    } else {
-                        openVoiceSetup()
-                    }
+                    companionManager.handleMicrophoneButtonTapped()
                 }
                 if companionManager.voiceState != .idle {
                     Button {
@@ -656,19 +606,6 @@ struct PacePanelChatView: View {
         companionManager.nativeEffectiveSignalState
     }
 
-    private var signalPresentation: PaceSignalPresentation {
-        PaceSignalPresentation.resolve(
-            state: signalState,
-            isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
-            reduceMotion: reduceMotion
-        )
-    }
-
-    private var signalColorRole: PaceSignalColorRole {
-        companionManager.nativeEffectiveSignalColorRoleOverride
-            ?? signalPresentation.colorRole
-    }
-
     private var plannerLabel: String {
         switch companionManager.activePlannerTier {
         case .local: return "local planner"
@@ -689,19 +626,4 @@ struct PacePanelChatView: View {
         return "This request is being processed on this Mac."
     }
 
-    private var currentTurnDetail: String? {
-        if companionManager.buddyDictationManager.isFinalizingTranscript {
-            return companionManager.currentTurnHUDState.detail
-        }
-        if !liveSpeechDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return liveSpeechDraft
-        }
-        if companionManager.currentTurnHUDState.status != .idle {
-            return companionManager.currentTurnHUDState.detail
-        }
-        if companionManager.allPermissionsGranted == false {
-            return "Finish setup for voice and screen-aware actions"
-        }
-        return nil
-    }
 }

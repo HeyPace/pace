@@ -73,7 +73,7 @@ private struct PaceConversationPanelSurface: View {
                         persistentStatus: companionControlCenter.runtimeStatusText,
                         companionStatusColor: companionStatusColor,
                         onBrandTap: {
-                            NotificationCenter.default.post(name: .paceShowPanel, object: nil)
+                            companionManager.handleMicrophoneButtonTapped()
                         },
                         onChatTap: {
                             NotificationCenter.default.post(name: .paceDismissPanel, object: PaceExplanationDismissalIntent.userInitiated)
@@ -507,7 +507,8 @@ final class MenuBarPanelManager: NSObject {
                 try await waitForExplanationAutoClose(PaceExplanationAutoClose.delay)
                 guard !Task.isCancelled, let self,
                     generation == explanationAutoCloseGeneration,
-                    companionManager.voiceState == .idle
+                    companionManager.voiceState == .idle,
+                    companionManager.currentTurnHUDState.status != .failed
                 else { return }
                 let isEditingConversation = presentation.composerFocusRequestID != nil || panel?.isKeyWindow == true
                 let hasProtectedDraft = isEditingConversation

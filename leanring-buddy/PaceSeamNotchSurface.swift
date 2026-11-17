@@ -137,7 +137,7 @@ struct PaceSeamNotchHeader: View {
             let wingWidth = max(0, (geometry.size.width - physicalHousingWidth) / 2)
             HStack(spacing: 0) {
                 wingButton(
-                    label: "Open Pace",
+                    label: signalState == .listening ? "Finish recording" : "Start voice input",
                     shortcutHint: "Hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) to speak",
                     action: onBrandTap
                 ) {

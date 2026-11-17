@@ -188,35 +188,67 @@ struct PaceDialogueActivityView: View {
 
 struct PaceDialogueCurrentStatusView: View {
     @ObservedObject var companionManager: CompanionManager
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var signalState: PaceSignalState { companionManager.nativeEffectiveSignalState }
     private var hasFailure: Bool { companionManager.currentTurnHUDState.status == .failed }
+    private var tracksElapsedTime: Bool { [.listening, .understanding, .acting].contains(signalState) }
 
     var body: some View {
         if PaceDialogueTranscriptModel.showsCurrentTurnStatus(state: signalState, hasFailure: hasFailure) {
-            HStack(spacing: 8) {
-                PaceSignalView(
-                    state: signalState, isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
-                    audioPowerLevel: companionManager.currentAudioPowerLevel, lineCount: 1,
-                    colorRoleOverride: companionManager.nativeEffectiveSignalColorRoleOverride)
-                    .frame(width: 24, height: 14)
-                Text(companionManager.currentTurnHUDState.detail ?? PaceSignalPresentation.resolve(
-                    state: signalState, isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
-                    reduceMotion: true).label)
-                    .font(.system(size: 11))
-                    .foregroundStyle(DS.Colors.textSecondary)
-                    .lineLimit(2)
-                Spacer(minLength: 0)
-                if hasFailure {
-                    Button("Details") {
-                        PaceSettingsWindowManager.shared.show(companionManager: companionManager, destination: .doctor)
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 10))
-                    .pointerCursor()
+            if tracksElapsedTime {
+                TimelineView(.periodic(from: .now, by: 1)) { context in status(at: context.date) }
+            } else {
+                status(at: Date())
+            }
+        }
+    }
+
+    private func status(at date: Date) -> some View {
+        let feedback = PaceRequestFeedback.resolve(state: signalState,
+            hudDetail: companionManager.currentTurnHUDState.detail,
+            isPreparing: companionManager.buddyDictationManager.isPreparingToRecord,
+            isFinalizing: companionManager.buddyDictationManager.isFinalizingTranscript,
+            startedAt: companionManager.currentRequestStartedAt, now: date)
+        return HStack(alignment: .top, spacing: 10) {
+            Group {
+                if feedback.showsSpinner && !reduceMotion {
+                    ProgressView().controlSize(.small).tint(.white)
+                } else {
+                    PaceSignalView(state: signalState,
+                        isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
+                        audioPowerLevel: companionManager.currentAudioPowerLevel, lineCount: 1,
+                        colorRoleOverride: companionManager.nativeEffectiveSignalColorRoleOverride)
+                }
+            }.frame(width: 28, height: 20)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(feedback.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                if let detail = feedback.detail {
+                    Text(detail).font(.system(size: 12)).foregroundStyle(DS.Colors.textSecondary).lineLimit(2)
+                }
+                if companionManager.queuedChatTurnCount > 0 {
+                    Text("\(companionManager.queuedChatTurnCount) queued")
+                        .font(.system(size: 11, weight: .medium)).foregroundStyle(DS.Colors.textSecondary)
                 }
             }
-            .padding(.vertical, 8)
+            Spacer(minLength: 4)
+            if let elapsed = feedback.elapsedLabel {
+                Text(elapsed).font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(DS.Colors.textSecondary).monospacedDigit()
+                    .accessibilityLabel("Elapsed " + elapsed)
+            }
+            if hasFailure {
+                Button("Details") {
+                    PaceSettingsWindowManager.shared.show(companionManager: companionManager, destination: .doctor)
+                }.buttonStyle(.plain).font(.system(size: 11)).pointerCursor()
+            }
         }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 0.5))
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Pace request status: " + feedback.title)
     }
 }

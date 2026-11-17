@@ -8,6 +8,18 @@
 import CoreGraphics
 import Foundation
 
+nonisolated enum PaceNotchTapAction {
+    case microphone, conversation
+
+    /// Point coordinates start at the top-left, matching the visible mic wing.
+    static func resolve(point: CGPoint, surfaceWidth: CGFloat, housingWidth: CGFloat,
+                        housingHeight: CGFloat) -> Self {
+        let wingWidth = max(0, (surfaceWidth - housingWidth) / 2)
+        return point.x >= 0 && point.x < wingWidth && point.y >= 0 && point.y < housingHeight
+            ? .microphone : .conversation
+    }
+}
+
 nonisolated enum PaceQuickPanelMetrics {
     static let width: CGFloat = 520
     static let height: CGFloat = 540

@@ -147,6 +147,7 @@ extension CompanionManager {
         recordsAssistantEvent: Bool = true,
         recordsAssistantDerivedMemory: Bool = true
     ) {
+        let isRemoteResponse = activePacePadTurnIdentifier != nil
         let visibleAssistantResponse = conversationDisplayText(for: assistantResponse)
         let spokenRequest = conversationSpeechRequest(for: assistantResponse)
         let ownsActiveStream = userEventIdentifier == nil || userEventIdentifier == activeConversationUserEvent?.eventID
@@ -201,6 +202,11 @@ extension CompanionManager {
         if ownsActiveStream {
             if recordsAssistantEvent { lastConversationAssistantEventIdentifier = assistantEventIdentifier }
             activeConversationAssistantEventIdentifier = UUID().uuidString
+        }
+        if ownsActiveStream, recordsAssistantEvent, !isRemoteResponse,
+            let activeConversationUserEvent, activeConversationUserEvent.eventID == userEvent?.eventID,
+            !visibleAssistantResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            revealRequestFeedback()
         }
 
         guard recordsDerivedConversationMemory else { return }
