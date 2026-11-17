@@ -4,7 +4,7 @@ import Foundation
 
 nonisolated enum PacePowerCommand: Equatable {
     case importMedia(String, String)
-    case list, show(String), create(String), update(String, String), setEnabled(String, Bool), remove(String), run(String), dismissMedia
+    case add(String), list, show(String), create(String), update(String, String), setEnabled(String, Bool), remove(String), run(String), dismissMedia
 }
 
 nonisolated enum PacePowerCommandParser {
@@ -15,6 +15,10 @@ nonisolated enum PacePowerCommandParser {
             text = String(text.dropFirst(courtesyPrefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
         let normalized = text.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".!?"))
+        if ["add power", "add a power"].contains(normalized) { return .add("") }
+        for prefix in ["add a power ", "add power "] where text.lowercased().hasPrefix(prefix) {
+            return .add(String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
         if ["list powers", "show powers", "list my powers", "show my powers"].contains(normalized) { return .list }
         if ["dismiss media", "stop media", "close media", "stop animation"].contains(normalized) { return .dismissMedia }
         if text.lowercased().hasPrefix("import power media ") {
@@ -59,6 +63,29 @@ nonisolated enum PacePowerCommandParser {
             }
         }
         return nil
+    }
+}
+
+nonisolated struct PacePendingPowerDescription: Equatable {
+    enum Resolution: Equatable { case description(String), cancelled, unrelated }
+    let requestedAt: Date
+    static let lifetime: TimeInterval = 120
+
+    func resolve(_ transcript: String, now: Date = Date()) -> Resolution {
+        guard now.timeIntervalSince(requestedAt) >= 0, now.timeIntervalSince(requestedAt) < Self.lifetime else { return .unrelated }
+        let description = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = description.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".!?"))
+        if ["cancel", "cancel that", "never mind", "nevermind", "stop", "forget it"].contains(normalized) { return .cancelled }
+        let descriptionPrefixes = ["when i run", "when i say", "whenever ", "it should ", "call it ", "named ", "called ", "i want "]
+        if descriptionPrefixes.contains(where: normalized.hasPrefix) { return .description(description) }
+        let unrelatedPrefixes = ["add ", "create power ", "create a power ", "show ", "list ", "run ", "enable ", "disable ", "delete ", "remove ", "update ",
+            "what ", "when ", "where ", "why ", "who ", "how ", "can you ", "could you ", "please ",
+            "open ", "close ", "set ", "turn ", "start ", "stop ", "remember ", "forget ", "switch ", "mute ", "unmute ", "dismiss ",
+            "import ", "record ", "replay ", "pause ", "resume ", "quit ", "exit "]
+        guard !description.isEmpty, !description.hasSuffix("?"),
+              !["hi", "hello", "thanks", "thank you", "yes", "no"].contains(normalized),
+              !unrelatedPrefixes.contains(where: normalized.hasPrefix) else { return .unrelated }
+        return .description(description)
     }
 }
 
@@ -317,6 +344,7 @@ struct PaceManagedPowerStore {
     private func describeProgramNodes(_ nodes: [PaceProgramNode]) throws -> String {
         try nodes.map { node in
             switch node {
+            case .javascript: return "Computes locally using JavaScript; may speak text and present saved local media."
             case .action(let step):
                 let definition = PaceAutomationDefinition(schemaVersion: 1, identifier: "inspection", name: "Inspection", description: "Inspection", category: "custom",
                     source: .user, executionMode: .deterministicLocal, requiredPreferences: [], steps: [step])

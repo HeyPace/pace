@@ -1451,6 +1451,7 @@ extension CompanionManager {
     /// completed system action is never rolled back; cancellation only prevents
     /// the remaining planner, speech, and follow-up steps from continuing.
     func cancelCurrentTurnFromPanel() {
+        pendingPowerDescription = nil
         cancelConversationCapture()
         if let ownership = pendingTeachingPreviewOwnership {
             finishPendingTeachingPreview(for: ownership.turnLease, dismissIfOwned: true)
@@ -1551,6 +1552,7 @@ extension CompanionManager {
         // them here BEFORE any routing branch — every fast path
         // (watch-mode, automation, memory, fast-action) clears them too.
         annotationOverlayController.clearOnNextUserTurn()
+        if handlePendingPowerDescription(transcript) { return }
         if imageOverlayController.state != .idle, PaceImageGenerationRequest.requestsDismissal(transcript) {
             imageOverlayController.dismiss()
             recordConversationTurn(userTranscript: transcript, assistantResponse: "Image closed.")
@@ -3946,7 +3948,8 @@ extension CompanionManager {
         rawDescription: String,
         transcript: String,
         setupSpokenText: String,
-        replacingPower: PaceManagedPower? = nil
+        replacingPower: PaceManagedPower? = nil,
+        generateJavaScript: Bool = false
     ) {
         let existingPowerContext: String
         do {
@@ -3978,6 +3981,26 @@ extension CompanionManager {
             currentTurnHUDState = .understanding("creating reusable work")
             defer { if turnLeaseRegistry.isCurrent(turnLease) { foregroundOffDeviceTurnInFlight = false } }
             authoringPlanner.resetForNewTurn()
+
+            if generateJavaScript {
+                do {
+                    let result = try await authoringPlanner.generateResponseStreaming(images: [],
+                        systemPrompt: PaceJavaScriptPowerStructurer.systemPrompt, conversationHistory: [],
+                        userPrompt: rawDescription + existingPowerContext + "\nKnown local media asset IDs: " + localMediaCatalog.authoringAssetIdentifiers().joined(separator: ", "),
+                        onTextChunk: { _ in })
+                    guard isActiveTurn(turnLease) else { return }
+                    guard let program = PaceNaturalLanguageProgramStructurer.program(fromStructuredJSON: result.text),
+                          program.schemaVersion == PaceProgramValidator.javaScriptSchemaVersion,
+                          program.nodes.containsJavaScript else {
+                        throw PaceJavaScriptPowerError.invalid("I couldn't produce executable code for that outcome. Available capabilities are local computation, speech and saved media.")
+                    }
+                    await commitPowerDraft(.program(program), replacing: replacingPower, transcript: transcript, turnLease: turnLease)
+                } catch {
+                    guard isActiveTurn(turnLease) else { return }
+                    handleImmediateLocalModeResponse(transcript: transcript, spokenText: error.localizedDescription, shouldRecordConversationTurn: true)
+                }
+                return
+            }
 
             var structuredDefinition: PaceAutomationDefinition?
             do {

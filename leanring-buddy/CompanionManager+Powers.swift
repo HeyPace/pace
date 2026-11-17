@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 @MainActor
@@ -82,6 +83,7 @@ extension CompanionManager {
     }
 
     func handlePowerCommand(_ command: PacePowerCommand, transcript: String) async {
+        pendingPowerDescription = nil
         if command == .dismissMedia {
             mediaOverlayController.dismiss(cancelOwnedRun: true)
             handleImmediateLocalModeResponse(transcript: transcript, spokenText: "media stopped.", shouldRecordConversationTurn: true)
@@ -96,6 +98,17 @@ extension CompanionManager {
             } catch {
                 handleImmediateLocalModeResponse(transcript: transcript, spokenText: error.localizedDescription, shouldRecordConversationTurn: true)
             }
+            return
+        }
+        if case .add(let description) = command {
+            guard !description.isEmpty else {
+                pendingPowerDescription = .init(requestedAt: Date())
+                handleImmediateLocalModeResponse(transcript: transcript,
+                    spokenText: "What should your Power do? Tell me its name and description. It can compute, speak, and show saved media.", shouldRecordConversationTurn: true)
+                return
+            }
+            handleCreateReusableWork(rawDescription: description, transcript: transcript,
+                setupSpokenText: "let me write and test that power.", generateJavaScript: true)
             return
         }
         if case .create(let description) = command {
@@ -133,8 +146,13 @@ extension CompanionManager {
             case .update(let target, let description):
                 let power = try store.resolve(target, catalog: discovered.catalog)
                 _ = try store.validateCurrent(power)
+                let usesJavaScript: Bool
+                if case .program = power.reference {
+                    let data = try Data(contentsOf: store.validateCurrent(power))
+                    usesJavaScript = try JSONDecoder().decode(PaceProgramDefinition.self, from: data).nodes.containsJavaScript
+                } else { usesJavaScript = false }
                 handleCreateReusableWork(rawDescription: description, transcript: transcript,
-                    setupSpokenText: "let me validate that update.", replacingPower: power)
+                    setupSpokenText: "let me validate that update.", replacingPower: power, generateJavaScript: usesJavaScript)
                 return
             case .setEnabled(let target, let enabled):
                 let power = try store.resolve(target, catalog: discovered.catalog)
@@ -154,7 +172,7 @@ extension CompanionManager {
                     programs: discovered.programs, recordedFlows: discovered.recordedFlows, skills: discovered.skills,
                     transcript: transcript)
                 return
-            case .create, .dismissMedia, .importMedia: return
+            case .add, .create, .dismissMedia, .importMedia: return
             }
             handleImmediateLocalModeResponse(transcript: transcript, spokenText: feedback, shouldRecordConversationTurn: true,
                 spokenSummary: spokenSummary)
@@ -165,14 +183,59 @@ extension CompanionManager {
 
     func commitPowerDraft(_ draft: PacePowerDraft, replacing power: PaceManagedPower?, transcript: String,
                           turnLease: PaceTurnLease) async {
-        let discovered = await discoverAutomationCatalog()
-        guard isActiveTurn(turnLease) else { return }
         do {
+            if case .program(let program) = draft, program.nodes.containsJavaScript {
+                switch try await PaceJavaScriptPowerRuntime.compile(program, context: PaceProgramContext.current()) {
+                case .executionPlan(let plan): try validateJavaScriptPowerMedia(plan)
+                case .noActionsMatched: throw PaceJavaScriptPowerError.invalid("the test produced no actions")
+                }
+            }
+            let discovered = await discoverAutomationCatalog()
+            guard isActiveTurn(turnLease) else { return }
+            try Task.checkCancellation()
             let name = try managedPowerStore.commit(draft, replacing: power, catalog: discovered.catalog)
             handleImmediateLocalModeResponse(transcript: transcript,
-                spokenText: "\(power == nil ? "Saved" : "Updated") \(name). Say run power \(name) to use it.", shouldRecordConversationTurn: true)
+                spokenText: "\(power == nil ? "Saved" : "Updated") \(name). Say run power \(name) to use it.\(draft.javaScriptCapabilitySummary)", shouldRecordConversationTurn: true)
         } catch {
+            guard isActiveTurn(turnLease) else { return }
             handleImmediateLocalModeResponse(transcript: transcript, spokenText: error.localizedDescription, shouldRecordConversationTurn: true)
         }
+    }
+
+    @discardableResult
+    func handlePendingPowerDescription(_ transcript: String, now: Date = Date()) -> Bool {
+        guard let pendingPowerDescription else { return false }
+        self.pendingPowerDescription = nil
+        switch pendingPowerDescription.resolve(transcript, now: now) {
+        case .description(let description):
+            handleCreateReusableWork(rawDescription: description, transcript: transcript,
+                setupSpokenText: "let me write and test that power.", generateJavaScript: true)
+            return true
+        case .cancelled:
+            handleImmediateLocalModeResponse(transcript: transcript, spokenText: "Cancelled adding the Power.", shouldRecordConversationTurn: true)
+            return true
+        case .unrelated: return false
+        }
+    }
+
+    func validateJavaScriptPowerMedia(_ plan: PaceActionExecutionPlan, assetIsValid: ((String) -> Bool)? = nil) throws {
+        let assetIsValid = assetIsValid ?? { identifier in
+            guard let url = self.localMediaCatalog.resourceURL(for: identifier), let image = NSImage(contentsOf: url) else { return false }
+            return image.isValid
+        }
+        for action in plan.flattenedActions {
+            if case .presentMedia(let request) = action, !assetIsValid(request.assetID) {
+                throw PaceJavaScriptPowerError.invalid("the local media asset is unavailable")
+            }
+        }
+    }
+}
+
+nonisolated extension PacePowerDraft {
+    var javaScriptCapabilitySummary: String {
+        if case .program(let program) = self, program.nodes.containsJavaScript {
+            return " It runs computed JavaScript locally and can speak or show saved media."
+        }
+        return ""
     }
 }

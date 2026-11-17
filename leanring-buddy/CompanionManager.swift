@@ -141,6 +141,8 @@ final class CompanionManager: ObservableObject {
     /// sidecar recovers.
     var lastSidecarTTSOfflineNarratedAt: Date?
 
+    var pendingPowerDescription: PacePendingPowerDescription?
+
     var pendingIntentClarification: PacePendingIntentClarification?
 
     /// Set when the executor's click-candidate scoring found multiple

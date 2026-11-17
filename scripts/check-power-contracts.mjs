@@ -53,6 +53,7 @@ test('Saved powers preserve CRUD, execution authorization, media and speech life
     'PacePowerCatalogTests',
     'PaceAutomationDefinitionTests',
     'PaceProgramModelTests',
+    'PaceJavaScriptPowerTests',
     'PaceUserProgramStoreTests',
     'PaceSkillLoaderTests',
     'PaceAutomationCatalogTests',

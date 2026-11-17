@@ -239,7 +239,17 @@ echo "🔐 Signing embedded frameworks with $PACE_DEVELOPER_ID..."
 find "${APP_PATH}/Contents/Frameworks" -maxdepth 2 -name "*.framework" -type d 2>/dev/null | while IFS= read -r framework_path; do
     codesign --force --deep --options runtime --timestamp --sign "$PACE_DEVELOPER_ID" "${framework_path}" 2>&1 | tail -1
 done
-codesign --force --deep --options runtime --timestamp \
+POWER_SERVICE="${APP_PATH}/Contents/XPCServices/PacePowerJavaScriptService.xpc"
+[[ -d "$POWER_SERVICE" ]] || { echo "Missing isolated Power service" >&2; exit 1; }
+POWER_COMPUTE_HELPER="$POWER_SERVICE/Contents/Helpers/PacePowerJavaScriptWorker"
+[[ -x "$POWER_COMPUTE_HELPER" ]] || { echo "Missing isolated Power compute helper" >&2; exit 1; }
+codesign --force --options runtime --timestamp \
+    --entitlements "$PROJECT_DIR/PacePowerJavaScriptWorker/PacePowerJavaScriptWorker.entitlements" \
+    --sign "$PACE_DEVELOPER_ID" "$POWER_COMPUTE_HELPER"
+codesign --force --options runtime --timestamp \
+    --entitlements "$PROJECT_DIR/PacePowerJavaScriptService/PacePowerJavaScriptService.entitlements" \
+    --sign "$PACE_DEVELOPER_ID" "$POWER_SERVICE"
+codesign --force --options runtime --timestamp \
     --entitlements "$ENTITLEMENTS_PATH" \
     --sign "$PACE_DEVELOPER_ID" "${APP_PATH}" 2>&1 | tail -1
 codesign --verify --deep --strict --verbose=2 "${APP_PATH}" && echo "✅ Developer ID codesign verification passed"

@@ -352,34 +352,29 @@ extension CompanionManager {
                 )
                 return
             }
-            do {
-                switch try PaceProgramCompiler.compile(
-                    program,
-                    context: PaceProgramContext.current()
-                ) {
-                case .executionPlan(let executionPlan):
-                    handleFastLocalActionPath(
-                        transcript: transcript,
-                        fastActionParseResult: PaceFastActionParseResult(
-                            spokenText: "running \(program.name).",
-                            executionPlan: executionPlan
-                        ),
-                        shouldRecordConversationTurn: true
-                    )
-                case .noActionsMatched:
-                    handleImmediateLocalModeResponse(
-                        transcript: transcript,
-                        spokenText: "\(program.name) didn't have any actions for the current conditions.",
-                        shouldRecordConversationTurn: true
-                    )
+            let turnLease = turnLeaseRegistry.currentLease
+            let context = PaceProgramContext.current()
+            currentResponseTask = Task { @MainActor in
+                do {
+                    let outcome = try await PaceJavaScriptPowerRuntime.compile(program, context: context)
+                    guard isActiveTurn(turnLease) else { return }
+                    switch outcome {
+                    case .executionPlan(let executionPlan):
+                        if program.nodes.containsJavaScript { try validateJavaScriptPowerMedia(executionPlan) }
+                        guard isActiveTurn(turnLease) else { return }
+                        handleFastLocalActionPath(transcript: transcript,
+                            fastActionParseResult: PaceFastActionParseResult(spokenText: "running \(program.name).", executionPlan: executionPlan),
+                            shouldRecordConversationTurn: true)
+                        await currentResponseTask?.value
+                    case .noActionsMatched:
+                        handleImmediateLocalModeResponse(transcript: transcript,
+                            spokenText: "\(program.name) didn't have any actions for the current conditions.", shouldRecordConversationTurn: true)
+                    }
+                } catch {
+                    guard isActiveTurn(turnLease) else { return }
+                    handleImmediateLocalModeResponse(transcript: transcript,
+                        spokenText: "I couldn't run that Power. " + error.localizedDescription, shouldRecordConversationTurn: true)
                 }
-            } catch {
-                print("⚠️ Program compilation failed for \(identifier): \(error)")
-                handleImmediateLocalModeResponse(
-                    transcript: transcript,
-                    spokenText: "i couldn't validate that programmed automation, so i didn't run it.",
-                    shouldRecordConversationTurn: true
-                )
             }
 
         case .recordedFlow(let name):

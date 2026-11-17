@@ -20,6 +20,14 @@
 		CC00EE000000000000000003 /* SileroVAD in Frameworks */ = {isa = PBXBuildFile; productRef = CC00EE000000000000000002 /* SileroVAD */; };
 		E10000000000000000000003 /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = E10000000000000000000004 /* HuggingFace */; };
 		E10000000000000000000005 /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = E10000000000000000000006 /* Tokenizers */; };
+
+        E5A000000000000000000001 /* worker main in Sources */ = {isa = PBXBuildFile; fileRef = E5A000000000000000000002; };
+        E5A000000000000000000003 /* Power wire in Sources */ = {isa = PBXBuildFile; fileRef = E5A000000000000000000004; };
+        E5A000000000000000000005 /* Power service in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = E5A000000000000000000006; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+
+        E6A000000000000000000001 /* compute worker main in Sources */ = {isa = PBXBuildFile; fileRef = E6A000000000000000000002; };
+        E6A000000000000000000003 /* compute worker wire in Sources */ = {isa = PBXBuildFile; fileRef = E5A000000000000000000004; };
+        E6A000000000000000000005 /* compute worker in Embed Helpers */ = {isa = PBXBuildFile; fileRef = E6A000000000000000000006; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -37,7 +45,16 @@
 			remoteGlobalIDString = 28F22CBE2F56440300A0FC59;
 			remoteInfo = "leanring-buddy";
 		};
+
+        E5A00000000000000000000C = {isa = PBXContainerItemProxy; containerPortal = 28F22CB72F56440300A0FC59; proxyType = 1; remoteGlobalIDString = E5A000000000000000000009; remoteInfo = PacePowerJavaScriptService; };
+
+        E6A00000000000000000000C = {isa = PBXContainerItemProxy; containerPortal = 28F22CB72F56440300A0FC59; proxyType = 1; remoteGlobalIDString = E6A000000000000000000009; remoteInfo = PacePowerJavaScriptWorker; };
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+        E5A00000000000000000000F /* Embed XPC Services */ = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = "$(CONTENTS_FOLDER_PATH)/XPCServices"; dstSubfolderSpec = 16; files = (E5A000000000000000000005, ); name = "Embed XPC Services"; runOnlyForDeploymentPostprocessing = 0; };
+        E6A00000000000000000000F /* Embed Helpers */ = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = "$(CONTENTS_FOLDER_PATH)/Helpers"; dstSubfolderSpec = 16; files = (E6A000000000000000000005, ); name = "Embed Helpers"; runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		D0A000022FD0000100000002 /* skills */ = {isa = PBXFileReference; lastKnownFileType = folder; name = skills; path = resources/skills; sourceTree = SOURCE_ROOT; };
@@ -45,6 +62,13 @@
 		28F22CCC2F56440300A0FC59 /* leanring-buddyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "leanring-buddyTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		28F22CD62F56440300A0FC59 /* leanring-buddyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "leanring-buddyUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0A000022FD0000100000002 /* PacePad.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PacePad.app; sourceTree = BUILT_PRODUCTS_DIR; };
+
+        E5A000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacePowerJavaScriptService/main.swift; sourceTree = SOURCE_ROOT; };
+        E5A000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/PaceJavaScriptPowerWire.swift"; sourceTree = SOURCE_ROOT; };
+        E5A000000000000000000006 = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = PacePowerJavaScriptService.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
+
+        E6A000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacePowerJavaScriptWorker/main.swift; sourceTree = SOURCE_ROOT; };
+        E6A000000000000000000006 = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = PacePowerJavaScriptWorker; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -139,12 +163,18 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+
+        E5A000000000000000000008 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+
+        E6A000000000000000000008 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		28F22CB62F56440300A0FC59 = {
 			isa = PBXGroup;
 			children = (
+                E5A000000000000000000002,
+                E5A000000000000000000004,
 				D0A000022FD0000100000002 /* skills */,
 				28F22CC12F56440300A0FC59 /* leanring-buddy */,
 				C0A000032FD0000100000003 /* PacePad */,
@@ -158,6 +188,7 @@
 		28F22CC02F56440300A0FC59 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+                E5A000000000000000000006,
 				28F22CBF2F56440300A0FC59 /* Pace.app */,
 				28F22CCC2F56440300A0FC59 /* leanring-buddyTests.xctest */,
 				28F22CD62F56440300A0FC59 /* leanring-buddyUITests.xctest */,
@@ -176,10 +207,12 @@
 				28F22CBB2F56440300A0FC59 /* Sources */,
 				28F22CBC2F56440300A0FC59 /* Frameworks */,
 				28F22CBD2F56440300A0FC59 /* Resources */,
+                E5A00000000000000000000F /* Embed XPC Services */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+                E5A00000000000000000000B,
 			);
 			fileSystemSynchronizedGroups = (
 				28F22CC12F56440300A0FC59 /* leanring-buddy */,
@@ -273,6 +306,23 @@
 			productReference = C0A000022FD0000100000002 /* PacePad.app */;
 			productType = "com.apple.product-type.application";
 		};
+
+        E5A000000000000000000009 /* PacePowerJavaScriptService */ = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = E5A00000000000000000000A;
+            buildPhases = (E5A000000000000000000007, E5A000000000000000000008, E6A00000000000000000000F, );
+            buildRules = (); dependencies = (E6A00000000000000000000B, ); name = PacePowerJavaScriptService;
+            productName = PacePowerJavaScriptService; productReference = E5A000000000000000000006;
+            productType = "com.apple.product-type.xpc-service";
+        };
+
+        E6A000000000000000000009 /* PacePowerJavaScriptWorker */ = {
+            isa = PBXNativeTarget; buildConfigurationList = E6A00000000000000000000A;
+            buildPhases = (E6A000000000000000000007, E6A000000000000000000008, );
+            buildRules = (); dependencies = (); name = PacePowerJavaScriptWorker;
+            productName = PacePowerJavaScriptWorker; productReference = E6A000000000000000000006;
+            productType = "com.apple.product-type.tool";
+        };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -323,6 +373,8 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+                E6A000000000000000000009 /* PacePowerJavaScriptWorker */,
+                E5A000000000000000000009 /* PacePowerJavaScriptService */,
 				28F22CBE2F56440300A0FC59 /* leanring-buddy */,
 				28F22CCB2F56440300A0FC59 /* leanring-buddyTests */,
 				28F22CD52F56440300A0FC59 /* leanring-buddyUITests */,
@@ -392,6 +444,10 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+
+        E5A000000000000000000007 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (E5A000000000000000000001, E5A000000000000000000003, ); runOnlyForDeploymentPostprocessing = 0; };
+
+        E6A000000000000000000007 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (E6A000000000000000000001, E6A000000000000000000003, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -405,6 +461,10 @@
 			target = 28F22CBE2F56440300A0FC59 /* leanring-buddy */;
 			targetProxy = 28F22CD72F56440300A0FC59 /* PBXContainerItemProxy */;
 		};
+
+        E5A00000000000000000000B = {isa = PBXTargetDependency; target = E5A000000000000000000009; targetProxy = E5A00000000000000000000C; };
+
+        E6A00000000000000000000B = {isa = PBXTargetDependency; target = E6A000000000000000000009; targetProxy = E6A00000000000000000000C; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -760,6 +820,52 @@
 			};
 			name = Release;
 		};
+
+        E5A00000000000000000000D /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {
+            CODE_SIGN_ENTITLEMENTS = PacePowerJavaScriptService/PacePowerJavaScriptService.entitlements;
+            CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = 8F7LXHTJZR;
+            ENABLE_APP_SANDBOX = YES; ENABLE_HARDENED_RUNTIME = YES;
+            ENABLE_INCOMING_NETWORK_CONNECTIONS = NO; ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
+            ENABLE_USER_SELECTED_FILES = NO; GENERATE_INFOPLIST_FILE = NO;
+            INFOPLIST_FILE = PacePowerJavaScriptService/Info.plist;
+            MACOSX_DEPLOYMENT_TARGET = 26.0; PRODUCT_BUNDLE_IDENTIFIER = com.pace.PowerJavaScriptService;
+            PRODUCT_NAME = PacePowerJavaScriptService; SKIP_INSTALL = YES;
+            SWIFT_VERSION = 5.0; SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+        }; name = Debug; };
+
+        E5A00000000000000000000E /* Release */ = {isa = XCBuildConfiguration; buildSettings = {
+            CODE_SIGN_ENTITLEMENTS = PacePowerJavaScriptService/PacePowerJavaScriptService.entitlements;
+            CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = 8F7LXHTJZR;
+            ENABLE_APP_SANDBOX = YES; ENABLE_HARDENED_RUNTIME = YES;
+            ENABLE_INCOMING_NETWORK_CONNECTIONS = NO; ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
+            ENABLE_USER_SELECTED_FILES = NO; GENERATE_INFOPLIST_FILE = NO;
+            INFOPLIST_FILE = PacePowerJavaScriptService/Info.plist;
+            MACOSX_DEPLOYMENT_TARGET = 26.0; PRODUCT_BUNDLE_IDENTIFIER = com.pace.PowerJavaScriptService;
+            PRODUCT_NAME = PacePowerJavaScriptService; SKIP_INSTALL = YES;
+            SWIFT_VERSION = 5.0; SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+        }; name = Release; };
+
+        E6A00000000000000000000D /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {
+            CODE_SIGN_ENTITLEMENTS = PacePowerJavaScriptWorker/PacePowerJavaScriptWorker.entitlements;
+            CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = 8F7LXHTJZR;
+            ENABLE_APP_SANDBOX = YES; ENABLE_HARDENED_RUNTIME = YES;
+            ENABLE_INCOMING_NETWORK_CONNECTIONS = NO; ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
+            ENABLE_USER_SELECTED_FILES = NO; GENERATE_INFOPLIST_FILE = NO;
+            MACOSX_DEPLOYMENT_TARGET = 26.0; PRODUCT_BUNDLE_IDENTIFIER = com.pace.PowerJavaScriptWorker;
+            PRODUCT_NAME = PacePowerJavaScriptWorker; SKIP_INSTALL = YES;
+            SWIFT_VERSION = 5.0; SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+        }; name = Debug; };
+
+        E6A00000000000000000000E /* Release */ = {isa = XCBuildConfiguration; buildSettings = {
+            CODE_SIGN_ENTITLEMENTS = PacePowerJavaScriptWorker/PacePowerJavaScriptWorker.entitlements;
+            CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = 8F7LXHTJZR;
+            ENABLE_APP_SANDBOX = YES; ENABLE_HARDENED_RUNTIME = YES;
+            ENABLE_INCOMING_NETWORK_CONNECTIONS = NO; ENABLE_OUTGOING_NETWORK_CONNECTIONS = NO;
+            ENABLE_USER_SELECTED_FILES = NO; GENERATE_INFOPLIST_FILE = NO;
+            MACOSX_DEPLOYMENT_TARGET = 26.0; PRODUCT_BUNDLE_IDENTIFIER = com.pace.PowerJavaScriptWorker;
+            PRODUCT_NAME = PacePowerJavaScriptWorker; SKIP_INSTALL = YES;
+            SWIFT_VERSION = 5.0; SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+        }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -808,6 +914,10 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+
+        E5A00000000000000000000A = {isa = XCConfigurationList; buildConfigurations = (E5A00000000000000000000D, E5A00000000000000000000E, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+
+        E6A00000000000000000000A = {isa = XCConfigurationList; buildConfigurations = (E6A00000000000000000000D, E6A00000000000000000000E, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
