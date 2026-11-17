@@ -359,9 +359,13 @@ extension CompanionManager {
             responseOverlayManager.showOverlayAndBeginStreaming()
             currentResponseTask = Task { @MainActor in
                 defer {
-                    if turnLeaseRegistry.isCurrent(turnLease), voiceState == .processing {
-                        voiceState = .idle
-                        responseOverlayManager.finishStreaming()
+                    if turnLeaseRegistry.isCurrent(turnLease) {
+                        let powerIsAuthorized = managedPowerExecutionIsAuthorized
+                        if voiceState == .processing || !powerIsAuthorized {
+                            currentTurnHUDState = powerIsAuthorized ? .idle : .failed("Power changed or disabled; stopped")
+                            voiceState = .idle
+                            responseOverlayManager.finishStreaming()
+                        }
                     }
                 }
                 do {

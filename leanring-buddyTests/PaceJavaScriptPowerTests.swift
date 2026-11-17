@@ -251,6 +251,7 @@ struct PaceJavaScriptPowerTests {
         #expect(!speech.spokenTexts.contains("stale output"))
         #expect(!manager.managedPowerExecutionIsAuthorized)
         #expect(manager.voiceState == .idle)
+        #expect(manager.currentTurnHUDState.status == .failed)
     }
 
     @Test func programPreparationExposesStopAndCancellationRestoresIdle() async throws {
@@ -268,6 +269,29 @@ struct PaceJavaScriptPowerTests {
         await task?.value
         #expect(manager.voiceState == .idle)
         #expect(!speech.spokenTexts.contains { $0.contains("couldn't run") })
+    }
+
+    @Test func revocationDuringExecutionClearsTheOwnedBusyState() async throws {
+        let helpers = PacePowerManagerTests()
+        let (root, manager, _, _) = try helpers.fixture()
+        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        _ = try manager.managedPowerStore.commit(.program(program("pace.speak('first'); pace.speak('must not run');")),
+            catalog: (await manager.discoverAutomationCatalog()).catalog)
+        let saved = try manager.managedPowerStore.resolve("Runtime Greeting", catalog: (await manager.discoverAutomationCatalog()).catalog)
+        let artifact = try #require(saved.ownedArtifactURL)
+        var callbackCount = 0
+        manager.actionExecutor.speakLocalText = { [weak manager] _ in
+            callbackCount += 1
+            #expect(manager?.voiceState == .responding)
+            try? Data("changed artifact".utf8).write(to: artifact, options: .atomic)
+            return .init(toolName: "speak", summary: "Owned test artifact changed", terminalReason: .managedWorkflowUnavailable)
+        }
+        helpers.begin("run power Runtime Greeting", manager: manager)
+        await manager.handlePowerCommand(.run("Runtime Greeting"), transcript: "run power Runtime Greeting")
+        await manager.currentResponseTask?.value
+        #expect(callbackCount == 1)
+        #expect(manager.voiceState == .idle)
+        #expect(manager.currentTurnHUDState.status == .failed)
     }
 
     @Test func persistedCodeUsesExistingCRUDAndUpdateRetainsRepresentation() async throws {
