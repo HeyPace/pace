@@ -47,11 +47,14 @@ struct PacePowerCardTests {
               case .presentMedia(let request) = plan.flattenedActions.first else { Issue.record("Card did not reach typed executor"); return }
         #expect(request.card == PacePowerCard.parse(definition))
         #expect(request.durationSeconds == 120)
+        let belowBudget = "pace.presentCard({title:'Budget', pages:[], extra:'あ'.repeat(15000)});"
+        #expect(try await PaceJavaScriptPowerRun().evaluate(source: belowBudget, context: context).count == 1)
         let oversizedJapanese = "pace.presentCard({title:'Too large', pages:[], extra:'あ'.repeat(17000)});"
         do {
             _ = try await PaceJavaScriptPowerRun().evaluate(source: oversizedJapanese, context: context)
             Issue.record("Worker accepted a card exceeding the UTF-8 byte budget")
-        } catch { }
+        } catch PaceJavaScriptPowerError.invalid { }
+        catch { Issue.record("Expected SDK budget rejection, got \(error)") }
         for invalid in [source(definition, options: ", {durationSeconds:301}"), source("{title:'Bad',pages:[],onClick:'shell'}")] {
             do {
                 _ = try await PaceJavaScriptPowerRuntime.compile(program("pace.speak('must not run');" + invalid), context: context)
@@ -129,6 +132,12 @@ struct PacePowerCardTests {
         }
         #expect(persister.events.values.filter { $0.role == .user }.count == priorUserCount)
         #expect(persister.events.values.filter { $0.text == "Use it\nSay ありがとう when someone helps you." }.count == 1)
+        let beforeRepeatedChoiceCount = persister.events.count
+        for _ in 0..<3 {
+            #expect(manager.mediaOverlayController.handleCardInteraction(ifGenerationMatches: generation, interaction: .select(pageIndex: 0, choiceIndex: 1)))
+            #expect(manager.mediaOverlayController.handleCardInteraction(ifGenerationMatches: generation, interaction: .select(pageIndex: 0, choiceIndex: 0)))
+        }
+        #expect(persister.events.count == beforeRepeatedChoiceCount + 2)
         let discovery = await manager.discoverAutomationCatalog()
         let power = try manager.managedPowerStore.resolve("Japanese practice", catalog: discovery.catalog)
         try manager.managedPowerStore.setEnabled(false, power: power)

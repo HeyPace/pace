@@ -16,6 +16,7 @@ extension CompanionManager {
                 let presentedPower = self.activeManagedPower
                 let userEventIdentifier = self.activeConversationUserEvent?.eventID
                 var recordedPageIndices: Set<Int> = [0]
+                var recordedChoicesByPage: [Int: Set<Int>] = [:]
                 let isAuthorized: () -> Bool = { [weak self] in
                     guard let self, self.turnLeaseRegistry.isCurrent(turnLease) else { return false }
                     guard let presentedPower else { return true }
@@ -28,6 +29,7 @@ extension CompanionManager {
                         switch interaction {
                         case .select(let pageIndex, let choiceIndex):
                             guard card.pages.indices.contains(pageIndex), card.pages[pageIndex].choices.indices.contains(choiceIndex) else { return false }
+                            guard recordedChoicesByPage[pageIndex, default: []].insert(choiceIndex).inserted else { return true }
                             let page = card.pages[pageIndex]
                             let choice = page.choices[choiceIndex]
                             self.recordAssistantNarration("Selected “" + choice.label + "” in “" + page.title + "” (" + card.title + ").",

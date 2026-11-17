@@ -19,7 +19,11 @@ private enum PacePowerJavaScriptWorker {
               actions.count <= PaceJavaScriptPowerLimits.maximumActions else {
             return response(failure: "JavaScript failed validation or execution. Use only the supported Pace SDK with bounded output.")
         }
-        return (try? JSONEncoder().encode(PaceJavaScriptPowerResponse(actions: actions, failure: nil))) ?? Data()
+        guard let encoded = try? JSONEncoder().encode(PaceJavaScriptPowerResponse(actions: actions, failure: nil)),
+              encoded.count <= PaceJavaScriptPowerLimits.maximumOutputBytes else {
+            return response(failure: "Power output exceeded 64 KiB of UTF-8, including its response envelope.")
+        }
+        return encoded
     }
 
     private static let bootstrap = #"""
@@ -33,6 +37,15 @@ private enum PacePowerJavaScriptWorker {
         const NativeFunction = Function;
         const NativeError = Error;
         const codePointAt = Function.call.bind(String.prototype.codePointAt);
+        function utf8Length(value) {
+            let byteCount = 0;
+            for (let index = 0; index < value.length; index++) {
+                const point = codePointAt(value, index);
+                byteCount += point < 128 ? 1 : (point < 2048 ? 2 : (point < 65536 ? 3 : 4));
+                if (point > 65535) index++;
+            }
+            return byteCount;
+        }
         freeze(Object.prototype); freeze(Array.prototype); freeze(Function.prototype); freeze(JSON);
         return function (source, localHour, weekday) {
             const actions = [];
@@ -52,7 +65,7 @@ private enum PacePowerJavaScriptWorker {
                 if (actions.length >= 50) fail();
                 const action = create(null); action.tool = tool; action.arguments = argumentsObject;
                 push(actions, action);
-                if (stringify(actions).length > 65536) fail();
+                if (utf8Length(stringify(actions)) > 65536) fail();
             }
             const pace = create(null);
             pace.speak = function (spokenText, speechOptions) {
@@ -91,13 +104,7 @@ private enum PacePowerJavaScriptWorker {
                 if (card === null || typeof card !== "object" || Array.isArray(card)) fail();
                 const serialized = stringify(card);
                 const argumentsObject = create(null); argumentsObject.card = text(serialized, 49152);
-                let byteCount = 0;
-                for (let index = 0; index < serialized.length; index++) {
-                    const point = codePointAt(serialized, index);
-                    byteCount += point < 128 ? 1 : (point < 2048 ? 2 : (point < 65536 ? 3 : 4));
-                    if (point > 65535) index++;
-                    if (byteCount > 49152) fail();
-                }
+                if (utf8Length(serialized) > 49152) fail();
                 const duration = parsedOptions.durationSeconds === undefined ? 120 : parsedOptions.durationSeconds;
                 if (typeof duration !== "number" || !Number.isFinite(duration) || duration < 1 || duration > 300) fail();
                 argumentsObject.durationSeconds = String(duration);

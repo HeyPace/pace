@@ -33,43 +33,52 @@ struct PacePowerCardView: View {
                     .frame(maxWidth: .infinity).frame(height: 180).allowsHitTesting(false)
                     .padding(.top, 14)
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("STEP \(session.pageIndex + 1) OF \(card.pages.count)")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.45))
-                    Text(session.page.title).font(.system(size: 23, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
-                    Text(session.page.body).font(.system(size: 14)).lineSpacing(5)
-                        .foregroundStyle(.white.opacity(0.78)).fixedSize(horizontal: false, vertical: true)
-                    ForEach(session.page.choices.indices, id: \.self) { index in
-                        let choice = session.page.choices[index]
-                        Button {
-                            session.select(index, authorize: authorizeInteraction)
-                        } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: session.selectedChoice == index ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(session.selectedChoice == index ? Color.white : Color.white.opacity(0.4))
-                                Text(choice.label).multilineTextAlignment(.leading)
-                                Spacer(minLength: 0)
-                            }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("STEP \(session.pageIndex + 1) OF \(card.pages.count)")
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.45))
+                        Text(session.page.title).font(.system(size: 23, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                        Text(session.page.body).font(.system(size: 14)).lineSpacing(5)
+                            .foregroundStyle(.white.opacity(0.78)).fixedSize(horizontal: false, vertical: true)
+                        ForEach(session.page.choices.indices, id: \.self) { index in
+                            let choice = session.page.choices[index]
+                            Button {
+                                session.select(index, authorize: authorizeInteraction)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: session.selectedChoice == index ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(session.selectedChoice == index ? Color.white : Color.white.opacity(0.4))
+                                    Text(choice.label).multilineTextAlignment(.leading)
+                                    Spacer(minLength: 0)
+                                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(CardButtonStyle(selected: session.selectedChoice == index))
+                            .accessibilityLabel("Answer: " + choice.label)
+                            .accessibilityValue(session.selectedChoice == index ? "Selected" : "")
                         }
-                        .buttonStyle(CardButtonStyle(selected: session.selectedChoice == index))
-                        .accessibilityLabel("Answer: " + choice.label)
-                        .accessibilityValue(session.selectedChoice == index ? "Selected" : "")
-                    }
-                    if let selected = session.selectedChoice {
-                        let choice = session.page.choices[selected]
-                        HStack(alignment: .top, spacing: 9) {
-                            Image(systemName: choice.correct == true ? "checkmark.circle" : (choice.correct == false ? "arrow.trianglehead.clockwise" : "lightbulb"))
-                            Text(choice.feedback).fixedSize(horizontal: false, vertical: true)
+                        if let selected = session.selectedChoice {
+                            let choice = session.page.choices[selected]
+                            HStack(alignment: .top, spacing: 9) {
+                                Image(systemName: choice.correct == true ? "checkmark.circle" : (choice.correct == false ? "arrow.trianglehead.clockwise" : "lightbulb"))
+                                Text(choice.feedback).fixedSize(horizontal: false, vertical: true)
+                            }
+                            .font(.system(size: 13)).lineSpacing(4).padding(13)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+                            .accessibilityElement(children: .combine).accessibilityLabel("Feedback: " + choice.feedback)
+                            .id("power-card-feedback")
                         }
-                        .font(.system(size: 13)).lineSpacing(4).padding(13)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
-                        .accessibilityElement(children: .combine).accessibilityLabel("Feedback: " + choice.feedback)
-                    }
-                }.padding(22).frame(maxWidth: .infinity, alignment: .leading)
-            }.id(session.pageIndex)
+                    }.padding(22).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .onChange(of: session.selectedChoice, initial: true) { _, selectedChoice in
+                    guard selectedChoice != nil else { return }
+                    if reduceMotion { scrollProxy.scrollTo("power-card-feedback", anchor: .bottom) }
+                    else { withAnimation(.easeOut(duration: 0.16)) { scrollProxy.scrollTo("power-card-feedback", anchor: .bottom) } }
+                }
+                .id(session.pageIndex)
+            }
             Divider().overlay(.white.opacity(0.1))
             HStack {
                 Button { session.move(by: -1, authorize: authorizeInteraction) } label: {
