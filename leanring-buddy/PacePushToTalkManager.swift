@@ -15,7 +15,7 @@ import Speech
 
 enum BuddyPushToTalkShortcut {
     enum ShortcutOption {
-        case rightControl
+        case rightOptionCommand
         case functionP
         case shiftFunction
         case controlOption
@@ -31,7 +31,7 @@ enum BuddyPushToTalkShortcut {
                 return [.control, .option]
             case .shiftControl:
                 return [.shift, .control]
-            case .rightControl, .functionP, .controlOptionSpace, .shiftControlSpace:
+            case .rightOptionCommand, .functionP, .controlOptionSpace, .shiftControlSpace:
                 return nil
             }
         }
@@ -40,7 +40,7 @@ enum BuddyPushToTalkShortcut {
             switch self {
             case .functionP:
                 return [.function]
-            case .rightControl, .shiftFunction:
+            case .rightOptionCommand, .shiftFunction:
                 return nil
             case .controlOption:
                 return nil
@@ -67,46 +67,7 @@ enum BuddyPushToTalkShortcut {
         case keyUp
     }
 
-    /// Resolved once at app launch from Info.plist key `PushToTalkShortcut`.
-    /// Accepted values (case-insensitive, hyphens/underscores ignored):
-    ///   - `rightControl` / `rightctrl` (bundled default)
-    ///   - `functionP` / `fn+p`
-    ///   - `controlOption`  / `ctrl+option`  / `ctrl-option`
-    ///   - `shiftFunction`  / `shift+fn`     / `shift-fn`
-    ///   - `shiftControl`   / `shift+ctrl`   / `shift-ctrl`
-    ///   - `controlOptionSpace` / `ctrl+option+space`
-    ///   - `shiftControlSpace`  / `shift+ctrl+space`
-    /// Unknown or missing values fall back to `controlOption`.
-    /// Set this to something Wispr Flow / other dictation tools don't
-    /// claim, so the two apps coexist cleanly.
-    static let currentShortcutOption: ShortcutOption = {
-        let rawConfiguredValue = AppBundleConfiguration
-            .stringValue(forKey: "PushToTalkShortcut")?
-            .lowercased()
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: "_", with: "")
-            .replacingOccurrences(of: "-", with: "")
-
-        switch rawConfiguredValue {
-        case "rightcontrol", "rightctrl":
-            return .rightControl
-        case "functionp", "fn+p", "fnp":
-            return .functionP
-        case "shiftfunction", "shift+fn", "shiftfn":
-            return .shiftFunction
-        case "shiftcontrol", "shift+ctrl", "shift+control", "shiftctrl":
-            return .shiftControl
-        case "controloptionspace", "ctrl+option+space", "ctrloptionspace":
-            return .controlOptionSpace
-        case "shiftcontrolspace", "shift+ctrl+space", "shift+control+space":
-            return .shiftControlSpace
-        case "controloption", "ctrl+option", "ctrloption", .none:
-            return .controlOption
-        default:
-            print("⚠️ Unknown PushToTalkShortcut '\(rawConfiguredValue ?? "nil")', falling back to ctrl+option")
-            return .controlOption
-        }
-    }()
+    static let currentShortcutOption: ShortcutOption = .rightOptionCommand
     nonisolated static let functionPKeyCode: UInt16 = 35 // ANSI P
 
     static func shortcutTransition(
@@ -192,7 +153,7 @@ enum BuddyPushToTalkShortcut {
 extension BuddyPushToTalkShortcut.ShortcutOption {
     var notchDisplayLabel: String {
         switch self {
-        case .rightControl: return "Right Control"
+        case .rightOptionCommand: return "Right ⌥ + Right ⌘"
         case .functionP: return "Fn+P"
         case .shiftFunction: return "⇧fn"
         case .controlOption: return "⌃⌥"

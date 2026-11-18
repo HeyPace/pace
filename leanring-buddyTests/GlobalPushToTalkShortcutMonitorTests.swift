@@ -27,28 +27,41 @@ struct GlobalPushToTalkShortcutMonitorTests {
         monitor.simulateShortcutReleased()
         withExtendedLifetime(observation) { }
     }
-    @Test func rightControlHoldCancelsForOtherInputAndReleasesWhenUsedAlone() async throws {
-        let monitor = GlobalPushToTalkShortcutMonitor(shortcutOption: .rightControl)
+    @Test func defaultShortcutStartsOnlyForRightOptionAndRightCommand() async throws {
+        #expect(BuddyPushToTalkShortcut.currentShortcutOption == .rightOptionCommand)
+        let monitor = GlobalPushToTalkShortcutMonitor()
         var transitions: [BuddyPushToTalkShortcut.ShortcutTransition] = []
         let observation = monitor.shortcutTransitionPublisher.sink { transitions.append($0) }
-        let rightControl = CGEventFlags(rawValue: CGEventFlags.maskControl.rawValue | 0x2000)
-        let leftControl = CGEventFlags(rawValue: CGEventFlags.maskControl.rawValue | 0x0001)
-        monitor.handleRightControlEvent(.flagsChanged, keyCode: 59, flags: leftControl)
-        monitor.handleRightControlEvent(.flagsChanged, keyCode: 62, flags: rightControl)
-        monitor.handleRightControlEvent(.keyDown, keyCode: 0, flags: rightControl)
-        monitor.handleRightControlEvent(.flagsChanged, keyCode: 62, flags: [])
-        try await Task.sleep(for: .milliseconds(220))
+
+        let rightOption: CGEventFlags = [.maskAlternate, CGEventFlags(rawValue: 0x40)]
+        let rightCommand: CGEventFlags = [.maskCommand, CGEventFlags(rawValue: 0x10)]
+        let leftOption: CGEventFlags = [.maskAlternate, CGEventFlags(rawValue: 0x20)]
+        let leftCommand: CGEventFlags = [.maskCommand, CGEventFlags(rawValue: 0x08)]
+        let shortcutFlags = rightOption.union(rightCommand)
+
+        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 61, flags: [.maskControl, rightOption])
+        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 61, flags: rightOption)
+        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 55, flags: rightOption.union(leftCommand))
+        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 54, flags: rightCommand.union(leftOption))
+        try await Task.sleep(for: .milliseconds(240))
         #expect(transitions.isEmpty)
 
-        monitor.handleRightControlEvent(.flagsChanged, keyCode: 62, flags: rightControl)
-        try await Task.sleep(for: .milliseconds(220))
-        monitor.handleRightControlEvent(.leftMouseDown, keyCode: 0, flags: rightControl)
-        monitor.handleRightControlEvent(.flagsChanged, keyCode: 62, flags: [])
+        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 54, flags: shortcutFlags)
+        monitor.handleRightOptionCommandEvent(.keyDown, keyCode: 0, flags: shortcutFlags)
+        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 54, flags: rightOption)
+        try await Task.sleep(for: .milliseconds(240))
+        #expect(transitions.isEmpty)
+
+        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 54, flags: shortcutFlags)
+        try await Task.sleep(for: .milliseconds(240))
+        monitor.handleRightOptionCommandEvent(.leftMouseDown, keyCode: 0, flags: shortcutFlags)
+        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 61, flags: rightCommand)
         #expect(transitions == [.pressed, .cancelled])
 
-        monitor.handleRightControlEvent(.flagsChanged, keyCode: 62, flags: rightControl)
-        try await Task.sleep(for: .milliseconds(220))
-        monitor.handleRightControlEvent(.flagsChanged, keyCode: 62, flags: [])
+        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 61, flags: shortcutFlags)
+        try await Task.sleep(for: .milliseconds(240))
+        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 54, flags: rightOption)
+        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 61, flags: [])
         #expect(transitions == [.pressed, .cancelled, .pressed, .released])
         withExtendedLifetime(observation) { }
     }

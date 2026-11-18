@@ -685,7 +685,7 @@ extension CompanionManager {
             // must not extend this manager's lifetime past app teardown.
             shortcutPressOwnsCapture = true
             let captureMode = currentDictationTrigger.captureMode
-            let allowsSpeculativeAction = BuddyPushToTalkShortcut.currentShortcutOption != .rightControl
+            let allowsSpeculativeAction = BuddyPushToTalkShortcut.currentShortcutOption != .rightOptionCommand
                 || currentDictationTrigger != .keyboard
             pendingKeyboardShortcutStartTask = Task { [weak self] in
                 guard let self else { return }

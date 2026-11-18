@@ -99,8 +99,6 @@
 	<string>local</string>
 	<key>PrewarmMailForDrafts</key>
 	<string>false</string>
-	<key>PushToTalkShortcut</key>
-	<string>rightControl</string>
 	<key>RetrievalEmbeddingModel</key>
 	<string>text-embedding-nomic-embed-text-v1.5</string>
 	<key>SUAutomaticallyUpdate</key>
