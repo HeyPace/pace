@@ -157,6 +157,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
             return Unmanaged.passUnretained(event)
         }
 
+        guard !isSimulatedPressActive else { return Unmanaged.passUnretained(event) }
         let eventKeyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let transition = BuddyPushToTalkShortcut.shortcutTransition(
             for: eventType,

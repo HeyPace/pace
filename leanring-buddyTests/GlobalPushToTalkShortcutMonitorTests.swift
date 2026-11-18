@@ -21,6 +21,9 @@ struct GlobalPushToTalkShortcutMonitorTests {
         monitor.simulateShortcutPressed()
         monitor.recoverMissedModifierRelease(modifierFlagsRawValue: 0)
         #expect(monitor.isShortcutCurrentlyPressed && monitor.isSimulatedPressActive)
+        event.flags = [.maskShift]
+        _ = monitor.handleGlobalEventTap(eventType: .flagsChanged, event: event)
+        #expect(monitor.isShortcutCurrentlyPressed && monitor.isSimulatedPressActive && transitions == 3)
         monitor.simulateShortcutReleased()
         withExtendedLifetime(observation) { }
     }
