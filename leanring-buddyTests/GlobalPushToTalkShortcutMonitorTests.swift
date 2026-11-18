@@ -6,7 +6,7 @@ import Testing
 @MainActor
 struct GlobalPushToTalkShortcutMonitorTests {
     @Test func missedPhysicalModifierReleaseRecoversWithoutCancellingHandsFreeCapture() throws {
-        let monitor = GlobalPushToTalkShortcutMonitor()
+        let monitor = GlobalPushToTalkShortcutMonitor(shortcutOption: .controlOption)
         let event = try #require(CGEvent(source: nil))
         event.flags = [.maskControl, .maskAlternate]
         var transitions = 0
@@ -24,6 +24,40 @@ struct GlobalPushToTalkShortcutMonitorTests {
         monitor.simulateShortcutReleased()
         withExtendedLifetime(observation) { }
     }
+    @Test func functionPConsumesOnlyItsOwnKeyPairAndReleasesInEitherOrder() throws {
+        let monitor = GlobalPushToTalkShortcutMonitor(shortcutOption: .functionP)
+        let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 35, keyDown: true))
+        var transitions: [BuddyPushToTalkShortcut.ShortcutTransition] = []
+        let observation = monitor.shortcutTransitionPublisher.sink { transitions.append($0) }
+
+        #expect(monitor.handleGlobalEventTap(eventType: .keyDown, event: event) != nil)
+        event.flags = [.maskSecondaryFn]
+        event.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
+        #expect(monitor.handleGlobalEventTap(eventType: .keyDown, event: event) != nil)
+        #expect(monitor.handleGlobalEventTap(eventType: .keyUp, event: event) != nil)
+        event.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
+        event.flags = [.maskSecondaryFn, .maskCommand]
+        #expect(monitor.handleGlobalEventTap(eventType: .keyDown, event: event) != nil)
+        #expect(monitor.handleGlobalEventTap(eventType: .keyUp, event: event) != nil)
+        #expect(transitions.isEmpty)
+
+        event.flags = [.maskSecondaryFn]
+        #expect(monitor.handleGlobalEventTap(eventType: .keyDown, event: event) == nil)
+        event.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
+        #expect(monitor.handleGlobalEventTap(eventType: .keyDown, event: event) == nil)
+        event.flags = []
+        #expect(monitor.handleGlobalEventTap(eventType: .flagsChanged, event: event) != nil)
+        #expect(monitor.handleGlobalEventTap(eventType: .keyUp, event: event) == nil)
+        #expect(transitions == [.pressed, .released])
+
+        event.flags = [.maskSecondaryFn]
+        event.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
+        #expect(monitor.handleGlobalEventTap(eventType: .keyDown, event: event) == nil)
+        #expect(monitor.handleGlobalEventTap(eventType: .keyUp, event: event) == nil)
+        #expect(transitions == [.pressed, .released, .pressed, .released])
+        withExtendedLifetime(observation) { }
+    }
+
     @Test
     func simulatedPressAndReleasePublishOneBoundedTransitionPair() {
         let monitor = GlobalPushToTalkShortcutMonitor()

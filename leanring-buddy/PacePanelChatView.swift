@@ -547,7 +547,7 @@ struct PacePanelChatView: View {
             }
             HStack(spacing: 5) {
                 if companionManager.allPermissionsGranted {
-                    Text("Hold ⌃⌥ to speak")
+                    Text("Hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) to speak")
                 } else {
                     Button("Set up voice") { openVoiceSetup() }
                         .buttonStyle(.plain)

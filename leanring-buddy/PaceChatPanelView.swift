@@ -157,7 +157,7 @@ struct PaceChatPanelView: View {
     private var voiceStateDisplayText: String {
         switch companionManager.voiceState {
         case .idle:
-            return "Ready — hold ⌃⌥ to talk"
+            return "Ready — hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) to talk"
         case .listening:
             return "Listening"
         case .processing:
@@ -272,7 +272,7 @@ struct PaceChatPanelView: View {
 
     private var emptyTranscriptState: some View {
         VStack(spacing: 6) {
-            Text("Hold ⌃⌥ to talk")
+            Text("Hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) to talk")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(DS.Colors.textSecondary)
             Text("…or type below.")

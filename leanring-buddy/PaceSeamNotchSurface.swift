@@ -271,18 +271,6 @@ private struct PaceNotchButtonStyle: ButtonStyle {
     }
 }
 
-private extension BuddyPushToTalkShortcut.ShortcutOption {
-    var notchDisplayLabel: String {
-        switch self {
-        case .shiftFunction: return "⇧fn"
-        case .controlOption: return "⌃⌥"
-        case .shiftControl: return "⌃⇧"
-        case .controlOptionSpace: return "⌃⌥Space"
-        case .shiftControlSpace: return "⌃⇧Space"
-        }
-    }
-}
-
 private extension PaceNotchChatShortcut.ShortcutOption {
     var notchDisplayLabel: String {
         switch self {

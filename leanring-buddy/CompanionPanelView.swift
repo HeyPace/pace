@@ -688,7 +688,7 @@ struct CompanionPanelView: View {
     @ViewBuilder
     private var permissionsCopySection: some View {
         if companionManager.allPermissionsGranted {
-            Text("Hold Control+Option to talk.")
+            Text("Hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) to talk.")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(DS.Colors.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)

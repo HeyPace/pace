@@ -3,8 +3,7 @@
 //  leanring-buddy
 //
 //  Captures push-to-talk keyboard shortcuts while makesomething is running in the
-//  background. Uses a listen-only CGEvent tap so modifier-only shortcuts like
-//  ctrl + option behave more like a real system-wide voice tool.
+//  background. Uses a CGEvent tap for push-to-talk and consumes only the dedicated Fn+P chord.
 //
 
 import AppKit
@@ -14,6 +13,13 @@ import Foundation
 
 final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     let shortcutTransitionPublisher = PassthroughSubject<BuddyPushToTalkShortcut.ShortcutTransition, Never>()
+
+    private let shortcutOption: BuddyPushToTalkShortcut.ShortcutOption
+    private var ownsFunctionPKey = false
+
+    init(shortcutOption: BuddyPushToTalkShortcut.ShortcutOption = BuddyPushToTalkShortcut.currentShortcutOption) {
+        self.shortcutOption = shortcutOption
+    }
 
     private var globalEventTap: CFMachPort?
     private var globalEventTapRunLoopSource: CFRunLoopSource?
@@ -91,7 +97,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         guard let globalEventTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .listenOnly,
+            options: shortcutOption == .functionP ? .defaultTap : .listenOnly,
             eventsOfInterest: eventMask,
             callback: eventTapCallback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
@@ -118,6 +124,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     }
 
     func stop() {
+        ownsFunctionPKey = false
         isShortcutCurrentlyPressed = false
         isSimulatedPressActive = false
 
@@ -144,17 +151,27 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         }
 
         let eventKeyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        let isFunctionPKey = shortcutOption == .functionP && eventKeyCode == BuddyPushToTalkShortcut.functionPKeyCode
+        let isKeyRepeat = eventType == .keyDown && event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+        if isFunctionPKey, isKeyRepeat {
+            return ownsFunctionPKey ? nil : Unmanaged.passUnretained(event)
+        }
+        if isFunctionPKey, eventType == .keyDown, !isShortcutCurrentlyPressed {
+            ownsFunctionPKey = false
+        }
         let shortcutTransition = BuddyPushToTalkShortcut.shortcutTransition(
             for: eventType,
             keyCode: eventKeyCode,
             modifierFlagsRawValue: event.flags.rawValue,
-            wasShortcutPreviouslyPressed: isShortcutCurrentlyPressed
+            wasShortcutPreviouslyPressed: isShortcutCurrentlyPressed && !isSimulatedPressActive,
+            option: shortcutOption
         )
 
-        switch shortcutTransition {
+        switch isSimulatedPressActive ? .none : shortcutTransition {
         case .none:
             break
         case .pressed:
+            if isFunctionPKey { ownsFunctionPKey = true }
             isShortcutCurrentlyPressed = true
             isSimulatedPressActive = false
             shortcutTransitionPublisher.send(.pressed)
@@ -166,11 +183,16 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
             recordHardwareTransition("keyboard_released")
         }
 
+        if isFunctionPKey, ownsFunctionPKey {
+            // Keep the corresponding key-up out of the active app even if Fn was released first.
+            if eventType == .keyUp { ownsFunctionPKey = false }
+            if eventType == .keyDown || eventType == .keyUp { return nil }
+        }
         return Unmanaged.passUnretained(event)
     }
 
     private func recordHardwareTransition(_ operation: String) {
-        // Never perform file I/O inside the event tap; it must stay listen-only and fast.
+        // Never perform file I/O inside the event tap; keep keyboard dispatch fast.
         Task { @MainActor in
             PaceAPIAuditLog.shared.record(subsystem: "dictation", operation: operation,
                 target: "push-to-talk", durationMilliseconds: 0, outcome: "received",
@@ -181,7 +203,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     func recoverMissedModifierRelease(modifierFlagsRawValue: UInt64) {
         guard isShortcutCurrentlyPressed, !isSimulatedPressActive,
               BuddyPushToTalkShortcut.shortcutTransition(for: .flagsChanged, keyCode: 0,
-                modifierFlagsRawValue: modifierFlagsRawValue, wasShortcutPreviouslyPressed: true) == .released else { return }
+                modifierFlagsRawValue: modifierFlagsRawValue, wasShortcutPreviouslyPressed: true, option: shortcutOption) == .released else { return }
         isShortcutCurrentlyPressed = false
         shortcutTransitionPublisher.send(.released)
         recordHardwareTransition("keyboard_recovered_release")

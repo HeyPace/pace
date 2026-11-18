@@ -46,7 +46,7 @@ loopback-only; it never uses the selected cloud conversational tier. See
 | `LocalTTSServerModel` | `mlx-community/Kokoro-82M-bf16` | Model identifier the sidecar expects (`kokoro` for kokoro-fastapi). |
 | `LocalTTSServerVoice` | `af_heart` | Kokoro voice name. |
 | `LocalTTSServerSpeed` | `1.2` | Playback speed multiplier (0.25–4.0). |
-| `PushToTalkShortcut` | `controlOption` | One of `controlOption`, `shiftFunction`, `shiftControl`, `controlOptionSpace`, `shiftControlSpace`. Swap if another global dictation tool (e.g. Wispr Flow) is on the same key. |
+| `PushToTalkShortcut` | `functionP` (Fn+P) | One of `functionP`, `controlOption`, `shiftFunction`, `shiftControl`, `controlOptionSpace`, `shiftControlSpace`. Swap if another global dictation tool (e.g. Wispr Flow) is on the same key. |
 | `TranscriptionProvider` | `whisperKit` | Shipped default. Resolves to WhisperKit when the runtime is linked and its model is on disk, otherwise falls back to Apple Speech (`appleSpeech` / `apple` forces Apple Speech). When the key is unset the factory auto-prefers WhisperKit if the model is already installed. |
 | `PrewarmMailForDrafts` | `false` | Shipped default. Set to any value other than `false`/`0`/`no` (or remove the key) to non-activating-launch Mail at Pace startup, avoiding Mail's cold-launch tax for the streaming draft path. |
 | `LocalRetrievalFileRootPaths` | empty | Optional comma/newline-separated explicit roots for file retrieval. With no roots, File retrieval records a skipped status and does not crawl the Mac. |

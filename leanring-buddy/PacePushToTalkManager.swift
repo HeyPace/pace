@@ -15,6 +15,7 @@ import Speech
 
 enum BuddyPushToTalkShortcut {
     enum ShortcutOption {
+        case functionP
         case shiftFunction
         case controlOption
         case shiftControl
@@ -29,13 +30,15 @@ enum BuddyPushToTalkShortcut {
                 return [.control, .option]
             case .shiftControl:
                 return [.shift, .control]
-            case .controlOptionSpace, .shiftControlSpace:
+            case .functionP, .controlOptionSpace, .shiftControlSpace:
                 return nil
             }
         }
 
-        fileprivate var spaceShortcutModifierFlags: NSEvent.ModifierFlags? {
+        fileprivate var keyShortcutModifierFlags: NSEvent.ModifierFlags? {
             switch self {
+            case .functionP:
+                return [.function]
             case .shiftFunction:
                 return nil
             case .controlOption:
@@ -64,7 +67,8 @@ enum BuddyPushToTalkShortcut {
 
     /// Resolved once at app launch from Info.plist key `PushToTalkShortcut`.
     /// Accepted values (case-insensitive, hyphens/underscores ignored):
-    ///   - `controlOption`  / `ctrl+option`  / `ctrl-option`   (DEFAULT)
+    ///   - `functionP` / `fn+p` (bundled default)
+    ///   - `controlOption`  / `ctrl+option`  / `ctrl-option`
     ///   - `shiftFunction`  / `shift+fn`     / `shift-fn`
     ///   - `shiftControl`   / `shift+ctrl`   / `shift-ctrl`
     ///   - `controlOptionSpace` / `ctrl+option+space`
@@ -81,6 +85,8 @@ enum BuddyPushToTalkShortcut {
             .replacingOccurrences(of: "-", with: "")
 
         switch rawConfiguredValue {
+        case "functionp", "fn+p", "fnp":
+            return .functionP
         case "shiftfunction", "shift+fn", "shiftfn":
             return .shiftFunction
         case "shiftcontrol", "shift+ctrl", "shift+control", "shiftctrl":
@@ -96,13 +102,14 @@ enum BuddyPushToTalkShortcut {
             return .controlOption
         }
     }()
-    static let pushToTalkKeyCode: UInt16 = 49 // Space
+    static let functionPKeyCode: UInt16 = 35 // ANSI P
 
     static func shortcutTransition(
         for eventType: CGEventType,
         keyCode: UInt16,
         modifierFlagsRawValue: UInt64,
-        wasShortcutPreviouslyPressed: Bool
+        wasShortcutPreviouslyPressed: Bool,
+        option: ShortcutOption = currentShortcutOption
     ) -> ShortcutTransition {
         guard let shortcutEventType = shortcutEventType(for: eventType) else { return .none }
 
@@ -111,7 +118,8 @@ enum BuddyPushToTalkShortcut {
             keyCode: keyCode,
             modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(modifierFlagsRawValue))
                 .intersection(.deviceIndependentFlagsMask),
-            wasShortcutPreviouslyPressed: wasShortcutPreviouslyPressed
+            wasShortcutPreviouslyPressed: wasShortcutPreviouslyPressed,
+            option: option
         )
     }
 
@@ -132,9 +140,10 @@ enum BuddyPushToTalkShortcut {
         for shortcutEventType: ShortcutEventType,
         keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags,
-        wasShortcutPreviouslyPressed: Bool
+        wasShortcutPreviouslyPressed: Bool,
+        option: ShortcutOption
     ) -> ShortcutTransition {
-        if let modifierOnlyFlags = currentShortcutOption.modifierOnlyFlags {
+        if let modifierOnlyFlags = option.modifierOnlyFlags {
             guard shortcutEventType == .flagsChanged else { return .none }
 
             let isShortcutCurrentlyPressed = modifierFlags.contains(modifierOnlyFlags)
@@ -150,11 +159,20 @@ enum BuddyPushToTalkShortcut {
             return .none
         }
 
-        guard let pushToTalkModifierFlags = currentShortcutOption.spaceShortcutModifierFlags else {
+        guard let pushToTalkModifierFlags = option.keyShortcutModifierFlags else {
             return .none
         }
 
-        let matchesModifierFlags = modifierFlags.isSuperset(of: pushToTalkModifierFlags)
+        let pushToTalkKeyCode: UInt16 = option == .functionP ? functionPKeyCode : 49 // Space
+        let chordModifiers: NSEvent.ModifierFlags = [.shift, .control, .option, .command, .function]
+        let matchesModifierFlags = option == .functionP
+            ? modifierFlags.intersection(chordModifiers) == pushToTalkModifierFlags
+            : modifierFlags.isSuperset(of: pushToTalkModifierFlags)
+
+        if option == .functionP, shortcutEventType == .flagsChanged,
+           wasShortcutPreviouslyPressed, !modifierFlags.contains(.function) {
+            return .released
+        }
 
         if shortcutEventType == .keyDown
             && keyCode == pushToTalkKeyCode
@@ -170,6 +188,19 @@ enum BuddyPushToTalkShortcut {
         }
 
         return .none
+    }
+}
+
+extension BuddyPushToTalkShortcut.ShortcutOption {
+    var notchDisplayLabel: String {
+        switch self {
+        case .functionP: return "Fn+P"
+        case .shiftFunction: return "⇧fn"
+        case .controlOption: return "⌃⌥"
+        case .shiftControl: return "⌃⇧"
+        case .controlOptionSpace: return "⌃⌥Space"
+        case .shiftControlSpace: return "⌃⇧Space"
+        }
     }
 }
 

@@ -278,6 +278,7 @@ struct PaceEssentialsSettingsView: View {
 
     private var pushToTalkKeyLabels: [String] {
         switch BuddyPushToTalkShortcut.currentShortcutOption {
+        case .functionP: return ["Fn", "P"]
         case .shiftFunction: return ["⇧", "fn"]
         case .controlOption: return ["⌃", "⌥"]
         case .shiftControl: return ["⇧", "⌃"]
