@@ -53,7 +53,7 @@ enum BuddyPushToTalkShortcut {
         }
     }
 
-    enum ShortcutTransition {
+    nonisolated enum ShortcutTransition: Sendable {
         case none
         case pressed
         case released
@@ -102,7 +102,7 @@ enum BuddyPushToTalkShortcut {
             return .controlOption
         }
     }()
-    static let functionPKeyCode: UInt16 = 35 // ANSI P
+    nonisolated static let functionPKeyCode: UInt16 = 35 // ANSI P
 
     static func shortcutTransition(
         for eventType: CGEventType,
@@ -163,16 +163,9 @@ enum BuddyPushToTalkShortcut {
             return .none
         }
 
-        let pushToTalkKeyCode: UInt16 = option == .functionP ? functionPKeyCode : 49 // Space
-        let chordModifiers: NSEvent.ModifierFlags = [.shift, .control, .option, .command, .function]
-        let matchesModifierFlags = option == .functionP
-            ? modifierFlags.intersection(chordModifiers) == pushToTalkModifierFlags
-            : modifierFlags.isSuperset(of: pushToTalkModifierFlags)
-
-        if option == .functionP, shortcutEventType == .flagsChanged,
-           wasShortcutPreviouslyPressed, !modifierFlags.contains(.function) {
-            return .released
-        }
+        guard option != .functionP else { return .none }
+        let pushToTalkKeyCode: UInt16 = 49 // Space
+        let matchesModifierFlags = modifierFlags.isSuperset(of: pushToTalkModifierFlags)
 
         if shortcutEventType == .keyDown
             && keyCode == pushToTalkKeyCode

@@ -24,37 +24,41 @@ struct GlobalPushToTalkShortcutMonitorTests {
         monitor.simulateShortcutReleased()
         withExtendedLifetime(observation) { }
     }
-    @Test func functionPConsumesOnlyItsOwnKeyPairAndReleasesInEitherOrder() throws {
+    @Test func functionPConsumesOnlyItsOwnKeyPairAndReleasesInEitherOrder() {
+        var chord = PaceFunctionPChord()
+        let keyCode = BuddyPushToTalkShortcut.functionPKeyCode
+        let function: CGEventFlags = .maskSecondaryFn
+        let plain = chord.handle(.keyDown, keyCode: keyCode, flags: [], isRepeat: false)
+        #expect(!plain.consumesEvent && plain.transition == .none)
+        #expect(!chord.handle(.keyDown, keyCode: keyCode, flags: function, isRepeat: true).consumesEvent)
+        #expect(!chord.handle(.keyUp, keyCode: keyCode, flags: function, isRepeat: false).consumesEvent)
+        let command = chord.handle(.keyDown, keyCode: keyCode, flags: [function, .maskCommand], isRepeat: false)
+        #expect(!command.consumesEvent && command.transition == .none)
+        #expect(!chord.handle(.keyUp, keyCode: keyCode, flags: function, isRepeat: false).consumesEvent)
+
+        let press = chord.handle(.keyDown, keyCode: keyCode, flags: function, isRepeat: false)
+        #expect(press.consumesEvent && press.transition == .pressed)
+        let repeatPress = chord.handle(.keyDown, keyCode: keyCode, flags: function, isRepeat: true)
+        #expect(repeatPress.consumesEvent && repeatPress.transition == .none)
+        let functionRelease = chord.handle(.flagsChanged, keyCode: 63, flags: [], isRepeat: false)
+        #expect(!functionRelease.consumesEvent && functionRelease.transition == .released)
+        let pairedRelease = chord.handle(.keyUp, keyCode: keyCode, flags: [], isRepeat: false)
+        #expect(pairedRelease.consumesEvent && pairedRelease.transition == .none)
+
+        #expect(chord.handle(.keyDown, keyCode: keyCode, flags: function, isRepeat: false).transition == .pressed)
+        let keyRelease = chord.handle(.keyUp, keyCode: keyCode, flags: function, isRepeat: false)
+        #expect(keyRelease.consumesEvent && keyRelease.transition == .released)
+    }
+
+    @Test func functionPStopsHandsFreeWithoutStartingAnotherCapture() {
         let monitor = GlobalPushToTalkShortcutMonitor(shortcutOption: .functionP)
-        let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 35, keyDown: true))
         var transitions: [BuddyPushToTalkShortcut.ShortcutTransition] = []
         let observation = monitor.shortcutTransitionPublisher.sink { transitions.append($0) }
-
-        #expect(monitor.handleGlobalEventTap(eventType: .keyDown, event: event) != nil)
-        event.flags = [.maskSecondaryFn]
-        event.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
-        #expect(monitor.handleGlobalEventTap(eventType: .keyDown, event: event) != nil)
-        #expect(monitor.handleGlobalEventTap(eventType: .keyUp, event: event) != nil)
-        event.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
-        event.flags = [.maskSecondaryFn, .maskCommand]
-        #expect(monitor.handleGlobalEventTap(eventType: .keyDown, event: event) != nil)
-        #expect(monitor.handleGlobalEventTap(eventType: .keyUp, event: event) != nil)
-        #expect(transitions.isEmpty)
-
-        event.flags = [.maskSecondaryFn]
-        #expect(monitor.handleGlobalEventTap(eventType: .keyDown, event: event) == nil)
-        event.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
-        #expect(monitor.handleGlobalEventTap(eventType: .keyDown, event: event) == nil)
-        event.flags = []
-        #expect(monitor.handleGlobalEventTap(eventType: .flagsChanged, event: event) != nil)
-        #expect(monitor.handleGlobalEventTap(eventType: .keyUp, event: event) == nil)
+        monitor.simulateShortcutPressed()
+        monitor.handleFunctionPTransition(.pressed)
+        monitor.handleFunctionPTransition(.released)
         #expect(transitions == [.pressed, .released])
-
-        event.flags = [.maskSecondaryFn]
-        event.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
-        #expect(monitor.handleGlobalEventTap(eventType: .keyDown, event: event) == nil)
-        #expect(monitor.handleGlobalEventTap(eventType: .keyUp, event: event) == nil)
-        #expect(transitions == [.pressed, .released, .pressed, .released])
+        #expect(!monitor.isShortcutCurrentlyPressed && !monitor.isSimulatedPressActive)
         withExtendedLifetime(observation) { }
     }
 

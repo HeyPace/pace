@@ -15,7 +15,8 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     let shortcutTransitionPublisher = PassthroughSubject<BuddyPushToTalkShortcut.ShortcutTransition, Never>()
 
     private let shortcutOption: BuddyPushToTalkShortcut.ShortcutOption
-    private var ownsFunctionPKey = false
+    private var functionPThread: Thread?
+    private var functionPTapGeneration = UUID()
 
     init(shortcutOption: BuddyPushToTalkShortcut.ShortcutOption = BuddyPushToTalkShortcut.currentShortcutOption) {
         self.shortcutOption = shortcutOption
@@ -62,6 +63,10 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     }
 
     func start() {
+        if shortcutOption == .functionP {
+            startFunctionPTap()
+            return
+        }
         // If the event tap is already running, don't restart it.
         // Restarting resets isShortcutCurrentlyPressed, which would kill
         // the waveform overlay mid-press when the permission poller calls
@@ -97,7 +102,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         guard let globalEventTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: shortcutOption == .functionP ? .defaultTap : .listenOnly,
+            options: .listenOnly,
             eventsOfInterest: eventMask,
             callback: eventTapCallback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
@@ -124,7 +129,9 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     }
 
     func stop() {
-        ownsFunctionPKey = false
+        functionPTapGeneration = UUID()
+        functionPThread?.cancel()
+        functionPThread = nil
         isShortcutCurrentlyPressed = false
         isSimulatedPressActive = false
 
@@ -151,44 +158,67 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         }
 
         let eventKeyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
-        let isFunctionPKey = shortcutOption == .functionP && eventKeyCode == BuddyPushToTalkShortcut.functionPKeyCode
-        let isKeyRepeat = eventType == .keyDown && event.getIntegerValueField(.keyboardEventAutorepeat) != 0
-        if isFunctionPKey, isKeyRepeat {
-            return ownsFunctionPKey ? nil : Unmanaged.passUnretained(event)
-        }
-        if isFunctionPKey, eventType == .keyDown, !isShortcutCurrentlyPressed {
-            ownsFunctionPKey = false
-        }
-        let shortcutTransition = BuddyPushToTalkShortcut.shortcutTransition(
+        let transition = BuddyPushToTalkShortcut.shortcutTransition(
             for: eventType,
             keyCode: eventKeyCode,
             modifierFlagsRawValue: event.flags.rawValue,
-            wasShortcutPreviouslyPressed: isShortcutCurrentlyPressed && !isSimulatedPressActive,
+            wasShortcutPreviouslyPressed: isShortcutCurrentlyPressed,
             option: shortcutOption
         )
+        publishHardwareTransition(transition)
+        return Unmanaged.passUnretained(event)
+    }
 
-        switch isSimulatedPressActive ? .none : shortcutTransition {
+    private func startFunctionPTap() {
+        guard functionPThread == nil else { return }
+        let generation = functionPTapGeneration
+        let tap = PaceFunctionPEventTap { [weak self] transition in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.functionPTapGeneration == generation else { return }
+                self.handleFunctionPTransition(transition)
+            }
+        }
+        let thread = Thread { [weak self] in
+            if !tap.run() {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.functionPTapGeneration == generation else { return }
+                    self.functionPThread = nil
+                    print("⚠️ Global push-to-talk: couldn't create Fn+P event tap")
+                }
+            }
+        }
+        thread.name = "Pace Fn+P event tap"
+        thread.qualityOfService = .userInteractive
+        functionPThread = thread
+        thread.start()
+    }
+
+    func handleFunctionPTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
+        if isSimulatedPressActive {
+            // Pressing the physical shortcut ends an existing hands-free capture.
+            if transition == .pressed { simulateShortcutReleased() }
+            return
+        }
+        publishHardwareTransition(transition)
+    }
+
+    private func publishHardwareTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
+        switch transition {
         case .none:
             break
         case .pressed:
-            if isFunctionPKey { ownsFunctionPKey = true }
+            guard !isShortcutCurrentlyPressed else { return }
             isShortcutCurrentlyPressed = true
             isSimulatedPressActive = false
             shortcutTransitionPublisher.send(.pressed)
             recordHardwareTransition("keyboard_pressed")
         case .released:
+            guard isShortcutCurrentlyPressed else { return }
             isShortcutCurrentlyPressed = false
             isSimulatedPressActive = false
             shortcutTransitionPublisher.send(.released)
             recordHardwareTransition("keyboard_released")
         }
-
-        if isFunctionPKey, ownsFunctionPKey {
-            // Keep the corresponding key-up out of the active app even if Fn was released first.
-            if eventType == .keyUp { ownsFunctionPKey = false }
-            if eventType == .keyDown || eventType == .keyUp { return nil }
-        }
-        return Unmanaged.passUnretained(event)
     }
 
     private func recordHardwareTransition(_ operation: String) {
