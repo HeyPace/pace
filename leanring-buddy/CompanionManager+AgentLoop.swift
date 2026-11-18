@@ -1439,7 +1439,7 @@ extension CompanionManager {
         }
     }
 
-    private func cancelConversationCapture() {
+    func cancelConversationCapture() {
         pendingKeyboardShortcutStartTask?.cancel()
         pendingKeyboardShortcutStartTask = nil
         wakeWordListeningWindowReleaseTask?.cancel()

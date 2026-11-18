@@ -27,6 +27,32 @@ struct GlobalPushToTalkShortcutMonitorTests {
         monitor.simulateShortcutReleased()
         withExtendedLifetime(observation) { }
     }
+    @Test func rightControlHoldCancelsForOtherInputAndReleasesWhenUsedAlone() async throws {
+        let monitor = GlobalPushToTalkShortcutMonitor(shortcutOption: .rightControl)
+        var transitions: [BuddyPushToTalkShortcut.ShortcutTransition] = []
+        let observation = monitor.shortcutTransitionPublisher.sink { transitions.append($0) }
+        let rightControl = CGEventFlags(rawValue: CGEventFlags.maskControl.rawValue | 0x2000)
+        let leftControl = CGEventFlags(rawValue: CGEventFlags.maskControl.rawValue | 0x0001)
+        monitor.handleRightControlEvent(.flagsChanged, keyCode: 59, flags: leftControl)
+        monitor.handleRightControlEvent(.flagsChanged, keyCode: 62, flags: rightControl)
+        monitor.handleRightControlEvent(.keyDown, keyCode: 0, flags: rightControl)
+        monitor.handleRightControlEvent(.flagsChanged, keyCode: 62, flags: [])
+        try await Task.sleep(for: .milliseconds(220))
+        #expect(transitions.isEmpty)
+
+        monitor.handleRightControlEvent(.flagsChanged, keyCode: 62, flags: rightControl)
+        try await Task.sleep(for: .milliseconds(220))
+        monitor.handleRightControlEvent(.leftMouseDown, keyCode: 0, flags: rightControl)
+        monitor.handleRightControlEvent(.flagsChanged, keyCode: 62, flags: [])
+        #expect(transitions == [.pressed, .cancelled])
+
+        monitor.handleRightControlEvent(.flagsChanged, keyCode: 62, flags: rightControl)
+        try await Task.sleep(for: .milliseconds(220))
+        monitor.handleRightControlEvent(.flagsChanged, keyCode: 62, flags: [])
+        #expect(transitions == [.pressed, .cancelled, .pressed, .released])
+        withExtendedLifetime(observation) { }
+    }
+
     @Test func functionPConsumesOnlyItsOwnKeyPairAndReleasesInEitherOrder() {
         var chord = PaceFunctionPChord()
         let keyCode = BuddyPushToTalkShortcut.functionPKeyCode
@@ -123,6 +149,7 @@ struct GlobalPushToTalkShortcutMonitorTests {
         case .none: "none"
         case .pressed: "pressed"
         case .released: "released"
+        case .cancelled: "cancelled"
         }
     }
 }

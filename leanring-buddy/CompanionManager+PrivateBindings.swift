@@ -683,6 +683,8 @@ extension CompanionManager {
             // captures in the escaping draft/submit closures below — the task
             // must not extend this manager's lifetime past app teardown.
             let captureMode = currentDictationTrigger.captureMode
+            let allowsSpeculativeAction = BuddyPushToTalkShortcut.currentShortcutOption != .rightControl
+                || currentDictationTrigger != .keyboard
             pendingKeyboardShortcutStartTask = Task { [weak self] in
                 guard let self else { return }
                 await self.buddyDictationManager.startDictation(
@@ -728,7 +730,7 @@ extension CompanionManager {
                         self.responseOverlayManager.updateStreamingText(finalTranscript)
                         self.sendTranscriptToPlannerWithScreenshot(transcript: finalTranscript)
                     },
-                    speculativeFastAction: { [weak self] stablePartial in
+                    speculativeFastAction: allowsSpeculativeAction ? { [weak self] stablePartial in
                         Task { @MainActor [weak self] in
                             guard let self else { return }
                             print("⚡️ Speculative fast-action triggered: \(stablePartial)")
@@ -740,7 +742,7 @@ extension CompanionManager {
                             // the normal path uses, but before PTT release.
                             self.handleSpeculativeFastAction(transcript: stablePartial)
                         }
-                    }
+                    } : nil
                 )
             }
         case .released:
@@ -777,6 +779,13 @@ extension CompanionManager {
             case .captured: break
             }
             scheduleTranscriptSafetyFallback()
+        case .cancelled:
+            ignoresRejectedPracticeShortcutRelease = false
+            cancelConversationCapture()
+            resetCaptureTranscriptFeedback()
+            responseOverlayManager.finishStreaming()
+            voiceState = .idle
+            currentTurnHUDState = .idle
         case .none:
             break
         }

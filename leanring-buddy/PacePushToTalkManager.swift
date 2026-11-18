@@ -15,6 +15,7 @@ import Speech
 
 enum BuddyPushToTalkShortcut {
     enum ShortcutOption {
+        case rightControl
         case functionP
         case shiftFunction
         case controlOption
@@ -30,7 +31,7 @@ enum BuddyPushToTalkShortcut {
                 return [.control, .option]
             case .shiftControl:
                 return [.shift, .control]
-            case .functionP, .controlOptionSpace, .shiftControlSpace:
+            case .rightControl, .functionP, .controlOptionSpace, .shiftControlSpace:
                 return nil
             }
         }
@@ -39,7 +40,7 @@ enum BuddyPushToTalkShortcut {
             switch self {
             case .functionP:
                 return [.function]
-            case .shiftFunction:
+            case .rightControl, .shiftFunction:
                 return nil
             case .controlOption:
                 return nil
@@ -57,6 +58,7 @@ enum BuddyPushToTalkShortcut {
         case none
         case pressed
         case released
+        case cancelled
     }
 
     private enum ShortcutEventType {
@@ -67,7 +69,8 @@ enum BuddyPushToTalkShortcut {
 
     /// Resolved once at app launch from Info.plist key `PushToTalkShortcut`.
     /// Accepted values (case-insensitive, hyphens/underscores ignored):
-    ///   - `functionP` / `fn+p` (bundled default)
+    ///   - `rightControl` / `rightctrl` (bundled default)
+    ///   - `functionP` / `fn+p`
     ///   - `controlOption`  / `ctrl+option`  / `ctrl-option`
     ///   - `shiftFunction`  / `shift+fn`     / `shift-fn`
     ///   - `shiftControl`   / `shift+ctrl`   / `shift-ctrl`
@@ -85,6 +88,8 @@ enum BuddyPushToTalkShortcut {
             .replacingOccurrences(of: "-", with: "")
 
         switch rawConfiguredValue {
+        case "rightcontrol", "rightctrl":
+            return .rightControl
         case "functionp", "fn+p", "fnp":
             return .functionP
         case "shiftfunction", "shift+fn", "shiftfn":
@@ -187,6 +192,7 @@ enum BuddyPushToTalkShortcut {
 extension BuddyPushToTalkShortcut.ShortcutOption {
     var notchDisplayLabel: String {
         switch self {
+        case .rightControl: return "Right Control"
         case .functionP: return "Fn+P"
         case .shiftFunction: return "⇧fn"
         case .controlOption: return "⌃⌥"
