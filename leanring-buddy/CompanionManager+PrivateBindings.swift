@@ -539,6 +539,7 @@ extension CompanionManager {
     func handleShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
         switch transition {
         case .pressed:
+            shortcutPressOwnsCapture = false
             revealRequestFeedback()
             guard !buddyDictationManager.isDictationInProgress else { return }
             currentRequestStartedAt = Date()
@@ -682,6 +683,7 @@ extension CompanionManager {
             // Capture self weakly in the outer task so it matches the weak
             // captures in the escaping draft/submit closures below — the task
             // must not extend this manager's lifetime past app teardown.
+            shortcutPressOwnsCapture = true
             let captureMode = currentDictationTrigger.captureMode
             let allowsSpeculativeAction = BuddyPushToTalkShortcut.currentShortcutOption != .rightControl
                 || currentDictationTrigger != .keyboard
@@ -746,6 +748,7 @@ extension CompanionManager {
                 )
             }
         case .released:
+            shortcutPressOwnsCapture = false
             PaceAPIAuditLog.shared.record(subsystem: "dictation", operation: "input_released",
                 target: String(describing: currentDictationTrigger), durationMilliseconds: 0, outcome: "received",
                 detail: "pid=\(ProcessInfo.processInfo.processIdentifier)")
@@ -781,11 +784,13 @@ extension CompanionManager {
             scheduleTranscriptSafetyFallback()
         case .cancelled:
             ignoresRejectedPracticeShortcutRelease = false
+            guard shortcutPressOwnsCapture else { return }
             cancelConversationCapture()
             resetCaptureTranscriptFeedback()
             responseOverlayManager.finishStreaming()
             voiceState = .idle
             currentTurnHUDState = .idle
+            if isWalkingAvatarEnabled { avatarOverlayManager?.show() }
         case .none:
             break
         }

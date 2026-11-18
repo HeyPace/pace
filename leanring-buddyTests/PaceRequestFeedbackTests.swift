@@ -67,6 +67,8 @@ struct PaceRequestFeedbackTests {
         #expect(manager.currentRequestStartedAt == nil)
         #expect(manager.currentTurnHUDState.status == .failed)
         #expect(!manager.buddyDictationManager.isDictationInProgress)
+        manager.handleShortcutTransition(.cancelled)
+        #expect(manager.currentTurnHUDState.status == .failed)
         withExtendedLifetime(observation) { }
     }
 

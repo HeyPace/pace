@@ -931,6 +931,7 @@ final class CompanionManager: ObservableObject {
         }
     }
     var currentDictationTrigger: DictationTrigger = .keyboard
+    var shortcutPressOwnsCapture = false
 
     /// Auto-releases the synthetic PTT press created after a wake-word
     /// detection. The wake detector never sends its own transcript to the
