@@ -15,7 +15,7 @@ import Speech
 
 enum BuddyPushToTalkShortcut {
     enum ShortcutOption {
-        case rightOptionCommand
+        case rightOption
         case functionP
         case shiftFunction
         case controlOption
@@ -31,7 +31,7 @@ enum BuddyPushToTalkShortcut {
                 return [.control, .option]
             case .shiftControl:
                 return [.shift, .control]
-            case .rightOptionCommand, .functionP, .controlOptionSpace, .shiftControlSpace:
+            case .rightOption, .functionP, .controlOptionSpace, .shiftControlSpace:
                 return nil
             }
         }
@@ -40,7 +40,7 @@ enum BuddyPushToTalkShortcut {
             switch self {
             case .functionP:
                 return [.function]
-            case .rightOptionCommand, .shiftFunction:
+            case .rightOption, .shiftFunction:
                 return nil
             case .controlOption:
                 return nil
@@ -67,7 +67,7 @@ enum BuddyPushToTalkShortcut {
         case keyUp
     }
 
-    static let currentShortcutOption: ShortcutOption = .rightOptionCommand
+    static let currentShortcutOption: ShortcutOption = .rightOption
     nonisolated static let functionPKeyCode: UInt16 = 35 // ANSI P
 
     static func shortcutTransition(
@@ -153,7 +153,7 @@ enum BuddyPushToTalkShortcut {
 extension BuddyPushToTalkShortcut.ShortcutOption {
     var notchDisplayLabel: String {
         switch self {
-        case .rightOptionCommand: return "Right ⌥ + Right ⌘"
+        case .rightOption: return "Right ⌥"
         case .functionP: return "Fn+P"
         case .shiftFunction: return "⇧fn"
         case .controlOption: return "⌃⌥"

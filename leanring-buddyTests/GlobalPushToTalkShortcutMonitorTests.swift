@@ -27,42 +27,45 @@ struct GlobalPushToTalkShortcutMonitorTests {
         monitor.simulateShortcutReleased()
         withExtendedLifetime(observation) { }
     }
-    @Test func defaultShortcutStartsOnlyForRightOptionAndRightCommand() async throws {
-        #expect(BuddyPushToTalkShortcut.currentShortcutOption == .rightOptionCommand)
+    @Test func rightOptionAloneTriggersListeningAndOtherInputCancels() async throws {
+        #expect(BuddyPushToTalkShortcut.currentShortcutOption == .rightOption)
         let monitor = GlobalPushToTalkShortcutMonitor()
         var transitions: [BuddyPushToTalkShortcut.ShortcutTransition] = []
         let observation = monitor.shortcutTransitionPublisher.sink { transitions.append($0) }
 
         let rightOption: CGEventFlags = [.maskAlternate, CGEventFlags(rawValue: 0x40)]
-        let rightCommand: CGEventFlags = [.maskCommand, CGEventFlags(rawValue: 0x10)]
         let leftOption: CGEventFlags = [.maskAlternate, CGEventFlags(rawValue: 0x20)]
-        let leftCommand: CGEventFlags = [.maskCommand, CGEventFlags(rawValue: 0x08)]
-        let shortcutFlags = rightOption.union(rightCommand)
+        let rightCommand: CGEventFlags = [.maskCommand, CGEventFlags(rawValue: 0x10)]
 
-        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 61, flags: [.maskControl, rightOption])
-        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 61, flags: rightOption)
-        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 55, flags: rightOption.union(leftCommand))
-        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 54, flags: rightCommand.union(leftOption))
+        monitor.handleRightOptionEvent(.flagsChanged, keyCode: 58, flags: leftOption)
+        monitor.handleRightOptionEvent(.flagsChanged, keyCode: 54, flags: rightCommand)
+        monitor.handleRightOptionEvent(.flagsChanged, keyCode: 61, flags: rightOption.union(rightCommand))
+        monitor.handleRightOptionEvent(.flagsChanged, keyCode: 61, flags: [.maskControl, rightOption])
         try await Task.sleep(for: .milliseconds(240))
         #expect(transitions.isEmpty)
 
-        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 54, flags: shortcutFlags)
-        monitor.handleRightOptionCommandEvent(.keyDown, keyCode: 0, flags: shortcutFlags)
-        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 54, flags: rightOption)
+        monitor.handleRightOptionEvent(.flagsChanged, keyCode: 61, flags: rightOption)
+        monitor.handleRightOptionEvent(.keyDown, keyCode: 0, flags: rightOption)
         try await Task.sleep(for: .milliseconds(240))
         #expect(transitions.isEmpty)
 
-        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 54, flags: shortcutFlags)
+        monitor.handleRightOptionEvent(.flagsChanged, keyCode: 61, flags: rightOption)
         try await Task.sleep(for: .milliseconds(240))
-        monitor.handleRightOptionCommandEvent(.leftMouseDown, keyCode: 0, flags: shortcutFlags)
-        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 61, flags: rightCommand)
+        monitor.handleRightOptionEvent(.leftMouseDown, keyCode: 0, flags: rightOption)
+        monitor.handleRightOptionEvent(.flagsChanged, keyCode: 61, flags: [])
         #expect(transitions == [.pressed, .cancelled])
 
-        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 61, flags: shortcutFlags)
+        monitor.handleRightOptionEvent(.flagsChanged, keyCode: 61, flags: rightOption)
         try await Task.sleep(for: .milliseconds(240))
-        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 54, flags: rightOption)
-        monitor.handleRightOptionCommandEvent(.flagsChanged, keyCode: 61, flags: [])
+        monitor.handleRightOptionEvent(.flagsChanged, keyCode: 61, flags: [])
         #expect(transitions == [.pressed, .cancelled, .pressed, .released])
+
+        monitor.handleRightOptionEvent(.flagsChanged, keyCode: 61, flags: rightOption)
+        try await Task.sleep(for: .milliseconds(240))
+        monitor.recoverMissedModifierRelease(modifierFlagsRawValue: rightOption.rawValue)
+        #expect(monitor.isShortcutCurrentlyPressed)
+        monitor.recoverMissedModifierRelease(modifierFlagsRawValue: leftOption.rawValue)
+        #expect(transitions == [.pressed, .cancelled, .pressed, .released, .pressed, .released])
         withExtendedLifetime(observation) { }
     }
 

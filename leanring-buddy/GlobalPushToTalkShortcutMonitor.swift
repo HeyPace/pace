@@ -15,7 +15,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     let shortcutTransitionPublisher = PassthroughSubject<BuddyPushToTalkShortcut.ShortcutTransition, Never>()
 
     private let shortcutOption: BuddyPushToTalkShortcut.ShortcutOption
-    private var rightOptionCommandHoldTask: Task<Void, Never>?
+    private var rightOptionHoldTask: Task<Void, Never>?
     private var functionPThread: Thread?
     private var functionPTapGeneration = UUID()
 
@@ -81,7 +81,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         }
 
         var monitoredEventTypes: [CGEventType] = [.flagsChanged, .keyDown, .keyUp]
-        if shortcutOption == .rightOptionCommand {
+        if shortcutOption == .rightOption {
             monitoredEventTypes += [.leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
         }
         let eventMask = monitoredEventTypes.reduce(CGEventMask(0)) { currentMask, eventType in
@@ -133,7 +133,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     }
 
     func stop() {
-        cancelPendingRightOptionCommandHold()
+        cancelPendingRightOptionHold()
         functionPTapGeneration = UUID()
         functionPThread?.cancel()
         functionPThread = nil
@@ -163,8 +163,8 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         }
 
         guard !isSimulatedPressActive else { return Unmanaged.passUnretained(event) }
-        if shortcutOption == .rightOptionCommand {
-            handleRightOptionCommandEvent(eventType, keyCode: UInt16(event.getIntegerValueField(.keyboardEventKeycode)),
+        if shortcutOption == .rightOption {
+            handleRightOptionEvent(eventType, keyCode: UInt16(event.getIntegerValueField(.keyboardEventKeycode)),
                 flags: event.flags)
             return Unmanaged.passUnretained(event)
         }
@@ -180,42 +180,41 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         return Unmanaged.passUnretained(event)
     }
 
-    // Side-specific NX_DEVICE masks and kVK_RightOption / kVK_RightCommand from the macOS SDK.
-    private static let rightOptionCommandFlags: CGEventFlags = [
-        .maskAlternate, .maskCommand, CGEventFlags(rawValue: 0x40), CGEventFlags(rawValue: 0x10),
-    ]
+    // NX_DEVICERALTKEYMASK, NX_DEVICELALTKEYMASK and kVK_RightOption from the macOS SDK.
+    private static let rightOptionFlags: CGEventFlags = [.maskAlternate, CGEventFlags(rawValue: 0x40)]
     private static let excludedModifiers: CGEventFlags = [
-        .maskControl, .maskShift, .maskSecondaryFn, CGEventFlags(rawValue: 0x20), CGEventFlags(rawValue: 0x08),
+        .maskControl, .maskShift, .maskCommand, .maskSecondaryFn, CGEventFlags(rawValue: 0x20),
     ]
+    private static let rightOptionKeyCode: UInt16 = 61
 
-    func handleRightOptionCommandEvent(_ type: CGEventType, keyCode: UInt16, flags: CGEventFlags) {
-        let isShortcutKeyEvent = type == .flagsChanged && (keyCode == 0x3D || keyCode == 0x36)
+    func handleRightOptionEvent(_ type: CGEventType, keyCode: UInt16, flags: CGEventFlags) {
+        let isShortcutKeyEvent = type == .flagsChanged && keyCode == Self.rightOptionKeyCode
         if !flags.intersection(Self.excludedModifiers).isEmpty ||
             [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel].contains(type) {
-            cancelPendingRightOptionCommandHold()
+            cancelPendingRightOptionHold()
             publishHardwareTransition(.cancelled)
             return
         }
         guard isShortcutKeyEvent else { return }
-        guard flags.contains(Self.rightOptionCommandFlags) else {
-            cancelPendingRightOptionCommandHold()
+        guard flags.contains(Self.rightOptionFlags) else {
+            cancelPendingRightOptionHold()
             publishHardwareTransition(.released)
             return
         }
-        guard !isShortcutCurrentlyPressed, rightOptionCommandHoldTask == nil else { return }
+        guard !isShortcutCurrentlyPressed, rightOptionHoldTask == nil else { return }
         // Let normal key combinations arrive before opening the microphone.
-        rightOptionCommandHoldTask = Task { [weak self] in
+        rightOptionHoldTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
             guard let self, !Task.isCancelled else { return }
-            self.rightOptionCommandHoldTask = nil
+            self.rightOptionHoldTask = nil
             guard !self.isSimulatedPressActive else { return }
             self.publishHardwareTransition(.pressed)
         }
     }
 
-    private func cancelPendingRightOptionCommandHold() {
-        rightOptionCommandHoldTask?.cancel()
-        rightOptionCommandHoldTask = nil
+    private func cancelPendingRightOptionHold() {
+        rightOptionHoldTask?.cancel()
+        rightOptionHoldTask = nil
     }
 
     private func startFunctionPTap() {
@@ -280,10 +279,10 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     }
 
     func recoverMissedModifierRelease(modifierFlagsRawValue: UInt64) {
-        if shortcutOption == .rightOptionCommand {
+        if shortcutOption == .rightOption {
             let flags = CGEventFlags(rawValue: modifierFlagsRawValue)
-            guard !isSimulatedPressActive, !flags.contains([.maskAlternate, .maskCommand]) else { return }
-            cancelPendingRightOptionCommandHold()
+            guard !isSimulatedPressActive, !flags.contains(Self.rightOptionFlags) else { return }
+            cancelPendingRightOptionHold()
             publishHardwareTransition(.released)
             return
         }

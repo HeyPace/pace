@@ -6,7 +6,7 @@
 
 ## What Pace is
 
-Pace is a macOS menu-bar voice agent. It lives entirely in the menu-bar/notch surface (no dock icon, no main window). Hold Right Option + Right Command, speak, and Pace transcribes on-device, optionally reads the screen with a local VLM, plans with the selected reasoner, streams TTS, and (with `EnableActions=true`) executes approved macOS actions. Audio, transcription, speech, and storage remain on-device. Planning can use an explicitly selected and consented Codex/cloud backend; off-device turns must be disclosed and audited. The owner prioritizes a usable agent over requiring local planning.
+Pace is a macOS menu-bar voice agent. It lives entirely in the menu-bar/notch surface (no dock icon, no main window). Hold Right Option, speak, and Pace transcribes on-device, optionally reads the screen with a local VLM, plans with the selected reasoner, streams TTS, and (with `EnableActions=true`) executes approved macOS actions. Audio, transcription, speech, and storage remain on-device. Planning can use an explicitly selected and consented Codex/cloud backend; off-device turns must be disclosed and audited. The owner prioritizes a usable agent over requiring local planning.
 
 ## Critical constraints (read first)
 
