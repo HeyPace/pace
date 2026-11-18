@@ -220,7 +220,7 @@ struct PaceConversationsView: View {
                 .foregroundStyle(DS.Colors.textPrimary)
             Text(
                 searchQuery.isEmpty
-                    ? "Type below or hold Control + Option anywhere to talk."
+                    ? "Type below or hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) anywhere to talk."
                     : "Try a shorter phrase or clear the search."
             )
             .font(DS.Typography.callout)

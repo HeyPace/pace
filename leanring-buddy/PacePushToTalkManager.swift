@@ -153,7 +153,7 @@ enum BuddyPushToTalkShortcut {
 extension BuddyPushToTalkShortcut.ShortcutOption {
     var notchDisplayLabel: String {
         switch self {
-        case .rightOption: return "Right ⌥"
+        case .rightOption: return "Right Option"
         case .functionP: return "Fn+P"
         case .shiftFunction: return "⇧fn"
         case .controlOption: return "⌃⌥"
