@@ -69,6 +69,19 @@ struct PaceConversationRecorderTests {
         return (manager, persister, client)
     }
 
+    @Test func acceptedVoiceRequestReplacesTheLiveDraftBeforeTheReply() {
+        let (manager, persister, _) = makeDismissalFixture()
+        let transcript = "Show me the next step"
+        manager.liveSpeechDraft = transcript
+
+        manager.beginConversationRequest(transcript)
+
+        #expect(manager.liveSpeechDraft.isEmpty)
+        let userMessages = manager.chatSession.messages.filter { $0.role == .user }
+        #expect(userMessages.map(\.body) == [transcript])
+        #expect(persister.events.values.filter { $0.role == .user }.count == 1)
+    }
+
     final class ExplanationAutoCloseSleepGate {
         var requestedDurations: [Duration] = []
         var continuations: [CheckedContinuation<Void, Never>] = []

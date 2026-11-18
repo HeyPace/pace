@@ -338,10 +338,8 @@ extension CompanionManager {
         let recognizedText = captured.recognizedText.isEmpty ? liveSpeechDraft : captured.recognizedText
         if !recognizedText.isEmpty {
             liveSpeechDraft = recognizedText
-            responseOverlayManager.updateStreamingText(recognizedText)
-        } else {
-            responseOverlayManager.updateStreamingText("Audio captured")
         }
+        responseOverlayManager.updateStreamingText("Audio captured")
     }
 
     func finishCaptureTranscriptFeedback() {
@@ -511,7 +509,7 @@ extension CompanionManager {
                     _ = PaceAPIAuditLog.shared.beginTurn()
                     PaceAnalytics.trackUserMessageSent(transcript: rescuedPartial)
                     self.currentTurnHUDState = .understanding("classifying intent")
-                    self.responseOverlayManager.updateStreamingText(rescuedPartial)
+                    self.responseOverlayManager.updateStreamingText("Heard you")
                     self.sendTranscriptToPlannerWithScreenshot(transcript: rescuedPartial)
                     return
                 }
@@ -701,7 +699,6 @@ extension CompanionManager {
                         guard !trimmedPartial.isEmpty else { return }
                         self?.lastPartialTranscriptFromActiveDictation = trimmedPartial
                         self?.liveSpeechDraft = trimmedPartial
-                        self?.responseOverlayManager.updateStreamingText(trimmedPartial)
                     },
                     submitDraftText: { [weak self] finalTranscript in
                         guard let self else { return }
@@ -709,10 +706,6 @@ extension CompanionManager {
                         // safety timer skips its cleanup pass.
                         self.transcriptArrivedSinceRelease = true
                         self.lastTranscript = finalTranscript
-                        // Keep the live user bubble showing the final
-                        // transcript through the turn; recordConversationTurn
-                        // clears it when the committed message lands.
-                        self.liveSpeechDraft = finalTranscript
                         _ = PaceAPIAuditLog.shared.beginTurn()
                         print("🗣️ Companion received transcript: \(finalTranscript)")
                         // Record STT latency: PTT press → final transcript.
@@ -729,7 +722,7 @@ extension CompanionManager {
                         PaceLatencyBudget.shared.mark(.sttComplete)
                         PaceAnalytics.trackUserMessageSent(transcript: finalTranscript)
                         self.currentTurnHUDState = .understanding("Heard you · Working…")
-                        self.responseOverlayManager.updateStreamingText(finalTranscript)
+                        self.responseOverlayManager.updateStreamingText("Heard you")
                         self.sendTranscriptToPlannerWithScreenshot(transcript: finalTranscript)
                     },
                     speculativeFastAction: allowsSpeculativeAction ? { [weak self] stablePartial in

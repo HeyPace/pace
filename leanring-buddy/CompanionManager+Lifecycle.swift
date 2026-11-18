@@ -189,7 +189,7 @@ extension CompanionManager {
         currentTurnHUDState = .understanding("Message received · Working…")
         responseOverlayManager.setAnchor(.belowRightOfCursor)
         responseOverlayManager.showOverlayAndBeginStreaming()
-        responseOverlayManager.updateStreamingText(transcript)
+        responseOverlayManager.updateStreamingText("Message received")
 
         // Stamp intent-commit now so TTFSW latency logging stays meaningful
         // for deeplink turns (there is no PTT release to stamp it).

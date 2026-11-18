@@ -55,6 +55,8 @@ extension CompanionManager {
         if typedEventIdentifier == nil, activeConversationScreenSuggestionContext != nil {
             chatSession.acknowledgeScreenSuggestions()
         }
+        // The accepted message replaces the provisional voice row immediately.
+        liveSpeechDraft = ""
         activeConversationUserEvent = acceptConversationRequest(transcript,
             origin: typedEventIdentifier == nil ? .voice : .typed,
             eventIdentifier: typedEventIdentifier ?? UUID().uuidString)
