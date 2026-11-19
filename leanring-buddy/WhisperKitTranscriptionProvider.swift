@@ -111,6 +111,7 @@ final class WhisperKitTranscriptionProvider: BuddyTranscriptionProvider {
     nonisolated static func decodeFinalCapture(
         _ audio: [Float], options: DecodingOptions,
         containsSpeech: ([Float]) throws -> Bool,
+        confirmsAmplifiedSpeech: ([Float]) throws -> Bool,
         decode: ([Float], DecodingOptions) async throws -> String
     ) async throws -> String {
         guard !audio.isEmpty else { return "" }
@@ -125,7 +126,7 @@ final class WhisperKitTranscriptionProvider: BuddyTranscriptionProvider {
             guard peak >= 0.001, peak < 0.12 else { return "" }
             let gain = min(8, 0.12 / peak)
             let amplifiedAudio = audio.map { $0 * gain }
-            guard try containsSpeech(amplifiedAudio) else { return "" }
+            guard try confirmsAmplifiedSpeech(amplifiedAudio) else { return "" }
             speechAudio = amplifiedAudio
         }
         try Task.checkCancellation()
@@ -224,9 +225,9 @@ private final class WhisperKitRuntimeCache: @unchecked Sendable {
 }
 
 private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSession {
-    /// Final pass on a full PTT utterance runs ~9x realtime on ANE; 30s of
-    /// audio decodes in ~3.5s. Leave headroom before the caller's fallback.
-    let finalTranscriptFallbackDelaySeconds: TimeInterval = 6
+    /// Leave time for a second decode when the first returns no words.
+    /// CompanionManager's independent 12-second watchdog still bounds waiting.
+    let finalTranscriptFallbackDelaySeconds: TimeInterval = 8
 
     private static let targetSampleRate = 16_000.0
     private static let partialCadenceSeconds = 1.2
@@ -338,7 +339,12 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
     private func transcribeFinalCapture(_ audio: [Float]) async throws -> String {
         let startedAt = Date()
         let transcript = try await WhisperKitTranscriptionProvider.decodeFinalCapture(
-            audio, options: decodingOptions, containsSpeech: PaceSileroSpeechDetector.containsSpeech
+            audio, options: decodingOptions,
+            containsSpeech: { try PaceSileroSpeechDetector.containsSpeech(in: $0) },
+            confirmsAmplifiedSpeech: {
+                try PaceSileroSpeechDetector.containsSpeech(in: $0, minimumProbability: 0.6,
+                    minimumConsecutiveFrames: 3)
+            }
         ) { [pipeline] acceptedAudio, options in
             try await Self.decode(acceptedAudio, pipeline: pipeline, options: options)
         }

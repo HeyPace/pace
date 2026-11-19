@@ -35,6 +35,9 @@ struct PaceWhisperVocabularyTests {
         let result = try await WhisperKitTranscriptionProvider.decodeFinalCapture(
             quietAudio, options: options, containsSpeech: { audio in
                 detectorInputs.append(audio)
+                return false
+            }, confirmsAmplifiedSpeech: { audio in
+                detectorInputs.append(audio)
                 return (audio.first ?? 0) > 0.01
             }, decode: { audio, options in
                 #expect(audio == detectorInputs.last)
@@ -54,12 +57,50 @@ struct PaceWhisperVocabularyTests {
         for audio in [Array(repeating: Float(0), count: 5), [0.005, -0.005]] {
             var decoderCalls = 0
             let result = try await WhisperKitTranscriptionProvider.decodeFinalCapture(
-                audio, options: options, containsSpeech: { _ in false }, decode: { _, _ in
+                audio, options: options, containsSpeech: { _ in false }, confirmsAmplifiedSpeech: { _ in false }, decode: { _, _ in
                     decoderCalls += 1
                     return "Unexpected words"
                 }
             )
             #expect(result.isEmpty && decoderCalls == 0)
+        }
+    }
+
+    @Test func realSpeechDetectorRejectsAmplifiedBackgroundNoise() async throws {
+        var noiseGenerator: UInt32 = 47
+        let quietNoise: [Float] = (0..<32_000).map { _ in
+            noiseGenerator = noiseGenerator &* 1_664_525 &+ 1_013_904_223
+            return (Float(noiseGenerator) / Float(UInt32.max) - 0.5) * 0.02
+        }
+        let options = WhisperKitTranscriptionProvider.decodingOptions(languageMode: .english, contextualPromptTokens: [12])
+        var decoderCalls = 0
+        let result = try await WhisperKitTranscriptionProvider.decodeFinalCapture(
+            quietNoise, options: options,
+            containsSpeech: { try PaceSileroSpeechDetector.containsSpeech(in: $0) },
+            confirmsAmplifiedSpeech: {
+                try PaceSileroSpeechDetector.containsSpeech(in: $0, minimumProbability: 0.6,
+                    minimumConsecutiveFrames: 3)
+            },
+            decode: { _, _ in decoderCalls += 1; return "Unexpected words" }
+        )
+        #expect(result.isEmpty && decoderCalls == 0)
+    }
+
+    @Test func finalCaptureKeepsSuccessfulTextAndSkipsRetryWithoutVocabulary() async throws {
+        for (tokens, transcript) in [([12], "Next command"), ([], "")] {
+            let options = WhisperKitTranscriptionProvider.decodingOptions(
+                languageMode: .automaticJapaneseEnglish, contextualPromptTokens: tokens)
+            var decoderCalls = 0
+            let result = try await WhisperKitTranscriptionProvider.decodeFinalCapture(
+                [0.02], options: options, containsSpeech: { _ in true },
+                confirmsAmplifiedSpeech: { _ in false },
+                decode: { _, options in
+                    decoderCalls += 1
+                    #expect(options.language == nil && options.detectLanguage)
+                    return transcript
+                }
+            )
+            #expect(result == transcript && decoderCalls == 1)
         }
     }
 
