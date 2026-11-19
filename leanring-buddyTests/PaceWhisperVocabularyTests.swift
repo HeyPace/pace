@@ -1,3 +1,5 @@
+import AVFoundation
+import Foundation
 import Testing
 @preconcurrency import WhisperKit
 @testable import Pace
@@ -59,5 +61,34 @@ struct PaceWhisperVocabularyTests {
             )
             #expect(result.isEmpty && decoderCalls == 0)
         }
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["PACE_OSS_AUDIO_INTEGRATION"] == "1"),
+          .timeLimit(.minutes(1)))
+    func quietSpeechSurvivesTheStreamingFinalizer() async throws {
+        let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/pace-command-speech.wav")
+        let samples = try PaceAudioFileTranscriber.decodeAudioToMonoFloatSamplesAt16kHz(fileURL: file)
+        let peak = try #require(samples.map(abs).max())
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)))
+        let channel = try #require(buffer.floatChannelData?.pointee)
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        for sampleIndex in samples.indices {
+            channel[sampleIndex] = samples[sampleIndex] * (0.025 / peak)
+        }
+
+        let (transcripts, continuation) = AsyncThrowingStream.makeStream(of: String.self)
+        let session = try await WhisperKitTranscriptionProvider().startStreamingSession(
+            contextualPhrases: ["Pace"], onTranscriptUpdate: { _ in },
+            onFinalTranscriptReady: { text in continuation.yield(text); continuation.finish() },
+            onError: { continuation.finish(throwing: $0) }
+        )
+        defer { session.cancel() }
+        session.appendAudioBuffer(buffer)
+        session.requestFinalTranscript()
+        var received = transcripts.makeAsyncIterator()
+        let finalTranscript = try #require(try await received.next())
+        #expect(finalTranscript.lowercased().contains("next command"))
     }
 }
