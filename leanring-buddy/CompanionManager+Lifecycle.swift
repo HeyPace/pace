@@ -27,8 +27,9 @@ extension CompanionManager {
     }
 
     func handleMicrophoneButtonTapped() {
+        revealRequestFeedback()
         guard !buddyDictationManager.isFinalizingTranscript else {
-            revealRequestFeedback()
+            currentTurnHUDState = .understanding("Transcribing…")
             return
         }
         if buddyDictationManager.isDictationInProgress || globalPushToTalkShortcutMonitor.isSimulatedPressActive {
@@ -76,20 +77,16 @@ extension CompanionManager {
         globalPushToTalkShortcutMonitor.simulateShortcutPressed()
     }
 
-    /// Entry point for the in-window chat surface. Snapshots the chat
-    /// session's mute flag for THIS turn, then forwards to the same
-    /// pipeline as the `pace://chat` deeplink so chat and voice share
-    /// one planning + execution path. Doing the snapshot here (not
-    /// inside the pipeline) keeps the mute decision tied to the moment
-    /// of submission — toggling mute mid-stream affects the NEXT turn.
+    /// The composer sends a text turn. Voice capture enters the same
+    /// planning pipeline with speech enabled.
     func submitChatTranscriptFromChatSession(
         _ transcript: String,
         optimisticMessageIdentifier: String
     ) {
-        isChatModeMutedForCurrentTurn = chatSession.isChatTTSMuted
         submitChatTranscript(
             transcript,
-            optimisticMessageIdentifier: optimisticMessageIdentifier
+            optimisticMessageIdentifier: optimisticMessageIdentifier,
+            shouldMuteTTS: true
         )
     }
 
@@ -98,17 +95,18 @@ extension CompanionManager {
     /// retrieval injection, and — critically — the same action-approval
     /// policy, so a deeplink can do nothing the user's own voice couldn't.
     func submitChatTranscriptFromDeepLink(_ transcript: String) {
-        submitChatTranscript(transcript, optimisticMessageIdentifier: nil)
+        submitChatTranscript(transcript, optimisticMessageIdentifier: nil, shouldMuteTTS: true)
     }
 
     func submitScreenSuggestionRequest(_ transcript: String, suggestion: PaceScreenSuggestion) {
-        isChatModeMutedForCurrentTurn = chatSession.isChatTTSMuted
-        submitChatTranscript(transcript, optimisticMessageIdentifier: nil, screenSuggestionContext: .notification(suggestion))
+        submitChatTranscript(transcript, optimisticMessageIdentifier: nil,
+            shouldMuteTTS: chatSession.isChatTTSMuted, screenSuggestionContext: .notification(suggestion))
     }
 
     private func submitChatTranscript(
         _ transcript: String,
         optimisticMessageIdentifier: String?,
+        shouldMuteTTS: Bool,
         screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
     ) {
         revealRequestFeedback()
@@ -116,11 +114,10 @@ extension CompanionManager {
             eventIdentifier: optimisticMessageIdentifier ?? UUID().uuidString)
         let queuedTurn = PaceQueuedChatTurn(
             transcript: transcript,
-            shouldMuteTTS: isChatModeMutedForCurrentTurn,
+            shouldMuteTTS: shouldMuteTTS,
             optimisticMessageIdentifier: acceptedEvent.eventID,
             screenSuggestionContext: screenSuggestionContext ?? screenSuggestionCoordinator.followUpSuggestion(for: transcript).map(PaceScreenSuggestionRequestContext.followUp)
         )
-        isChatModeMutedForCurrentTurn = false
 
         // A permission prompt can suspend meeting startup. Its stop command
         // must cancel that lifecycle rather than queue behind the pending start.
@@ -130,7 +127,7 @@ extension CompanionManager {
             cancelActiveTurnTasks()
             pendingTypedConversationEventIdentifier = acceptedEvent.eventID
             beginConversationRequest(transcript)
-            isChatModeMutedForCurrentTurn = queuedTurn.shouldMuteTTS
+            streamingSentenceTTSPipeline.setMutedForCurrentTurn(queuedTurn.shouldMuteTTS)
             handleMeetingModeCommand(.stop, transcript: transcript)
             return
         }
@@ -167,11 +164,6 @@ extension CompanionManager {
         // New turn began — hide the reply-replay button so it doesn't
         // linger past the next push-to-talk press.
         clearLastSpokenReplyState()
-        // Apply the chat-mode mute snapshot for this turn AFTER reset
-        // (reset clears the pipeline's flag). When the deeplink path
-        // is hit directly the snapshot is false, matching voice-turn
-        // behaviour. Clear the manager-side flag immediately after so
-        // subsequent voice turns can never inherit a stale mute.
         streamingSentenceTTSPipeline.setMutedForCurrentTurn(queuedTurn.shouldMuteTTS)
         clearDetectedElementLocation()
 
@@ -293,7 +285,18 @@ extension CompanionManager {
         imageOverlayController.onWillGenerate = { [weak self] in
             imageGenerationTurnLease = self?.turnLeaseRegistry.currentLease
             self?.diagramOverlayController.hideForImageReplacement()
-            NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+        }
+        imageOverlayController.onDidGenerate = { [weak self] artifact in
+            guard let self else { return }
+            do {
+                try PaceGeneratedImageStore.saveChatPreview(of: artifact)
+                self.recordAssistantNarration(artifact.request.title, eventIdentifier: "image-" + artifact.id.uuidString,
+                    turnIdentifier: self.activeConversationUserEvent?.eventID, recordsDerivedMemory: false,
+                    generatedImagePreviewID: artifact.id)
+            } catch {
+                PaceAPIAuditLog.shared.record(subsystem: "images", operation: "chat_preview",
+                    target: "local", durationMilliseconds: 0, outcome: "failed")
+            }
         }
         imageOverlayController.onGenerationProgress = { [weak self] message in
             self?.currentTurnHUDState = .acting(message)
@@ -309,7 +312,7 @@ extension CompanionManager {
             guard let self else { return }
             let eventIdentifier = UUID().uuidString
             diagramRequestIdentifiers.insert(eventIdentifier)
-            self.submitChatTranscript(transcript, optimisticMessageIdentifier: eventIdentifier)
+            self.submitChatTranscript(transcript, optimisticMessageIdentifier: eventIdentifier, shouldMuteTTS: self.chatSession.isChatTTSMuted)
         }
     }
 

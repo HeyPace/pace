@@ -9,6 +9,7 @@ final class PaceImageOverlayController: ObservableObject {
     private(set) var dismissalGeneration = 0
     var authorizationCheck: () -> Bool = { false }
     var onWillGenerate: (() -> Void)?
+    var onDidGenerate: ((PaceGeneratedImageArtifact) -> Void)?
     var onGenerationProgress: ((String) -> Void)?
     var onUserDismissed: (() -> Void)?
     private let discardArtifact: (PaceGeneratedImageArtifact) -> Void
@@ -160,6 +161,7 @@ final class PaceImageOverlayController: ObservableObject {
             if let previous, previous.id != artifact.id { discardWorkingArtifactIfUnsaved(previous) }
             lastSuccessfulArtifact = artifact
             state = .ready(artifact)
+            onDidGenerate?(artifact)
             return "Your image is ready: \(request.title)."
         } catch {
             guard generationIdentifier == identifier, dismissalGeneration == expectedDismissalGeneration else {

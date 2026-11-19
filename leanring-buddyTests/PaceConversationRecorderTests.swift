@@ -82,6 +82,34 @@ struct PaceConversationRecorderTests {
         #expect(persister.events.values.filter { $0.role == .user }.count == 1)
     }
 
+    @Test func persistedImagePreviewRemainsAttachedWhenHistoryReloads() throws {
+        let (persister, session, recorder) = makeFixture()
+        let identifier = UUID()
+        let event = ConversationEvent(role: .pace, origin: .assistant, text: "A lighthouse",
+            generatedImagePreviewID: identifier)
+        let reloaded = try JSONDecoder().decode(ConversationEvent.self, from: JSONEncoder().encode(event))
+        recorder.record(reloaded)
+        session.applyLoadedHistory(persister.loadPastTurnsOldestFirst())
+        #expect(session.messages.count == 1)
+        let message = try #require(session.messages.first)
+        #expect(PaceChatTranscriptModel.messageRowModel(fromChatMessage: message).generatedImagePreviewID == identifier)
+    }
+
+    @Test func typedComposerTurnsQueueAndStartWithAutomaticSpeechMuted() {
+        let (manager, _, _) = makeDismissalFixture()
+        manager.voiceState = .responding
+        manager.submitChatTranscriptFromChatSession("First", optimisticMessageIdentifier: "first")
+        #expect(manager.chatTurnQueue.pendingTurns.first?.shouldMuteTTS == true)
+        manager.clearQueuedChatTurns()
+        manager.isOverlayVisible = true
+        manager.responseOverlayManager.setAnnotationsEnabled(false)
+        manager.voiceState = .idle
+        manager.submitChatTranscriptFromChatSession("Second", optimisticMessageIdentifier: "second")
+        #expect(manager.streamingSentenceTTSPipeline.isMutedForCurrentTurn)
+        #expect(manager.currentTurnHUDState.detail?.contains("Message received") == true)
+        manager.cancelActiveTurnTasks()
+    }
+
     final class ExplanationAutoCloseSleepGate {
         var requestedDurations: [Duration] = []
         var continuations: [CheckedContinuation<Void, Never>] = []

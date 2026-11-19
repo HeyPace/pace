@@ -147,6 +147,51 @@ nonisolated enum PaceGeneratedImageStore {
             .appendingPathComponent("Pace/GeneratedImages", isDirectory: true)
     }
 
+    private static var chatPreviewDirectory: URL {
+        defaultDirectory.appendingPathComponent("ChatPreviews", isDirectory: true)
+    }
+
+    static func saveChatPreview(of artifact: PaceGeneratedImageArtifact, in directory: URL = chatPreviewDirectory) throws {
+        let verifiedImage = try validatedImageData(at: artifact.fileURL)
+        guard let source = CGImageSourceCreateWithData(verifiedImage.data as CFData, nil),
+              let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 640,
+              ] as CFDictionary),
+              let data = CFDataCreateMutable(nil, 0),
+              let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil)
+        else { throw PaceImageGenerationError.invalidArtifact }
+        CGImageDestinationAddImage(destination, thumbnail, nil)
+        guard CGImageDestinationFinalize(destination) else { throw PaceImageGenerationError.invalidArtifact }
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
+        let descriptor = openWithoutSymlinkParents(directory, isDirectory: true)
+        guard descriptor >= 0 else { throw PaceImageGenerationError.invalidArtifact }
+        defer { close(descriptor) }
+        try (data as Data).write(to: chatPreviewURL(for: artifact.id, in: directory), options: .atomic)
+    }
+
+    static func chatPreviewData(for identifier: UUID, in directory: URL = chatPreviewDirectory) -> Data? {
+        try? validatedImageData(at: chatPreviewURL(for: identifier, in: directory)).data
+    }
+
+    static func clearChatPreviews(in directory: URL = chatPreviewDirectory) {
+        let descriptor = openWithoutSymlinkParents(directory, isDirectory: true)
+        guard descriptor >= 0 else { return }
+        defer { close(descriptor) }
+        // Only remove previews created by the chat store. Ignore unexpected files.
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return }
+        for name in names where name.hasSuffix(".png") && UUID(uuidString: String(name.dropLast(4))) != nil {
+            unlinkat(descriptor, name, 0)
+        }
+    }
+
+    private static func chatPreviewURL(for identifier: UUID, in directory: URL) -> URL {
+        directory.appendingPathComponent(identifier.uuidString + ".png", isDirectory: false)
+    }
+
     private static func openWithoutSymlinkParents(_ url: URL, isDirectory: Bool) -> Int32 {
         // Foundation canonicalizes /private/var back to /var on macOS. Keep
         // POSIX's actual path for descriptor traversal without allowing a

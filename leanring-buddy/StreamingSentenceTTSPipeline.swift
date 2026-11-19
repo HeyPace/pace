@@ -160,9 +160,8 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         inFlightStreamedText = ""
     }
 
-    /// Sets the per-turn mute flag. Called by `CompanionManager` right
-    /// before a chat-mode turn dispatches into the planner so the
-    /// session's `isChatTTSMuted` value gates audio for THIS turn only.
+    /// Sets the automatic speech policy for this turn. The next turn
+    /// gets its own policy when the streaming pipeline resets.
     func setMutedForCurrentTurn(_ isMutedForCurrentTurn: Bool) {
         self.isMutedForCurrentTurn = isMutedForCurrentTurn
     }

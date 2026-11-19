@@ -42,6 +42,7 @@ nonisolated struct PaceChatTranscriptMessageRowModel: Identifiable, Equatable {
     var origin: ConversationEvent.Origin? = nil
     var originalResponse: String? = nil
     var deliveryState: ConversationEvent.DeliveryState? = nil
+    var generatedImagePreviewID: UUID? = nil
 
     var submissionReceipt: String? {
         guard author == .user, origin == .typed else { return nil }
@@ -176,7 +177,8 @@ nonisolated enum PaceChatTranscriptModel {
             turnIdentifier: chatMessage.turnIdentifier ?? chatMessage.persistedTurnIdentifier,
             origin: chatMessage.origin,
             originalResponse: displayedBodyText(forChatMessage: chatMessage) == chatMessage.body ? nil : chatMessage.body,
-            deliveryState: chatMessage.deliveryState
+            deliveryState: chatMessage.deliveryState,
+            generatedImagePreviewID: chatMessage.generatedImagePreviewID
         )
     }
 

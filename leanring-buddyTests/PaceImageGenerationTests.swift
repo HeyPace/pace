@@ -132,6 +132,21 @@ struct PaceImageGenerationTests {
                 from: #"{"type":"item.completed","item":{"type":"agent_message","text":"/tmp/image.png"}}"#) == nil)
     }
 
+    @Test func chatPreviewSurvivesRemovalOfTheWorkingImageAndClearsSeparately() throws {
+        let root = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workingImage = root.appendingPathComponent("result.png")
+        let previews = root.appendingPathComponent("previews", isDirectory: true)
+        try Self.writePNG(to: workingImage)
+        let artifact = PaceGeneratedImageArtifact(id: UUID(), fileURL: workingImage, width: 2, height: 2, request: Self.request)
+
+        try PaceGeneratedImageStore.saveChatPreview(of: artifact, in: previews)
+        try FileManager.default.removeItem(at: workingImage)
+        #expect(PaceGeneratedImageStore.chatPreviewData(for: artifact.id, in: previews) != nil)
+        PaceGeneratedImageStore.clearChatPreviews(in: previews)
+        #expect(PaceGeneratedImageStore.chatPreviewData(for: artifact.id, in: previews) == nil)
+    }
+
     @Test func importsThreadPNGWithoutTextResponseAndPreservesPrivateCopy() throws {
         let root = try Self.directory()
         defer { try? FileManager.default.removeItem(at: root) }

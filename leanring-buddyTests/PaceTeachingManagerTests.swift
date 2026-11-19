@@ -108,7 +108,6 @@ struct PaceTeachingManagerTests {
     }
     private func startTextTurn(_ manager: CompanionManager, muted: Bool, remoteID: String? = nil,
                                transcript: String = "Explain next-token training") {
-        manager.isChatModeMutedForCurrentTurn = false
         manager.streamingSentenceTTSPipeline.setMutedForCurrentTurn(muted)
         manager.activePacePadTurnIdentifier = remoteID
         manager.beginConversationRequest(transcript)

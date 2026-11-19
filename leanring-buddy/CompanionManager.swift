@@ -328,12 +328,6 @@ final class CompanionManager: ObservableObject {
         return PaceChatSessionSubmitterAdapter(owner: self)
     }()
 
-    /// Per-turn flag set by `submitChatTranscriptFromChatSession` to the
-    /// session's `isChatTTSMuted` snapshot at submission time. The
-    /// streaming pipeline reads it through `setMutedForCurrentTurn`
-    /// every turn boundary; we don't store this anywhere persistent.
-    var isChatModeMutedForCurrentTurn: Bool = false
-
     /// Classifies the user's transcript into pureKnowledge /
     /// screenDescription / screenAction / chitchat so the pipeline
     /// can skip work the turn doesn't need. Chitchat bypasses the

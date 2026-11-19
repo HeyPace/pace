@@ -8,6 +8,7 @@ struct PaceDialogueMessageView: View {
     var onReplay: (PaceSpeechRequest) -> Void = { _ in }
     @State private var showsJapaneseOriginal = false
     @State private var showsOriginalResponse = false
+    @State private var generatedImagePreview: NSImage?
 
     private var isFromUser: Bool { message.author == .user }
 
@@ -26,6 +27,14 @@ struct PaceDialogueMessageView: View {
                     .foregroundStyle(isFromUser ? DS.Colors.textSecondary : DS.Colors.textPrimary.opacity(0.94))
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
+                if let generatedImagePreview {
+                    Image(nsImage: generatedImagePreview)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 360, maxHeight: 260, alignment: .leading)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .accessibilityLabel("Generated image: " + message.bodyText)
+                }
                 if let receipt = message.submissionReceipt {
                     Label(receipt, systemImage: receipt == "Sent" ? "checkmark" : "xmark")
                         .font(.system(size: 10, weight: .medium))
@@ -78,6 +87,15 @@ struct PaceDialogueMessageView: View {
         .frame(maxWidth: .infinity, alignment: isFromUser ? .trailing : .leading)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(isFromUser ? "You" : "Pace")
+        .task(id: message.generatedImagePreviewID) {
+            generatedImagePreview = nil
+            guard let identifier = message.generatedImagePreviewID else { return }
+            let previewData = await Task.detached(priority: .utility) {
+                PaceGeneratedImageStore.chatPreviewData(for: identifier)
+            }.value
+            guard !Task.isCancelled, let previewData else { return }
+            generatedImagePreview = NSImage(data: previewData)
+        }
     }
 
     private func speechControls(_ speechRequest: PaceSpeechRequest) -> some View {

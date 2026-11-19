@@ -164,7 +164,7 @@ extension CompanionManager {
     }
 
     func speakStandardNarration(_ text: String) async throws {
-        guard conversationLanguageMode == .standard else { return }
+        guard conversationLanguageMode == .standard, !streamingSentenceTTSPipeline.isMutedForCurrentTurn else { return }
         try await ttsClient.speakText(text)
     }
 

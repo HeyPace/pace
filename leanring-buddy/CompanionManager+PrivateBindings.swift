@@ -589,6 +589,7 @@ extension CompanionManager {
             // starts fresh — without this, the diff tracker would think
             // half of the previous reply had already been queued.
             streamingSentenceTTSPipeline.resetForNewTurn()
+            streamingSentenceTTSPipeline.setMutedForCurrentTurn(chatSession.isChatTTSMuted)
             clearLastSpokenReplyState()
             clearDetectedElementLocation()
 

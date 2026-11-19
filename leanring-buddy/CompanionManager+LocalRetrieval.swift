@@ -340,6 +340,7 @@ extension CompanionManager {
 
     func clearLocalRetrievalSource(_ source: PaceRetrievalSource) {
         localRetriever.clearDocuments(forSource: source)
+        if source == .paceHistory { PaceGeneratedImageStore.clearChatPreviews() }
         if source == .screenWatchHistory {
             screenWatchNoteCoordinator.invalidate()
             syncConnectorsIntoUnifiedMemory()

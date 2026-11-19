@@ -125,9 +125,11 @@ extension CompanionManager {
                                   eventIdentifier: String = UUID().uuidString,
                                   turnIdentifier: String? = nil, recordedAt: Date = Date(),
                                   plannerContext: String = "", recordsDerivedMemory: Bool = true,
-                                  speechRequest: PaceSpeechRequest? = nil) -> String {
+                                  speechRequest: PaceSpeechRequest? = nil,
+                                  generatedImagePreviewID: UUID? = nil) -> String {
         let event = ConversationEvent(eventID: eventIdentifier, turnID: turnIdentifier,
-            role: .pace, origin: origin, text: text, createdAt: recordedAt, speechRequest: speechRequest)
+            role: .pace, origin: origin, text: text, createdAt: recordedAt, speechRequest: speechRequest,
+            generatedImagePreviewID: generatedImagePreviewID)
         let isNewEvent = conversationRecorder.event(withIdentifier: eventIdentifier) == nil
         conversationRecorder.record(event)
         if recordsDerivedMemory, recordsDerivedConversationMemory, isNewEvent && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

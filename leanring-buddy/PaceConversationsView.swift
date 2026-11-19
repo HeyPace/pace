@@ -94,8 +94,8 @@ struct PaceConversationsView: View {
         return headerIconButton(
             systemName: isMuted ? "speaker.slash" : "speaker.wave.2",
             help: isMuted
-                ? "Replies are silent this session. Unmute Pace."
-                : "Pace speaks replies. Mute this session."
+                ? "Voice replies are muted. Unmute Pace."
+                : "Pace speaks after voice input. Mute voice replies."
         ) {
             chatSession.isChatTTSMuted.toggle()
         }
