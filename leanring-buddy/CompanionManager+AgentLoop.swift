@@ -1687,6 +1687,12 @@ extension CompanionManager {
             return
         }
 
+        if PacePowerCommandParser.asksWhatPaceCanBuildAndInstall(transcript) {
+            handleImmediateLocalModeResponse(transcript: transcript,
+                spokenText: "With a planner enabled, Add a Power can create and install a reusable animation or interactive card without a Pace update. Say or type something like: “Add a Power called Juggling Girl that shows an SVG juggling loop when I say show me the juggling girl.” Pace can draw a new loop or show existing local media. It needs an image-to-video tool to animate the original artwork.")
+            return
+        }
+
         if let powerCommand = PacePowerCommandParser.parse(transcript, isKnownSavedPowerName: managedPowerStore.hasExactSavedPowerName) {
             await handlePowerCommand(powerCommand, transcript: transcript)
             return
@@ -1838,6 +1844,11 @@ extension CompanionManager {
         }
 
         let hasActiveImage = imageOverlayController.lastSuccessfulArtifact != nil
+        if PaceImageGenerationRequest.requestsAnimationOfExistingImage(transcript, hasActiveImage: hasActiveImage) {
+            handleImmediateLocalModeResponse(transcript: transcript,
+                spokenText: "I can draw a new animation inspired by the illustration. To animate the original artwork while keeping its look, I’d need an image-to-video tool. Would you like a new illustrated loop?")
+            return
+        }
         let requestsGeneratedImage = PaceImageGenerationRequest.requestsImage(
             transcript, hasActiveImage: hasActiveImage)
         let imageNeedsScreenContext =

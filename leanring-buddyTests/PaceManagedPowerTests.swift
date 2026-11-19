@@ -27,6 +27,17 @@ struct PaceManagedPowerTests {
             ])
     }
 
+    @Test func installationCapabilityQuestionDoesNotStartCreatingAPower() {
+        for text in ["What can you build and install?", "What can Pace build and install for animations?",
+                     "what can u build and install immediatley"] {
+            #expect(PacePowerCommandParser.asksWhatPaceCanBuildAndInstall(text))
+            #expect(PacePowerCommandParser.parse(text) == nil)
+        }
+        let request = "Add a Power called Juggling Girl that shows a juggling loop"
+        #expect(!PacePowerCommandParser.asksWhatPaceCanBuildAndInstall(request))
+        #expect(PacePowerCommandParser.parse(request) == .add("called Juggling Girl that shows a juggling loop"))
+    }
+
     @Test func speechRequestStrictlyValidatesTheBoundedProfileContract() {
         #expect(PaceSpeechRequest.parse(arguments: ["text": .string("hello")]) == .init(text: "hello"))
         #expect(PaceSpeechRequest.parse(arguments: ["text": .string("こんにちは。"), "profile": .string("japanese_female")])

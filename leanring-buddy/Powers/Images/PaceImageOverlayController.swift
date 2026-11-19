@@ -95,7 +95,7 @@ final class PaceImageOverlayController: ObservableObject {
 
             <active_pace_image>
             The user is viewing a Pace-generated raster image. Description data: \(context)
-            For requested edits call generate_image with edit:true and the precise change. Pace attaches only this image. For a new subject use edit:false and a complete brief. The image cannot rotate or expose physical 3D parts. Do not claim to see unrelated screen content.
+            For requested edits call generate_image with edit:true and the precise change. Pace attaches only this image. For a new subject use edit:false and a complete brief. The image cannot rotate or expose physical 3D parts. Pace has no image-to-video tool for this artwork. An SVG animation is a new vector drawing. If the user asks to animate this artwork, explain that distinction and ask before substituting a redraw. Do not claim to see unrelated screen content.
             </active_pace_image>
             """
     }

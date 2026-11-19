@@ -37,6 +37,21 @@ struct PaceImageGenerationTests {
             request: .init(prompt: "A blue mug", title: title))
     }
 
+    @Test func onlyAnExistingImageAnimationRequestNeedsAnImageToVideoCapability() {
+        for phrase in ["animate this image", "turn the original illustration into a video", "can you animate my artwork?"] {
+            #expect(PaceImageGenerationRequest.requestsAnimationOfExistingImage(phrase, hasActiveImage: false))
+        }
+        for phrase in ["animate it", "make it move", "i want an animation"] {
+            #expect(PaceImageGenerationRequest.requestsAnimationOfExistingImage(phrase, hasActiveImage: true))
+            #expect(!PaceImageGenerationRequest.requestsAnimationOfExistingImage(phrase, hasActiveImage: false))
+        }
+        for phrase in ["draw a new SVG animation of a person juggling", "animate the chart",
+                       "Add a Power that shows a bouncing ball", "make the image brighter",
+                       "i want an animation of an astronaut"] {
+            #expect(!PaceImageGenerationRequest.requestsAnimationOfExistingImage(phrase, hasActiveImage: true))
+        }
+    }
+
     @Test func typedRequestRequiresBoundedPromptAndTitleAndBooleanEdit() throws {
         let valid: [String: PaceMCPJSONValue] = [
             "prompt": .string("A mug"), "title": .string("Mug"), "edit": .bool(true),

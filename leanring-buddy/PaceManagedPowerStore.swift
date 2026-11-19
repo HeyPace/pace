@@ -8,6 +8,12 @@ nonisolated enum PacePowerCommand: Equatable {
 }
 
 nonisolated enum PacePowerCommandParser {
+    static func asksWhatPaceCanBuildAndInstall(_ transcript: String) -> Bool {
+        let pattern = #"^what\s+can\s+(?:you|u|pace)\s+build\s+and\s+install(?:\s+(?:now|right now|immediately|immediatley))?(?:\s+for\s+animations?)?[.!?]*$"#
+        let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.range(of: pattern, options: [.caseInsensitive, .regularExpression]) != nil
+    }
+
     static func parse(_ transcript: String, isKnownSavedPowerName: (String) -> Bool = { _ in false }) -> PacePowerCommand? {
         var text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         for _ in 0..<2 {

@@ -88,6 +88,21 @@ nonisolated struct PaceImageGenerationRequest: Codable, Equatable, Sendable {
                 == nil
     }
 
+    static func requestsAnimationOfExistingImage(_ transcript: String, hasActiveImage: Bool) -> Bool {
+        let normalized = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let introduction = #"^(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?"#
+        let existingImage = #"(?:this|that|the|the original|the generated|my)\s+(?:image|illustration|picture|photo|artwork)"#
+        let explicitPattern = introduction + #"(?:animate\s+"# + existingImage
+            + #"\b|(?:turn|make)\s+"# + existingImage
+            + #"\s+(?:(?:in)?to|as)\s+(?:an?\s+)?(?:animation|video|gif|loop)\b)"#
+        if normalized.range(of: explicitPattern, options: .regularExpression) != nil { return true }
+
+        guard hasActiveImage else { return false }
+        let contextualPattern = introduction
+            + #"(?:animate\s+(?:it|this|that)|make\s+(?:it|this|that)\s+move|(?:i\s+want\s+|make\s+(?:me\s+)?|create\s+(?:me\s+)?)an?\s+animation)[.!?]*$"#
+        return normalized.range(of: contextualPattern, options: .regularExpression) != nil
+    }
+
     static func requestsDismissal(_ transcript: String) -> Bool {
         [
             "close image", "close the image", "hide image", "hide the image", "dismiss image", "dismiss the image",
