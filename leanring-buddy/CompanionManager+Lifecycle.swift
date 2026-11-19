@@ -286,10 +286,11 @@ extension CompanionManager {
             imageGenerationTurnLease = self?.turnLeaseRegistry.currentLease
             self?.diagramOverlayController.hideForImageReplacement()
         }
-        imageOverlayController.onDidGenerate = { [weak self] artifact in
+        imageOverlayController.onDidGenerate = { [weak self] artifact, previewData in
             guard let self else { return }
             do {
-                try PaceGeneratedImageStore.saveChatPreview(of: artifact)
+                guard let previewData else { throw PaceImageGenerationError.invalidArtifact }
+                try PaceGeneratedImageStore.saveChatPreview(previewData, identifier: artifact.id)
                 self.recordAssistantNarration(artifact.request.title, eventIdentifier: "image-" + artifact.id.uuidString,
                     turnIdentifier: self.activeConversationUserEvent?.eventID, recordsDerivedMemory: false,
                     generatedImagePreviewID: artifact.id)
@@ -312,7 +313,8 @@ extension CompanionManager {
             guard let self else { return }
             let eventIdentifier = UUID().uuidString
             diagramRequestIdentifiers.insert(eventIdentifier)
-            self.submitChatTranscript(transcript, optimisticMessageIdentifier: eventIdentifier, shouldMuteTTS: self.chatSession.isChatTTSMuted)
+            self.submitChatTranscript(transcript, optimisticMessageIdentifier: eventIdentifier,
+                shouldMuteTTS: self.chatSession.isChatTTSMuted)
         }
     }
 

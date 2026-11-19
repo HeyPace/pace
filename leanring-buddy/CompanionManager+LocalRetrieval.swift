@@ -589,6 +589,7 @@ extension CompanionManager {
 
     func resetLocalRetrievalIndex() {
         localRetriever.resetIndex(preservePreferences: true)
+        PaceGeneratedImageStore.clearChatPreviews()
         screenWatchNoteCoordinator.invalidate()
         syncConnectorsIntoUnifiedMemory()
         refreshFileRetrievalDocumentsIfAllowed(force: true)

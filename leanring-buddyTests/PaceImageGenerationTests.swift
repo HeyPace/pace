@@ -140,7 +140,8 @@ struct PaceImageGenerationTests {
         try Self.writePNG(to: workingImage)
         let artifact = PaceGeneratedImageArtifact(id: UUID(), fileURL: workingImage, width: 2, height: 2, request: Self.request)
 
-        try PaceGeneratedImageStore.saveChatPreview(of: artifact, in: previews)
+        let previewData = try PaceGeneratedImageStore.makeChatPreview(of: artifact)
+        try PaceGeneratedImageStore.saveChatPreview(previewData, identifier: artifact.id, in: previews)
         try FileManager.default.removeItem(at: workingImage)
         #expect(PaceGeneratedImageStore.chatPreviewData(for: artifact.id, in: previews) != nil)
         PaceGeneratedImageStore.clearChatPreviews(in: previews)

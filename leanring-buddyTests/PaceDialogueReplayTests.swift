@@ -213,25 +213,28 @@ struct PaceDialogueReplayTests {
         #expect(persister.events.count == originalEvents)
     }
 
-    @Test func bothMutePathsAndBusyTurnPreventReplayAudioAndHistory() async throws {
+    @Test func sessionMuteAndBusyTurnPreventReplayWhileAutomaticMuteAllowsExplicitReplay() async throws {
         let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
         defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
         PacePowerManagerTests().begin("A question", manager: manager)
         let originalMessages = manager.chatSession.messages
         let originalEvents = persister.events.count
         let request = PaceSpeechRequest(text: "こんにちは。", profile: .japaneseFemale, englishSubtitle: "Hello.")
-        for sessionMute in [true, false] {
-            manager.chatSession.isChatTTSMuted = sessionMute
-            manager.streamingSentenceTTSPipeline.setMutedForCurrentTurn(!sessionMute)
-            #expect(!manager.canReplayChatSpeech)
-            manager.replayChatSpeech(request)
-            await manager.currentResponseTask?.value
-        }
-        manager.streamingSentenceTTSPipeline.setMutedForCurrentTurn(false)
-        manager.voiceState = .listening
+        manager.chatSession.isChatTTSMuted = true
+        #expect(!manager.canReplayChatSpeech)
         manager.replayChatSpeech(request)
         #expect(speech.requests.isEmpty && speech.spokenTexts.isEmpty)
-        #expect(manager.voiceState == .listening)
+
+        manager.chatSession.isChatTTSMuted = false
+        manager.streamingSentenceTTSPipeline.setMutedForCurrentTurn(true)
+        #expect(manager.canReplayChatSpeech)
+        manager.replayChatSpeech(request)
+        await manager.currentResponseTask?.value
+        #expect(speech.requests.count == 1)
+
+        manager.voiceState = .listening
+        manager.replayChatSpeech(request)
+        #expect(speech.requests.count == 1 && manager.voiceState == .listening)
         #expect(manager.chatSession.messages == originalMessages && persister.events.count == originalEvents)
     }
 

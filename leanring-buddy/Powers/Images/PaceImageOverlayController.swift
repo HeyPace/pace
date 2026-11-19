@@ -9,7 +9,7 @@ final class PaceImageOverlayController: ObservableObject {
     private(set) var dismissalGeneration = 0
     var authorizationCheck: () -> Bool = { false }
     var onWillGenerate: (() -> Void)?
-    var onDidGenerate: ((PaceGeneratedImageArtifact) -> Void)?
+    var onDidGenerate: ((PaceGeneratedImageArtifact, Data?) -> Void)?
     var onGenerationProgress: ((String) -> Void)?
     var onUserDismissed: (() -> Void)?
     private let discardArtifact: (PaceGeneratedImageArtifact) -> Void
@@ -141,6 +141,14 @@ final class PaceImageOverlayController: ObservableObject {
         do {
             let artifact = try await withTaskCancellationHandler(
                 operation: { try await task.value }, onCancel: { task.cancel() })
+            let previewData: Data?
+            if onDidGenerate != nil, !Task.isCancelled {
+                previewData = await Task.detached(priority: .utility) {
+                    try? PaceGeneratedImageStore.makeChatPreview(of: artifact)
+                }.value
+            } else {
+                previewData = nil
+            }
             let stillAuthorized = authorizationCheck()
             guard !Task.isCancelled, generationIdentifier == identifier,
                 dismissalGeneration == expectedDismissalGeneration, stillAuthorized
@@ -161,7 +169,7 @@ final class PaceImageOverlayController: ObservableObject {
             if let previous, previous.id != artifact.id { discardWorkingArtifactIfUnsaved(previous) }
             lastSuccessfulArtifact = artifact
             state = .ready(artifact)
-            onDidGenerate?(artifact)
+            onDidGenerate?(artifact, previewData)
             return "Your image is ready: \(request.title)."
         } catch {
             guard generationIdentifier == identifier, dismissalGeneration == expectedDismissalGeneration else {

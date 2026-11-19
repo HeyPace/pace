@@ -111,14 +111,13 @@ extension CompanionManager {
     /// went through TTS — doesn't re-stream the planner.
     func replayLastSpokenReply() {
         guard let request = lastSpokenReplyRequest ?? lastSpokenReplyText.map({ PaceSpeechRequest(text: $0) }),
-              !chatSession.isChatTTSMuted, !streamingSentenceTTSPipeline.isMutedForCurrentTurn else { return }
+              canReplayChatSpeech else { return }
         guard conversationLanguageMode == .standard || request.profile != nil else { return }
         replayChatSpeech(request)
     }
 
     var canReplayChatSpeech: Bool {
         voiceState == .idle && !chatSession.isChatTTSMuted
-            && !streamingSentenceTTSPipeline.isMutedForCurrentTurn
     }
 
     func replayChatSpeech(_ request: PaceSpeechRequest) {
@@ -137,8 +136,7 @@ extension CompanionManager {
                     self.voiceState = .idle
                 }
             }
-            guard self.isActiveTurn(replayLease), !self.chatSession.isChatTTSMuted,
-                  !self.streamingSentenceTTSPipeline.isMutedForCurrentTurn else { return }
+            guard self.isActiveTurn(replayLease), !self.chatSession.isChatTTSMuted else { return }
             do {
                 if self.ttsClient.supportsUtteranceCompletion || request.profile != nil {
                     try await self.ttsClient.speakUtterance(request, onStarted: {})

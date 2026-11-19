@@ -151,7 +151,7 @@ nonisolated enum PaceGeneratedImageStore {
         defaultDirectory.appendingPathComponent("ChatPreviews", isDirectory: true)
     }
 
-    static func saveChatPreview(of artifact: PaceGeneratedImageArtifact, in directory: URL = chatPreviewDirectory) throws {
+    static func makeChatPreview(of artifact: PaceGeneratedImageArtifact) throws -> Data {
         let verifiedImage = try validatedImageData(at: artifact.fileURL)
         guard let source = CGImageSourceCreateWithData(verifiedImage.data as CFData, nil),
               let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
@@ -165,12 +165,11 @@ nonisolated enum PaceGeneratedImageStore {
         CGImageDestinationAddImage(destination, thumbnail, nil)
         guard CGImageDestinationFinalize(destination) else { throw PaceImageGenerationError.invalidArtifact }
 
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700])
-        let descriptor = openWithoutSymlinkParents(directory, isDirectory: true)
-        guard descriptor >= 0 else { throw PaceImageGenerationError.invalidArtifact }
-        defer { close(descriptor) }
-        try (data as Data).write(to: chatPreviewURL(for: artifact.id, in: directory), options: .atomic)
+        return data as Data
+    }
+
+    static func saveChatPreview(_ data: Data, identifier: UUID, in directory: URL = chatPreviewDirectory) throws {
+        try writePrivateImage(data, to: chatPreviewURL(for: identifier, in: directory), in: directory)
     }
 
     static func chatPreviewData(for identifier: UUID, in directory: URL = chatPreviewDirectory) -> Data? {
@@ -283,18 +282,18 @@ nonisolated enum PaceGeneratedImageStore {
             throw PaceImageGenerationError.missingArtifact
         }
         let validated = try validatedImageData(at: candidate)
-        try FileManager.default.createDirectory(
-            at: destinationDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        guard
-            destinationDirectory.standardizedFileURL
-                == destinationDirectory.resolvingSymlinksInPath().standardizedFileURL
-        else {
-            throw PaceImageGenerationError.invalidArtifact
-        }
         let artifactID = UUID()
         let destination = destinationDirectory.appendingPathComponent(artifactID.uuidString).appendingPathExtension(
             candidate.pathExtension.lowercased())
-        let directoryDescriptor = openWithoutSymlinkParents(destinationDirectory, isDirectory: true)
+        try writePrivateImage(validated.data, to: destination, in: destinationDirectory)
+        return .init(
+            id: artifactID, fileURL: destination, width: validated.width, height: validated.height, request: request)
+    }
+
+    private static func writePrivateImage(_ data: Data, to destination: URL, in directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
+        let directoryDescriptor = openWithoutSymlinkParents(directory, isDirectory: true)
         guard directoryDescriptor >= 0 else { throw PaceImageGenerationError.invalidArtifact }
         defer { close(directoryDescriptor) }
         guard fchmod(directoryDescriptor, 0o700) == 0 else { throw PaceImageGenerationError.invalidArtifact }
@@ -303,7 +302,7 @@ nonisolated enum PaceGeneratedImageStore {
         guard descriptor >= 0 else { throw PaceImageGenerationError.invalidArtifact }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         do {
-            try handle.write(contentsOf: validated.data)
+            try handle.write(contentsOf: data)
             try handle.synchronize()
             try handle.close()
         } catch {
@@ -311,8 +310,6 @@ nonisolated enum PaceGeneratedImageStore {
             unlinkat(directoryDescriptor, destination.lastPathComponent, 0)
             throw error
         }
-        return .init(
-            id: artifactID, fileURL: destination, width: validated.width, height: validated.height, request: request)
     }
 }
 
