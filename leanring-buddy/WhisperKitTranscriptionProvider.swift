@@ -108,6 +108,37 @@ final class WhisperKitTranscriptionProvider: BuddyTranscriptionProvider {
         return options
     }
 
+    nonisolated static func decodeFinalCapture(
+        _ audio: [Float], options: DecodingOptions,
+        containsSpeech: ([Float]) throws -> Bool,
+        decode: ([Float], DecodingOptions) async throws -> String
+    ) async throws -> String {
+        guard !audio.isEmpty else { return "" }
+        try Task.checkCancellation()
+        let speechAudio: [Float]
+        if try containsSpeech(audio) {
+            speechAudio = audio
+        } else {
+            // A low input level can hide speech from the detector. Recheck
+            // with bounded gain before letting the decoder see the audio.
+            let peak = audio.reduce(Float(0)) { max($0, abs($1)) }
+            guard peak >= 0.001, peak < 0.12 else { return "" }
+            let gain = min(8, 0.12 / peak)
+            let amplifiedAudio = audio.map { $0 * gain }
+            guard try containsSpeech(amplifiedAudio) else { return "" }
+            speechAudio = amplifiedAudio
+        }
+        try Task.checkCancellation()
+        let transcript = try await decode(speechAudio, options)
+        guard transcript.isEmpty, options.promptTokens?.isEmpty == false else { return transcript }
+        try Task.checkCancellation()
+        // Keep Whisper's own no-speech threshold. Retry only without the
+        // optional vocabulary that can bias a weak first decode.
+        var unbiasedOptions = options
+        unbiasedOptions.promptTokens = nil
+        return try await decode(speechAudio, unbiasedOptions)
+    }
+
     func prepare() async throws { _ = try await runtime.pipeline() }
 
     func transcribeAudioFile(_ fileURL: URL) async throws -> String {
@@ -212,6 +243,7 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
     private var finalRequested = false
 
     private var partialTask: Task<Void, Never>?
+    private var finalTask: Task<Void, Never>?
     private var isTranscribing = false
     private var lastPartialAt = Date.distantPast
 
@@ -250,18 +282,20 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
 
     func requestFinalTranscript() {
         sampleLock.lock()
+        guard !finalRequested else { sampleLock.unlock(); return }
         finalRequested = true
         let snapshot = samples
         sampleLock.unlock()
         partialTask?.cancel()
 
-        Task { [weak self] in
+        finalTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let text = try await self.transcribe(snapshot)
+                let text = try await self.transcribeFinalCapture(snapshot)
+                try Task.checkCancellation()
                 self.onFinalTranscriptReady(text)
             } catch {
-                self.onError(error)
+                if !Task.isCancelled { self.onError(error) }
             }
         }
     }
@@ -272,6 +306,7 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
         samples.removeAll()
         sampleLock.unlock()
         partialTask?.cancel()
+        finalTask?.cancel()
     }
 
     private func schedulePartialIfDue() {
@@ -300,6 +335,21 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
         }
     }
 
+    private func transcribeFinalCapture(_ audio: [Float]) async throws -> String {
+        let startedAt = Date()
+        let transcript = try await WhisperKitTranscriptionProvider.decodeFinalCapture(
+            audio, options: decodingOptions, containsSpeech: PaceSileroSpeechDetector.containsSpeech
+        ) { [pipeline] acceptedAudio, options in
+            try await Self.decode(acceptedAudio, pipeline: pipeline, options: options)
+        }
+        if !Task.isCancelled {
+            PaceAPIAuditLog.shared.record(subsystem: "dictation", operation: "whisper_final_decode",
+                target: "WhisperKit", durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1000),
+                outcome: transcript.isEmpty ? "empty" : "recognized")
+        }
+        return transcript
+    }
+
     private func transcribe(_ audio: [Float]) async throws -> String {
         try await Self.transcribe(audio, pipeline: pipeline, decodingOptions: decodingOptions)
     }
@@ -313,7 +363,11 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
     private static func transcribe(_ audio: [Float], pipeline: WhisperKit, decodingOptions: DecodingOptions) async throws -> String {
         guard !audio.isEmpty else { return "" }
         guard try PaceSileroSpeechDetector.containsSpeech(in: audio) else { return "" }
-        let results = try await pipeline.transcribe(audioArray: audio, decodeOptions: decodingOptions)
+        return try await decode(audio, pipeline: pipeline, options: decodingOptions)
+    }
+
+    private static func decode(_ audio: [Float], pipeline: WhisperKit, options: DecodingOptions) async throws -> String {
+        let results = try await pipeline.transcribe(audioArray: audio, decodeOptions: options)
         return results.map(\.text)
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)

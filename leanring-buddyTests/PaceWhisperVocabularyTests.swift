@@ -24,4 +24,40 @@ struct PaceWhisperVocabularyTests {
         #expect(fileOptions.promptTokens == nil && fileOptions.prefixTokens == nil)
         #expect(WhisperKitTranscriptionProvider.contextualPromptTokens([], encode: { _ in [1] }, specialTokenBegin: 256).isEmpty)
     }
+
+    @Test func finalCaptureRetriesQuietSpeechAndRemovesVocabularyAfterEmptyDecode() async throws {
+        let options = WhisperKitTranscriptionProvider.decodingOptions(languageMode: .english, contextualPromptTokens: [12])
+        let quietAudio: [Float] = [0.005, -0.005]
+        var detectorInputs: [[Float]] = []
+        var decoderOptions: [DecodingOptions] = []
+        let result = try await WhisperKitTranscriptionProvider.decodeFinalCapture(
+            quietAudio, options: options, containsSpeech: { audio in
+                detectorInputs.append(audio)
+                return (audio.first ?? 0) > 0.01
+            }, decode: { audio, options in
+                #expect(audio == detectorInputs.last)
+                decoderOptions.append(options)
+                return options.promptTokens == nil ? "Next command" : ""
+            }
+        )
+        #expect(result == "Next command")
+        #expect(detectorInputs.first == quietAudio && detectorInputs.count == 2)
+        #expect(decoderOptions.count == 2)
+        #expect(decoderOptions.first?.promptTokens == [12] && decoderOptions.last?.promptTokens == nil)
+        #expect(decoderOptions.allSatisfy { $0.noSpeechThreshold == options.noSpeechThreshold && $0.language == "en" })
+    }
+
+    @Test func finalCaptureNeverDecodesAudioRejectedBySpeechDetection() async throws {
+        let options = WhisperKitTranscriptionProvider.decodingOptions(languageMode: .english, contextualPromptTokens: [12])
+        for audio in [Array(repeating: Float(0), count: 5), [0.005, -0.005]] {
+            var decoderCalls = 0
+            let result = try await WhisperKitTranscriptionProvider.decodeFinalCapture(
+                audio, options: options, containsSpeech: { _ in false }, decode: { _, _ in
+                    decoderCalls += 1
+                    return "Unexpected words"
+                }
+            )
+            #expect(result.isEmpty && decoderCalls == 0)
+        }
+    }
 }
