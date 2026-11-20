@@ -17,7 +17,6 @@ export const educationContent: Record<string, EditorialContent> = {
     "intent": "category explanation for people seeking a local AI assistant on macOS",
     "schema": [
       "Article",
-      "SoftwareApplication",
       "BreadcrumbList"
     ],
     "internalLinks": [
