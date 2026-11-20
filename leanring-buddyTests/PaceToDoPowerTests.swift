@@ -8,7 +8,7 @@ struct PaceToDoPowerTests {
         #expect(PaceToDoPower.parse("What’s on my to do list?") == .list)
         #expect(PaceToDoPower.parse("Run Power To-do List") == .list)
         #expect(PaceToDoPower.parse("Add Renew passport to my to-do list") == .add(title: "Renew passport"))
-        #expect(PaceToDoPower.parse("Add task Check in with Sam") == .add(title: "Check in with Sam"))
+        #expect(PaceToDoPower.parse("Add task Check in with Sam.") == .add(title: "Check in with Sam"))
         #expect(PaceToDoPower.parse("Complete task Renew passport in list Personal")
             == .complete(title: "Renew passport", list: "Personal"))
         #expect(PaceToDoPower.parse("Complete task ") == nil)
@@ -23,7 +23,13 @@ struct PaceToDoPowerTests {
         let reminders = [personal, work]
 
         #expect(PaceToDoPower.completionMatches(title: "passport", list: nil, reminders: reminders).isEmpty)
-        #expect(PaceToDoPower.completionMatches(title: "Renew passport", list: nil, reminders: reminders).count == 2)
+        #expect(PaceToDoPower.completionMatches(title: "Renew passport", list: nil, reminders: reminders) == [work])
+        let otherOpen = PaceReminderRetrievalSnapshot(stableIdentifier: "new-personal", title: "Renew passport",
+            listTitle: "Personal")
+        #expect(PaceToDoPower.completionMatches(title: "Renew passport", list: nil, reminders: reminders + [otherOpen])
+            == [work, otherOpen])
+        #expect(PaceToDoPower.completionMatches(title: "Renew passport", list: "Personal.", reminders: reminders + [otherOpen])
+            == [otherOpen])
         #expect(PaceToDoPower.completionMatches(title: "Renew passport.", list: "personal", reminders: reminders) == [personal])
         #expect(PaceToDoPower.completionMatches(title: "Renew passport", list: "Work", reminders: reminders) == [work])
     }

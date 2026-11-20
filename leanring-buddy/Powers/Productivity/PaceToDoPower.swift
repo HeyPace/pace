@@ -64,6 +64,8 @@ nonisolated enum PaceToDoPower {
 
     private static func taskName(_ text: String) -> String? {
         let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, name.count <= 250 else { return nil }
         return name
     }
@@ -71,10 +73,12 @@ nonisolated enum PaceToDoPower {
     static func completionMatches(
         title: String, list: String?, reminders: [PaceReminderRetrievalSnapshot]
     ) -> [PaceReminderRetrievalSnapshot] {
-        reminders.filter { reminder in
+        let matching = reminders.filter { reminder in
             sameTaskTitle(reminder.title, title)
-                && (list.map { sameName(reminder.listTitle ?? "", $0) } ?? true)
+                && (list.map { sameTaskTitle(reminder.listTitle ?? "", $0) } ?? true)
         }
+        let openMatches = matching.filter { !$0.isCompleted }
+        return openMatches.isEmpty ? matching : openMatches
     }
 
     static func sameTaskTitle(_ first: String, _ second: String) -> Bool {
@@ -175,16 +179,16 @@ extension CompanionManager {
             respond("I couldn’t find an exact match for “\(title).” Say “Show my to-do list” to check the task name.", outcome: "no_match")
             return
         }
+        guard !match.isCompleted else {
+            respond("“\(match.title)” is already complete.", outcome: "already_complete")
+            return
+        }
         guard matches.count == 1 else {
             let lists = Set(matches.compactMap(\.listTitle)).sorted()
             let hint = (list == nil && lists.count > 1)
                 ? " Say “Complete task \(title) in list [name].” Matching lists: \(lists.prefix(6).joined(separator: ", "))."
                 : " Open Apple Reminders to choose the exact item."
             respond("More than one task matches “\(title).”" + hint, outcome: "ambiguous")
-            return
-        }
-        guard !match.isCompleted else {
-            respond("“\(match.title)” is already complete.", outcome: "already_complete")
             return
         }
         let selectedList = match.listTitle.map { " in “\($0)”" } ?? ""
