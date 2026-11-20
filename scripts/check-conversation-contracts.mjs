@@ -11,6 +11,7 @@ const result = spawnSync('bash', [
   'PaceCaptureAcknowledgementTests',
   'GlobalPushToTalkShortcutMonitorTests',
   'PacePowerManagerTests',
+  'PaceToDoPowerTests',
   'PaceSpokenPowerRecoveryTests',
   'PaceTranscriptionContextualPhraseBuilderTests',
   'PaceWhisperVocabularyTests',

@@ -516,14 +516,19 @@ extension CompanionManager {
         transcript: String,
         spokenText: String,
         shouldRecordConversationTurn: Bool = true,
-        spokenSummary: String? = nil
+        spokenSummary: String? = nil,
+        showsResponseOverlay: Bool = true
     ) {
         currentTurnHUDState = .done(spokenText)
         if shouldRecordConversationTurn {
             recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
         }
-        responseOverlayManager.showOverlayAndBeginStreaming()
-        responseOverlayManager.updateStreamingText(spokenText)
+        if showsResponseOverlay {
+            responseOverlayManager.showOverlayAndBeginStreaming()
+            responseOverlayManager.updateStreamingText(spokenText)
+        } else {
+            responseOverlayManager.hideOverlay()
+        }
         currentResponseTask = Task {
             voiceState = .responding
             await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenSummary ?? spokenText)
@@ -531,7 +536,7 @@ extension CompanionManager {
                 try? await Task.sleep(nanoseconds: 80_000_000)
             }
             guard !Task.isCancelled else { return }
-            responseOverlayManager.finishStreaming()
+            if showsResponseOverlay { responseOverlayManager.finishStreaming() }
             voiceState = .idle
         }
     }

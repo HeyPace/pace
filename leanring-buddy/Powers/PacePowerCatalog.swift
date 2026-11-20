@@ -44,6 +44,7 @@ nonisolated struct PacePowerCatalog {
         PaceImagesPower.definition,
         PaceResearchPower.definition,
         PaceProductivityPower.definition,
+        PaceToDoPower.definition,
         PaceAutomationPower.definition,
         PaceIntegrationPower.definition,
         PaceCodingPower.definition,

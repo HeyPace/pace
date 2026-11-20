@@ -1687,6 +1687,11 @@ extension CompanionManager {
             return
         }
 
+        if let command = PaceToDoPower.parse(transcript) {
+            await handleToDoPower(command, transcript: transcript, turnLease: turnLease)
+            return
+        }
+
         if PacePowerCommandParser.asksWhatPaceCanBuildAndInstall(transcript) {
             handleImmediateLocalModeResponse(transcript: transcript,
                 spokenText: "With a planner enabled, Add a Power can create and install a reusable animation or interactive card without a Pace update. Say or type something like: “Add a Power called Juggling Girl that shows an SVG juggling loop when I say show me the juggling girl.” Pace can draw a new loop or show existing local media. It needs an image-to-video tool to animate the original artwork.")

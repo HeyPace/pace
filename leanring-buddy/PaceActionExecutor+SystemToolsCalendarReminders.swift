@@ -140,7 +140,7 @@ extension PaceActionExecutor {
         return matchingCalendar ?? eventStore.defaultCalendarForNewEvents
     }
 
-    func createReminder(_ reminderRequest: PaceReminderRequest) async -> PaceActionExecutionObservation {
+    func createReminder(_ reminderRequest: PaceReminderRequest, maySave: () -> Bool = { true }) async -> PaceActionExecutionObservation {
         print("🧰 Create reminder \"\(reminderRequest.title)\" (enabled: \(actionsAreEnabled))")
         guard actionsAreEnabled else {
             return PaceActionExecutionObservation(
@@ -156,6 +156,9 @@ extension PaceActionExecutor {
             )
         }
 
+        guard maySave(), !Task.isCancelled else {
+            return PaceActionExecutionObservation(toolName: "reminder", summary: "Reminder creation cancelled.")
+        }
         guard let reminderCalendar = eventStore.defaultCalendarForNewReminders() else {
             return PaceActionExecutionObservation(
                 toolName: "reminder",

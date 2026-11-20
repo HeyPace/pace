@@ -240,6 +240,7 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `Powers/Images/PaceImagesPower.swift` | ~35 | Preinstalled images power; owns its tool definitions and applicable planner instructions. |
 | `Powers/Integration/PaceIntegrationPower.swift` | ~35 | Preinstalled integration power; owns its tool definitions and applicable planner instructions. |
 | `Powers/Productivity/PaceProductivityPower.swift` | ~138 | Preinstalled productivity power; owns its tool definitions and applicable planner instructions. |
+| `Powers/Productivity/PaceToDoPower.swift` | ~190 | Built-in To-do List Power. Routes Apple Reminders commands locally and requires a unique task match before completing it. |
 | `Powers/Research/PaceResearchPower.swift` | ~37 | Preinstalled research power; owns its tool definitions and applicable planner instructions. |
 | `Powers/Screen/PaceScreenPower.swift` | ~34 | Preinstalled screen power; owns its tool definitions and applicable planner instructions. |
 | `Powers/Teaching/PaceTeachingPower.swift` | ~152 | Teaching tool definitions and planner contracts for guided lessons, native templates, data-driven arrays, pointing and annotations. |

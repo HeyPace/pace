@@ -81,6 +81,11 @@ image or code on screen require Read My Screen and use the existing screen path.
 Codex/cloud planning still requires the selected tier's consent and audit path;
 rendering, selection and saved conversation storage remain local.
 
+**To-do List** — say or type “Show my to-do list,” “Add task Renew passport,” or
+“Complete task Renew passport.” Pace uses Apple Reminders. New tasks go to the
+default Reminders list. Qualify a name shared across lists with “in list [name].”
+Grant Reminders access in Pace Settings → Permissions to use the Power.
+
 **Image generation** — with Codex selected and its existing off-device consent
 accepted, ask “generate an image of a blue mug.” Pace uses the authenticated
 installed Codex CLI's native image tool and shows progress and the finished image

@@ -86,9 +86,9 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Pace uses your microphone so you can talk to it</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
-	<string>Pace uses reminders access only when you ask it to create reminders.</string>
+	<string>Pace uses Reminders access to review your to-do list and to add or complete tasks you request.</string>
 	<key>NSRemindersUsageDescription</key>
-	<string>Pace uses reminders access only when you ask it to create reminders.</string>
+	<string>Pace uses Reminders access to review your to-do list and to add or complete tasks you request.</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Pace needs screen recording access to see your screen and help you.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
