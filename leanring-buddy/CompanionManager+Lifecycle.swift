@@ -1019,18 +1019,10 @@ extension CompanionManager {
             return
         }
 
-        if #available(macOS 14.0, *) {
-            permissionEventStore.requestFullAccessToReminders { [weak self] _, _ in
-                Task { @MainActor [weak self] in
-                    self?.refreshAllPermissions()
-                }
-            }
-        } else {
-            permissionEventStore.requestAccess(to: .reminder) { [weak self] _, _ in
-                Task { @MainActor [weak self] in
-                    self?.refreshAllPermissions()
-                }
-            }
+        Task { [weak self] in
+            guard let self else { return }
+            _ = await PacePermissionService.shared.requestRemindersAccess(using: self.permissionEventStore)
+            self.refreshAllPermissions()
         }
     }
 

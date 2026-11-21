@@ -1,8 +1,17 @@
+import EventKit
 import Foundation
 import Testing
 @testable import Pace
 
 struct PaceToDoPowerTests {
+    @Test func onlyFirstUseOnThisMacMayRequestRemindersAccess() {
+        #expect(PacePermissionService.canPromptForReminders(status: .notDetermined, isForegroundRequest: true))
+        #expect(!PacePermissionService.canPromptForReminders(status: .notDetermined, isForegroundRequest: false))
+        #expect(!PacePermissionService.canPromptForReminders(status: .denied, isForegroundRequest: true))
+        #expect(!PacePermissionService.canPromptForReminders(status: .restricted, isForegroundRequest: true))
+        #expect(!PacePermissionService.canPromptForReminders(status: .fullAccess, isForegroundRequest: true))
+    }
+
     @Test func parsesTypedAndSpokenToDoCommandsWithoutStealingOtherCommands() {
         #expect(PaceToDoPower.parse("Show my to-do list") == .list)
         #expect(PaceToDoPower.parse("What’s on my to do list?") == .list)

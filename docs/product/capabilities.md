@@ -84,7 +84,8 @@ rendering, selection and saved conversation storage remain local.
 **To-do List** — say or type “Show my to-do list,” “Add task Renew passport,” or
 “Complete task Renew passport.” Pace uses Apple Reminders. New tasks go to the
 default Reminders list. Qualify a name shared across lists with “in list [name].”
-Grant Reminders access in Pace Settings → Permissions to use the Power.
+Pace asks macOS for Reminders access on first use. If you previously declined,
+change access in Pace Settings → Permissions.
 
 **Image generation** — with Codex selected and its existing off-device consent
 accepted, ask “generate an image of a blue mug.” Pace uses the authenticated

@@ -128,12 +128,29 @@ extension CompanionManager {
                 shouldRecordConversationTurn: false, spokenSummary: spokenSummary, showsResponseOverlay: false)
         }
 
-        guard PaceActionExecutor.isEventKitAccessAlreadyGranted(for: .reminder) else {
-            respond("Enable Apple Reminders access in Pace Settings → Permissions to use your to-do list.", outcome: "permission_missing")
-            return
-        }
         if command != .list, !actionExecutor.actionsAreEnabled {
             respond("Enable Pace actions to change tasks in Apple Reminders.", outcome: "actions_disabled")
+            return
+        }
+        let accessStatus = EKEventStore.authorizationStatus(for: .reminder)
+        if PacePermissionService.canPromptForReminders(
+            status: accessStatus, isForegroundRequest: activePacePadTurnIdentifier == nil
+        ) {
+            currentTurnHUDState = .understanding("Waiting for Apple Reminders permission…")
+            revealRequestFeedback()
+            PaceAPIAuditLog.shared.record(subsystem: "reminders", operation: "permission_prompt",
+                target: "EventKit", durationMilliseconds: 0, outcome: "requested")
+            let granted = await PacePermissionService.shared.requestRemindersAccess(using: permissionEventStore)
+            refreshAllPermissions()
+            guard isActiveTurn(turnLease) else { return }
+            guard granted else {
+                respond("Reminders access wasn’t granted. You can enable it in Pace Settings → Permissions.",
+                    outcome: "permission_missing")
+                return
+            }
+        }
+        guard PaceActionExecutor.isEventKitAccessAlreadyGranted(for: .reminder) else {
+            respond("Enable Apple Reminders access in Pace Settings → Permissions to use your to-do list.", outcome: "permission_missing")
             return
         }
         if case .add(let title) = command {
