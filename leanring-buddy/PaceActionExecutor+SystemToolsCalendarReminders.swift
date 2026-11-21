@@ -160,11 +160,23 @@ extension PaceActionExecutor {
         guard creationGeneration == applicationTargetGeneration, maySave(), !Task.isCancelled else {
             return PaceActionExecutionObservation(toolName: "reminder", summary: "Reminder creation cancelled.")
         }
-        guard let reminderCalendar = eventStore.defaultCalendarForNewReminders() else {
-            return PaceActionExecutionObservation(
-                toolName: "reminder",
-                summary: "Could not find a default reminders list."
-            )
+        let reminderCalendar: EKCalendar
+        if let listName = reminderRequest.listName {
+            let matchingLists = eventStore.calendars(for: .reminder).filter { list in
+                list.allowsContentModifications && list.title.caseInsensitiveCompare(listName) == .orderedSame
+            }
+            guard matchingLists.count == 1, let matchingList = matchingLists.first else {
+                let reason = matchingLists.isEmpty
+                    ? "Could not find a writable Reminders list called \(listName)."
+                    : "More than one Reminders list is called \(listName)."
+                return PaceActionExecutionObservation(toolName: "reminder", summary: reason)
+            }
+            reminderCalendar = matchingList
+        } else {
+            guard let defaultList = eventStore.defaultCalendarForNewReminders() else {
+                return PaceActionExecutionObservation(toolName: "reminder", summary: "Could not find a default reminders list.")
+            }
+            reminderCalendar = defaultList
         }
 
         let key = ReminderCreationKey(

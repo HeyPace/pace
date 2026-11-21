@@ -213,7 +213,7 @@ nonisolated enum PaceComputerUsePower {
         supported typed action names (payload.name) include:
             App.launch, App.openURL, AX.press, AX.doublePress, AX.setValue, AX.scroll, Key.press, Undo.last, Clipboard.read, Window.snap, Music.control, Volume.adjust, Brightness.adjust, Calendar.read, Calendar.createEvent, Reminders.add, Notes.create, Notes.append, Notes.search, Mail.draft, Shortcut.run, Things.create, Messages.open, Finder.open, Finder.reveal, Draw.annotation, Clear.annotations, Screen.capture, meeting, Codex.session, MCP.call.
 
-        For an Apple reminder, call Reminders.add once with args.title and, when requested, args.due in ISO 8601 with its UTC offset (YYYY-MM-DD for a date without a time). A successful native save confirms creation. Stop there and report the due date. Do not create it again or look it up through a second tool.
+        For an Apple reminder, call Reminders.add once with args.title and, when requested, args.due in ISO 8601 with its UTC offset (YYYY-MM-DD for a date without a time). Use args.listName if the user names a list. A successful native save confirms creation. Stop there and report the due date. Do not create it again or look it up through a second tool.
 
         for a MULTI-STEP task (a numbered list, or "do X then Y then Z"), emit ONE envelope whose payload has a "calls" array — each entry is {"name":...,"args":{...}}, run in order. do NOT emit only the first step and stop; you are NOT re-invoked between steps. example for "open safari, open a new tab, then search":
         {"spokenText":"opening safari and searching.","intent":"action","payload":{"calls":[

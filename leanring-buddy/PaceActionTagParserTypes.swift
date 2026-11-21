@@ -704,11 +704,13 @@ nonisolated struct PaceReminderRequest {
     let title: String
     let notes: String?
     var schedule: Schedule? = nil
+    var listName: String? = nil
 
     var displayTitle: String {
-        guard let schedule else { return title }
+        let destination = listName.map { " in \($0)" } ?? ""
+        guard let schedule else { return title + destination }
         let due = schedule.date.formatted(date: .abbreviated, time: schedule.isDateOnly ? .omitted : .shortened)
-        return "\(title) (due \(due))"
+        return "\(title)\(destination) (due \(due))"
     }
 
     static func comparisonTitle(_ title: String) -> String {

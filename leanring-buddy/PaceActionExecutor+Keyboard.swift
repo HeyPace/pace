@@ -370,7 +370,7 @@ extension PaceActionExecutor {
             guard let request = PaceActionTagParser.parseAppleReminderCreation(mcpToolCall) else {
                 return PaceActionExecutionObservation(
                     toolName: toolObservationName,
-                    summary: "Use a title and a valid due date. Pace creates reminders in the default list."
+                    summary: "Could not create the reminder. Use a title, a valid due date, and an optional Reminders list name."
                 )
             }
             return await createReminder(request)

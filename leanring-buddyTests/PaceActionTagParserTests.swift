@@ -781,6 +781,28 @@ struct PaceActionTagParserTests {
         }
     }
 
+    @Test func namedListReminderPreservesAnOffsetlessLocalTimeForBothRoutes() throws {
+        let requests = [
+            """
+            {"spokenText":"","intent":"action","payload":{"name":"Reminders.add","args":{"title":"Buy milk","listName":"Groceries","due":"2026-11-22T14:00"}}}
+            """,
+            """
+            {"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"apple","tool":"reminders","arguments":{"operation":"create","name":"Buy milk","listName":"Groceries","dueDate":"2026-11-22T14:00:00"}}}}
+            """
+        ]
+        let calendar = Calendar(identifier: .gregorian)
+        let expected = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 22, hour: 14)))
+        for input in requests {
+            let result = PaceActionTagParser.parseActions(from: input)
+            guard case .createReminder(let request) = result.actions.first else {
+                Issue.record("Expected a native reminder that retains its list and due time")
+                continue
+            }
+            #expect(request.listName == "Groceries")
+            #expect(request.schedule == .init(date: expected, isDateOnly: false))
+        }
+    }
+
     @Test func invalidReminderTimeDoesNotBecomeAnUnscheduledReminder() {
         let result = PaceActionTagParser.parseActions(from: """
         {"spokenText":"","intent":"action","payload":{"name":"Reminders.add","args":{"title":"Call Sam","due":"perhaps later"}}}

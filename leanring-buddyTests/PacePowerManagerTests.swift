@@ -443,7 +443,7 @@ struct PacePowerManagerTests {
         begin("list powers", manager: manager)
         await manager.handlePowerCommand(.list, transcript: "list powers")
         await manager.currentResponseTask?.value
-        let summary = "11 built-in powers, 1 custom power, 0 installed workflows."
+        let summary = "\(PacePowerCatalog.preinstalled.powers.count) built-in powers, 1 custom power, 0 installed workflows."
         #expect(speech.spokenTexts == [summary])
         let written = try #require(persister.events.values.first { $0.role == .pace && $0.text.hasPrefix(summary) })
         #expect(written.text.contains("Built-in powers: Text, Voice"))

@@ -2274,7 +2274,7 @@ nonisolated enum PaceActionTagParser {
             return ParsedCalendarDate(date: date, isDateOnly: false)
         }
 
-        for format in ["yyyy-MM-dd HH:mm", "yyyy-MM-dd h:mm a"] {
+        for format in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd HH:mm", "yyyy-MM-dd h:mm a"] {
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = format
@@ -2293,15 +2293,16 @@ nonisolated enum PaceActionTagParser {
         return formatter.date(from: rawDate).map { Calendar.current.startOfDay(for: $0) }
     }
 
-    private static func action(for mcpToolCall: PaceMCPToolCall) -> PaceParsedAction? {
-        if mcpToolCall.createsAppleReminder {
-            return parseAppleReminderCreation(mcpToolCall).map { .createReminder($0) }
+    private static func action(for mcpToolCall: PaceMCPToolCall) -> PaceParsedAction {
+        if mcpToolCall.createsAppleReminder, let request = parseAppleReminderCreation(mcpToolCall) {
+            return .createReminder(request)
         }
+        // The executor reports invalid Apple reminder arguments without forwarding the write.
         return .mcp(mcpToolCall)
     }
 
     static func parseAppleReminderCreation(_ mcpToolCall: PaceMCPToolCall) -> PaceReminderRequest? {
-        let supportedArguments: Set<String> = ["operation", "title", "text", "name", "notes", "due", "dueDate", "dueAt"]
+        let supportedArguments: Set<String> = ["operation", "title", "text", "name", "notes", "due", "dueDate", "dueAt", "listName"]
         guard Set(mcpToolCall.arguments.keys).isSubset(of: supportedArguments) else { return nil }
         return parseReminderRequest(from: mcpToolCall.arguments)
     }
@@ -2316,7 +2317,18 @@ nonisolated enum PaceActionTagParser {
             guard schedule == nil || schedule == parsedSchedule else { return nil }
             schedule = parsedSchedule
         }
-        return PaceReminderRequest(title: title, notes: stringValue(for: "notes", in: arguments), schedule: schedule)
+        let listName: String?
+        if let value = arguments["listName"], value != .null {
+            guard case .string(let rawListName) = value else { return nil }
+            let trimmedListName = rawListName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedListName.isEmpty else { return nil }
+            listName = trimmedListName
+        } else {
+            listName = nil
+        }
+        return PaceReminderRequest(
+            title: title, notes: stringValue(for: "notes", in: arguments), schedule: schedule, listName: listName
+        )
     }
 
     private static func parseReminderPayload(_ payload: String) -> PaceParsedAction? {
