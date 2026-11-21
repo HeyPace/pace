@@ -37,9 +37,11 @@ nonisolated enum PaceToDoPower {
         let listWords = #"to[- ]?do(?: list)?"#
         let listPattern = #"^(?:(?:show|list|read)(?: me)? (?:my )?|(?:what['’]s|what is) on my |my )?"#
             + listWords + #"[.!?]*$"#
+        let tasksPattern = #"^(?:what are my |(?:show|list|read)(?: me)? my )(?:open )?tasks\s*[.!?]*$"#
         let invocationPattern = #"^(?:run|show) (?:the )?(?:power )?(?:pace\.to-do|to[- ]?do list)(?: power)?[.!?]*$"#
         if text.range(of: listPattern, options: [.caseInsensitive, .regularExpression]) != nil
-            || text.range(of: invocationPattern, options: [.caseInsensitive, .regularExpression]) != nil {
+            || text.range(of: invocationPattern, options: [.caseInsensitive, .regularExpression]) != nil
+            || text.range(of: tasksPattern, options: [.caseInsensitive, .regularExpression]) != nil {
             return .list
         }
 
@@ -117,7 +119,9 @@ nonisolated enum PaceToDoPower {
 
 @MainActor
 extension CompanionManager {
-    func handleToDoPower(_ command: PaceToDoPower.Command, transcript: String, turnLease: PaceTurnLease) async {
+    func handleToDoPower(
+        _ command: PaceToDoPower.Command, transcript: String, turnLease: PaceTurnLease, allowsPermissionPrompt: Bool
+    ) async {
         guard isActiveTurn(turnLease) else { return }
         func respond(_ text: String, outcome: String, spokenSummary: String? = nil) {
             guard isActiveTurn(turnLease) else { return }
@@ -134,7 +138,7 @@ extension CompanionManager {
         }
         let accessStatus = EKEventStore.authorizationStatus(for: .reminder)
         if PacePermissionService.canPromptForReminders(
-            status: accessStatus, isForegroundRequest: activePacePadTurnIdentifier == nil
+            status: accessStatus, isForegroundRequest: allowsPermissionPrompt && activePacePadTurnIdentifier == nil
         ) {
             currentTurnHUDState = .understanding("Waiting for Apple Reminders permission…")
             revealRequestFeedback()
@@ -150,7 +154,11 @@ extension CompanionManager {
             }
         }
         guard PaceActionExecutor.isEventKitAccessAlreadyGranted(for: .reminder) else {
-            respond("Enable Apple Reminders access in Pace Settings → Permissions to use your to-do list.", outcome: "permission_missing")
+            if accessStatus == .notDetermined, !allowsPermissionPrompt {
+                respond("Ask Pace for your to-do list in chat or by voice to request Reminders access.", outcome: "permission_missing")
+            } else {
+                respond("Enable Apple Reminders access in Pace Settings → Permissions to use your to-do list.", outcome: "permission_missing")
+            }
             return
         }
         if case .add(let title) = command {

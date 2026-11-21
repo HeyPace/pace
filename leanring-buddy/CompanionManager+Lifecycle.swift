@@ -86,7 +86,8 @@ extension CompanionManager {
         submitChatTranscript(
             transcript,
             optimisticMessageIdentifier: optimisticMessageIdentifier,
-            shouldMuteTTS: true
+            shouldMuteTTS: true,
+            allowsPermissionPrompt: true
         )
     }
 
@@ -107,6 +108,7 @@ extension CompanionManager {
         _ transcript: String,
         optimisticMessageIdentifier: String?,
         shouldMuteTTS: Bool,
+        allowsPermissionPrompt: Bool = false,
         screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
     ) {
         revealRequestFeedback()
@@ -115,6 +117,7 @@ extension CompanionManager {
         let queuedTurn = PaceQueuedChatTurn(
             transcript: transcript,
             shouldMuteTTS: shouldMuteTTS,
+            allowsPermissionPrompt: allowsPermissionPrompt,
             optimisticMessageIdentifier: acceptedEvent.eventID,
             screenSuggestionContext: screenSuggestionContext ?? screenSuggestionCoordinator.followUpSuggestion(for: transcript).map(PaceScreenSuggestionRequestContext.followUp)
         )
@@ -193,7 +196,8 @@ extension CompanionManager {
         PaceLatencyBudget.shared.mark(.sttComplete)
         voiceState = .processing
         pendingTypedConversationEventIdentifier = queuedTurn.optimisticMessageIdentifier
-        sendTranscriptToPlannerWithScreenshot(transcript: transcript, screenSuggestionContext: screenSuggestionContext)
+        sendTranscriptToPlannerWithScreenshot(transcript: transcript, screenSuggestionContext: screenSuggestionContext,
+            allowsPermissionPrompt: queuedTurn.allowsPermissionPrompt)
     }
 
     func cancelQueuedChatTurns(eventIdentifiers: Set<String>) {

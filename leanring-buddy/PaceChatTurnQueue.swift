@@ -9,6 +9,7 @@ struct PaceQueuedChatTurn: Identifiable, Equatable, Sendable {
     let id: UUID
     let transcript: String
     let shouldMuteTTS: Bool
+    let allowsPermissionPrompt: Bool
     let optimisticMessageIdentifier: String?
     let screenSuggestionContext: PaceScreenSuggestionRequestContext?
 
@@ -16,12 +17,14 @@ struct PaceQueuedChatTurn: Identifiable, Equatable, Sendable {
         id: UUID = UUID(),
         transcript: String,
         shouldMuteTTS: Bool,
+        allowsPermissionPrompt: Bool = false,
         optimisticMessageIdentifier: String? = nil,
         screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
     ) {
         self.id = id
         self.transcript = transcript
         self.shouldMuteTTS = shouldMuteTTS
+        self.allowsPermissionPrompt = allowsPermissionPrompt
         self.optimisticMessageIdentifier = optimisticMessageIdentifier
         self.screenSuggestionContext = screenSuggestionContext
     }

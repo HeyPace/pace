@@ -1418,7 +1418,8 @@ extension CompanionManager {
     /// planner re-anchors on the conversation history rather than a
     /// repeated user statement.
     func sendTranscriptToPlannerWithScreenshot(transcript: String, continuingAcceptedRequest: Bool = false,
-                                              screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil) {
+                                              screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil,
+                                              allowsPermissionPrompt: Bool = false) {
         let capturedScreenSuggestionContext = continuingAcceptedRequest ? nil : screenSuggestionContext
         cancelActiveTurnTasks(preservingConversationRequest: continuingAcceptedRequest)
         if continuingAcceptedRequest {
@@ -1434,7 +1435,8 @@ extension CompanionManager {
             await self.sendTranscriptToPlannerWithScreenshotAsync(
                 transcript: transcript,
                 turnLease: turnLease,
-                screenSuggestionContext: screenSuggestionContextForRequest
+                screenSuggestionContext: screenSuggestionContextForRequest,
+                allowsPermissionPrompt: allowsPermissionPrompt
             )
         }
     }
@@ -1544,7 +1546,8 @@ extension CompanionManager {
     func sendTranscriptToPlannerWithScreenshotAsync(
         transcript: String,
         turnLease: PaceTurnLease,
-        screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
+        screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil,
+        allowsPermissionPrompt: Bool = false
     ) async {
         guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
         if await handleSpokenPowerRecoveryIfNeeded(transcript) { return }
@@ -1688,7 +1691,8 @@ extension CompanionManager {
         }
 
         if let command = PaceToDoPower.parse(transcript) {
-            await handleToDoPower(command, transcript: transcript, turnLease: turnLease)
+            await handleToDoPower(command, transcript: transcript, turnLease: turnLease,
+                allowsPermissionPrompt: allowsPermissionPrompt)
             return
         }
 

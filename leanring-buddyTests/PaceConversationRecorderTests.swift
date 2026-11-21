@@ -100,6 +100,8 @@ struct PaceConversationRecorderTests {
         manager.voiceState = .responding
         manager.submitChatTranscriptFromChatSession("First", optimisticMessageIdentifier: "first")
         #expect(manager.chatTurnQueue.pendingTurns.first?.shouldMuteTTS == true)
+        manager.submitChatTranscriptFromDeepLink("Show my to-do list")
+        #expect(manager.chatTurnQueue.pendingTurns.map(\.allowsPermissionPrompt) == [true, false])
         manager.clearQueuedChatTurns()
         manager.isOverlayVisible = true
         manager.responseOverlayManager.setAnnotationsEnabled(false)

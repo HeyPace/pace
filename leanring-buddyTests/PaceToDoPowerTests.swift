@@ -14,6 +14,8 @@ struct PaceToDoPowerTests {
 
     @Test func parsesTypedAndSpokenToDoCommandsWithoutStealingOtherCommands() {
         #expect(PaceToDoPower.parse("Show my to-do list") == .list)
+        #expect(PaceToDoPower.parse("what are my tasks ?") == .list)
+        #expect(PaceToDoPower.parse("what are my tasks in Linear?") == nil)
         #expect(PaceToDoPower.parse("What’s on my to do list?") == .list)
         #expect(PaceToDoPower.parse("Run Power To-do List") == .list)
         #expect(PaceToDoPower.parse("Add Renew passport to my to-do list") == .add(title: "Renew passport"))
