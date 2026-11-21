@@ -751,12 +751,7 @@ nonisolated enum PaceActionTagParser {
             return parseCalendarEventRequest(from: arguments)
                 .map { .createCalendarEvent($0) }
         case "reminders.add", "reminder.add":
-            let title = firstStringValue(for: ["title", "text", "name"], in: arguments)
-            guard let title, !title.isEmpty else { return nil }
-            return .createReminder(PaceReminderRequest(
-                title: title,
-                notes: stringValue(for: "notes", in: arguments)
-            ))
+            return parseReminderRequest(from: arguments).map { .createReminder($0) }
         case "notes.create", "note.create":
             let title = firstStringValue(for: ["title", "name"], in: arguments) ?? "Pace note"
             let body = firstStringValue(for: ["body", "text", "notes"], in: arguments) ?? ""
@@ -812,7 +807,7 @@ nonisolated enum PaceActionTagParser {
             guard let serverName, !serverName.isEmpty,
                   let toolName, !toolName.isEmpty else { return nil }
             let mcpArguments = objectValue(for: "arguments", in: arguments) ?? arguments
-            return .mcp(PaceMCPToolCall(
+            return action(for: PaceMCPToolCall(
                 serverName: serverName,
                 toolName: toolName,
                 arguments: mcpArguments
@@ -930,8 +925,8 @@ nonisolated enum PaceActionTagParser {
                 issues.append("requires title and start date")
             }
         case "reminders.add", "reminder.add":
-            if !hasNonEmptyString(for: ["title", "text", "name"], in: arguments) {
-                issues.append("requires reminder title")
+            if parseReminderRequest(from: arguments) == nil {
+                issues.append("requires reminder title and a valid due date when supplied")
             }
         case "notes.create", "note.create", "notes.append", "note.append":
             if !hasNonEmptyString(for: ["title", "name", "body", "text", "notes"], in: arguments) {
@@ -1348,7 +1343,7 @@ nonisolated enum PaceActionTagParser {
 
     private static func parseToolCall(_ toolCall: ToolCallDTO) -> PaceParsedAction? {
         if let mcpToolCall = parseMCPToolCall(toolCall) {
-            return .mcp(mcpToolCall)
+            return action(for: mcpToolCall)
         }
 
         guard let toolKind = PaceToolRegistry.kind(forToolName: toolCall.tool) else {
@@ -1454,7 +1449,7 @@ nonisolated enum PaceActionTagParser {
         case .calendarCreate:
             return parseCalendarEventToolCall(toolCall)
         case .reminder:
-            return parseReminderPayload(toolCall.title ?? toolCall.text ?? "")
+            return parseReminderRequest(from: mergeMCPArguments(from: toolCall)).map { .createReminder($0) }
         case .finder:
             return parseFinderToolCall(toolCall)
         case .notes:
@@ -1622,8 +1617,8 @@ nonisolated enum PaceActionTagParser {
                 issues.append("requires title and start date")
             }
         case .reminder:
-            if !hasNonEmptyString(for: ["title", "text", "name"], in: mergedArguments) {
-                issues.append("requires reminder title")
+            if parseReminderRequest(from: mergedArguments) == nil {
+                issues.append("requires reminder title and a valid due date when supplied")
             }
         case .finder:
             if !hasNonEmptyString(for: ["path", "text"], in: mergedArguments) {
@@ -2296,6 +2291,32 @@ nonisolated enum PaceActionTagParser {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.date(from: rawDate).map { Calendar.current.startOfDay(for: $0) }
+    }
+
+    private static func action(for mcpToolCall: PaceMCPToolCall) -> PaceParsedAction? {
+        if mcpToolCall.createsAppleReminder {
+            return parseAppleReminderCreation(mcpToolCall).map { .createReminder($0) }
+        }
+        return .mcp(mcpToolCall)
+    }
+
+    static func parseAppleReminderCreation(_ mcpToolCall: PaceMCPToolCall) -> PaceReminderRequest? {
+        let supportedArguments: Set<String> = ["operation", "title", "text", "name", "notes", "due", "dueDate", "dueAt"]
+        guard Set(mcpToolCall.arguments.keys).isSubset(of: supportedArguments) else { return nil }
+        return parseReminderRequest(from: mcpToolCall.arguments)
+    }
+
+    static func parseReminderRequest(from arguments: [String: PaceMCPJSONValue]) -> PaceReminderRequest? {
+        guard let title = firstStringValue(for: ["title", "text", "name"], in: arguments) else { return nil }
+        var schedule: PaceReminderRequest.Schedule?
+        for key in ["due", "dueDate", "dueAt"] {
+            guard let value = arguments[key], value != .null else { continue }
+            guard case .string(let rawDate) = value, let parsedDate = parseCalendarDate(rawDate) else { return nil }
+            let parsedSchedule = PaceReminderRequest.Schedule(date: parsedDate.date, isDateOnly: parsedDate.isDateOnly)
+            guard schedule == nil || schedule == parsedSchedule else { return nil }
+            schedule = parsedSchedule
+        }
+        return PaceReminderRequest(title: title, notes: stringValue(for: "notes", in: arguments), schedule: schedule)
     }
 
     private static func parseReminderPayload(_ payload: String) -> PaceParsedAction? {

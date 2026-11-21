@@ -135,6 +135,12 @@ nonisolated struct PaceMCPToolCall: Equatable, Sendable {
     let toolName: String
     let arguments: [String: PaceMCPJSONValue]
 
+    var createsAppleReminder: Bool {
+        guard serverName.lowercased() == "apple", toolName.lowercased() == "reminders",
+              case .string(let operation)? = arguments["operation"] else { return false }
+        return operation.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "create"
+    }
+
     var approvalDescription: String {
         let argumentSummary = arguments.keys.sorted().joined(separator: ", ")
         guard !argumentSummary.isEmpty else {

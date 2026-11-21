@@ -758,6 +758,36 @@ struct PaceActionTagParserTests {
         #expect(reminderRequest.notes == "today")
     }
 
+    @Test func scheduledReminderPayloadPreservesTheRequestedInstant() throws {
+        let requests = [
+            """
+            {"spokenText":"","intent":"action","payload":{"name":"Reminders.add","args":{"title":"Pick up the library books","due":"2026-11-22T14:00:00+05:30"}}}
+            """,
+            """
+            <tool_calls>[{"tool":"reminder","title":"Pick up the library books","dueDate":"2026-11-22T14:00:00+05:30"}]</tool_calls>
+            """,
+            """
+            {"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"apple","name":"reminders","arguments":{"operation":"create","name":"Pick up the library books","dueDate":"2026-11-22T14:00:00+05:30"}}}}
+            """
+        ]
+        let expectedDate = try #require(ISO8601DateFormatter().date(from: "2026-11-22T08:30:00Z"))
+        for input in requests {
+            let actions = PaceActionTagParser.parseActions(from: input).actions
+            guard case .createReminder(let request) = actions.first else {
+                Issue.record("Expected a timed reminder creation")
+                continue
+            }
+            #expect(request.schedule == .init(date: expectedDate, isDateOnly: false))
+        }
+    }
+
+    @Test func invalidReminderTimeDoesNotBecomeAnUnscheduledReminder() {
+        let result = PaceActionTagParser.parseActions(from: """
+        {"spokenText":"","intent":"action","payload":{"name":"Reminders.add","args":{"title":"Call Sam","due":"perhaps later"}}}
+        """)
+        #expect(result.actions.isEmpty)
+    }
+
     @Test func v10MultiCallPayloadParsesIntoSerialExecutionPlan() async throws {
         let parseResult = PaceActionTagParser.parseActions(from: """
         {

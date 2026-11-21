@@ -728,6 +728,14 @@ final class PaceActionExecutor {
     /// a built-in "double-press" action.
     let axTargeter = PaceAXTargeter()
     let eventStore = EKEventStore()
+    var reminderCreationsInFlight: Set<ReminderCreationKey> = []
+    var remindersSavedThisTurn: Set<ReminderCreationKey> = []
+
+    struct ReminderCreationKey: Hashable {
+        let calendarIdentifier: String
+        let title: String
+        let dueDateComponents: DateComponents?
+    }
     let contactStore = CNContactStore()
     let mcpClient: PaceMCPStdioClient
     let timerScheduler: PaceTimerScheduler
@@ -746,6 +754,7 @@ final class PaceActionExecutor {
 
     func beginUserTurn() {
         applicationTargetGeneration = UUID()
+        remindersSavedThisTurn.removeAll()
         launchedApplicationTargets.removeAll()
         hasAttemptedInspectionRecovery = false
     }

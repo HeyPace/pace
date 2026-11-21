@@ -170,7 +170,14 @@ extension CompanionManager {
             guard isActiveTurn(turnLease) else { return }
             let result = await actionExecutor.createReminder(request, maySave: { self.isActiveTurn(turnLease) })
             guard isActiveTurn(turnLease) else { return }
-            respond(result.summary, outcome: result.summary.hasPrefix("Created reminder:") ? "created" : "failed")
+            let outcome: String
+            switch result.summary {
+            case let summary where summary.hasPrefix("Created reminder:"): outcome = "created"
+            case let summary where summary.hasPrefix("Already in Apple Reminders:"): outcome = "already_exists"
+            case let summary where summary.hasPrefix("Already saving reminder:"): outcome = "already_saving"
+            default: outcome = "failed"
+            }
+            respond(result.summary, outcome: outcome)
             return
         }
 

@@ -366,6 +366,16 @@ extension PaceActionExecutor {
     func callMCPTool(_ mcpToolCall: PaceMCPToolCall) async -> PaceActionExecutionObservation {
         let toolObservationName = "mcp.\(mcpToolCall.serverName).\(mcpToolCall.toolName)"
 
+        if mcpToolCall.createsAppleReminder {
+            guard let request = PaceActionTagParser.parseAppleReminderCreation(mcpToolCall) else {
+                return PaceActionExecutionObservation(
+                    toolName: toolObservationName,
+                    summary: "Use a title and a valid due date. Pace creates reminders in the default list."
+                )
+            }
+            return await createReminder(request)
+        }
+
         guard actionsAreEnabled else {
             return PaceActionExecutionObservation(
                 toolName: toolObservationName,

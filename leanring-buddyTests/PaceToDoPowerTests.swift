@@ -4,6 +4,58 @@ import Testing
 @testable import Pace
 
 struct PaceToDoPowerTests {
+    @MainActor @Test func eventKitReminderCarriesItsDueTimeAndAlarm() throws {
+        let date = try #require(ISO8601DateFormatter().date(from: "2026-11-22T14:00:00+05:30"))
+        let request = PaceReminderRequest(
+            title: "Pick up the library books", notes: nil, schedule: .init(date: date, isDateOnly: false)
+        )
+        let eventStore = EKEventStore()
+        let reminder = EKReminder(eventStore: eventStore)
+        reminder.title = "pick up  the library books"
+        request.applySchedule(to: reminder)
+        #expect(reminder.dueDateComponents?.calendar?.identifier == .gregorian)
+        #expect(reminder.dueDateComponents?.date == date)
+        #expect(reminder.alarms?.map(\.absoluteDate) == [date])
+        #expect(request.matchesOpenReminder(reminder))
+
+        let laterRequest = PaceReminderRequest(
+            title: request.title, notes: nil, schedule: .init(date: date.addingTimeInterval(3_600), isDateOnly: false)
+        )
+        #expect(!laterRequest.matchesOpenReminder(reminder))
+        #expect(!PaceReminderRequest(title: request.title, notes: nil).matchesOpenReminder(reminder))
+        reminder.isCompleted = true
+        #expect(!request.matchesOpenReminder(reminder))
+    }
+
+    @MainActor @Test func dateOnlyReminderDoesNotInventATimeOrAlarm() throws {
+        let request = try #require(PaceActionTagParser.parseReminderRequest(from: [
+            "title": .string("Check in with Sam"), "due": .string("2026-11-22")
+        ]))
+        let eventStore = EKEventStore()
+        let reminder = EKReminder(eventStore: eventStore)
+        reminder.title = request.title
+        request.applySchedule(to: reminder)
+        #expect(reminder.dueDateComponents?.day == 22)
+        #expect(reminder.dueDateComponents?.hour == nil)
+        #expect(reminder.alarms?.isEmpty ?? true)
+        #expect(request.matchesOpenReminder(reminder))
+    }
+
+    @MainActor @Test func appleMCPReminderCreationUsesTheSameNativeRequest() async throws {
+        let nativeRequest = try #require(PaceActionTagParser.parseReminderRequest(from: [
+            "title": .string("Pick up the library books"), "due": .string("2026-11-22T14:00:00+05:30")
+        ]))
+        let toolCall = PaceMCPToolCall(serverName: "apple", toolName: "reminders", arguments: [
+            "operation": .string("create"), "name": .string(nativeRequest.title),
+            "dueDate": .string("2026-11-22T14:00:00+05:30")
+        ])
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: false)
+        let native = await executor.createReminder(nativeRequest)
+        let alias = await executor.callMCPTool(toolCall)
+        #expect(alias.toolName == native.toolName)
+        #expect(alias.summary == native.summary)
+    }
+
     @Test func onlyFirstUseOnThisMacMayRequestRemindersAccess() {
         #expect(PacePermissionService.canPromptForReminders(status: .notDetermined, isForegroundRequest: true))
         #expect(!PacePermissionService.canPromptForReminders(status: .notDetermined, isForegroundRequest: false))

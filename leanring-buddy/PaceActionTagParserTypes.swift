@@ -432,7 +432,7 @@ nonisolated enum PaceParsedAction {
         case .createCalendarEvent(let calendarEventRequest):
             return "Create calendar event: \(calendarEventRequest.title)"
         case .createReminder(let reminderRequest):
-            return "Create reminder: \(reminderRequest.title)"
+            return "Create reminder: \(reminderRequest.displayTitle)"
         case .finder(let finderRequest):
             return "Finder \(finderRequest.action.rawValue): \(finderRequest.path)"
         case .createNote(let noteRequest):
@@ -696,8 +696,24 @@ nonisolated enum PaceCalendarRange: String, Equatable {
 }
 
 nonisolated struct PaceReminderRequest {
+    struct Schedule: Equatable {
+        let date: Date
+        let isDateOnly: Bool
+    }
+
     let title: String
     let notes: String?
+    var schedule: Schedule? = nil
+
+    var displayTitle: String {
+        guard let schedule else { return title }
+        let due = schedule.date.formatted(date: .abbreviated, time: schedule.isDateOnly ? .omitted : .shortened)
+        return "\(title) (due \(due))"
+    }
+
+    static func comparisonTitle(_ title: String) -> String {
+        title.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased()
+    }
 }
 
 nonisolated struct PaceTimerRequest {

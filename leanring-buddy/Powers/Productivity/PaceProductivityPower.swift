@@ -71,7 +71,7 @@ nonisolated enum PaceProductivityPower {
             canonicalName: "reminder",
             aliases: [],
             schemaExample: #"{"tool":"reminder","title":"follow up with Alex"}"#,
-            description: "create a reminder.",
+            description: "Create one Apple Reminders task. Use due for an ISO 8601 timestamp with its UTC offset, or YYYY-MM-DD for an all-day due date.",
             riskLevel: .appOrSystemMutation,
             executionSummary: "Creates an EventKit reminder after permission.",
             observationSummary: "Reports reminder creation or permission errors.",
