@@ -285,13 +285,13 @@ struct PacePanelChatView: View {
                 scrollToBottom(scrollProxy, animated: false)
             }
             .onChange(of: inFlightStreamedText) {
-                scrollToBottom(scrollProxy)
+                scrollToBottom(scrollProxy, animated: false)
             }
             .onChange(of: liveSpeechDraft) {
-                scrollToBottom(scrollProxy)
+                scrollToBottom(scrollProxy, animated: false)
             }
             .onChange(of: companionManager.recentActionResults.count) {
-                scrollToBottom(scrollProxy)
+                scrollToBottom(scrollProxy, animated: false)
             }
             .onAppear { scrollToBottom(scrollProxy, animated: false) }
         }

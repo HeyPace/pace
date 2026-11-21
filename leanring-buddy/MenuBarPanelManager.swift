@@ -95,14 +95,20 @@ private struct PaceConversationPanelSurface: View {
                         composerFocusRequestID: surfaceModel.presentation.composerFocusRequestID)
                 }
             }
-            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+            // Reveal the settled layout as the window expands. Relaying out the
+            // transcript at every intermediate size makes the composer and text jump.
+            .frame(width: panelContentSize.width, height: panelContentSize.height, alignment: .top)
             .background(notchGeometry == nil ? Color.clear : .black)
             .clipShape(PaceConversationPanelChromeClip(isEmbeddedInNotch: notchGeometry != nil))
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+            .clipped()
         }
         .onExitCommand {
             NotificationCenter.default.post(name: .paceDismissPanel, object: PaceExplanationDismissalIntent.userInitiated)
         }
     }
+
+    private var panelContentSize: CGSize { surfaceModel.placement.frame.size }
 
     private var notchGeometry: PaceLivingNotchGeometry? {
         guard case .physicalNotch(let geometry) = surfaceModel.placement else { return nil }
@@ -171,7 +177,7 @@ final class MenuBarPanelManager: NSObject {
     /// can't immediately close it.
     private var panelShownAt: Date?
     private var visibilityAnimationGeneration = 0
-    private var pendingOutsideDismissalGeneration: Int?
+    private var pendingOutsideDismissalID: UUID?
     private var dismissPanelObserver: NSObjectProtocol?
     private var showPanelObserver: NSObjectProtocol?
     private var conversationPanelPresentationObservation: AnyCancellable?
@@ -350,7 +356,7 @@ final class MenuBarPanelManager: NSObject {
         if intent.requestsKeyboardFocus {
             companionManager.prewarmFastAnswerCredentialsIfNeeded()
         }
-        pendingOutsideDismissalGeneration = nil
+        pendingOutsideDismissalID = nil
         PaceMenuBarOccupancyMonitor.shared.start()
         PaceMenuBarOccupancyMonitor.shared.refresh()
         if panel == nil {
@@ -360,8 +366,8 @@ final class MenuBarPanelManager: NSObject {
         guard let panel else { return }
         let wasVisible = isPanelPresented
         surfaceModel.presentation = surfaceModel.presentation.presenting(intent)
-        positionPanelBelowAnchor()
-        let expandedPanelFrame = panel.frame
+        positionPanelBelowAnchor(updatesUnchangedFrame: !wasVisible)
+        let expandedPanelFrame = surfaceModel.placement.frame.isEmpty ? panel.frame : surfaceModel.placement.frame
         visibilityAnimationGeneration += 1
 
         if wasVisible == false,
@@ -376,8 +382,8 @@ final class MenuBarPanelManager: NSObject {
             panel.orderFrontRegardless()
 
             NSAnimationContext.runAnimationGroup { animationContext in
-                animationContext.duration = 0.24
-                animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0, 0, 1)
+                animationContext.duration = DS.Motion.micro
+                animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
                 panel.animator().setFrame(expandedPanelFrame, display: true)
             }
         } else {
@@ -395,7 +401,7 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func hidePanel(intent: PaceExplanationDismissalIntent = .automatic) {
-        pendingOutsideDismissalGeneration = nil
+        pendingOutsideDismissalID = nil
         companionManager.handleExplanationDismissal(intent)
         let wasVisible = isPanelPresented
         surfaceModel.presentation = .hidden
@@ -413,8 +419,8 @@ final class MenuBarPanelManager: NSObject {
             return
         }
         NSAnimationContext.runAnimationGroup { animationContext in
-            animationContext.duration = 0.18
-            animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0, 0, 1)
+            animationContext.duration = DS.Motion.micro
+            animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
             panel.animator().setFrame(surfaceModel.placement.collapsedFrame, display: true)
         } completionHandler: { [weak self, weak panel] in
             Task { @MainActor in
@@ -540,7 +546,7 @@ final class MenuBarPanelManager: NSObject {
         explanationInteractionMonitor = nil
     }
 
-    private func positionPanelBelowAnchor() {
+    private func positionPanelBelowAnchor(updatesUnchangedFrame: Bool = false) {
         guard let panel else { return }
         let placement: PaceConversationPanelPlacement
         if let panelPlacementResolver {
@@ -564,7 +570,8 @@ final class MenuBarPanelManager: NSObject {
                     ? CGSize(width: 320, height: panelHeight)
                     : CGSize(width: PaceQuickPanelMetrics.width, height: PaceQuickPanelMetrics.seamlessContentHeight))
         }
-        surfaceModel.placement = placement
+        let placementChanged = surfaceModel.placement != placement
+        if placementChanged { surfaceModel.placement = placement }
         let notchGeometry: PaceLivingNotchGeometry?
         if case .physicalNotch(let geometry) = placement { notchGeometry = geometry } else { notchGeometry = nil }
         if case .physicalNotch = surfaceModel.placement {
@@ -581,12 +588,13 @@ final class MenuBarPanelManager: NSObject {
             // Preserve the camera anchor, but let native menus own their row when crowded.
             panel.level = .floating
         }
-        panel.setFrame(surfaceModel.placement.frame, display: true)
-        panel.contentView?.frame = CGRect(origin: .zero, size: surfaceModel.placement.frame.size)
+        if placementChanged || updatesUnchangedFrame {
+            panel.setFrame(placement.frame, display: true)
+        }
     }
 
     private func repositionVisiblePanel(reassertPresentation: Bool = false) {
-        guard isPanelPresented, pendingOutsideDismissalGeneration == nil else { return }
+        guard isPanelPresented, pendingOutsideDismissalID == nil else { return }
         positionPanelBelowAnchor()
         if reassertPresentation { panel?.orderFrontRegardless() }
         updateNotchConversationVisibility()
@@ -643,9 +651,14 @@ final class MenuBarPanelManager: NSObject {
         // when you click the Settings window. Returns the event unchanged so
         // the clicked control still works.
         localClickOutsideMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]
+            matching: [.leftMouseDown, .rightMouseDown, .keyDown]
         ) { [weak self] event in
-            self?.dismissPanelIfClickIsOutside()
+            guard let self else { return event }
+            if let panel = self.panel, event.window === panel {
+                self.pendingOutsideDismissalID = nil
+            } else if event.type != .keyDown {
+                self.dismissPanelIfClickIsOutside()
+            }
             return event
         }
     }
@@ -661,6 +674,7 @@ final class MenuBarPanelManager: NSObject {
             return
         }
         if panel.frame.contains(clickLocation) {
+            pendingOutsideDismissalID = nil
             return
         }
         // Small delay so a Grant button inside the panel that spawns a system
@@ -668,10 +682,11 @@ final class MenuBarPanelManager: NSObject {
         // panel already returned above; anything here is genuinely outside,
         // so dismiss like NSPopover.
         let dismissalGeneration = visibilityAnimationGeneration
-        pendingOutsideDismissalGeneration = dismissalGeneration
+        let dismissalID = UUID()
+        pendingOutsideDismissalID = dismissalID
         scheduleOutsideClickDismissal { [weak self, weak panel] in
             guard let self, let panel, panel.isVisible, self.isPanelPresented,
-                self.pendingOutsideDismissalGeneration == dismissalGeneration,
+                self.pendingOutsideDismissalID == dismissalID,
                 self.visibilityAnimationGeneration == dismissalGeneration
             else { return }
             self.hidePanel()

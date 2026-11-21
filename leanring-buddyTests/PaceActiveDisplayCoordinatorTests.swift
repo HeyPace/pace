@@ -259,7 +259,7 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         XCTAssertTrue(manager.memoryIndex.allEntries().isEmpty)
     }
 
-    func testTypedAndPacePadEntryDoNotOpenTheMacConversationPanel() async throws {
+    func testTypedDeepLinkShowsFeedbackWithoutOpeningAConversationForPacePad() async throws {
         for isPacePadRequest in [false, true] {
             let fixture = try makeTwoPlacementFixture()
             let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
@@ -288,7 +288,7 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
 
             XCTAssertEqual(acceptedOrigin, .typed)
             XCTAssertEqual(planner.callCount, 1)
-            XCTAssertEqual(panelManager.presentation, .hidden)
+            XCTAssertEqual(panelManager.presentation, isPacePadRequest ? .hidden : .preview)
             XCTAssertTrue(NSApp.keyWindow === originalKeyWindow)
             XCTAssertEqual(NSApp.isActive, originalApplicationActivity)
         }
@@ -544,7 +544,18 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === firstResponder)
         XCTAssertTrue(NSApp.keyWindow === keyWindow)
         XCTAssertEqual(NSApp.isActive, applicationWasActive)
+        let renewedInteractionTime = Date().addingTimeInterval(1)
+        panelManager.dismissPanelIfClickIsOutside(
+            at: CGPoint(x: oldFrame.midX, y: oldFrame.midY), currentDate: renewedInteractionTime)
         scheduledDismissals[0]()
+        XCTAssertTrue(panelManager.presentation.isPresented)
+        XCTAssertTrue(window.isVisible)
+
+        panelManager.dismissPanelIfClickIsOutside(at: outsideClick, currentDate: renewedInteractionTime)
+        XCTAssertEqual(scheduledDismissals.count, 2)
+        scheduledDismissals[0]()
+        XCTAssertTrue(window.isVisible)
+        scheduledDismissals[1]()
         XCTAssertEqual(panelManager.presentation, .hidden)
         XCTAssertFalse(window.isVisible)
     }
