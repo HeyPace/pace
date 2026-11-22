@@ -55,6 +55,8 @@ nonisolated enum PaceAutomationCatalogMatch: Equatable, Sendable {
 nonisolated struct PaceAutomationCatalog: Equatable, Sendable {
     let entries: [PaceAutomationCatalogEntry]
 
+    init(entries: [PaceAutomationCatalogEntry]) { self.entries = entries }
+
     init(
         typedDefinitions: [PaceAutomationDefinition],
         recordedFlows: [PaceRecordedFlow],

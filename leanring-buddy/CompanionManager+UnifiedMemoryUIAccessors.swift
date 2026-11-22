@@ -51,11 +51,12 @@ extension CompanionManager {
     /// `replaceEntries`. Embeddings are preserved across resyncs when an entry's
     /// text is unchanged, and scheduled only for new/changed entries so a resync
     /// doesn't re-embed the whole corpus.
-    func syncConnectorsIntoUnifiedMemory() {
+    func syncConnectorsIntoUnifiedMemory(sourceSubset: Set<PaceRetrievalSource>? = nil) {
         let now = Date()
         var entryIdsAndTextsToEmbed: [(id: String, text: String)] = []
         for source in PaceRetrievalSource.allCases
-        where source != .paceHistory && source != .episodicMemory {
+        where source != .paceHistory && source != .episodicMemory
+            && (sourceSubset?.contains(source) ?? true) {
             let documents = localRetriever.isSourceEnabled(source) ? localRetriever.documents(forSource: source) : []
             let entries: [PaceMemoryEntry] = documents.map { document in
                 let contextText =
@@ -83,8 +84,12 @@ extension CompanionManager {
             }
             memoryIndex.replaceEntries(forSource: source, with: entries)
         }
-        persistUnifiedMemory()
-        scheduleLazyEmbedding(entryIdsAndTextsToEmbed)
+        if let unifiedMemoryConnectorSyncEffects {
+            unifiedMemoryConnectorSyncEffects(entryIdsAndTextsToEmbed)
+        } else {
+            persistUnifiedMemory(sourceSubset: sourceSubset)
+            scheduleLazyEmbedding(entryIdsAndTextsToEmbed, sourceSubset: sourceSubset)
+        }
     }
 
     /// Debounced entry point called from `refreshLocalRetrievalPublishedState()`

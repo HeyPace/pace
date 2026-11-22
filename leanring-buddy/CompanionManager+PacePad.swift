@@ -27,7 +27,6 @@ extension CompanionManager {
         // The Mac still owns the complete conversation pipeline, but its
         // speaker stays quiet for an iPad-originated turn because the iPad is
         // the user's selected audio surface for that interaction.
-        isChatModeMutedForCurrentTurn = true
         submitChatTranscriptFromDeepLink(transcript)
         return true
     }

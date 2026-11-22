@@ -172,7 +172,7 @@ final class PaceIntentClassifier {
     /// Drops a leading wake phrase plus its trailing comma/space so every
     /// rule below sees the bare intent. Only the FIRST matching prefix is
     /// stripped; "hi pace" alone stays intact (it is itself chitchat).
-    private static func strippedOfWakePhrase(_ lowercaseTranscript: String) -> String {
+    nonisolated private static func strippedOfWakePhrase(_ lowercaseTranscript: String) -> String {
         for wakePhrasePrefix in wakePhrasePrefixes {
             guard lowercaseTranscript.hasPrefix(wakePhrasePrefix + " ")
                 || lowercaseTranscript.hasPrefix(wakePhrasePrefix + ",") else {
@@ -260,7 +260,7 @@ final class PaceIntentClassifier {
     /// otherwise "Hey Pace, how is it going?" misses every chitchat
     /// pattern and pays the full screenshot+VLM+planner pipeline for a
     /// greeting.
-    private static let wakePhrasePrefixes: [String] = [
+    nonisolated private static let wakePhrasePrefixes: [String] = [
         "hey pace", "hi pace", "hello pace", "ok pace", "okay pace",
         "yo pace",
     ]
@@ -289,6 +289,24 @@ final class PaceIntentClassifier {
         "explain ", "tell me about ", "remind me what ", "what does ",
         "in plain english what is ", "describe ",
     ]
+
+    // Match the whole utterance so arithmetic embedded in screen/action
+    // requests cannot suppress context. This recognizes syntax, never solves it.
+    private static let arithmeticExpressionPattern: NSRegularExpression? = {
+        let units = "(?:zero|one|two|three|four|five|six|seven|eight|nine)"
+        let teens = "(?:ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)"
+        let tens = "(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)"
+        let spokenNumber = "(?:\(units)|\(teens)|\(tens)(?:[ -]\(units))?)"
+        let number = "(?:(?:negative|minus)\\s+|[+-])?(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+|\(spokenNumber))"
+        // Unspaced dates and phone numbers must keep their context-dependent route.
+        let arithmeticOperator = "(?:\\s*[+*×÷^−]\\s*|\\s+[-/x]\\s+|(?<=[0-9])x(?=[0-9])|\\s+(?:plus|minus|times|multiplied by|divided by|over)\\s+)"
+        // "More to" is an observed dictation lead-in; accepting it is safe only
+        // when every remaining token is a complete arithmetic expression.
+        let questionLeadIn = "(?:(?:what is|what's|what’s|what|calculate|compute|evaluate|more to)\\s+)?"
+        return try? NSRegularExpression(
+            pattern: "\\A(?:please\\s+)?\(questionLeadIn)\(number)(?:\(arithmeticOperator)\(number))+(?:\\s+please)?[.!?]*\\z"
+        )
+    }()
 
     /// Action verbs — when the transcript contains any of these AND
     /// doesn't look like a description hint ("describe", "show me"),
@@ -355,6 +373,21 @@ final class PaceIntentClassifier {
         "explain what's shown", "describe my current view",
         "what's this all about", "lay out what's on the screen",
     ]
+
+    // Match the complete current-screen question so generic knowledge and
+    // historical screen questions keep their text-only route.
+    nonisolated private static let currentScreenQuestionPattern = try? NSRegularExpression(
+        pattern: #"\A(?:what(?:['’]?s| is)\s+on\s+(?:(?:my|the)\s+)?screen(?:\s+(?:right\s+)?now)?|what am i looking at)[.!?]*\z"#
+    )
+
+    nonisolated static func isCurrentScreenQuestion(_ transcript: String) -> Bool {
+        let normalizedTranscript = strippedOfWakePhrase(
+            transcript.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        return currentScreenQuestionPattern?.firstMatch(
+            in: normalizedTranscript,
+            range: NSRange(normalizedTranscript.startIndex..., in: normalizedTranscript)
+        ) != nil
+    }
 
     private static let largeModelHints: [String] = [
         "phone a large model", "ask the big model", "use the big model",
@@ -432,6 +465,10 @@ final class PaceIntentClassifier {
             }
         }
 
+        if Self.isCurrentScreenQuestion(transcript) {
+            return PaceIntentPrediction(intent: .screenDescription, confidence: 0.95)
+        }
+
         // Description hints checked BEFORE action verbs because phrases
         // like "describe this" don't start with an action verb but
         // contain words like "this" that the broader heuristic could
@@ -440,6 +477,13 @@ final class PaceIntentClassifier {
             if lowercaseTranscript.contains(descriptionHint) {
                 return PaceIntentPrediction(intent: .screenDescription, confidence: 0.95)
             }
+        }
+
+        if Self.arithmeticExpressionPattern?.firstMatch(
+            in: lowercaseTranscript,
+            range: NSRange(lowercaseTranscript.startIndex..., in: lowercaseTranscript)
+        ) != nil {
+            return PaceIntentPrediction(intent: .pureKnowledge, confidence: 0.95)
         }
 
         // Action: any action verb in the transcript.

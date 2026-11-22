@@ -22,16 +22,15 @@ nonisolated struct PaceAgentInspectionHistory {
     mutating func append(plannerRequest: String, observations: [PaceActionExecutionObservation]) {
         completedStepCount += 1
         let stepText = """
-            Completed inspection step \(completedStepCount)
-            Request:
-            \(plannerRequest)
-            Result:
-            \(PaceActionExecutionObservation.formatForPlanner(observations))
-            """
+        Completed inspection step \(completedStepCount)
+        Request:
+        \(plannerRequest)
+        Result:
+        \(PaceActionExecutionObservation.formatForPlanner(observations))
+        """
         let truncationMarker = "\n[inspection result truncated to fit the prompt budget]"
         let maximumStepCharacterCount = (Self.maximumCharacterCount - 2) / 2
-        let boundedStepText =
-            stepText.count > maximumStepCharacterCount
+        let boundedStepText = stepText.count > maximumStepCharacterCount
             ? String(stepText.prefix(maximumStepCharacterCount - truncationMarker.count)) + truncationMarker
             : stepText
         completedSteps.append(boundedStepText)
@@ -59,9 +58,50 @@ nonisolated struct PaceSetOfMarkRecoveryRequest {
     let screenNumber: Int?
 }
 
+nonisolated enum PaceApplicationTargetResolution: Equatable, Sendable {
+    case discovering
+    case retryingInspection
+    case clarification(String)
+    case interrupted(String)
+
+    var userFacingSummary: String {
+        switch self {
+        case .discovering: return "Checking which window you mean."
+        case .retryingInspection: return "Checking that again."
+        case .clarification(let question), .interrupted(let question): return question
+        }
+    }
+}
+
 nonisolated struct PaceActionExecutionObservation {
+    enum TerminalReason: Equatable, Sendable {
+        case ambiguousApplicationTarget
+        case ambiguousInspectionTarget
+        case recoverableInspectionFailure
+        case staleApplicationTarget
+        case inspectionInterrupted
+        case managedWorkflowUnavailable
+    }
+
     let toolName: String
     let summary: String
+    let userFacingSummary: String?
+    let terminalReason: TerminalReason?
+    var stopsActionPlan: Bool { terminalReason != nil }
+    var requiresFreshInspectionPlan: Bool {
+        terminalReason == .ambiguousInspectionTarget || terminalReason == .recoverableInspectionFailure
+    }
+    var stopsAgentLoop: Bool { terminalReason != nil && !requiresFreshInspectionPlan }
+    var targetResolution: PaceApplicationTargetResolution? {
+        switch terminalReason {
+        case .ambiguousInspectionTarget: return .discovering
+        case .recoverableInspectionFailure: return .retryingInspection
+        case .ambiguousApplicationTarget: return .clarification(userFacingSummary ?? "Which app window do you mean?")
+        case .staleApplicationTarget, .inspectionInterrupted:
+            return .interrupted(userFacingSummary ?? "I stopped checking that window.")
+        case nil, .managedWorkflowUnavailable: return nil
+        }
+    }
     /// Non-nil only on an all-fail click, to request Set-of-Mark recovery.
     let setOfMarkRecovery: PaceSetOfMarkRecoveryRequest?
 
@@ -70,11 +110,15 @@ nonisolated struct PaceActionExecutionObservation {
     init(
         toolName: String,
         summary: String,
-        setOfMarkRecovery: PaceSetOfMarkRecoveryRequest? = nil
+        userFacingSummary: String? = nil,
+        setOfMarkRecovery: PaceSetOfMarkRecoveryRequest? = nil,
+        terminalReason: TerminalReason? = nil
     ) {
         self.toolName = toolName
         self.summary = summary
+        self.userFacingSummary = userFacingSummary
         self.setOfMarkRecovery = setOfMarkRecovery
+        self.terminalReason = terminalReason
     }
 
     static func formatForPlanner(_ observations: [PaceActionExecutionObservation]) -> String {
@@ -88,7 +132,7 @@ nonisolated struct PaceActionExecutionObservation {
 
     static func formatForUserFeedback(_ observations: [PaceActionExecutionObservation]) -> String? {
         let userVisibleSummaries = observations
-            .map(\.summary)
+            .map { $0.userFacingSummary ?? $0.summary }
             .map { summary in
                 // Producer metadata belongs to the planner, not speech or
                 // conversation indexing (snapshots can be very large).
@@ -115,6 +159,11 @@ nonisolated struct PaceActionExecutionObservation {
         // app launch or mutation behind the first successful action.
         return userVisibleSummaries.joined(separator: "\n")
     }
+}
+
+nonisolated struct PaceActionExecutionReceipt {
+    let observations: [PaceActionExecutionObservation]
+    let executedPlan: PaceActionExecutionPlan
 }
 
 nonisolated struct PaceActionExecutionPlan {
@@ -174,6 +223,7 @@ nonisolated enum PaceParsedAction {
     case openBrowser(PaceBrowserOpenRequest)
     case screenCapture(PaceScreenCaptureKind)
     case meeting(PaceMeetingModeCommand)
+    case codingSession(PaceCodingSessionCommand)
     case codexSession(PaceCodexSessionRequest)
     case controlMusic(PaceMusicCommand)
     case adjustVolume(PaceSystemAdjustment)
@@ -190,6 +240,8 @@ nonisolated enum PaceParsedAction {
     case runShortcut(String)
     case openMessages(PaceMessageRequest)
     case downloadFile(PaceFileDownloadRequest)
+    case presentMedia(PaceMediaPresentationRequest)
+    case speak(PaceSpeechRequest)
     case startTimer(PaceTimerRequest)
     case recordFlow(PaceFlowActionRequest)
     case runFlow(PaceFlowActionRequest)
@@ -225,6 +277,7 @@ nonisolated enum PaceParsedAction {
         case .openBrowser: return "open_browser"
         case .screenCapture: return "screen_capture"
         case .meeting: return "meeting"
+        case .codingSession: return "coding_session"
         case .codexSession: return "codex_session"
         case .controlMusic: return "music"
         case .adjustVolume: return "volume"
@@ -241,6 +294,8 @@ nonisolated enum PaceParsedAction {
         case .runShortcut: return "shortcut_run"
         case .openMessages: return "messages_open"
         case .downloadFile: return "download_file"
+        case .presentMedia: return "present_media"
+        case .speak: return "speak"
         case .startTimer: return "start_timer"
         case .recordFlow: return "record_flow"
         case .runFlow: return "run_flow"
@@ -265,6 +320,7 @@ nonisolated enum PaceParsedAction {
             return request.browserName
         case .screenCapture(let kind):
             return kind.rawValue
+        case .codingSession: return "codex.app-server"
         case .codexSession(let request):
             return request.directory
         case .meeting:
@@ -289,6 +345,8 @@ nonisolated enum PaceParsedAction {
             return String(request.path.prefix(120))
         case .downloadFile(let request):
             return String(request.url.absoluteString.prefix(120))
+        case .presentMedia(let request): return request.assetID
+        case .speak: return "local speech"
         case .startTimer(let request):
             return String(request.label.prefix(60))
         case .recordFlow(let request), .runFlow(let request):
@@ -358,6 +416,7 @@ nonisolated enum PaceParsedAction {
                 "Open \(request.browserName)\(request.chromeProfile.map { " (\($0) profile)" } ?? "")\(request.url.map { ": \($0)" } ?? "")"
         case .screenCapture(let kind):
             return kind.actionDescription
+        case .codingSession(let command): return command.summary
         case .codexSession(let request):
             return "Start Codex in Warp at \(request.directory)"
         case .meeting:
@@ -373,7 +432,7 @@ nonisolated enum PaceParsedAction {
         case .createCalendarEvent(let calendarEventRequest):
             return "Create calendar event: \(calendarEventRequest.title)"
         case .createReminder(let reminderRequest):
-            return "Create reminder: \(reminderRequest.title)"
+            return "Create reminder: \(reminderRequest.displayTitle)"
         case .finder(let finderRequest):
             return "Finder \(finderRequest.action.rawValue): \(finderRequest.path)"
         case .createNote(let noteRequest):
@@ -399,6 +458,8 @@ nonisolated enum PaceParsedAction {
             return "Open Messages"
         case .downloadFile(let downloadRequest):
             return "Download file to ~/Downloads: \(downloadRequest.url.absoluteString)"
+        case .presentMedia(let request): return "Present \(request.presentationSummary) for \(request.durationSeconds) seconds"
+        case .speak(let request): return "Speak\(request.profile.map { " [" + $0.rawValue + "]" } ?? ""): \(Self.truncatedForApproval(request.text))\(request.englishSubtitle.map { " · English subtitles: " + Self.truncatedForApproval($0) } ?? "")"
         case .startTimer(let timerRequest):
             let durationMinutes = Int((timerRequest.durationInSeconds / 60.0).rounded())
             if durationMinutes >= 1, !timerRequest.label.isEmpty {
@@ -635,8 +696,26 @@ nonisolated enum PaceCalendarRange: String, Equatable {
 }
 
 nonisolated struct PaceReminderRequest {
+    struct Schedule: Equatable {
+        let date: Date
+        let isDateOnly: Bool
+    }
+
     let title: String
     let notes: String?
+    var schedule: Schedule? = nil
+    var listName: String? = nil
+
+    var displayTitle: String {
+        let destination = listName.map { " in \($0)" } ?? ""
+        guard let schedule else { return title + destination }
+        let due = schedule.date.formatted(date: .abbreviated, time: schedule.isDateOnly ? .omitted : .shortened)
+        return "\(title)\(destination) (due \(due))"
+    }
+
+    static func comparisonTitle(_ title: String) -> String {
+        title.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased()
+    }
 }
 
 nonisolated struct PaceTimerRequest {
@@ -697,6 +776,10 @@ nonisolated struct PaceMessageRequest {
 
 // MARK: - Action tag parser
 
+nonisolated struct PaceTeachingDelivery {
+    let handlesSpeech: Bool
+}
+
 /// Result of pulling all action tags out of Claude's response.
 nonisolated struct PaceActionTagParseResult {
     /// The assistant text with every recognised action tag stripped.
@@ -711,6 +794,7 @@ nonisolated struct PaceActionTagParseResult {
     /// existing cursor-flight visualization so the user sees pace
     /// move to the target before it executes.
     let firstClickVisualisationLocation: ScreenshotPixelLocation?
+    var teachingDelivery: PaceTeachingDelivery? = nil
 }
 
 nonisolated struct PaceFastActionParseResult {

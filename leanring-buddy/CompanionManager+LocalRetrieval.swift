@@ -89,19 +89,26 @@ extension CompanionManager {
         to userPrompt: String,
         query: String,
         route: PaceIntentRoute,
-        isFirstPlannerStep: Bool = true
+        isFirstPlannerStep: Bool = true,
+        memoryQuery: String? = nil,
+        loadFreshReadOnlyContext: (@MainActor (String) async -> String?)? = nil
     ) async -> String {
         guard isFirstPlannerStep else { return userPrompt }
-        guard
-            PaceRetrievalContextPolicy.shouldQueryLocalContext(
-                forTranscript: query,
-            route: route
-            )
-        else {
-            return userPrompt
-        }
+        let shouldLoadFreshContext = PaceRetrievalContextPolicy.shouldQueryLocalContext(
+            forTranscript: query, route: route)
+        let hasMemoryQuery = memoryQuery?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        guard shouldLoadFreshContext || hasMemoryQuery else { return userPrompt }
 
-        let freshContextBlock = await freshReadOnlyLocalContext(for: query)
+        let freshContextBlock: String?
+        if shouldLoadFreshContext {
+            if let loadFreshReadOnlyContext {
+                freshContextBlock = await loadFreshReadOnlyContext(query)
+            } else {
+                freshContextBlock = await freshReadOnlyLocalContext(for: query)
+            }
+        } else {
+            freshContextBlock = nil
+        }
         let groundedPrompt = freshContextBlock.map { "\($0)\n\n\(userPrompt)" } ?? userPrompt
         defer {
             // Updates the Settings retrieval status AND debounce-triggers the
@@ -125,7 +132,7 @@ extension CompanionManager {
         let verbatimWindowTurnIds = Set(threadMemory.verbatimWindow().map { $0.turnId })
         guard
             let memoryContextBlock = await memoryRetriever.assembleContextBlock(
-                forQuery: query,
+                forQuery: shouldLoadFreshContext ? query : (memoryQuery ?? query),
             excludingEntryIds: verbatimWindowTurnIds,
             maxEntries: 8,
             now: Date()
@@ -155,7 +162,7 @@ extension CompanionManager {
         return summary
     }
 
-    func refreshLocalRetrievalPublishedState() {
+    func refreshLocalRetrievalPublishedState(sourceSubset: Set<PaceRetrievalSource>? = nil) {
         let sourceStatuses = localRetriever.sourceStatuses
         localRetrievalSourceStatuses = sourceStatuses
         localRetrievalSummary = localRetrievalSummaryText(
@@ -164,7 +171,11 @@ extension CompanionManager {
         )
         // Trail connector changes into the unified index (debounced). This
         // only READS from the retriever, so it can't re-enter this method.
-        syncConnectorsIntoUnifiedMemoryIfDue()
+        if let sourceSubset {
+            syncConnectorsIntoUnifiedMemory(sourceSubset: sourceSubset)
+        } else {
+            syncConnectorsIntoUnifiedMemoryIfDue()
+        }
     }
 
     func addLocalRetrievalFileRootURLs(_ rootURLs: [URL]) {
@@ -214,6 +225,7 @@ extension CompanionManager {
     }
 
     func setLocalRetrievalSourceEnabled(_ isEnabled: Bool, for source: PaceRetrievalSource) {
+        if source == .screenWatchHistory { screenWatchNoteCoordinator.invalidate() }
         localRetriever.setSourceEnabled(isEnabled, for: source)
         syncConnectorsIntoUnifiedMemory()
         refreshLocalRetrievalPublishedState()
@@ -328,6 +340,11 @@ extension CompanionManager {
 
     func clearLocalRetrievalSource(_ source: PaceRetrievalSource) {
         localRetriever.clearDocuments(forSource: source)
+        if source == .paceHistory { PaceGeneratedImageStore.clearChatPreviews() }
+        if source == .screenWatchHistory {
+            screenWatchNoteCoordinator.invalidate()
+            syncConnectorsIntoUnifiedMemory()
+        }
         // Research history keeps an in-memory journal cache; drop it too so
         // the Activity-tab per-source clear can't leave a stale roster behind.
         if source == .researchHistory {
@@ -572,6 +589,9 @@ extension CompanionManager {
 
     func resetLocalRetrievalIndex() {
         localRetriever.resetIndex(preservePreferences: true)
+        PaceGeneratedImageStore.clearChatPreviews()
+        screenWatchNoteCoordinator.invalidate()
+        syncConnectorsIntoUnifiedMemory()
         refreshFileRetrievalDocumentsIfAllowed(force: true)
         refreshCalendarRetrievalDocumentsIfAllowed(force: true)
         refreshRemindersRetrievalDocumentsIfAllowed(force: true)

@@ -34,7 +34,16 @@ enum CompanionVoiceState {
 
 @MainActor
 final class CompanionManager: ObservableObject {
-    @Published var voiceState: CompanionVoiceState = .idle
+    @Published var voiceState: CompanionVoiceState = .idle {
+        didSet {
+            if voiceState != .idle, isWatchModeEnabled { screenSuggestionCoordinator.invalidate() }
+            if voiceState == .idle {
+                currentRequestStartedAt = nil
+            } else if currentRequestStartedAt == nil {
+                currentRequestStartedAt = Date()
+            }
+        }
+    }
     weak var pacePadOutputDelegate: PacePadOutputDelegate?
     var activePacePadTurnIdentifier: String?
     var activePacePadTurnUsesOffDevicePlanner = false
@@ -108,6 +117,10 @@ final class CompanionManager: ObservableObject {
     /// Identical to what flowed through TTS — `<think>` blocks, tool
     /// calls, action tags, and `[POINT:…]` already stripped. The reply
     /// replay button replays exactly this text.
+    @Published var conversationLanguageMode: PaceConversationLanguageMode = .standard
+    var activeConversationLanguageMode: PaceConversationLanguageMode = .standard
+    var activeBilingualReply: PaceBilingualReply?
+    var lastSpokenReplyRequest: PaceSpeechRequest?
     @Published var lastSpokenReplyText: String?
 
     /// Timestamp of when `lastSpokenReplyText` was set. The notch
@@ -132,6 +145,9 @@ final class CompanionManager: ObservableObject {
     /// outage window rather than on every sentence. Resets when the
     /// sidecar recovers.
     var lastSidecarTTSOfflineNarratedAt: Date?
+
+    var pendingPowerDescription: PacePendingPowerDescription?
+    @Published var pendingSpokenPowerClarification: PacePendingSpokenPowerClarification?
 
     var pendingIntentClarification: PacePendingIntentClarification?
 
@@ -170,7 +186,15 @@ final class CompanionManager: ObservableObject {
     /// `clear_annotations` (tool or voice command), and on the 30 s
     /// timer. See PRD tuition-mode annotations.
     let annotationOverlayController = PaceAnnotationOverlayController()
-    let diagramOverlayController = PaceDiagramOverlayController()
+    let diagramOverlayController: PaceDiagramOverlayController
+    let teachingPreviewDirectSpawnAvailability: (() -> Bool)?
+    struct PendingTeachingPreviewOwnership {
+        let turnLease: PaceTurnLease
+        let template: PaceFigureScene.Template
+        let generation: UUID
+        let dismissalGeneration: Int
+    }
+    var pendingTeachingPreviewOwnership: PendingTeachingPreviewOwnership?
     let imageOverlayController = PaceImageOverlayController()
 
     let buddyDictationManager = PacePushToTalkManager()
@@ -203,7 +227,7 @@ final class CompanionManager: ObservableObject {
     /// identifiers (Zoom, Teams, FaceTime, Slack) every five seconds.
     /// Combined with the input-activity monitor, this gives the
     /// restraint gate a "user is busy" signal without permission cost.
-    let activeCallDetector = PaceActiveCallDetector()
+    var activeCallDetector = PaceActiveCallDetector()
     /// Drives the chat input visibility inside the notch panel. Set
     /// `true` when the chat shortcut fires; the panel renders a
     /// TextField bound to `@FocusState` keyed on this flag. Cleared
@@ -215,15 +239,11 @@ final class CompanionManager: ObservableObject {
     /// `isGlowBorderEnabled` preference (default OFF).
     let glowBorderManager = GlowBorderManager()
 
-    /// Tooltip-style bubble that follows the cursor and shows what's
-    /// happening through the voice turn: "listening…", interim
-    /// transcript, the planner's streaming text. Replaces the pure-
-    /// spinner UX so users can see the pipeline is alive when something
-    /// (Whisper download, slow LM Studio cold-start, network) is taking
-    /// a while.
+    /// Keep the legacy transcript bubble hidden; chat owns conversation text.
+    /// Pinpoint labels and teaching annotations use the separate screen overlay.
     lazy var responseOverlayManager: CompanionResponseOverlayManager = {
         let manager = CompanionResponseOverlayManager()
-        manager.setAnnotationsEnabled(areCursorAnnotationsEnabled)
+        manager.setAnnotationsEnabled(false)
         manager.setStopButtonCallback { [weak self] in
             self?.handleStopButtonTapped()
         }
@@ -241,23 +261,62 @@ final class CompanionManager: ObservableObject {
     /// in `CompanionManager`. The pipeline owns the per-turn lifecycle
     /// already; reusing its publisher keeps the streaming wire-up DRY.
     lazy var streamingSentenceTTSPipeline: StreamingSentenceTTSPipeline = {
-        return StreamingSentenceTTSPipeline(ttsClient: ttsClient)
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: ttsClient)
+        pipeline.onPlaybackFailure = { [weak self] in
+            guard let self else { return }
+            let notice = "Voice playback failed; your answer is in chat."
+            self.recordAssistantNarration(notice, origin: .failure)
+            self.currentTurnHUDState = .failed(notice)
+        }
+        return pipeline
     }()
+
+    var codingSetupCallCount = 0
+    var codingSessionsInFlight: Set<PaceCodingSessionID> = []
+    var presentedCodingApprovalTokens: Set<UUID> = []
+    var dismissedCodingApprovalTokens: Set<UUID> = []
+    var codingApprovalDismissalGeneration: UInt64 = 0
+    var codingApprovalAbortIsScheduled = false
+    var codingApprovalAbortOverride: (() -> Void)?
+    var codingModalTokenOverride: (() -> UUID?)?
+    var presentedCodingApprovalWindows: [UUID: NSWindow] = [:]
+    var codingApprovalIsPresented: Bool { !presentedCodingApprovalTokens.isEmpty }
+    var actionApprovalPresentationOverride: ((PaceActionApprovalRequest) -> PaceActionApprovalDecision)?
+    lazy var codingSessionCoordinator = PaceCodingSessionCoordinator(
+        eventSink: { [weak self] event in await self?.handleCodingSessionEvent(event) },
+        approve: { [weak self] request in
+            guard let self else { return .cancel }
+            return await self.requestCodingApproval(request)
+        })
 
     /// Backing store for the in-window chat transcript. Lazy so it
     /// only builds the local history reader on first use (the main
     /// window opens on demand, not at launch). Persistence runs
     /// through `paceHistory` retrieval — there is no parallel chat
     /// storage layer. See `PaceChatSession.swift`.
+    lazy var conversationRecorder = PaceConversationRecorder(persister: localRetriever, chatSession: chatSession)
+    let conversationPanelPresentationRequests = PassthroughSubject<PaceConversationPanelPresentationIntent, Never>()
+    let recordsDerivedConversationMemory: Bool
+    let persistsDebugTraces: Bool
+    var lastPresentedVoiceConversationEventIdentifier: String?
+    var activeConversationUserEvent: ConversationEvent?
+    var replayPreservesOriginalConversationHistory = false
+    var activeConversationPlannerTranscript: String?
+    var activeConversationScreenSuggestionContext: PaceScreenSuggestionRequestContext?
+    var pendingTypedConversationEventIdentifier: String?
+    var activeConversationVisibleAssistantText = ""
+    var activeConversationAssistantEventIdentifier: String?
+    var lastConversationAssistantEventIdentifier: String?
+    var extractedConversationUserEventIdentifiers: Set<String> = []
+
     lazy var chatSession: PaceChatSession = {
-        #if DEBUG
-            if let fixtureSession = PaceRuntimeSmokeTestHooks.makeVisualAcceptanceSessionIfEnabled() {
-                return fixtureSession
-            }
-        #endif
         return PaceChatSession(
             historySource: PaceLocalChatHistoryReader(),
-            transcriptSubmitter: companionManagerChatSubmitterAdapter
+            transcriptSubmitter: companionManagerChatSubmitterAdapter,
+            preferences: watchModeDefaults,
+            didAcknowledgeScreenSuggestion: { [weak self] eventIdentifier in
+                self?.screenSuggestionNotification.dismissAcknowledgedOffer(eventIdentifier: eventIdentifier)
+            }
         )
     }()
 
@@ -268,12 +327,6 @@ final class CompanionManager: ObservableObject {
     lazy var companionManagerChatSubmitterAdapter: PaceChatSessionSubmitterAdapter = {
         return PaceChatSessionSubmitterAdapter(owner: self)
     }()
-
-    /// Per-turn flag set by `submitChatTranscriptFromChatSession` to the
-    /// session's `isChatTTSMuted` snapshot at submission time. The
-    /// streaming pipeline reads it through `setMutedForCurrentTurn`
-    /// every turn boundary; we don't store this anywhere persistent.
-    var isChatModeMutedForCurrentTurn: Bool = false
 
     /// Classifies the user's transcript into pureKnowledge /
     /// screenDescription / screenAction / chitchat so the pipeline
@@ -303,6 +356,15 @@ final class CompanionManager: ObservableObject {
     /// turn awaits this task so model loading and kernel compilation happen
     /// once instead of racing two multi-gigabyte inference sessions.
     var textOnlyPlannerWarmupTask: Task<Void, Never>?
+
+    var fastAnswerCredentialPrewarmTask: Task<Void, Never>?
+    var fastAnswerCredentialPrewarmGeneration = UUID()
+    var fastAnswerCredentialStore = PacePlannerCredentialStore.shared
+    var fastAnswerCredentialSourceIsReady: () -> Bool = {
+        (try? PaceInfisicalCredentialConfiguration.load()) != nil
+            && PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent()
+            && PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+    }
 
     /// Post-hoc response quality checker. After the local model generates a
     /// response, this checks whether it is adequate before speaking it. If
@@ -419,6 +481,31 @@ final class CompanionManager: ObservableObject {
     /// bbox overlap. Cheap (~50-200ms), no model load.
     let visionOCRClient = PaceVisionOCRClient()
     let permissionEventStore = EKEventStore()
+    let watchModeDefaults: UserDefaults
+    var watchWorkspaceLifecycleObservers: [NSObjectProtocol] = []
+    var watchDistributedLifecycleObservers: [NSObjectProtocol] = []
+    var isWatchRuntimeStarted = false
+    var watchRuntimeGeneration: UInt64 = 0
+    var watchPauseReasons: Set<PaceScreenWatchPauseReason> = []
+    var watchSessionSnapshotProvider: () -> PaceScreenWatchSessionSnapshot = { .current() }
+    var watchScreenPermissionProvider: () -> Bool = { CGPreflightScreenCaptureAccess() }
+    var watchPlannerConsentProvider: () -> Bool = { BuddyPlannerClientFactory.hasScreenSuggestionPlannerConsent() }
+    var watchForegroundApplicationIdentifierProvider: () -> String? = {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+    }
+    var watchSuggestionSpeechTask: Task<Void, Never>?
+    var watchSuggestionSpeechGeneration: UInt64 = 0
+    var isWatchSuggestionSpeaking = false
+    var lastScreenSuggestionDeliveryAt: Date?
+    var screenSuggestionVisualGate = PaceScreenSuggestionVisualGate()
+    lazy var screenSuggestionCoordinator = makeScreenSuggestionCoordinator()
+    lazy var screenWatchNoteCoordinator = makeScreenWatchNoteCoordinator()
+    var watchPrivacySubscriptions: Set<AnyCancellable> = []
+    lazy var screenSuggestionNotification = PaceScreenSuggestionNotificationController(
+        presenter: PaceScreenSuggestionNotificationPanel(),
+        onAction: { [weak self] suggestion, action in
+            self?.handleScreenSuggestionNotificationAction(suggestion, action: action)
+        })
     lazy var screenWatchModeController: PaceScreenWatchModeController = {
         PaceScreenWatchModeController()
     }()
@@ -487,6 +574,10 @@ final class CompanionManager: ObservableObject {
     // closure reads the live `@Published` value so toggling the
     // preference in Settings takes effect immediately without a
     // service restart.
+    var captureScreensForPlanner: () async throws -> [CompanionScreenCapture] = {
+        try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+    }
+
     lazy var screenContextService: PaceScreenContextService = {
         PaceScreenContextService(
             screenAnalysisClient: PaceScreenAnalysisClientFactory.makeDefaultClient(),
@@ -505,7 +596,8 @@ final class CompanionManager: ObservableObject {
         .boolWithInfoPlistSeed(.useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext")
     {
         didSet {
-            if oldValue && !useLocalVLMForScreenContext {
+            if !useLocalVLMForScreenContext {
+                setWatchModeEnabled(false)
                 diagramOverlayController.dismiss()
                 imageOverlayController.dismiss()
             }
@@ -636,7 +728,7 @@ final class CompanionManager: ObservableObject {
     /// On-device persistence for `threadMemory` so a conversation
     /// survives quit/relaunch ("resume always, until reset"). Only the
     /// store touches disk; `threadMemory` stays I/O-free.
-    let threadMemoryStore = PaceThreadMemoryStore()
+    let threadMemoryStore: PaceThreadMemoryStore
 
     /// Whether thread memory (and therefore its persistence) is active.
     /// When off, we neither restore nor write the conversation to disk,
@@ -658,12 +750,12 @@ final class CompanionManager: ObservableObject {
     /// retrieval stores — those stay authoritative; this ships dark and
     /// nothing reads it yet. Phase 3 cuts recall over to it behind a flag.
     let memoryIndex = PaceMemoryIndex()
-    let memoryStore = PaceMemoryStore()
+    let memoryStore: PaceMemoryStore
     /// One-way mirror into the system CoreSpotlight index so memories
     /// are discoverable from Cmd+Space and other Spotlight surfaces.
     /// Best-effort: any framework failure is silently absorbed by the
     /// indexer — Spotlight mirroring never blocks a user-facing turn.
-    let spotlightMemoryIndexer = PaceSpotlightMemoryIndexer()
+    let spotlightMemoryIndexer: PaceSpotlightMemoryIndexer
     /// macOS Focus state monitor. Feeds `isInUserFocusMode` into every
     /// `PaceRestraintContext` we build, so proactive surfaces (morning
     /// brief, posture, failure narrations) defer cleanly while the
@@ -690,7 +782,9 @@ final class CompanionManager: ObservableObject {
         embeddingClient: PaceChainedTextEmbeddingClient.makePaceDefault(),
         shouldInjectSensitiveTopics: {
             PaceUserPreferencesStore.bool(.injectSensitiveEpisodicTopics, default: false)
-        }
+        },
+        isSourceEnabled: { [weak self] source in self?.localRetriever.isSourceEnabled(source) ?? false },
+        screenWatchHistoryAccessGeneration: { [weak self] in self?.localRetriever.screenWatchHistoryAccessGeneration ?? 0 }
     )
 
     /// Off-hot-path embedding scheduler — extracted into its own
@@ -706,6 +800,7 @@ final class CompanionManager: ObservableObject {
     /// Throttle so the connector resync runs at most once a minute even
     /// though `refreshLocalRetrievalPublishedState()` fires after every
     /// retrieval write.
+    var unifiedMemoryConnectorSyncEffects: (([(id: String, text: String)]) -> Void)?
     var lastUnifiedMemoryConnectorSyncAt: Date?
     static let unifiedMemoryConnectorSyncMinimumInterval: TimeInterval = 60
 
@@ -726,6 +821,13 @@ final class CompanionManager: ObservableObject {
     /// `currentResponseTask`. Track it separately so Stop and replacement
     /// turns can cancel the complete pipeline, including that early window.
     var currentTurnDispatchTask: Task<Void, Never>?
+    var powerCatalogDiscoveryOverride: (() async -> PaceDiscoveredAutomationCatalog)?
+    var reusableWorkAuthoringPlannerOverride: (any BuddyPlannerClient)?
+    var hasRecordedCurrentTurnSpeechUserContext = false
+    var activeManagedPower: PaceManagedPower?
+    var localMediaCatalog = PaceLocalMediaCatalog()
+    var managedPowerStore = PaceManagedPowerStore()
+    var mediaOverlayController = PaceMediaOverlayController()
     var turnLeaseRegistry = PaceTurnLeaseRegistry()
     var chatTurnQueue = PaceChatTurnQueue()
     var queuedChatTurnDrainTask: Task<Void, Never>?
@@ -762,6 +864,19 @@ final class CompanionManager: ObservableObject {
     var wakeWordPTTBridgeCancellable: AnyCancellable?
     var accessibilityCheckTimer: Timer?
     var lmStudioReachabilityCheckTimer: Timer?
+    var playCaptureAcknowledgementCue: () -> Void = {
+        guard let sound = NSSound(named: NSSound.Name("Tink")) else { return }
+        sound.volume = 0.12
+        sound.play()
+    }
+    var playListeningReadyCue: () -> Void = {
+        guard let sound = NSSound(named: NSSound.Name("Pop")) else { return }
+        sound.volume = 0.10
+        sound.play()
+    }
+    var hasAnnouncedCurrentCaptureReady = false
+    @Published var currentRequestStartedAt: Date?
+    var ignoresRejectedPracticeShortcutRelease = false
     var pendingKeyboardShortcutStartTask: Task<Void, Never>?
     var lastCalendarRetrievalRefreshAt: Date?
     var lastCalendarRetrievalAuthorizationStatus: EKAuthorizationStatus?
@@ -810,6 +925,7 @@ final class CompanionManager: ObservableObject {
         }
     }
     var currentDictationTrigger: DictationTrigger = .keyboard
+    var shortcutPressOwnsCapture = false
 
     /// Auto-releases the synthetic PTT press created after a wake-word
     /// detection. The wake detector never sends its own transcript to the
@@ -894,16 +1010,13 @@ final class CompanionManager: ObservableObject {
     @Published var isPaceCursorEnabled: Bool = PaceUserPreferencesStore
         .bool(.isPaceCursorEnabled, default: true)
 
-    /// User preference for whether cursor-adjacent annotation bubbles are
-    /// shown. Turning this off keeps the cursor/tool flow active but hides
-    /// the transcript/response bubble and the small pointer labels.
+    /// User preference for cursor-adjacent pinpoint labels and annotations.
     @Published var areCursorAnnotationsEnabled: Bool = PaceUserPreferencesStore
         .bool(.areCursorAnnotationsEnabled, default: true)
 
     func setCursorAnnotationsEnabled(_ enabled: Bool) {
         areCursorAnnotationsEnabled = enabled
         PaceUserPreferencesStore.setBool(enabled, for: .areCursorAnnotationsEnabled)
-        responseOverlayManager.setAnnotationsEnabled(enabled)
     }
 
     /// User preference for the screen-edge glow border. When toggled
@@ -1012,6 +1125,8 @@ final class CompanionManager: ObservableObject {
         PacePlannerTierStore.loadConfiguration().cliDirectUpstream
     }()
 
+    @Published var fastEverydayAnswersEnabled = PacePlannerTierStore.fastEverydayAnswersEnabled()
+
     /// The provider Direct-API turns will target when tier == .directAPI.
     @Published var directAPIProvider: PaceDirectAPIProvider = {
         PacePlannerTierStore.loadConfiguration().directAPIProvider
@@ -1038,12 +1153,17 @@ final class CompanionManager: ObservableObject {
     /// so EVERY off-device turn is visible, not just bridge calls.
     /// `isCloudBridgeCallActive` remains as a subset for backward compat
     /// during the v1 cycle and continues to set/reset alongside this flag.
-    @Published var isOffDeviceTurnInFlight: Bool = false {
-        didSet {
-            if isOffDeviceTurnInFlight, activePacePadTurnIdentifier != nil {
-                activePacePadTurnUsesOffDevicePlanner = true
-            }
+    var foregroundOffDeviceTurnInFlight = false { didSet { refreshOffDeviceIndicator() } }
+    var hostedMCPOffDeviceTurnInFlight = false { didSet { refreshOffDeviceIndicator() } }
+    var screenSuggestionDisclosureLeases: Set<UUID> = []
+    @Published private(set) var isOffDeviceTurnInFlight: Bool = false
+
+    func refreshOffDeviceIndicator() {
+        if (foregroundOffDeviceTurnInFlight || hostedMCPOffDeviceTurnInFlight), activePacePadTurnIdentifier != nil {
+            activePacePadTurnUsesOffDevicePlanner = true
         }
+        isOffDeviceTurnInFlight = foregroundOffDeviceTurnInFlight || hostedMCPOffDeviceTurnInFlight
+            || headlessOffDevicePlannerCallCount > 0 || !screenSuggestionDisclosureLeases.isEmpty || !codingSessionsInFlight.isEmpty || codingSetupCallCount > 0
     }
 
     /// Count of HEADLESS planner calls (background agents, subagents,
@@ -1053,7 +1173,7 @@ final class CompanionManager: ObservableObject {
     /// planner traffic the user didn't just speak — counter-based
     /// because up to 4 subagents run concurrently and the tint must
     /// hold until the LAST one finishes.
-    var headlessOffDevicePlannerCallCount: Int = 0
+    var headlessOffDevicePlannerCallCount: Int = 0 { didSet { refreshOffDeviceIndicator() } }
 
 
 
@@ -1069,8 +1189,7 @@ final class CompanionManager: ObservableObject {
         .bool(.areCalendarNudgesEnabled, default: false)
 
 
-    @Published var areWatchObservationNudgesEnabled: Bool = PaceUserPreferencesStore
-        .bool(.areWatchObservationNudgesEnabled, default: false)
+    @Published var areWatchObservationNudgesEnabled: Bool = false
 
 
     // MARK: - Proactivity profile — stored state; setters in CompanionManager+ProactivitySettings.swift
@@ -1091,7 +1210,7 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Proactive pipeline (Wave 7a extraction) — pipeline + forwarders split; forwarders in CompanionManager+ProactivePipeline.swift
     //
-    // The ≤3 ring buffer, 10s drain timer, three nudge generators,
+    // The deferred speech queue, 10s drain timer, three nudge generators,
     // orchestrator wiring, and live restraint-context construction
     // all live in `PaceProactivityPipeline`. CompanionManager keeps
     // tiny forwarders so the test surface
@@ -1110,9 +1229,6 @@ final class CompanionManager: ObservableObject {
             if areCalendarNudgesEnabled {
                 enabledGeneratorIdentifiers.insert("calendar-pre-meeting")
             }
-            if areWatchObservationNudgesEnabled {
-                enabledGeneratorIdentifiers.insert("watch-mode-observation")
-            }
             return enabledGeneratorIdentifiers
         }()
         return PaceProactivityPipeline(
@@ -1123,6 +1239,9 @@ final class CompanionManager: ObservableObject {
             },
             currentVoiceStateProvider: { [weak self] in
                 return self?.voiceState ?? .idle
+            },
+            isInUserFocusModeProvider: { [weak self] in
+                self?.focusModeMonitor.isCurrentlyInUserFocus ?? true
             },
             speakUtterance: { [weak self] utterance in
                 // Mirrors the pre-extraction `speakProactiveNudge`
@@ -1145,11 +1264,7 @@ final class CompanionManager: ObservableObject {
                 // earlier?" can recall the nudge later. Pre-existing
                 // journal-style surface, no new index.
                 guard let self else { return }
-                self.localRetriever.recordPaceHistory(
-                    userTranscript: "(system) proactive nudge",
-                    assistantResponse: utterance.spokenText
-                )
-                self.refreshLocalRetrievalPublishedState()
+                self.recordAssistantNarration(utterance.spokenText, origin: .proactive)
             },
             cachedScreenDescriptionProvider: { [weak self] screenLabel in
                 self?.screenContextService.cachedDescriptionIfFresh(screenLabel: screenLabel)
@@ -1213,7 +1328,10 @@ final class CompanionManager: ObservableObject {
                 }
                 return self.buildMorningTriageRestraintContext(forNow: context.now)
             },
-            defaults: .standard
+            defaults: .standard,
+            paceHistoryRecorder: { [weak self] _, assistantResponse, recordedAt in
+                self?.recordAssistantNarration(assistantResponse, origin: .proactive, recordedAt: recordedAt)
+            }
         )
         scheduler.setFireTime(
             hourOfDay: morningTriageHourOfDay,
@@ -1232,6 +1350,29 @@ final class CompanionManager: ObservableObject {
         default: false
     )
     @Published var latestPostureStatus: String?
+
+    init(
+        watchModeDefaults: UserDefaults = .standard,
+        recordsDerivedConversationMemory: Bool = true,
+        persistsDebugTraces: Bool = true,
+        diagramOverlayController: PaceDiagramOverlayController? = nil,
+        threadMemoryStore: PaceThreadMemoryStore? = nil,
+        memoryStore: PaceMemoryStore? = nil,
+        spotlightMemoryIndexer: PaceSpotlightMemoryIndexer? = nil,
+        teachingPreviewDirectSpawnAvailability: (() -> Bool)? = nil
+    ) {
+        self.diagramOverlayController = diagramOverlayController ?? PaceDiagramOverlayController()
+        self.teachingPreviewDirectSpawnAvailability = teachingPreviewDirectSpawnAvailability
+        self.threadMemoryStore = threadMemoryStore ?? PaceThreadMemoryStore()
+        self.memoryStore = memoryStore ?? PaceMemoryStore()
+        self.spotlightMemoryIndexer = spotlightMemoryIndexer ?? PaceSpotlightMemoryIndexer()
+        self.persistsDebugTraces = persistsDebugTraces
+        self.recordsDerivedConversationMemory = recordsDerivedConversationMemory
+        self.watchModeDefaults = watchModeDefaults
+        self.isWatchModeEnabled = PaceUserPreferencesStore.bool(
+            .isWatchModeEnabled, default: false, defaults: watchModeDefaults
+        )
+    }
 
 }
 

@@ -10,11 +10,54 @@ import Foundation
 
 @MainActor
 extension CompanionManager {
+    func setFastEverydayAnswersEnabled(_ enabled: Bool) {
+        PacePlannerTierStore.setFastEverydayAnswersEnabled(enabled)
+        fastEverydayAnswersEnabled = enabled
+        if enabled {
+            prewarmFastAnswerCredentialsIfNeeded()
+        } else {
+            invalidateFastAnswerCredentialPrewarm()
+        }
+    }
+
+    private var canPrewarmFastAnswerCredentials: Bool {
+        fastEverydayAnswersEnabled
+            && activePlannerTier == .cliDirect
+            && activePlannerTierCLIDirectUpstream == .codex
+            && (plannerClient as? PaceLocalCLIPlannerClient)?.allowsBoundedEverydayAnswers == true
+            && fastAnswerCredentialSourceIsReady()
+    }
+
+    func prewarmFastAnswerCredentialsIfNeeded() {
+        guard fastAnswerCredentialPrewarmTask == nil, canPrewarmFastAnswerCredentials else { return }
+        let generation = fastAnswerCredentialPrewarmGeneration
+        fastAnswerCredentialPrewarmTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if generation == fastAnswerCredentialPrewarmGeneration {
+                    fastAnswerCredentialPrewarmTask = nil
+                }
+            }
+            // Consent and the selected brain can change before this queued task starts.
+            guard !Task.isCancelled, generation == fastAnswerCredentialPrewarmGeneration,
+                canPrewarmFastAnswerCredentials
+            else { return }
+            _ = try? await fastAnswerCredentialStore.loadOpenAIKey()
+        }
+    }
+
+    func invalidateFastAnswerCredentialPrewarm() {
+        fastAnswerCredentialPrewarmGeneration = UUID()
+        fastAnswerCredentialPrewarmTask?.cancel()
+        fastAnswerCredentialPrewarmTask = nil
+        fastAnswerCredentialStore.clearCachedKey()
+    }
 
     // MARK: - Planner tier picker state
 
     func setActivePlannerTier(_ newTier: PacePlannerTier) {
         if newTier != activePlannerTier {
+            invalidateFastAnswerCredentialPrewarm()
             diagramOverlayController.dismiss()
             imageOverlayController.dismiss()
         }
@@ -22,8 +65,15 @@ extension CompanionManager {
         PacePlannerTierStore.saveTier(newTier)
         // Rebuild planner so the next turn uses the freshly-picked tier
         // without requiring an app restart.
+        screenSuggestionCoordinator.invalidate(clearAnchor: true)
+        screenWatchNoteCoordinator.invalidate()
         plannerClient = BuddyPlannerClientFactory.makeDefault()
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
+        if newTier == .cliDirect {
+            prewarmFastAnswerCredentialsIfNeeded()
+        } else {
+            invalidateFastAnswerCredentialPrewarm()
+        }
     }
 
     /// Selects a planner tier from any picker surface, running the SAME
@@ -81,13 +131,21 @@ extension CompanionManager {
     /// app restart.
     func setCLIDirectUpstream(_ newUpstream: PaceLocalCLIUpstream) {
         if newUpstream != activePlannerTierCLIDirectUpstream {
+            invalidateFastAnswerCredentialPrewarm()
             diagramOverlayController.dismiss()
             imageOverlayController.dismiss()
         }
         activePlannerTierCLIDirectUpstream = newUpstream
         PacePlannerTierStore.saveCLIDirectUpstream(newUpstream)
+        screenSuggestionCoordinator.invalidate(clearAnchor: true)
+        screenWatchNoteCoordinator.invalidate()
         plannerClient = BuddyPlannerClientFactory.makeDefault()
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
+        if newUpstream == .codex {
+            prewarmFastAnswerCredentialsIfNeeded()
+        } else {
+            invalidateFastAnswerCredentialPrewarm()
+        }
     }
 
     func setDirectAPIProvider(_ newProvider: PaceDirectAPIProvider) {
@@ -108,6 +166,8 @@ extension CompanionManager {
         if modelIdentifierLooksEmptyOrStale {
             setDirectAPIModelIdentifier(newProvider.defaultModelIdentifier)
         }
+        screenSuggestionCoordinator.invalidate(clearAnchor: true)
+        screenWatchNoteCoordinator.invalidate()
         plannerClient = BuddyPlannerClientFactory.makeDefault()
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
@@ -115,6 +175,8 @@ extension CompanionManager {
     func setDirectAPIModelIdentifier(_ newModelIdentifier: String) {
         directAPIModelIdentifier = newModelIdentifier
         PacePlannerTierStore.saveDirectAPIModelIdentifier(newModelIdentifier)
+        screenSuggestionCoordinator.invalidate(clearAnchor: true)
+        screenWatchNoteCoordinator.invalidate()
         plannerClient = BuddyPlannerClientFactory.makeDefault()
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
@@ -122,6 +184,8 @@ extension CompanionManager {
     func setDirectAPICustomEndpointURLString(_ newCustomEndpointURLString: String) {
         directAPICustomEndpointURLString = newCustomEndpointURLString
         PacePlannerTierStore.saveDirectAPICustomEndpointURL(newCustomEndpointURLString)
+        screenSuggestionCoordinator.invalidate(clearAnchor: true)
+        screenWatchNoteCoordinator.invalidate()
         plannerClient = BuddyPlannerClientFactory.makeDefault()
         PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
     }
@@ -204,6 +268,8 @@ extension CompanionManager {
     func saveDirectAPIKey(_ apiKey: String, for provider: PaceDirectAPIProvider) -> Bool {
         let didStore = PaceKeychainStore.storeAPIKey(apiKey, for: provider)
         if didStore {
+            screenSuggestionCoordinator.invalidate(clearAnchor: true)
+            screenWatchNoteCoordinator.invalidate()
             plannerClient = BuddyPlannerClientFactory.makeDefault()
             PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
         }
@@ -217,6 +283,8 @@ extension CompanionManager {
     func deleteDirectAPIKey(for provider: PaceDirectAPIProvider) -> Bool {
         let didDelete = PaceKeychainStore.deleteAPIKey(for: provider)
         if didDelete {
+            screenSuggestionCoordinator.invalidate(clearAnchor: true)
+            screenWatchNoteCoordinator.invalidate()
             plannerClient = BuddyPlannerClientFactory.makeDefault()
             PaceLMStudioModelLoader.warmUpConfiguredModelsAsync(plannerClient: plannerClient)
         }

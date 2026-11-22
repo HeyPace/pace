@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "identifier": "thank-you-dance",
+  "name": "Thank You Dance",
+  "description": "Present an original dancing character for four seconds and say thank you locally.",
+  "category": "media",
+  "invocationPhrases": [
+    "show me the thank you dance",
+    "play my thank you dance",
+    "run my thank you dance"
+  ],
+  "source": "bundled",
+  "executionMode": "deterministicLocal",
+  "requiredPreferences": [],
+  "steps": [
+    {
+      "toolCalls": [
+        {
+          "tool": "present_media",
+          "arguments": {
+            "assetID": "thank-you-dance",
+            "durationSeconds": 4
+          }
+        }
+      ]
+    },
+    {
+      "toolCalls": [
+        {
+          "tool": "speak",
+          "arguments": {
+            "text": "thank you"
+          }
+        }
+      ]
+    }
+  ]
+}

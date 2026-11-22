@@ -3,8 +3,8 @@
 //  leanring-buddy
 //
 //  Minimal wrapper over Security framework `kSecClassGenericPassword`.
-//  Pace's ONLY API-key entry point — nothing else in the codebase may
-//  read or write API key material. Keys live here so they never
+//  Pace's API-key entry point for macOS Keychain. Fast answers may
+//  alternatively use the explicit Infisical source. Stored keys never
 //  touch UserDefaults, Info.plist, Application Support, or any log line.
 //
 //  Storage rules (locked down by PRD):

@@ -3,7 +3,7 @@
 //  leanring-buddy
 //
 //  In-process MLX planner — runs Qwen3-4B-Instruct (or a sibling
-//  bundled model) directly via `mlx-swift-examples` rather than
+//  bundled model) directly via `mlx-swift-lm` rather than
 //  through LM Studio's HTTP loopback. The whole point is to drop
 //  the LM Studio install dependency from the new-user setup story
 //  so first-launch Pace just works.
@@ -36,7 +36,7 @@ nonisolated enum PaceMLXPlannerError: LocalizedError {
         switch self {
         case .runtimeNotLinked:
             return
-                "MLX runtime not linked into this build. Add `mlx-swift-examples` as a Swift Package dependency in Xcode → Project → Package Dependencies."
+                "MLX runtime not linked into this build. Add `mlx-swift-lm` as a Swift Package dependency in Xcode → Project → Package Dependencies."
         case .modelLoadFailed(let underlyingErrorDescription):
             return "MLX model load failed: \(underlyingErrorDescription)"
         case .inferenceFailed(let underlyingErrorDescription):
@@ -81,6 +81,18 @@ final class PaceMLXPlannerClient: BuddyPlannerClient {
         self.displayName = "MLX in-process (\(Self.shortenedModelLabel(forIdentifier: modelIdentifier)))"
     }
 
+    /// Background screen checks may reuse a resident model, but must never
+    /// initiate a model download or cold load on the user's behalf.
+    static var hasResidentModelContainer: Bool {
+        #if canImport(MLXLLM)
+            modelLoadLock.lock()
+            defer { modelLoadLock.unlock() }
+            return cachedModelContainer != nil
+        #else
+            return false
+        #endif
+    }
+
     /// Pre-fetch the configured model container — surfaces progress
     /// via the Hub package's NSProgress so callers can render a
     /// real percentage instead of an indeterminate spinner. Safe to
@@ -121,17 +133,8 @@ final class PaceMLXPlannerClient: BuddyPlannerClient {
         modelIdentifier: String,
         homeDirectoryURL: URL
     ) -> URL {
-        let repositoryDirectoryName =
-            "models--"
-            + modelIdentifier
-            .split(separator: "/")
-            .joined(separator: "--")
-        return
-            homeDirectoryURL
-            .appendingPathComponent(".cache", isDirectory: true)
-            .appendingPathComponent("huggingface", isDirectory: true)
-            .appendingPathComponent("hub", isDirectory: true)
-            .appendingPathComponent(repositoryDirectoryName, isDirectory: true)
+        PaceMLXModelCache.standardRepositoryDirectory(
+            modelIdentifier: modelIdentifier, homeDirectoryURL: homeDirectoryURL)
     }
 
     // MARK: - BuddyPlannerClient
@@ -197,7 +200,7 @@ final class PaceMLXPlannerClient: BuddyPlannerClient {
             do {
                 accumulatedText = try await modelContainer.perform { context in
                     let input = try await context.processor.prepare(input: UserInput(chat: preparedMessages))
-                    let cache = context.model.newCache(parameters: generationParameters)
+                    let cache = try context.model.newCache(parameters: generationParameters)
                     var responseText = ""
                     for await item in try MLXLMCommon.generate(
                         input: input, cache: cache, parameters: generationParameters, context: context
@@ -240,21 +243,12 @@ final class PaceMLXPlannerClient: BuddyPlannerClient {
             modelLoadLock.unlock()
             if let cached { return cached }
 
-            let loaded: ModelContainer
-            if let existingSnapshotDirectory = existingStandardHuggingFaceSnapshotDirectory(
-                modelIdentifier: modelIdentifier
-            ) {
-                print("🧠 PaceMLXPlannerClient: reusing Hugging Face cache at \(existingSnapshotDirectory.path)")
-                loaded = try await MLXLMCommon.loadModelContainer(
-                    directory: existingSnapshotDirectory,
-                    progressHandler: progressHandler
-                )
-            } else {
-                loaded = try await MLXLMCommon.loadModelContainer(
-                    id: modelIdentifier,
-                    progressHandler: progressHandler
-                )
-            }
+            let loaded = try await MLXLMCommon.loadModelContainer(
+                from: PaceMLXHuggingFaceDownloader(),
+                using: PaceMLXHuggingFaceTokenizerLoader(),
+                id: modelIdentifier,
+                progressHandler: progressHandler
+            )
 
             modelLoadLock.lock()
             cachedModelContainer = loaded
@@ -262,40 +256,5 @@ final class PaceMLXPlannerClient: BuddyPlannerClient {
             return loaded
         }
 
-        private static func existingStandardHuggingFaceSnapshotDirectory(
-            modelIdentifier: String
-        ) -> URL? {
-            let fileManager = FileManager.default
-            let repositoryDirectory = standardHuggingFaceRepositoryCacheDirectory(
-                modelIdentifier: modelIdentifier,
-                homeDirectoryURL: fileManager.homeDirectoryForCurrentUser
-            )
-            let mainReferenceURL =
-                repositoryDirectory
-                .appendingPathComponent("refs", isDirectory: true)
-                .appendingPathComponent("main", isDirectory: false)
-            guard
-                let mainRevision = try? String(contentsOf: mainReferenceURL, encoding: .utf8)
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                !mainRevision.isEmpty
-            else {
-                return nil
-            }
-
-            let snapshotDirectory =
-                repositoryDirectory
-                .appendingPathComponent("snapshots", isDirectory: true)
-                .appendingPathComponent(mainRevision, isDirectory: true)
-            let configurationURL = snapshotDirectory.appendingPathComponent("config.json")
-            guard fileManager.fileExists(atPath: configurationURL.path),
-                let snapshotFileNames = try? fileManager.contentsOfDirectory(
-                    atPath: snapshotDirectory.path
-                ),
-                snapshotFileNames.contains(where: { $0.hasSuffix(".safetensors") })
-            else {
-                return nil
-            }
-            return snapshotDirectory
-        }
     #endif
 }

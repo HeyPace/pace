@@ -12,23 +12,28 @@ retained in the bundled notices. Transitive packages are attributed too.
 
 | Project | Pinned version | License |
 | --- | --- | --- |
-| [eventsource](https://github.com/mattt/eventsource) | 1.5.1 | MIT |
-| [gzipswift](https://github.com/1024jp/GzipSwift) | 6.0.1 | MIT |
-| [mlx-swift](https://github.com/ml-explore/mlx-swift) | 0.29.1 | MIT |
-| [mlx-swift-examples](https://github.com/ml-explore/mlx-swift-examples) | 2.29.1 | MIT |
+| [eventsource](https://github.com/mattt/eventsource) | 1.6.0 | MIT |
+| [mlx-swift](https://github.com/ml-explore/mlx-swift) | 0.32.3 | MIT |
+| [mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm) | 3.32.3 | MIT |
 | [silero-vad-swift](https://github.com/paean-ai/silero-vad-swift) | 1.0.0 | MIT |
-| [sparkle](https://github.com/sparkle-project/Sparkle) | 2.9.0 | MIT |
-| [swift-argument-parser](https://github.com/apple/swift-argument-parser) | 1.8.1 | Apache-2.0 |
+| [sparkle](https://github.com/sparkle-project/Sparkle) | 2.10.1 | MIT |
+| [swift-argument-parser](https://github.com/apple/swift-argument-parser) | 1.8.2 | Apache-2.0 |
+| [swift-asn1](https://github.com/apple/swift-asn1) | 1.7.4 | Apache-2.0 |
 | [swift-atomics](https://github.com/apple/swift-atomics) | 1.3.1 | Apache-2.0 |
-| [swift-collections](https://github.com/apple/swift-collections) | 1.6.0 | Apache-2.0 |
-| [swift-jinja](https://github.com/huggingface/swift-jinja) | 2.3.6 | Apache-2.0 |
-| [swift-log](https://github.com/apple/swift-log) | 1.15.1 | Apache-2.0 |
-| [swift-nio](https://github.com/apple/swift-nio) | 2.103.0 | Apache-2.0 |
+| [swift-collections](https://github.com/apple/swift-collections) | 1.7.6 | Apache-2.0 |
+| [swift-crypto](https://github.com/apple/swift-crypto) | 4.5.2 | Apache-2.0 |
+| [swift-huggingface](https://github.com/huggingface/swift-huggingface) | 1.0.0 | Apache-2.0 |
+| [swift-jinja](https://github.com/huggingface/swift-jinja) | 3.1.0 | Apache-2.0 |
+| [swift-log](https://github.com/apple/swift-log) | 1.17.0 | Apache-2.0 |
+| [swift-nio](https://github.com/apple/swift-nio) | 2.105.0 | Apache-2.0 |
 | [swift-numerics](https://github.com/apple/swift-numerics) | 1.1.1 | Apache-2.0 |
 | [swift-sdk](https://github.com/modelcontextprotocol/swift-sdk) | a0ae212ebf6e | Apache-2.0 |
-| [swift-system](https://github.com/apple/swift-system) | 1.8.1 | Apache-2.0 |
-| [swift-transformers](https://github.com/huggingface/swift-transformers) | 1.0.0 | Apache-2.0 |
-| [whisperkit](https://github.com/argmaxinc/WhisperKit) | 1.0.0 | MIT |
+| [swift-syntax](https://github.com/swiftlang/swift-syntax) | 603.0.2 | Apache-2.0 |
+| [swift-system](https://github.com/apple/swift-system) | 1.9.0 | Apache-2.0 |
+| [swift-transformers](https://github.com/huggingface/swift-transformers) | 1.4.0 | Apache-2.0 |
+| [ui-library](https://github.com/sass-maker/ui-library) | 0.1.35 | MIT |
+| [whisperkit](https://github.com/argmaxinc/WhisperKit) | 1.1.1 | Apache-2.0 |
+| [yyjson](https://github.com/ibireme/yyjson) | 0.13.0 | MIT |
 
 ## Optional external helpers
 
@@ -37,9 +42,9 @@ executables or require them for local-only use.
 
 | Project | Pin | Role | License |
 | --- | --- | --- | --- |
-| [Peekaboo](https://github.com/steipete/Peekaboo) | 4.9.0 | macOS observation and computer control | MIT |
-| [Playwright MCP](https://github.com/microsoft/playwright-mcp) | 0.0.83 | Stateful browser tools | Apache-2.0 |
-| [mcp-remote](https://github.com/punkpeye/mcp-remote) | 0.14.3 | Stdio bridge for Linear's OAuth MCP endpoint | MIT |
+| [Peekaboo](https://github.com/openclaw/Peekaboo) | 4.9.8 | macOS observation and computer control | MIT |
+| [Playwright MCP](https://github.com/microsoft/playwright-mcp) | 0.0.85 | Stateful browser tools | Apache-2.0 |
+| [mcp-remote](https://github.com/punkpeye/mcp-remote) | 0.16.6 | Stdio bridge for Linear's OAuth MCP endpoint | MIT |
 
 Pace uses Linear's [official read-only MCP endpoint](https://linear.app/docs/mcp)
 with explicit OAuth authorization. Other configured MCP servers retain their

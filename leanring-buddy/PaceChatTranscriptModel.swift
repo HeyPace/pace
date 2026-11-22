@@ -36,6 +36,23 @@ nonisolated struct PaceChatTranscriptMessageRowModel: Identifiable, Equatable {
     let author: PaceChatTranscriptRowAuthor
     let bodyText: String
     let createdAt: Date
+    var isEnglishSubtitle: Bool = false
+    var speechRequest: PaceSpeechRequest? = nil
+    var turnIdentifier: String? = nil
+    var origin: ConversationEvent.Origin? = nil
+    var originalResponse: String? = nil
+    var deliveryState: ConversationEvent.DeliveryState? = nil
+    var generatedImagePreviewID: UUID? = nil
+
+    var submissionReceipt: String? {
+        guard author == .user, origin == .typed else { return nil }
+        switch deliveryState {
+        case .accepted, .completed: return "Sent"
+        case .cancelled: return "Cancelled"
+        case .interrupted: return "Stopped"
+        case nil: return nil
+        }
+    }
 
     /// User rows dock to the trailing (right) edge; assistant rows dock
     /// to the leading (left) edge.
@@ -91,6 +108,8 @@ nonisolated struct PaceChatToolActivityRowModel: Identifiable, Equatable {
     let resultState: PaceChatToolActivityResultState
     let resultSummaryLine: String
     let occurredAt: Date
+    var turnIdentifier: String? = nil
+    var fullDetail: String? = nil
 }
 
 /// A single row in the merged conversation timeline — either a chat
@@ -149,7 +168,17 @@ nonisolated enum PaceChatTranscriptModel {
             id: "message-\(chatMessage.id)",
             author: chatMessage.role == .user ? .user : .assistant,
             bodyText: displayedBodyText(forChatMessage: chatMessage),
-            createdAt: chatMessage.createdAt
+            createdAt: chatMessage.createdAt,
+            isEnglishSubtitle: chatMessage.speechRequest?.englishSubtitle.map {
+                let subtitle = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                return !subtitle.isEmpty && subtitle == displayedBodyText(forChatMessage: chatMessage)
+            } ?? false,
+            speechRequest: chatMessage.speechRequest,
+            turnIdentifier: chatMessage.turnIdentifier ?? chatMessage.persistedTurnIdentifier,
+            origin: chatMessage.origin,
+            originalResponse: displayedBodyText(forChatMessage: chatMessage) == chatMessage.body ? nil : chatMessage.body,
+            deliveryState: chatMessage.deliveryState,
+            generatedImagePreviewID: chatMessage.generatedImagePreviewID
         )
     }
 
@@ -305,7 +334,9 @@ nonisolated enum PaceChatTranscriptModel {
             resultSummaryLine: oneLineSummary(
                 fromRawSummary: trimmedDetail.isEmpty ? actionRunRecord.title : trimmedDetail
             ),
-            occurredAt: actionRunRecord.createdAt
+            occurredAt: actionRunRecord.createdAt,
+            turnIdentifier: actionRunRecord.turnIdentifier,
+            fullDetail: actionRunRecord.detail
         )
     }
 
@@ -322,6 +353,7 @@ nonisolated enum PaceChatTranscriptModel {
         let oldestFirstRowModels: [PaceChatToolActivityRowModel] = newestFirstActionRunRecords
             .enumerated()
             .compactMap { indexFromNewest, actionRunRecord in
+                guard actionRunRecord.showsInConversation else { return nil }
                 if actionRunRecord.status == .planned && indexFromNewest != 0 {
                     return nil
                 }

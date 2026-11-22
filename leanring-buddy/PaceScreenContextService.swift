@@ -156,6 +156,8 @@ final class PaceScreenContextService {
         let vlmClient = screenAnalysisClient
         let ocrClient = visionOCRClient
         let newTask = Task { [weak self] () -> PaceScreenContextPrewarmedSnapshot? in
+            let readIdentifier = PaceScreenReadActivity.shared.beginReading()
+            defer { PaceScreenReadActivity.shared.endReading(readIdentifier) }
             do {
                 let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
                 guard let cursorScreenCapture = screenCaptures.first(where: { $0.isCursorScreen })
@@ -177,9 +179,7 @@ final class PaceScreenContextService {
                         return nil
                     }
                     guard cached.identity == cacheIdentity else {
-                        print(
-                            "👁️  Prewarm cache MISS for \(cursorScreenCapture.label) — analyzer, capabilities, or display changed"
-                        )
+                        print("👁️  Prewarm cache MISS for \(cursorScreenCapture.label) — analyzer, capabilities, or display changed")
                         return nil
                     }
                     if cached.pixelHash == pixelHash {
@@ -381,6 +381,8 @@ final class PaceScreenContextService {
             print("⚠️ VLM skipped — no screen captures available")
             return transcript
         }
+        let readIdentifier = PaceScreenReadActivity.shared.beginReading()
+        defer { PaceScreenReadActivity.shared.endReading(readIdentifier) }
 
         // Synchronous fallback: pre-warm wasn't started or failed.
         // Cursor-screen-only by design — user is almost always asking
@@ -497,13 +499,11 @@ final class PaceScreenContextService {
                             screenshotImageData: capture.imageData,
                             userIntent: transcript
                         )
-                        async let ocrBoxesFuture =
-                            allowsNativeOCR
-                            ? visionOCRClientForGroup.recognizeText(
+                        async let ocrBoxesFuture = allowsNativeOCR ? visionOCRClientForGroup.recognizeText(
                             in: capture.imageData,
                             screenshotWidthInPixels: capture.screenshotWidthInPixels,
                             screenshotHeightInPixels: capture.screenshotHeightInPixels
-                            ) : []
+                        ) : []
                         do {
                             let vlmAnalysis = try await vlmAnalysisFuture
                             let ocrBoxes = (try? await ocrBoxesFuture) ?? []
@@ -519,8 +519,7 @@ final class PaceScreenContextService {
                                 return (captureIndex, capture.label, nil, pixelHash)
                             }
                             let ocrOnlyAnalysis = PaceScreenContextMerger.enrich(
-                                vlmAnalysis: LocalVLMScreenAnalysis(
-                                    elements: [], description: "VLM failed; OCR text only."),
+                                vlmAnalysis: LocalVLMScreenAnalysis(elements: [], description: "VLM failed; OCR text only."),
                                 with: ocrBoxes
                             )
                             return (captureIndex, capture.label, ocrOnlyAnalysis, pixelHash)

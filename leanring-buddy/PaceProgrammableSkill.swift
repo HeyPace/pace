@@ -3,7 +3,7 @@
 //  leanring-buddy
 //
 //  A bounded, declarative program representation for teachable workflows that
-//  need simple branching or repetition but never arbitrary source execution.
+//  need bounded computation and existing typed actions.
 //
 
 import AppKit
@@ -75,6 +75,7 @@ nonisolated struct PaceProgramDefinition: Codable, Equatable, Sendable {
 }
 
 nonisolated indirect enum PaceProgramNode: Codable, Equatable, Sendable {
+    case javascript(source: String)
     case action(step: PaceAutomationStep)
     case condition(
         predicate: PaceProgramCondition,
@@ -84,6 +85,7 @@ nonisolated indirect enum PaceProgramNode: Codable, Equatable, Sendable {
     case repeatTimes(count: Int, nodes: [PaceProgramNode])
 
     private enum NodeType: String, Codable {
+        case javascript
         case action
         case condition
         case repeatTimes
@@ -91,6 +93,7 @@ nonisolated indirect enum PaceProgramNode: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case type
+        case source
         case step
         case predicate
         case thenNodes
@@ -106,6 +109,10 @@ nonisolated indirect enum PaceProgramNode: Codable, Equatable, Sendable {
 
         let allowedKeys: Set<String>
         switch nodeType {
+        case .javascript:
+            allowedKeys = [CodingKeys.type.rawValue, CodingKeys.source.rawValue]
+            try Self.rejectUnexpectedKeys(in: container, allowedKeys: allowedKeys)
+            self = .javascript(source: try container.decode(String.self, forKey: PaceProgramDynamicCodingKey(CodingKeys.source.rawValue)))
         case .action:
             allowedKeys = [CodingKeys.type.rawValue, CodingKeys.step.rawValue]
             try Self.rejectUnexpectedKeys(in: container, allowedKeys: allowedKeys)
@@ -160,6 +167,9 @@ nonisolated indirect enum PaceProgramNode: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .javascript(let source):
+            try container.encode(NodeType.javascript, forKey: .type)
+            try container.encode(source, forKey: .source)
         case .action(let step):
             try container.encode(NodeType.action, forKey: .type)
             try container.encode(step, forKey: .step)
@@ -342,9 +352,11 @@ nonisolated enum PaceProgramCompilationOutcome {
     case noActionsMatched
 }
 
-nonisolated enum PaceProgramCompilationError: Error, Equatable, CustomStringConvertible {
+nonisolated enum PaceProgramCompilationError: Error, LocalizedError, Equatable, CustomStringConvertible {
     case invalidProgram([String])
     case typedCompilationFailed(String)
+
+    var errorDescription: String? { description }
 
     var description: String {
         switch self {
@@ -358,6 +370,7 @@ nonisolated enum PaceProgramCompilationError: Error, Equatable, CustomStringConv
 
 nonisolated enum PaceProgramValidator {
     static let supportedSchemaVersion = 1
+    static let javaScriptSchemaVersion = 2
     static let maximumNestingDepth = 4
     static let maximumSourceNodeCount = 50
     static let maximumRepeatCount = 10
@@ -368,10 +381,19 @@ nonisolated enum PaceProgramValidator {
     ) -> [PaceAutomationValidationIssue] {
         var validationIssues: [PaceAutomationValidationIssue] = []
 
-        if program.schemaVersion != supportedSchemaVersion {
+        let containsJavaScript = program.nodes.containsJavaScript
+        if program.schemaVersion != supportedSchemaVersion && program.schemaVersion != javaScriptSchemaVersion {
             validationIssues.append(.init(
                 message: "unsupported schemaVersion \(program.schemaVersion); expected \(supportedSchemaVersion)"
             ))
+        }
+        if containsJavaScript && program.schemaVersion != javaScriptSchemaVersion {
+            validationIssues.append(.init(message: "JavaScript requires schemaVersion 2"))
+        }
+        if program.schemaVersion == javaScriptSchemaVersion {
+            if program.nodes.count != 1 || !program.nodes.allSatisfy({ if case .javascript = $0 { return true }; return false }) {
+                validationIssues.append(.init(message: "schemaVersion 2 requires exactly one JavaScript body and no other nodes"))
+            }
         }
         for (fieldName, fieldValue) in [
             ("identifier", program.identifier),
@@ -417,13 +439,13 @@ nonisolated enum PaceProgramValidator {
                 message: "program expands to at most \(worstCaseExpandedActionStepCount) action steps; maximum is \(maximumExpandedActionStepCount)"
             ))
         }
-        if allActionSteps.isEmpty {
+        if allActionSteps.isEmpty && !containsJavaScript {
             validationIssues.append(.init(message: "program must contain at least one action"))
         } else if !containsProgrammableLogic(program.nodes) {
             validationIssues.append(.init(
                 message: "program must contain a condition or bounded repetition"
             ))
-        } else {
+        } else if !allActionSteps.isEmpty {
             let syntheticDefinition = PaceAutomationDefinition(
                 schemaVersion: PaceAutomationDefinitionValidator.supportedSchemaVersion,
                 identifier: program.identifier,
@@ -484,6 +506,11 @@ nonisolated enum PaceProgramValidator {
             }
 
             switch node {
+            case .javascript(let source):
+                if source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || source.utf8.count > PaceJavaScriptPowerLimits.maximumSourceBytes {
+                    validationIssues.append(.init(message: "JavaScript source must contain 1...24576 UTF-8 bytes"))
+                }
+                expandedActionStepCount = cappedAdd(expandedActionStepCount, maximumExpandedActionStepCount)
             case .action(let step):
                 allActionSteps.append(step)
                 expandedActionStepCount = cappedAdd(expandedActionStepCount, 1)
@@ -564,6 +591,8 @@ nonisolated enum PaceProgramValidator {
     private static func containsProgrammableLogic(_ nodes: [PaceProgramNode]) -> Bool {
         for node in nodes {
             switch node {
+            case .javascript:
+                return true
             case .action:
                 continue
             case .condition:
@@ -601,6 +630,9 @@ nonisolated enum PaceProgramCompiler {
             throw PaceProgramCompilationError.invalidProgram(validationMessages)
         }
 
+        guard !program.nodes.containsJavaScript else {
+            throw PaceProgramCompilationError.invalidProgram(["JavaScript programs require isolated asynchronous evaluation"])
+        }
         var expandedSteps: [PaceAutomationStep] = []
         expand(program.nodes, context: context, into: &expandedSteps)
         guard !expandedSteps.isEmpty else {
@@ -633,6 +665,7 @@ nonisolated enum PaceProgramCompiler {
     ) {
         for node in nodes {
             switch node {
+            case .javascript: break
             case .action(let step):
                 expandedSteps.append(step)
             case .condition(let predicate, let thenNodes, let otherwiseNodes):
@@ -829,5 +862,18 @@ nonisolated enum PaceNaturalLanguageProgramStructurer {
             return nil
         }
         return String(rawText[openingBraceIndex...closingBraceIndex])
+    }
+}
+
+nonisolated extension Array where Element == PaceProgramNode {
+    var containsJavaScript: Bool {
+        contains { node in
+            switch node {
+            case .javascript: return true
+            case .action: return false
+            case .condition(_, let thenNodes, let otherwiseNodes): return thenNodes.containsJavaScript || otherwiseNodes.containsJavaScript
+            case .repeatTimes(_, let nodes): return nodes.containsJavaScript
+            }
+        }
     }
 }

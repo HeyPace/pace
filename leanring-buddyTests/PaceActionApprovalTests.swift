@@ -9,21 +9,57 @@ import Testing
 @testable import Pace
 
 struct PaceActionApprovalTests {
-    @Test func observationOnlyRejectsGeneratedFilesEvenWhenTheToolNeedsNoApproval() {
-        let plan = PaceActionTagParser.parseActions(
-            from: #"{"tool":"generate_image","prompt":"A blue mug","title":"Blue mug"}"#)
-        #expect(!plan.actions.isEmpty)
-        #expect(!PaceActionApprovalPolicy.permitsObservationOnly(plan.executionPlan))
+    @MainActor
+    @Test func exactScreenQuestionsAreObservationOnlyWithoutBlockingDescribeAndActRequests() {
+        let classifier = PaceIntentClassifier()
+        for transcript in ["What's on my screen?", "What’s on the screen?", "Hey Pace, whats on screen?", "what's on my screen right now?", "What is on my screen now?", "What am I looking at?"] {
+            #expect(classifier.classify(transcript).intent == .screenDescription)
+            #expect(PaceActionApprovalPolicy.requestsObservationOnly(transcript))
+        }
+        for transcript in [
+            "Summarize this email and reply to Sam",
+            "Read this and add it to my reminders",
+            "Summarize this and add it to notes",
+        ] {
+            #expect(classifier.classify(transcript).intent == .screenDescription)
+            #expect(!PaceActionApprovalPolicy.requestsObservationOnly(transcript))
+        }
+        // Suggestion/diagram turns can force screen capture, but that routing
+        // override must not turn an action request into observation-only.
+        for transcript in ["Yes, fix it", "Click retry", "Explain this checklist, then click Save."] {
+            #expect(!PaceActionApprovalPolicy.requestsObservationOnly(transcript))
+        }
+        for action in [
+            PaceParsedAction.openApplication("Chrome"), .type("unexpected typing"),
+            .click(.init(xInScreenshotPixels: 10, yInScreenshotPixels: 20, screenNumber: nil)),
+        ] {
+            #expect(!PaceActionApprovalPolicy.permitsObservationOnly(.serial(actions: [action])))
+        }
+        #expect(PaceActionApprovalPolicy.permitsObservationOnly(.serial(actions: [
+            .readClipboard,
+            .mcp(.init(serverName: "peekaboo", toolName: "see", arguments: ["web_focus": .bool(false)])),
+            .mcp(.init(serverName: "peekaboo", toolName: "window", arguments: ["action": .string("list")])),
+        ])))
+        let annotations = PaceActionTagParser.parseActions(from: #"{"spokenText":"Marked","intent":"action","payload":{"name":"draw_annotation","args":{"screen":1,"shapes":[{"kind":"rect","x":20,"y":40,"width":100,"height":20}]}}}"#)
+        #expect(annotations.actions.count == 1)
+        #expect(PaceActionApprovalPolicy.permitsObservationOnly(annotations.executionPlan))
+        #expect(PaceToolRegistry.definition(forToolName: "show_diagram")?.riskLevel == .readOnly)
+    }
+
+    @Test func observationOnlyRejectsSeeWhenItRequestsWebFocus() {
+        let focusedInspection = PaceParsedAction.mcp(.init(
+            serverName: "peekaboo", toolName: "see", arguments: ["app_target": .string("Safari"), "web_focus": .bool(true)]))
+        #expect(!PaceActionApprovalPolicy.permitsObservationOnly(.serial(actions: [focusedInspection])))
+        #expect(PaceActionApprovalPolicy.needsAnswerAfterInspection(.serial(actions: [focusedInspection])))
     }
 
     @Test func repeatedPartialInspectionKeepsBothExactRequestsAndReadEvidence() {
-        let request =
-            #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","name":"see","arguments":{"app_target":"Safari","window_id":84,"ocr":true}}}}"#
+        let request = #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","name":"see","arguments":{"app_target":"Safari","window_id":84,"ocr":true}}}}"#
         let partialEvidence = """
-            Warning: AX tree incomplete. Retry once with the same exact app_target and window_id.
-            Save at (1245, 340) size 39×13 [not actionable]
-            Engine temperature 81°C. Fuel remaining 37%.
-            """
+        Warning: AX tree incomplete. Retry once with the same exact app_target and window_id.
+        Save at (1245, 340) size 39×13 [not actionable]
+        Engine temperature 81°C. Fuel remaining 37%.
+        """
         let observation = PaceActionExecutionObservation(toolName: "mcp.peekaboo.see", summary: partialEvidence)
         var inspectionHistory = PaceAgentInspectionHistory()
         inspectionHistory.append(plannerRequest: request, observations: [observation])
@@ -47,9 +83,7 @@ struct PaceActionApprovalTests {
         let click = PaceActionTagParser.parseActions(from: "[CLICK:1264,347]")
         #expect(!PaceActionApprovalPolicy.permitsObservationOnly(click.executionPlan))
         let mcpClick = PaceActionTagParser.parseActions(
-            from:
-                #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","name":"click","arguments":{"coords":"1264,347","foreground":true}}}}"#
-        )
+            from: #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","name":"click","arguments":{"coords":"1264,347","foreground":true}}}}"#)
         #expect(!PaceActionApprovalPolicy.permitsObservationOnly(mcpClick.executionPlan))
     }
 
@@ -74,12 +108,12 @@ struct PaceActionApprovalTests {
         ])
         let configuration = PaceMCPServerConfiguration(
             command: "npx",
-            args: ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp/readonly"]
+            args: ["-y", "mcp-remote@0.16.6", "https://mcp.linear.app/mcp/readonly"]
         )
         #expect(PaceActionApprovalPolicy.permitsObservationOnly(plan, configuredServers: ["linear": configuration]))
         #expect(!PaceActionApprovalPolicy.permitsObservationOnly(plan, configuredServers: [:]))
         let writeConfiguration = PaceMCPServerConfiguration(
-            command: "npx", args: ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp"])
+            command: "npx", args: ["-y", "mcp-remote@0.16.6", "https://mcp.linear.app/mcp"])
         #expect(
             !PaceActionApprovalPolicy.permitsObservationOnly(plan, configuredServers: ["linear": writeConfiguration]))
         let alteredConfiguration = PaceMCPServerConfiguration(
@@ -98,6 +132,12 @@ struct PaceActionApprovalTests {
         #expect(PaceActionApprovalPolicy.needsAnswerAfterInspection(inventory.executionPlan))
         #expect(PaceActionApprovalPolicy.needsAnswerAfterInspection(.serial(actions: [inspection])))
         #expect(!PaceActionApprovalPolicy.needsAnswerAfterInspection(.serial(actions: [inspection, .type("text")])))
+        let recoveredInventory = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.window", summary: "Read-only candidate inventory",
+            userFacingSummary: "", terminalReason: .ambiguousInspectionTarget)
+        #expect(
+            PaceActionApprovalPolicy.needsAnswerAfterInspection(
+                .serial(actions: [inspection, .type("text")]), observations: [recoveredInventory]))
         let answer = PaceActionTagParser.parseActions(
             from:
                 #"{"spokenText":"Launch review is Tuesday at 14:00.","intent":"answer"}"#)

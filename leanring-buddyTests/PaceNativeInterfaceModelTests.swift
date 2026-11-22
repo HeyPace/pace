@@ -9,14 +9,48 @@ import XCTest
 @testable import Pace
 
 final class PaceNativeInterfaceModelTests: XCTestCase {
+    @MainActor
+    func testPhysicalNotchRemainsAvailableWhenWorkingOnExternalDisplay() throws {
+        guard let notchedScreen = NSScreen.screens.first(where: {
+            PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: .resting) != nil
+        }) else { throw XCTSkip("Requires a display with a physical camera notch.") }
+        let externalScreen = NSScreen.screens.first {
+            PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: .resting) == nil
+        }
+        XCTAssertTrue(PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
+            preferredScreen: externalScreen) === notchedScreen)
+        XCTAssertTrue(PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
+            preferredScreen: notchedScreen) === notchedScreen)
+        XCTAssertTrue(PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
+            preferredScreen: nil) === notchedScreen)
+    }
+
+    @MainActor
+    func testNativeMenuBarEntryStaysVisibleWhenNotchBecomesAvailableAgain() {
+        let companionManager = CompanionManager()
+        let overlayManager = PaceMenuBarOverlayManager(companionManager: companionManager) { _ in }
+        overlayManager.updateFallbackMenuBarStatusItem(for: .menuBarItem, connectedDisplaysNeedFallback: false)
+        let statusItem = overlayManager.fallbackMenuBarStatusItem
+        XCTAssertNotNil(statusItem)
+        XCTAssertEqual(statusItem?.isVisible, true)
+
+        overlayManager.updateFallbackMenuBarStatusItem(for: .livingNotch, connectedDisplaysNeedFallback: false)
+
+        XCTAssertTrue(statusItem === overlayManager.fallbackMenuBarStatusItem)
+        XCTAssertEqual(statusItem?.isVisible, true)
+        XCTAssertEqual(statusItem?.button?.image?.isTemplate, true)
+        XCTAssertNil(statusItem?.button?.contentTintColor, "macOS must choose idle contrast for its own menu bar.")
+
+        overlayManager.hide()
+        XCTAssertEqual(statusItem?.isVisible, false)
+    }
+
     func testCrowdedMenusYieldOnlyWhenTheirBoundsReachTheNotchControls() {
         let housing = CGRect(x: 770, y: 1085, width: 185, height: 32)
         let controls = CGRect(x: 726, y: 1085, width: 273, height: 32)
         var occupancy = PaceMenuBarOccupancy(
-            itemFrames: [
-                CGRect(x: 0, y: 1085, width: 700, height: 32),
-                CGRect(x: 1020, y: 1085, width: 700, height: 32),
-            ],
+            itemFrames: [CGRect(x: 0, y: 1085, width: 700, height: 32),
+                         CGRect(x: 1020, y: 1085, width: 700, height: 32)],
             isReliable: true)
         XCTAssertFalse(occupancy.overlaps(controls, housingFrame: housing))
         occupancy.itemFrames.append(CGRect(x: 710, y: 1085, width: 35, height: 32))
@@ -301,6 +335,42 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         XCTAssertEqual(placement.frame.maxY, housing.maxY)
     }
 
+    @MainActor
+    func testConversationWindowPreservesPhysicalNotchAnchorThroughAppKitConstraints() throws {
+        let screen = try XCTUnwrap(
+            NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main ?? NSScreen.screens.first)
+        guard screen.visibleFrame.maxY < screen.frame.maxY else {
+            throw XCTSkip("This display does not currently reserve a menu-bar row.")
+        }
+        let proposedFrame = NSRect(
+            x: screen.frame.midX - 260, y: screen.frame.maxY - 412,
+            width: 520, height: 412)
+        let ordinaryPanel = NSPanel(
+            contentRect: proposedFrame, styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered, defer: false)
+        let conversationPanel = PaceConversationPanelWindow(
+            contentRect: proposedFrame, styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered, defer: false)
+        defer {
+            ordinaryPanel.close()
+            conversationPanel.close()
+        }
+        ordinaryPanel.isFloatingPanel = true
+        ordinaryPanel.level = .floating
+        conversationPanel.isFloatingPanel = true
+        conversationPanel.level = .floating
+
+        let ordinaryConstrainedFrame = ordinaryPanel.constrainFrameRect(proposedFrame, to: screen)
+        XCTAssertLessThan(ordinaryConstrainedFrame.maxY, screen.frame.maxY)
+        XCTAssertEqual(conversationPanel.constrainFrameRect(proposedFrame, to: screen), ordinaryConstrainedFrame)
+
+        conversationPanel.preservesPhysicalNotchAnchor = true
+        XCTAssertEqual(conversationPanel.constrainFrameRect(proposedFrame, to: screen), proposedFrame)
+
+        conversationPanel.preservesPhysicalNotchAnchor = false
+        XCTAssertEqual(conversationPanel.constrainFrameRect(proposedFrame, to: screen), ordinaryConstrainedFrame)
+    }
+
     func testConversationWithoutPhysicalHousingUsesClampedAnchorAndGap() {
         let placement = PaceConversationPanelPlacement.resolve(
             notchGeometry: nil,
@@ -323,11 +393,10 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
                 let leftArea = CGRect(x: menuRow.minX, y: menuRow.minY, width: 751.5, height: menuHeight)
                 let rightArea = CGRect(x: menuRow.minX + 976.5, y: menuRow.minY, width: 751.5, height: menuHeight)
                 for displayMode in [PaceLivingNotchDisplayMode.resting, .hover, .active] {
-                    let geometry = try XCTUnwrap(
-                        PaceLivingNotchGeometry.resolve(
-                            screenFrame: screenFrame, safeAreaTopInset: menuHeight,
-                            auxiliaryTopLeftArea: leftArea, auxiliaryTopRightArea: rightArea,
-                            displayMode: displayMode))
+                    let geometry = try XCTUnwrap(PaceLivingNotchGeometry.resolve(
+                        screenFrame: screenFrame, safeAreaTopInset: menuHeight,
+                        auxiliaryTopLeftArea: leftArea, auxiliaryTopRightArea: rightArea,
+                        displayMode: displayMode))
                     XCTAssertEqual(geometry.presentationFrame.maxY, screenFrame.maxY)
                     XCTAssertTrue(geometry.presentationFrame.contains(geometry.physicalHousingFrame))
 
@@ -352,6 +421,7 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let examples: [(String, PaceLivingNotchDisplayMode, PaceSignalState, String, Bool, CGFloat)] = [
             ("idle", .resting, .ready, "Ready", false, 185),
+            ("screen-reading", .resting, .ready, "Ready", false, 185),
             ("completed-rest", .resting, .completed, "Done", false, 185),
             ("hover", .hover, .ready, "Ready", false, 185),
             ("listening", .active, .listening, "Listening…", false, 185),
@@ -364,6 +434,11 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             ("wide-housing-hover", .hover, .ready, "Ready", false, 300),
         ]
         for (name, mode, signalState, label, isOffDeviceTurn, housingWidth) in examples {
+            let screenReadIdentifier = name == "screen-reading"
+                ? PaceScreenReadActivity.shared.beginReading() : nil
+            defer {
+                if let screenReadIdentifier { PaceScreenReadActivity.shared.endReading(screenReadIdentifier) }
+            }
             let width = max(
                 mode.preferredWidth ?? housingWidth, housingWidth + 88)
             let height = 32 + mode.additionalHeight
@@ -391,6 +466,38 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
                     bitmap.colorAt(x: pixelX, y: 32)?.alphaComponent ?? 0, 0.9,
                     "The icon wings must remain connected to the camera housing in \(name).")
             }
+            let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            try data.write(to: output.appendingPathComponent("\(name).png"))
+        }
+    }
+
+    @MainActor
+    func testScreenSuggestionNativeRenderExamplesWhenRequested() throws {
+        guard ProcessInfo.processInfo.environment["PACE_RENDER_SEAM_PREVIEWS"] == "1" else {
+            throw XCTSkip("Native render export is an opt-in local visual check.")
+        }
+        let output = URL(fileURLWithPath: "/tmp/pace-suggestion-native-20261031", isDirectory: true)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let examples = [
+            ("compact", "Climbing grades & strength", "Want to understand why climbing grades in V5 vs V12 strength don’t map directly to raw strength?"),
+            ("long", "Why moving more air at a lower exhaust speed improves propulsive efficiency in high-bypass turbofans",
+             "Would you like a visual explanation of why moving more air at a lower exhaust speed improves propulsive efficiency in high-bypass turbofans, with the fan, core and bypass airflow labeled so you can explore each part?")
+        ]
+        for (name, subject, offer) in examples {
+            let suggestion = PaceScreenSuggestion(identifier: UUID(), subject: subject, evidence: subject,
+                offer: offer, sceneIdentity: .init(displayIdentifier: 1, applicationProcessIdentifier: 42,
+                    applicationBundleIdentifier: "com.apple.Safari"), observedAt: Date(), expiresAt: Date().addingTimeInterval(45))
+            // ImageRenderer substitutes placeholders for the AppKit cursor views.
+            // Cache the hosting view so the export uses the actual native hierarchy.
+            let hostingView = NSHostingView(rootView: PaceScreenSuggestionNotificationView(suggestion: suggestion, onAction: { _ in }))
+            hostingView.setFrameSize(hostingView.fittingSize)
+            hostingView.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+            hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+            XCTAssertEqual(hostingView.bounds.width, 360)
+            XCTAssertGreaterThan(hostingView.bounds.height, 150)
+            XCTAssertLessThan(hostingView.bounds.height, 425)
+            XCTAssertGreaterThan(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent ?? 0, 0.9)
             let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
             try data.write(to: output.appendingPathComponent("\(name).png"))
         }

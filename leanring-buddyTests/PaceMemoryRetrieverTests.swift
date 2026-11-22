@@ -15,6 +15,43 @@ import Testing
 
 @MainActor
 struct PaceMemoryRetrieverTests {
+    @Test func defaultTestStoresCannotReadOrOverwriteInstalledMemory() {
+        #expect(ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil)
+        let memoryStore = PaceMemoryStore()
+        #expect(memoryStore.load().isEmpty)
+        memoryStore.save([makeEntry(id: "isolated-unit-memory")])
+        #expect(memoryStore.load().isEmpty)
+        let threadStore = PaceThreadMemoryStore()
+        #expect(threadStore.load() == nil)
+        let thread = PaceThreadMemory(configuration: .default)
+        _ = thread.record(userTurn: "Fixture question", assistantTurn: "Fixture answer",
+            turnId: "isolated-unit-thread", now: Date())
+        threadStore.save(thread.snapshot(now: Date()))
+        #expect(threadStore.load() == nil)
+        threadStore.clear()
+    }
+
+    @Test func explicitlyScopedMemoryStoresPersistAcrossFreshInstances() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pace-memory-roundtrip-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let memoryURL = directory.appendingPathComponent("memory.json")
+        let entry = makeEntry(id: "durable-unit-memory", text: "Acceptance code cedar47")
+        PaceMemoryStore(fileURL: memoryURL).save([entry])
+        #expect(PaceMemoryStore(fileURL: memoryURL).load() == [entry])
+        let threadURL = directory.appendingPathComponent("thread.json")
+        let thread = PaceThreadMemory(configuration: .default)
+        let recordedAt = makeFixedDate(1_000)
+        _ = thread.record(userTurn: "Acceptance code cedar47", assistantTurn: "Noted",
+            turnId: "durable-unit-thread", now: recordedAt)
+        let snapshot = thread.snapshot(now: recordedAt)
+        PaceThreadMemoryStore(fileURL: threadURL).save(snapshot)
+        let restored = try #require(PaceThreadMemoryStore(fileURL: threadURL).load())
+        #expect(restored.verbatimWindow == snapshot.verbatimWindow)
+        PaceThreadMemoryStore(fileURL: threadURL).clear()
+        #expect(PaceThreadMemoryStore(fileURL: threadURL).load() == nil)
+    }
+
     // MARK: - Stub embedding client
 
     /// Returns a caller-controlled vector per input. In `throwingMode` it

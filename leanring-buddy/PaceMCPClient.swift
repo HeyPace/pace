@@ -17,6 +17,24 @@ enum PaceMCPClientError: Error, LocalizedError, CustomStringConvertible {
     case requestTimedOut(String)
     case invalidResponse(String)
     case rpcError(String)
+    case ambiguousApplicationTarget(String)
+    case staleApplicationTarget(String)
+
+    static func classifyToolError(_ error: Error, toolCall: PaceMCPToolCall) -> Error {
+        guard toolCall.serverName == "peekaboo", let mcpError = error as? PaceMCPClientError,
+              case .rpcError(let message) = mcpError else { return error }
+        let applicationField: String
+        switch toolCall.toolName {
+        case "window": applicationField = "app"
+        case "see": applicationField = "app_target"
+        default: return error
+        }
+        guard case .string(let applicationTarget) = toolCall.arguments[applicationField] else { return error }
+        let diagnosticPattern = "^(?:MCP tool reported an error:\\s*)?(?:Failed to [^:\\r\\n]+:\\s*)?Multiple apps match '"
+            + NSRegularExpression.escapedPattern(for: applicationTarget) + "'\\.\\s*Did you mean:"
+        guard message.range(of: diagnosticPattern, options: [.regularExpression, .caseInsensitive]) != nil else { return error }
+        return PaceMCPClientError.ambiguousApplicationTarget(message)
+    }
 
     var errorDescription: String? { description }
 
@@ -34,6 +52,10 @@ enum PaceMCPClientError: Error, LocalizedError, CustomStringConvertible {
             return "MCP server returned an invalid response: \(message)"
         case .rpcError(let message):
             return "MCP server returned an error: \(message)"
+        case .ambiguousApplicationTarget(let message):
+            return "Could not identify one application to control: \(message)"
+        case .staleApplicationTarget(let applicationName):
+            return "The launched \(applicationName) process is no longer available."
         }
     }
 }
@@ -112,6 +134,12 @@ nonisolated struct PaceMCPToolCall: Equatable, Sendable {
     let serverName: String
     let toolName: String
     let arguments: [String: PaceMCPJSONValue]
+
+    var createsAppleReminder: Bool {
+        guard serverName.lowercased() == "apple", toolName.lowercased() == "reminders",
+              case .string(let operation)? = arguments["operation"] else { return false }
+        return operation.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "create"
+    }
 
     var approvalDescription: String {
         let argumentSummary = arguments.keys.sorted().joined(separator: ", ")
@@ -231,7 +259,10 @@ nonisolated enum PaceMCPServerRegistry {
             }
             let servers = root.mcpServers ?? root.servers ?? [:]
             if !servers.isEmpty {
-                return servers
+                return Dictionary(
+                    uniqueKeysWithValues: servers.map { slug, configured in
+                        (slug, PaceMCPServerCatalog.currentConfiguration(forSlug: slug, configured: configured))
+                    })
             }
         }
         return [:]
@@ -289,7 +320,7 @@ nonisolated struct PaceMCPStdioClient {
         try await toolCatalog(serverName: serverName, allowedNames: nil)
     }
 
-    private func toolCatalog(serverName: String, allowedNames: Set<String>?) async throws -> String {
+    func toolCatalog(serverName: String, allowedNames: Set<String>?) async throws -> String {
         guard let configuration = serverConfigurationsProvider()[serverName] else {
             throw PaceMCPClientError.serverNotConfigured(serverName)
         }
@@ -353,11 +384,12 @@ nonisolated struct PaceMCPStdioClient {
                     auditMCPCall(outcome: "ok", outputCharacterCount: result.count)
                     continuation.resume(returning: result)
                 } catch {
+                    let classifiedError = PaceMCPClientError.classifyToolError(error, toolCall: toolCall)
                     auditMCPCall(
                         outcome: "error",
-                        detail: String(String(describing: error).prefix(160))
+                        detail: String(String(describing: classifiedError).prefix(160))
                     )
-                    continuation.resume(throwing: error)
+                    continuation.resume(throwing: classifiedError)
                 }
             }
         }
@@ -476,6 +508,8 @@ private final class PaceMCPPersistentSession {
     private let stdoutPipe = Pipe()
     private let stderrHandle: FileHandle
     private let client = MCP.Client(name: "Pace", version: "1.0")
+    private let closeLock = NSLock()
+    private var hasScheduledClose = false
 
     init(serverName: String, configuration: PaceMCPServerConfiguration, timeout: TimeInterval) throws {
         self.configuration = configuration
@@ -545,12 +579,26 @@ private final class PaceMCPPersistentSession {
     }
 
     func close() {
+        closeLock.lock()
+        guard !hasScheduledClose else {
+            closeLock.unlock()
+            return
+        }
+        hasScheduledClose = true
         let client = self.client
-        Task { await client.disconnect() }
+        let retainedInputPipe = stdinPipe
+        let retainedOutputPipe = stdoutPipe
+        let retainedErrorHandle = stderrHandle
+        closeLock.unlock()
         if process.isRunning { process.terminate() }
-        try? stdinPipe.fileHandleForWriting.close()
-        try? stdoutPipe.fileHandleForReading.close()
-        try? stderrHandle.close()
+        // The SDK borrows raw descriptor numbers. Keep their owners alive until
+        // its reader is disconnected, so another session cannot reuse them first.
+        Task.detached {
+            await client.disconnect()
+            try? retainedInputPipe.fileHandleForWriting.close()
+            try? retainedOutputPipe.fileHandleForReading.close()
+            try? retainedErrorHandle.close()
+        }
     }
 }
 

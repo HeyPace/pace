@@ -1,0 +1,14 @@
+{
+  "valid": true,
+  "response": {
+    "spokenText": "",
+    "intent": "action",
+    "payload": {
+      "name": "present_media",
+      "args": {
+        "assetID": "thank-you-dance",
+        "durationSeconds": 4
+      }
+    }
+  }
+}

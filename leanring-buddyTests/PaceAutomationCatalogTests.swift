@@ -26,7 +26,7 @@ struct PaceAutomationDefinitionTests {
             allowSourceTreeFallback: true
         )
         #expect(!definitions.isEmpty)
-        #expect((10...20).contains(definitions.count))
+        #expect(definitions.count == 19)
         #expect(Set(definitions.map(\.identifier)).count == definitions.count)
         let starterLibraryCategories = Set(definitions.map(\.category))
         #expect(

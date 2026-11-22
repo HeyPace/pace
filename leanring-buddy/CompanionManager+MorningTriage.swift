@@ -253,17 +253,17 @@ extension CompanionManager {
     }
 
     func setWatchModeEnabled(_ enabled: Bool) {
-        guard enabled != isWatchModeEnabled else { return }
-        isWatchModeEnabled = enabled
-
-        if enabled {
-            latestWatchModeSummary = "Watching for screen changes"
-            screenWatchModeController.startWatching { [weak self] event in
-                await self?.handleWatchModeEvent(event)
-            }
-        } else {
-            screenWatchModeController.stopWatching()
-            latestWatchModeSummary = nil
+        guard !enabled || useLocalVLMForScreenContext else {
+            latestWatchModeSummary = "Turn on Read My Screen before enabling Watch mode."
+            return
         }
+        PaceUserPreferencesStore.setBool(enabled, for: .isWatchModeEnabled, defaults: watchModeDefaults)
+        if enabled != isWatchModeEnabled {
+            isWatchModeEnabled = enabled
+            screenSuggestionVisualGate = PaceScreenSuggestionVisualGate()
+            screenSuggestionCoordinator.setEnabled(enabled)
+            screenWatchNoteCoordinator.invalidate()
+        }
+        reconcileWatchRuntime()
     }
 }

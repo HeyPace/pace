@@ -102,7 +102,7 @@ enum PaceFlowCommand: Equatable {
 }
 
 enum PaceFlowCommandParser {
-    static func parse(_ transcript: String) -> PaceFlowCommand? {
+    static func parse(_ transcript: String, isRecordedFlow: (String) -> Bool = { _ in false }) -> PaceFlowCommand? {
         let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedTranscript = trimmedTranscript.lowercased()
         guard !normalizedTranscript.isEmpty else { return nil }
@@ -125,18 +125,20 @@ enum PaceFlowCommandParser {
             }
         }
 
-        // "run <name>" runs a recorded flow — but an utterance that mentions
-        // "skill" ("run the cat search skill") belongs to the teachable-skill
-        // parser, which runs AFTER this one in the agent loop. Without this
-        // deferral the bare "run " prefix greedily swallows every skill-run
-        // command and answers "i couldn't find a flow named …", so taught
-        // skills can never be run by voice.
+        // Explicit replay requests can report a missing flow. Bare aliases
+        // require a saved match so questions such as "Do you see my screen?"
+        // and general tasks such as "run the tests" reach the assistant.
+        // Skill requests continue to the later skill parser.
         if !normalizedTranscript.contains("skill") {
-            for prefix in ["run ", "play back ", "do "] {
+            for prefix in ["run the flow ", "run flow ", "do the flow ", "play back "] {
                 if normalizedTranscript.hasPrefix(prefix) {
                     let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
                     return name.isEmpty ? nil : .run(name: name)
                 }
+            }
+            for prefix in ["run ", "do "] where normalizedTranscript.hasPrefix(prefix) {
+                let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                return !name.isEmpty && isRecordedFlow(name) ? .run(name: name) : nil
             }
         }
 

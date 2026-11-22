@@ -13,6 +13,7 @@ struct PaceSeamNotchSurface: View {
     var colorRoleOverride: PaceSignalColorRole? = nil
     var isCameraActive = false
     var isScreenActive = false
+    var hasUnreadScreenSuggestion = false
     var persistentStatus: String? = nil
     var companionStatusColor: Color? = nil
     var onBrandTap: (() -> Void)? = nil
@@ -49,8 +50,8 @@ struct PaceSeamNotchSurface: View {
                                 ProgressView().controlSize(.mini).tint(DS.Colors.localSignal)
                             }
                         }
-                        .frame(width: 13, height: 13)
-                        .accessibilityHidden(true)
+                            .frame(width: 13, height: 13)
+                            .accessibilityHidden(true)
                     } else {
                         PaceSignalView(
                             state: signalState,
@@ -74,10 +75,7 @@ struct PaceSeamNotchSurface: View {
         .background(Color.black)
         .overlay {
             UnevenRoundedRectangle(bottomLeadingRadius: 16, bottomTrailingRadius: 16, style: .continuous)
-                .stroke(
-                    Color.white.opacity(displayMode == .hover ? 0.18 : displayMode == .active ? 0.07 : 0),
-                    lineWidth: 0.5
-                )
+                .stroke(Color.white.opacity(displayMode == .hover ? 0.18 : displayMode == .active ? 0.07 : 0), lineWidth: 0.5)
                 .animation(.easeOut(duration: DS.Motion.micro), value: displayMode)
                 .allowsHitTesting(false)
         }
@@ -92,6 +90,7 @@ struct PaceSeamNotchSurface: View {
             isOffDeviceTurn: isOffDeviceTurn,
             isCameraActive: isCameraActive,
             isScreenActive: isScreenActive,
+            hasUnreadScreenSuggestion: hasUnreadScreenSuggestion,
             persistentStatus: persistentStatus,
             companionStatusColor: companionStatusColor,
             onBrandTap: onBrandTap,
@@ -124,10 +123,12 @@ struct PaceSeamNotchHeader: View {
     var isExpanded = false
     var isCameraActive = false
     var isScreenActive = false
+    var hasUnreadScreenSuggestion = false
     var persistentStatus: String? = nil
     var companionStatusColor: Color? = nil
     var onBrandTap: (() -> Void)? = nil
     var onChatTap: (() -> Void)? = nil
+    @ObservedObject private var screenReadActivity = PaceScreenReadActivity.shared
     @State private var hoveredWingLabel: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -136,7 +137,7 @@ struct PaceSeamNotchHeader: View {
             let wingWidth = max(0, (geometry.size.width - physicalHousingWidth) / 2)
             HStack(spacing: 0) {
                 wingButton(
-                    label: "Open Pace",
+                    label: signalState == .listening ? "Finish recording" : "Start voice input",
                     shortcutHint: "Hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) to speak",
                     action: onBrandTap
                 ) {
@@ -147,14 +148,13 @@ struct PaceSeamNotchHeader: View {
                         .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
                         .animation(.easeOut(duration: DS.Motion.micro), value: signalState == .listening)
                         .fixedSize()
-                        .frame(width: wingWidth, height: physicalHousingHeight)
+                        .frame(width: min(40, wingWidth), height: physicalHousingHeight)
                 }
+                .frame(width: wingWidth, height: physicalHousingHeight)
                 Color.clear.frame(width: physicalHousingWidth)
                 wingButton(
                     label: isExpanded ? "Close conversation" : "Open conversation",
-                    shortcutHint: isExpanded
-                        ? "Close conversation · Esc"
-                        : "Open chat · \(PaceNotchChatShortcut.currentShortcutOption.notchDisplayLabel)",
+                    shortcutHint: isExpanded ? "Close conversation · Esc" : "Open chat · \(PaceNotchChatShortcut.currentShortcutOption.notchDisplayLabel)",
                     action: onChatTap
                 ) {
                     Group {
@@ -166,9 +166,32 @@ struct PaceSeamNotchHeader: View {
                             PaceBrandMark().frame(width: 20, height: 20)
                         }
                     }
+                    .overlay {
+                        if screenReadActivity.isReading {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.cyan.opacity(0.12))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .stroke(Color.cyan.opacity(0.65), lineWidth: 0.75)
+                                }
+                                .frame(width: 28, height: 28)
+                                .overlay(alignment: .bottomTrailing) {
+                                    Image(systemName: "eye.fill")
+                                        .font(.system(size: 8, weight: .semibold))
+                                        .foregroundStyle(Color.cyan)
+                                        .padding(2)
+                                        .background(Color.black, in: Capsule())
+                                        .offset(x: 4, y: 3)
+                                }
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                                .transition(.opacity)
+                        }
+                    }
+                    .animation(reduceMotion ? nil : .easeOut(duration: DS.Motion.micro), value: screenReadActivity.isReading)
                     .foregroundStyle(isOffDeviceTurn ? DS.Colors.offDeviceSignal : Color.white.opacity(0.94))
                     .fixedSize()
-                    .frame(width: wingWidth, height: physicalHousingHeight)
+                    .frame(width: min(40, wingWidth), height: physicalHousingHeight)
                     .overlay(alignment: .bottomTrailing) {
                         HStack(spacing: 4) {
                             if let companionStatusColor {
@@ -179,16 +202,17 @@ struct PaceSeamNotchHeader: View {
                                 Circle().fill(.green).frame(width: 4, height: 4)
                                     .accessibilityLabel("Camera active")
                             }
-                            if isScreenActive {
-                                Circle().fill(.cyan).frame(width: 4, height: 4)
-                                    .accessibilityLabel("Screen active")
+                            if isScreenActive || hasUnreadScreenSuggestion {
+                                Circle().fill(hasUnreadScreenSuggestion ? .yellow : .cyan).frame(width: 4, height: 4)
+                                    .accessibilityLabel(hasUnreadScreenSuggestion ? "Unread screen suggestion" : "Screen active")
                             }
                         }
                         .fixedSize()
-                        .padding(.trailing, 12)
+                        .padding(.trailing, 3)
                         .padding(.bottom, 2)
                     }
                 }
+                .frame(width: wingWidth, height: physicalHousingHeight)
             }
         }
         .frame(height: physicalHousingHeight)
@@ -202,9 +226,10 @@ struct PaceSeamNotchHeader: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         let cap = content()
-            .background(hoveredWingLabel == label ? Color.white.opacity(0.08) : Color.clear)
+            .background(hoveredWingLabel == label ? Color.white.opacity(0.08) : Color.clear,
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         if let action {
-            Button(action: action) { cap.contentShape(Rectangle()) }
+            Button(action: action) { cap.contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous)) }
                 .buttonStyle(PaceNotchButtonStyle(isHovered: hoveredWingLabel == label))
                 .onHover { isHovered in
                     if isHovered {
@@ -215,10 +240,19 @@ struct PaceSeamNotchHeader: View {
                 }
                 .pointerCursor()
                 .accessibilityLabel(label)
-                .help(shortcutHint)
+                .accessibilityValue(label != "Open Pace" ? conversationStatusDescription : "")
+                .help(label != "Open Pace" && !conversationStatusDescription.isEmpty
+                    ? conversationStatusDescription + " · " + shortcutHint : shortcutHint)
         } else {
             cap
         }
+    }
+
+    private var conversationStatusDescription: String {
+        var descriptions: [String] = []
+        if screenReadActivity.isReading { descriptions.append("Reading your screen") }
+        if hasUnreadScreenSuggestion { descriptions.append("Unread screen suggestion") }
+        return descriptions.joined(separator: ". ")
     }
 
 }
@@ -237,20 +271,8 @@ private struct PaceNotchButtonStyle: ButtonStyle {
     }
 }
 
-extension BuddyPushToTalkShortcut.ShortcutOption {
-    fileprivate var notchDisplayLabel: String {
-        switch self {
-        case .shiftFunction: return "⇧fn"
-        case .controlOption: return "⌃⌥"
-        case .shiftControl: return "⌃⇧"
-        case .controlOptionSpace: return "⌃⌥Space"
-        case .shiftControlSpace: return "⌃⇧Space"
-        }
-    }
-}
-
-extension PaceNotchChatShortcut.ShortcutOption {
-    fileprivate var notchDisplayLabel: String {
+private extension PaceNotchChatShortcut.ShortcutOption {
+    var notchDisplayLabel: String {
         switch self {
         case .commandShiftP: return "⌘⇧P"
         case .commandShiftK: return "⌘⇧K"

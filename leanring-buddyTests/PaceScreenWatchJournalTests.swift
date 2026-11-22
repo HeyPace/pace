@@ -55,11 +55,11 @@ struct PaceScreenWatchJournalTests {
         #expect(differentCategoryDocument != nil)
     }
 
-    @Test func bucketCapsAtFortyLinesDroppingOldest() async throws {
-        var journal = PaceScreenWatchJournal(rehydratingFrom: [], now: Date())
-        let startedAt = Date()
+    @Test func bucketCapsAtTwoHundredFortyLinesDroppingOldest() async throws {
+        let startedAt = Calendar.current.startOfDay(for: Date()).addingTimeInterval(12 * 3600)
+        var journal = PaceScreenWatchJournal(rehydratingFrom: [], now: startedAt)
         var latestDocument: PaceRetrievalDocument?
-        for entryIndex in 0..<45 {
+        for entryIndex in 0..<245 {
             // Alternate app names so the dedup window never suppresses.
             let document = journal.record(makeEntry(
                 recordedAt: startedAt.addingTimeInterval(TimeInterval(entryIndex) * 10),

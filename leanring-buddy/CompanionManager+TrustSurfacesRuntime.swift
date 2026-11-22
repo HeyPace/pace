@@ -38,19 +38,12 @@ extension CompanionManager {
         return nil
     }
 
-    /// Records that a reversible action just executed. Called from the
-    /// post-action site in the agent loop / fast-action path. The
-    /// cursor overlay observes the published fields and shows the
-    /// undo banner for the next 5 seconds.
-    func noteReversibleActionExecuted(
-        in actionExecutionPlan: PaceActionExecutionPlan
-    ) {
-        guard PaceActionApprovalPolicy.planContainsReversibleMutation(actionExecutionPlan) else {
-            return
-        }
-        let summary =
-            PaceActionApprovalPolicy.firstReversibleSummary(actionExecutionPlan)
-            ?? "Last action"
+    /// Only an actual new AX mutation can be undone by Undo.last. A dispatched
+    /// MCP or calendar action must never advertise undo for an older AX entry.
+    func noteReversibleActionExecuted(sinceMutationCount previousMutationCount: Int) {
+        guard !Task.isCancelled, actionExecutor.mutationLog.count > previousMutationCount,
+            case .axValue(_, _, let summary) = actionExecutor.mutationLog.last
+        else { return }
         mostRecentReversibleActionSummary = summary
         mostRecentReversibleActionAt = Date()
     }
@@ -85,10 +78,12 @@ extension CompanionManager {
     /// seconds. The text passed in is the already-post-processed
     /// spoken text (think blocks + action tags stripped), so replay
     /// speaks the same syllables the user just missed.
-    func noteLastSpokenReply(_ spokenText: String) {
+    func noteLastSpokenReply(_ spokenText: String, profile: PaceSpeechProfile? = nil) {
         let trimmedSpokenText = spokenText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedSpokenText.isEmpty else { return }
         lastSpokenReplyText = trimmedSpokenText
+        lastSpokenReplyRequest = conversationSpeechRequest(for: spokenText)
+            ?? PaceSpeechRequest(text: trimmedSpokenText, profile: profile)
         lastSpokenReplyAt = Date()
 
         // Privacy-safe activation evidence for the automation matrix.
@@ -107,6 +102,7 @@ extension CompanionManager {
     /// button never lingers past the next push-to-talk press.
     func clearLastSpokenReplyState() {
         lastSpokenReplyText = nil
+        lastSpokenReplyRequest = nil
         lastSpokenReplyAt = nil
     }
 
@@ -114,18 +110,52 @@ extension CompanionManager {
     /// notch panel's replay button. Reuses the SAME text that already
     /// went through TTS — doesn't re-stream the planner.
     func replayLastSpokenReply() {
-        guard
-            let textToReplay = lastSpokenReplyText?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            !textToReplay.isEmpty
-        else {
+        guard let request = lastSpokenReplyRequest ?? lastSpokenReplyText.map({ PaceSpeechRequest(text: $0) }),
+              canReplayChatSpeech else { return }
+        guard conversationLanguageMode == .standard || request.profile != nil else { return }
+        replayChatSpeech(request)
+    }
+
+    var canReplayChatSpeech: Bool {
+        voiceState == .idle && !chatSession.isChatTTSMuted
+    }
+
+    func replayChatSpeech(_ request: PaceSpeechRequest) {
+        guard canReplayChatSpeech else { return }
+        if let profile = request.profile, !ttsClient.supportsSpeechProfile(profile) {
+            currentTurnHUDState = .failed("The selected speech backend cannot play this reply’s voice.")
             return
         }
-        Task { @MainActor in
+        replayPreservesOriginalConversationHistory = true
+        let replayLease = turnLeaseRegistry.currentLease
+        voiceState = .responding
+        currentResponseTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.turnLeaseRegistry.isCurrent(replayLease), !Task.isCancelled {
+                    self.voiceState = .idle
+                }
+            }
+            guard self.isActiveTurn(replayLease), !self.chatSession.isChatTTSMuted else { return }
             do {
-                try await ttsClient.speakText(textToReplay)
+                if self.ttsClient.supportsUtteranceCompletion || request.profile != nil {
+                    try await self.ttsClient.speakUtterance(request, onStarted: {})
+                } else {
+                    try await self.ttsClient.speakText(request.text)
+                    // Legacy providers expose playing state but no completion event.
+                    let deadline = ContinuousClock.now.advanced(by: .seconds(300))
+                    while self.ttsClient.isPlaying {
+                        guard self.isActiveTurn(replayLease) else { return }
+                        guard ContinuousClock.now < deadline else {
+                            self.ttsClient.stopPlayback()
+                            throw PaceUtterancePlaybackError.playbackFailed
+                        }
+                        try await Task.sleep(for: .milliseconds(100))
+                    }
+                }
             } catch {
-                print("⚠️ Replay TTS failed: \(error.localizedDescription)")
+                guard self.isActiveTurn(replayLease) else { return }
+                self.currentTurnHUDState = .failed("Replay did not complete. \(error.localizedDescription)")
             }
         }
     }
@@ -170,7 +200,7 @@ extension CompanionManager {
             print("⚠️ Failure narration (\(context ?? "no-context")): \(narration.spokenText)")
             Task { @MainActor in
                 do {
-                    try await ttsClient.speakText(narration.spokenText)
+                    try await speakStandardNarration(narration.spokenText)
                 } catch {
                     print("⚠️ Failure narration TTS failed: \(error.localizedDescription)")
                 }
@@ -198,13 +228,7 @@ extension CompanionManager {
             responseOverlayManager.finishStreaming()
             currentTurnHUDState = .failed(narration.spokenText)
         } else {
-            // Background failures remain internal breadcrumbs so they do not
-            // masquerade as something the user asked in conversation history.
-            localRetriever.recordPaceHistory(
-                userTranscript: "(system) failure event",
-                assistantResponse: "Pace surfaced a failure: \(narration.spokenText)"
-            )
-            refreshLocalRetrievalPublishedState()
+            recordAssistantNarration(narration.spokenText, origin: .failure)
         }
     }
 

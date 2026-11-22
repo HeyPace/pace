@@ -50,6 +50,8 @@ enum PaceLocalCLIPlannerError: LocalizedError {
     case missingStdoutPipe(executable: String)
     case nonZeroExit(executable: String, status: Int32, stderrExcerpt: String)
     case stdinWriteFailed(executable: String, underlying: String)
+    case incompleteCodexTurn
+    case rejected(PaceCLIRejectionCategory)
 
     var errorDescription: String? {
         switch self {
@@ -61,7 +63,57 @@ enum PaceLocalCLIPlannerError: LocalizedError {
             return "`\(executable)` exited with status \(status). \(stderrExcerpt)"
         case .stdinWriteFailed(let executable, let underlying):
             return "Couldn't write to `\(executable)` stdin: \(underlying)"
+        case .rejected(let category):
+            return category == .authentication
+                ? "The planner requires sign-in. Check the CLI authentication and try again."
+                : "The planner reached its usage limit. Check the CLI quota and try again."
+        case .incompleteCodexTurn:
+            return "Codex did not complete a valid answer turn. Try again or cancel the turn."
         }
+    }
+}
+
+/// Only recognized account failures block the everyday planner's selected-model fallback.
+/// Keep provider text out of routing metadata and avoid treating model access errors as sign-in failures.
+nonisolated enum PaceCLIRejectionCategory: String {
+    case authentication
+    case quota
+
+    static func classify(_ text: String) -> Self? {
+        let normalizedText = text.lowercased()
+        let authenticationSignals = [
+            "invalid_api_key", "authentication_error", "auth_required", "token_expired",
+            "unauthorized", "unauthenticated", "not authenticated", "http 401",
+            "not logged in", "please log in", "please login", "authentication failed",
+            "invalid api key", "api key is invalid", "refresh token", "401 unauthorized",
+        ]
+        if authenticationSignals.contains(where: normalizedText.contains) { return .authentication }
+        let quotaSignals = [
+            "insufficient_quota", "quota_exceeded", "usage_limit_reached", "rate_limit_exceeded",
+            "rate_limit_error", "too_many_requests", "too many requests", "http 429",
+            "usage limit", "exceeded your current quota", "quota exceeded", "insufficient quota",
+            "credit balance is too low", "rate limit reached",
+        ]
+        if quotaSignals.contains(where: normalizedText.contains) { return .quota }
+        return nil
+    }
+
+    static func classify(errorPayload: [String: Any]) -> Self? {
+        // Inspect only failure fields, never agent-message text or arbitrary serialized payloads.
+        for key in ["status", "status_code", "http_status", "code"] {
+            let statusCode = (errorPayload[key] as? Int)
+                ?? (errorPayload[key] as? String).flatMap(Int.init)
+            if statusCode == 401 { return .authentication }
+            if statusCode == 429 { return .quota }
+        }
+        for key in ["code", "message", "type"] {
+            if let field = errorPayload[key] as? String, let category = classify(field) { return category }
+        }
+        if let nestedError = errorPayload["error"] as? [String: Any] {
+            return classify(errorPayload: nestedError)
+        }
+        if let errorText = errorPayload["error"] as? String { return classify(errorText) }
+        return nil
     }
 }
 
@@ -147,6 +199,110 @@ nonisolated enum PaceLocalCLIStreamJSONParser {
 
 // MARK: - Planner
 
+enum PaceCodexReasoningEffort: String {
+    case low
+}
+
+nonisolated enum PaceCodexTextDelivery {
+    case completedMessage
+    case completedTurn
+}
+
+nonisolated enum PaceCodexCompletionPolicy {
+    case processExit
+    case completedTurn
+}
+
+/// Per-process state: completed-turn delivery never exposes individual message items.
+nonisolated struct PaceCLITextDeliveryState {
+    let codexTextDelivery: PaceCodexTextDelivery
+    private(set) var assembledOutput = ""
+    private var hasCompletedTurn = false
+    private var hasInvalidTurn = false
+    private var pendingRejectionCategory: PaceCLIRejectionCategory?
+    private(set) var rejectionCategory: PaceCLIRejectionCategory?
+
+    mutating func consume(chunk: String, fromLine line: String) -> String? {
+        guard codexTextDelivery == .completedTurn else {
+            guard !chunk.isEmpty else { return nil }
+            assembledOutput += chunk
+            return assembledOutput
+        }
+        guard let payloadData = line.data(using: .utf8),
+            let payload = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any],
+            let eventType = payload["type"] as? String
+        else {
+            hasInvalidTurn = true
+            return nil
+        }
+        if eventType == "error" {
+            // A successful completed turn supersedes interim retry notices.
+            let message = (payload["message"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let isRetryNotice = message.hasPrefix("reconnecting") || message.hasPrefix("retrying")
+            if !isRetryNotice {
+                pendingRejectionCategory = PaceCLIRejectionCategory.classify(errorPayload: payload)
+                    ?? pendingRejectionCategory
+            }
+            return nil
+        }
+        if eventType == "turn.failed" || payload["error"] != nil {
+            hasInvalidTurn = true
+            rejectionCategory = rejectionCategory ?? PaceCLIRejectionCategory.classify(errorPayload: payload)
+                ?? pendingRejectionCategory
+        }
+        guard !hasInvalidTurn else { return nil }
+        guard !hasCompletedTurn else {
+            // A later message cannot change text that has already reached speech.
+            if !chunk.isEmpty { hasInvalidTurn = true }
+            return nil
+        }
+        assembledOutput += chunk
+        guard eventType == "turn.completed" else { return nil }
+        hasCompletedTurn = true
+        if !assembledOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            pendingRejectionCategory = nil
+        }
+        return assembledOutput.isEmpty ? nil : assembledOutput
+    }
+
+    func failurePreservingRejection(_ processError: any Error) -> any Error {
+        if processError is CancellationError { return processError }
+        if let rejectionCategory {
+            return PaceLocalCLIPlannerError.rejected(rejectionCategory)
+        }
+        if !hasCompletedTurn || assembledOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            let pendingRejectionCategory {
+            return PaceLocalCLIPlannerError.rejected(pendingRejectionCategory)
+        }
+        if case PaceCLIProcessError.failed(_, let stderrExcerpt) = processError,
+            let category = PaceCLIRejectionCategory.classify(stderrExcerpt) {
+            return PaceLocalCLIPlannerError.rejected(category)
+        }
+        return processError
+    }
+
+    func finishedOutput() throws -> String {
+        if let rejectionCategory { throw PaceLocalCLIPlannerError.rejected(rejectionCategory) }
+        if !hasCompletedTurn || assembledOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            let pendingRejectionCategory {
+            throw PaceLocalCLIPlannerError.rejected(pendingRejectionCategory)
+        }
+        if codexTextDelivery == .completedTurn && (!hasCompletedTurn || hasInvalidTurn) {
+            throw PaceLocalCLIPlannerError.incompleteCodexTurn
+        }
+        guard !assembledOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw PaceCLIProcessError.emptyResponse
+        }
+        return assembledOutput
+    }
+}
+
+@MainActor
+private final class PaceCLIOutputDelivery {
+    var characterCount: Int?
+}
+
 /// BuddyPlannerClient conformer that spawns the local CLI per turn.
 /// Stateful across calls inside one PTT release: the captured
 /// `session_id` from the first claude call drives `--resume <id>` on
@@ -165,6 +321,17 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
     /// Optional model override forwarded as `--model <id>`. nil = let
     /// the CLI pick its default.
     private let modelIdentifier: String?
+    private let codexReasoningEffort: PaceCodexReasoningEffort?
+    private let codexTextDelivery: PaceCodexTextDelivery
+    private let requestTimeout: TimeInterval?
+    private let codexCompletionPolicy: PaceCodexCompletionPolicy
+    private let executableResolver: @Sendable (String) -> URL?
+
+    var allowsBoundedEverydayAnswers: Bool {
+        upstream == .codex && modelIdentifier == nil && !isResearchTurn && codexReasoningEffort == nil
+            && codexTextDelivery == .completedMessage
+            && requestTimeout == nil
+    }
     /// `claude --bare` skips auto-discovery overhead (hooks, skills,
     /// plugins, MCP, CLAUDE.md) but requires API-key auth — it doesn't
     /// read OAuth/keychain. Enabled when `ANTHROPIC_API_KEY` is set so
@@ -178,10 +345,20 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
     init(
         upstream: PaceLocalCLIUpstream,
         modelIdentifier: String?,
-        isResearchTurn: Bool = false
+        isResearchTurn: Bool = false,
+        codexReasoningEffort: PaceCodexReasoningEffort? = nil,
+        codexTextDelivery: PaceCodexTextDelivery = .completedMessage,
+        requestTimeout: TimeInterval? = nil,
+        codexCompletionPolicy: PaceCodexCompletionPolicy = .completedTurn,
+        executableResolver: (@Sendable (String) -> URL?)? = nil
     ) {
         self.upstream = upstream
         self.isResearchTurn = isResearchTurn
+        self.codexReasoningEffort = codexReasoningEffort
+        self.codexTextDelivery = codexTextDelivery
+        self.requestTimeout = requestTimeout
+        self.codexCompletionPolicy = codexCompletionPolicy
+        self.executableResolver = executableResolver ?? { Self.resolveExecutable(named: $0) }
         // Treat an empty / whitespace-only identifier as "no override" so
         // `--model` is only ever forwarded when the user (or a caller like
         // the research lane, whose default is now empty for Codex) actually
@@ -210,17 +387,19 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         onTextChunk: @MainActor @Sendable (String) -> Void
     ) async throws -> (text: String, duration: TimeInterval) {
         let startedAt = Date()
+        let outputDelivery = PaceCLIOutputDelivery()
         // Off-device egress size: the CLI ships the system prompt (first
         // step), the accumulated history, and the new user prompt off the
         // Mac via its provider. This is the byte count the privacy
         // dashboard aggregates for the "0 bytes → X KB to <upstream>"
         // headline, so it MUST be recorded on every turn — direct-spawn
         // is off-device and cannot be silent about egress.
+        let imageByteCount = supportsImageInput ? images.reduce(0) { $0 + $1.data.count } : 0
         let estimatedInputCharacterCount =
             systemPrompt.utf8.count
             + conversationHistory.reduce(0) { $0 + $1.userPlaceholder.utf8.count + $1.assistantResponse.utf8.count }
             + userPrompt.utf8.count
-            + (supportsImageInput ? images.reduce(0) { $0 + $1.data.count } : 0)
+            + imageByteCount
         do {
             let assembledText: String
             switch upstream {
@@ -229,7 +408,10 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
                     systemPrompt: systemPrompt,
                     conversationHistory: conversationHistory,
                     userPrompt: userPrompt,
-                    onTextChunk: onTextChunk
+                    onTextChunk: { text in
+                        outputDelivery.characterCount = text.count
+                        onTextChunk(text)
+                    }
                 )
             case .codex:
                 assembledText = try await spawnCodex(
@@ -237,7 +419,10 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
                     systemPrompt: systemPrompt,
                     conversationHistory: conversationHistory,
                     userPrompt: userPrompt,
-                    onTextChunk: onTextChunk
+                    onTextChunk: { text in
+                        outputDelivery.characterCount = text.count
+                        onTextChunk(text)
+                    }
                 )
             }
             let duration = Date().timeIntervalSince(startedAt)
@@ -245,20 +430,22 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
                 durationMilliseconds: Int(duration * 1000),
                 outcome: "ok",
                 inputCharacterCount: estimatedInputCharacterCount,
-                outputCharacterCount: assembledText.count
+                outputCharacterCount: assembledText.count,
+                imageByteCount: imageByteCount
             )
             return (text: assembledText, duration: duration)
         } catch {
             // Fail-loud path still logs the off-device attempt: bytes left
             // the Mac (or tried to) even on error, and the dashboard must
-            // reflect that. Outcome carries the error so the audit trail
-            // shows why the turn failed.
+            // reflect that. Failure metadata remains content-free.
+            let deliveredCompletedTurn = codexTextDelivery == .completedTurn
+                && (outputDelivery.characterCount ?? 0) > 0
             recordAuditEntry(
                 durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1000),
-                outcome: "error",
+                outcome: deliveredCompletedTurn ? "late-error-after-completed-turn" : "error",
                 inputCharacterCount: estimatedInputCharacterCount,
-                outputCharacterCount: nil,
-                detail: error.localizedDescription
+                outputCharacterCount: outputDelivery.characterCount,
+                imageByteCount: imageByteCount
             )
             throw error
         }
@@ -275,7 +462,7 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         outcome: String,
         inputCharacterCount: Int,
         outputCharacterCount: Int?,
-        detail: String? = nil
+        imageByteCount: Int
     ) {
         PaceAPIAuditLog.shared.record(
             subsystem: "planner.cliDirect",
@@ -285,7 +472,8 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
             outcome: outcome,
             inputCharacterCount: inputCharacterCount,
             outputCharacterCount: outputCharacterCount,
-            detail: detail ?? "tier=cliDirect upstream=\(upstream.rawValue)"
+            detail:
+                "tier=cliDirect upstream=\(upstream.rawValue) model=\(modelIdentifier ?? "cli-default") effort=\(codexReasoningEffort?.rawValue ?? "cli-default") imageBytes=\(imageByteCount) outcome=\(outcome)"
         )
     }
 
@@ -369,7 +557,7 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
             at: workingDirectoryURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: workingDirectoryURL) }
 
-        var arguments = Self.codexArguments(modelIdentifier: modelIdentifier, isResearchTurn: isResearchTurn)
+        var arguments = Self.codexArguments(modelIdentifier: modelIdentifier, isResearchTurn: isResearchTurn, reasoningEffort: codexReasoningEffort)
         if supportsImageInput {
             for (imageIndex, image) in images.enumerated() {
                 let imageURL = workingDirectoryURL.appendingPathComponent("screen-\(imageIndex).jpg")
@@ -387,6 +575,7 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
                 PaceLocalCLIStreamJSONParser.extractCodexChunk(fromLine: line)
             },
             captureSessionIdFromLine: { _ in nil },
+            codexTextDelivery: codexTextDelivery,
             onTextChunk: onTextChunk
         )
         return assembledOutput
@@ -411,9 +600,10 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         workingDirectoryURL: URL? = nil,
         captureChunk: @escaping @Sendable (String) -> String,
         captureSessionIdFromLine: @escaping @Sendable (String) -> String?,
+        codexTextDelivery: PaceCodexTextDelivery = .completedMessage,
         onTextChunk: @MainActor @Sendable (String) -> Void
     ) async throws -> (assembled: String, capturedSessionId: String?) {
-        guard let executableURL = Self.resolveExecutable(named: executable) else {
+        guard let executableURL = executableResolver(executable) else {
             throw PaceLocalCLIPlannerError.spawnFailed(
                 executable: executable, underlying: "not found on PATH or standard CLI install locations")
         }
@@ -431,33 +621,54 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         // Claude rejects nested launches based on this inherited marker even
         // though Pace owns an independent, user-requested conversation.
         environment.removeValue(forKey: "CLAUDECODE")
-        var assembledOutput = ""
+        var textDeliveryState = PaceCLITextDeliveryState(codexTextDelivery: codexTextDelivery)
+        var completedTurnProof = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
+        var sealedOutput: String?
         var capturedSessionId: String?
+        let processControl = PaceCLIProcessControl()
         let lines = PaceCLIProcessRunner.lines(
             executableURL: executableURL,
             arguments: arguments,
             stdinPayload: stdinPayload,
             workingDirectoryURL: directoryURL,
             environment: environment,
-            timeout: isResearchTurn ? 300 : 120
+            timeout: requestTimeout ?? (isResearchTurn ? 300 : 120),
+            processControl: processControl
         )
-        for try await line in lines {
-            try Task.checkCancellation()
-            let chunk = captureChunk(line)
-            if !chunk.isEmpty {
-                assembledOutput += chunk
-                onTextChunk(assembledOutput)
+        do {
+            for try await line in lines {
+                try Task.checkCancellation()
+                guard sealedOutput == nil else { continue }
+                let chunk = captureChunk(line)
+                if let deliveredText = textDeliveryState.consume(chunk: chunk, fromLine: line) {
+                    onTextChunk(deliveredText)
+                }
+                if capturedSessionId == nil { capturedSessionId = captureSessionIdFromLine(line) }
+                if upstream == .codex, codexCompletionPolicy == .completedTurn,
+                    completedTurnProof.consume(chunk: chunk, fromLine: line) != nil,
+                    let completedOutput = try? completedTurnProof.finishedOutput() {
+                    sealedOutput = completedOutput
+                    processControl.stop()
+                }
             }
-            if capturedSessionId == nil { capturedSessionId = captureSessionIdFromLine(line) }
+        } catch {
+            processControl.stop()
+            await processControl.waitUntilFinished()
+            try Task.checkCancellation()
+            if let sealedOutput { return (sealedOutput, capturedSessionId) }
+            throw textDeliveryState.failurePreservingRejection(error)
         }
+        await processControl.waitUntilFinished()
         try Task.checkCancellation()
-        guard !assembledOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw PaceCLIProcessError.emptyResponse
-        }
-        return (assembledOutput, capturedSessionId)
+        if let sealedOutput { return (sealedOutput, capturedSessionId) }
+        return (try textDeliveryState.finishedOutput(), capturedSessionId)
     }
 
-    nonisolated static func codexArguments(modelIdentifier: String?, isResearchTurn: Bool) -> [String] {
+    nonisolated static func codexArguments(
+        modelIdentifier: String?,
+        isResearchTurn: Bool,
+        reasoningEffort: PaceCodexReasoningEffort? = nil
+    ) -> [String] {
         // Pace approves and executes Mac actions. The CLI only plans; do not
         // inherit a coding workspace, hooks, MCP integrations, or shell tools.
         var arguments = [
@@ -471,6 +682,9 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
         ]
         if let modelIdentifier, !modelIdentifier.isEmpty {
             arguments.append(contentsOf: ["--model", modelIdentifier])
+        }
+        if let reasoningEffort {
+            arguments.append(contentsOf: ["--config", "model_reasoning_effort=\"\(reasoningEffort.rawValue)\""])
         }
         return arguments
     }

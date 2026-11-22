@@ -49,8 +49,8 @@ final class PaceCommandCenterRouter: ObservableObject {
 final class PaceMainWindowManager {
     static let shared = PaceMainWindowManager()
 
-    private let defaultContentSize = NSSize(width: 1040, height: 700)
-    private let minimumContentSize = NSSize(width: 820, height: 540)
+    private let defaultContentSize = NSSize(width: 900, height: 650)
+    private let minimumContentSize = NSSize(width: 680, height: 540)
     private var window: NSWindow?
     private var router: PaceCommandCenterRouter?
 
@@ -60,6 +60,8 @@ final class PaceMainWindowManager {
         companionManager: CompanionManager,
         destination: PaceCommandCenterDestination? = nil
     ) {
+        NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+        companionManager.responseOverlayManager.hideOverlay()
         if let existingWindow = window {
             if let destination {
                 router?.select(destination)
@@ -86,8 +88,9 @@ final class PaceMainWindowManager {
             backing: .buffered,
             defer: false
         )
-        newWindow.title = "Pace Command Center"
-        newWindow.titlebarAppearsTransparent = false
+        newWindow.title = "Pace Settings"
+        newWindow.titlebarAppearsTransparent = true
+        newWindow.backgroundColor = .black
         newWindow.isMovableByWindowBackground = true
         newWindow.contentMinSize = minimumContentSize
         newWindow.contentViewController = hostingController

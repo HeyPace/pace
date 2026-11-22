@@ -9,12 +9,12 @@
 
 import Foundation
 
-nonisolated enum PaceActionApprovalDecision: Equatable {
+nonisolated enum PaceActionApprovalDecision: Equatable, Sendable {
     case allowOnce
     case cancel
 }
 
-nonisolated struct PaceActionApprovalRequest: Equatable {
+nonisolated struct PaceActionApprovalRequest: Equatable, Sendable {
     let approvalSummary: String
     let preflightSummary: String?
 
@@ -49,15 +49,23 @@ nonisolated struct PaceActionApprovalRequest: Equatable {
 }
 
 nonisolated enum PaceActionApprovalPolicy {
-    static func needsAnswerAfterInspection(_ actionExecutionPlan: PaceActionExecutionPlan) -> Bool {
-        !actionExecutionPlan.flattenedActions.isEmpty
+    static func needsAnswerAfterInspection(
+        _ actionExecutionPlan: PaceActionExecutionPlan,
+        observations: [PaceActionExecutionObservation] = []
+    ) -> Bool {
+        observations.contains(where: \.requiresFreshInspectionPlan)
+            || !actionExecutionPlan.flattenedActions.isEmpty
             && actionExecutionPlan.flattenedActions.allSatisfy { action in
-                guard case .mcp = action else { return false }
+                guard case .mcp(let toolCall) = action else { return false }
+                // Focus recovery changes permission requirements, but the result
+                // is still evidence that must return to the planner for an answer.
+                if toolCall.serverName == "peekaboo", toolCall.toolName == "see" { return true }
                 return permitsObservationOnly(.serial(actions: [action]))
             }
     }
 
     static func requestsObservationOnly(_ transcript: String) -> Bool {
+        if PaceIntentClassifier.isCurrentScreenQuestion(transcript) { return true }
         let normalizedTranscript = transcript.lowercased()
             .replacingOccurrences(of: "’", with: "'")
         return [
@@ -77,12 +85,10 @@ nonisolated enum PaceActionApprovalPolicy {
         configuredServers: [String: PaceMCPServerConfiguration] = PaceMCPServerRegistry.loadConfiguredServers()
     ) -> Bool {
         actionExecutionPlan.flattenedActions.allSatisfy { action in
-            // Creating a file is not observation, even when the tool needs no action-approval dialog.
-            if case .generateImage = action { return false }
             if case .mcp(let toolCall) = action {
                 switch toolCall.serverName {
                 case "peekaboo":
-                    return toolCall.toolName == "see"
+                    return (toolCall.toolName == "see" && toolCall.arguments["web_focus"] != .bool(true))
                         || (["app", "window"].contains(toolCall.toolName)
                             && toolCall.arguments["action"] == .string("list"))
                 case "playwright":
@@ -90,11 +96,10 @@ nonisolated enum PaceActionApprovalPolicy {
                 case "linear":
                     // The official endpoint exposes read tools only. Custom commands,
                     // extra bridge arguments, and write endpoints must fail closed.
+                    guard let entry = PaceMCPServerCatalog.entry(forSlug: "linear") else { return false }
                     return configuredServers["linear"]
                         == PaceMCPServerConfiguration(
-                            command: "npx",
-                            args: ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp/readonly"]
-                        )
+                            command: entry.command, args: entry.arguments)
                 default:
                     return false
                 }
@@ -160,6 +165,7 @@ nonisolated enum PaceActionApprovalPolicy {
              .composeMail, .createThingsToDo, .runShortcut, .downloadFile,
              .recordFlow, .runFlow, .mcp:
             return true
+        case .codingSession(let command): return command.requiresExecutionConsent
         case .openMessages(let messageRequest):
             return messageRequest.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         case .click, .doubleClick, .clickCandidates, .type, .setTextValue, .editSelectedText,
@@ -167,7 +173,7 @@ nonisolated enum PaceActionApprovalPolicy {
             .screenCapture, .meeting, .codexSession,
              .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
-            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
+            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations, .presentMedia, .speak:
             return false
         }
     }
@@ -186,8 +192,11 @@ nonisolated enum PaceActionApprovalPolicy {
         switch action {
         case .createCalendarEvent, .createReminder, .createNote, .appendNote,
              .composeMail, .createThingsToDo, .runShortcut, .downloadFile,
-             .recordFlow, .runFlow, .mcp, .setTextValue, .editSelectedText:
+            .recordFlow, .runFlow, .setTextValue, .editSelectedText:
             return true
+        case .mcp:
+            return !permitsObservationOnly(.serial(actions: [action]))
+        case .codingSession: return false
         case .openMessages(let messageRequest):
             // Messages with body text creates a visible Messages draft;
             // opening Messages without body text doesn't.
@@ -199,7 +208,7 @@ nonisolated enum PaceActionApprovalPolicy {
             .openApplication, .openBrowser, .screenCapture, .meeting, .codexSession, .openURL, .controlMusic,
             .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
-            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
+            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations, .presentMedia, .speak:
             return false
         }
     }
@@ -253,9 +262,10 @@ nonisolated enum PaceActionApprovalPolicy {
             .screenCapture, .meeting, .codexSession,
              .openURL, .controlMusic, .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .finder, .searchNotes, .startTimer,
-            .dismissDiagram, .clearAnnotations:
+            .dismissDiagram, .clearAnnotations, .presentMedia, .speak:
             // clearAnnotations: pure overlay cleanup, no speech needed.
             return true
+        case .codingSession: return false
         case .openMessages(let messageRequest):
             return messageRequest.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
         case .createCalendarEvent, .createReminder, .createNote, .appendNote,

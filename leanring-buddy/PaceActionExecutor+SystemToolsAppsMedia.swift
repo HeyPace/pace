@@ -49,20 +49,28 @@ extension PaceActionExecutor {
             )
         }
 
-        let openErrorDescription: String? = await withCheckedContinuation { continuation in
+        let launchGeneration = applicationTargetGeneration
+        let launchResult: (processIdentifier: Int32?, bundleURL: URL?, errorDescription: String?) = await withCheckedContinuation { continuation in
             let configuration = NSWorkspace.OpenConfiguration()
-            NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration) { _, error in
+            NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration) { application, error in
                 if let error {
                     print("⚠️ PaceActionExecutor: failed to open \(trimmedApplicationName): \(error.localizedDescription)")
                 }
-                continuation.resume(returning: error?.localizedDescription)
+                continuation.resume(returning: (application?.processIdentifier, application?.bundleURL, error?.localizedDescription))
             }
         }
 
-        if let openErrorDescription {
+        if let openErrorDescription = launchResult.errorDescription {
             return PaceActionExecutionObservation(
                 toolName: "open_app",
                 summary: "Failed to open app \(trimmedApplicationName): \(openErrorDescription)"
+            )
+        }
+
+        if let processIdentifier = launchResult.processIdentifier, let bundleURL = launchResult.bundleURL {
+            rememberLaunchedApplication(
+                named: trimmedApplicationName, processIdentifier: processIdentifier,
+                bundleURL: bundleURL, generation: launchGeneration
             )
         }
 

@@ -41,14 +41,14 @@ enum PaceTranscriptionContextualPhraseBuilder {
             candidatePhrases.append(frontmostApplicationName)
         }
 
+        candidatePhrases.insert(contentsOf: uniquePhrases(additionalTerms).filter { $0.count <= 80 }, at: 1)
+
         for toolDefinition in PaceToolRegistry.localTools {
             candidatePhrases.append(toolDefinition.canonicalName)
             candidatePhrases.append(Self.spokenPhrase(fromToolName: toolDefinition.canonicalName))
             candidatePhrases.append(contentsOf: toolDefinition.aliases)
             candidatePhrases.append(contentsOf: toolDefinition.aliases.map(Self.spokenPhrase(fromToolName:)))
         }
-
-        candidatePhrases.append(contentsOf: additionalTerms)
 
         return Array(uniquePhrases(candidatePhrases).prefix(maximumPhraseCount))
     }

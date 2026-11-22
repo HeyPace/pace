@@ -146,6 +146,9 @@ extension PaceActionExecutor {
     }
 
     func openBrowser(_ request: PaceBrowserOpenRequest) async -> PaceActionExecutionObservation {
+        // Profile launches may forward to another Chrome process. Without its
+        // callback identity, an earlier native launch cannot select this target.
+        forgetLaunchedApplication(named: request.browserName)
         guard actionsAreEnabled else {
             return .init(toolName: "open_url", summary: "Would open \(request.browserName).")
         }

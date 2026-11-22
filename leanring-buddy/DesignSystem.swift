@@ -65,25 +65,14 @@ enum DS {
 
         // ── Backgrounds ──────────────────────────────────────────────
 
-        /// The deepest background — pure black. Sets a premium,
-        /// contrast-forward dark surface that lets the accent blue
-        /// and any white-opacity-elevated cards pop without the
-        /// "off-black gray" muddiness lighter values introduce.
-        static let background = Color(hex: "#080A0D")
+        /// Pure black across Pace's windows, panels, and visual controls.
+        static let background = Color.black
 
-        /// The graphite desk surface used by full-window native experiences.
-        static let surface = Color(hex: "#101318")
+        static let surface = background
 
-        /// Raised operating surface for controls and selected navigation.
-        static let surfaceRaised = Color(hex: "#171B22")
+        static let surfaceRaised = background
 
-        /// Recessed surface for transcript and diagnostic wells.
-        static let surfaceInset = Color(hex: "#080A0D")
-
-        /// Card / panel surface that sits one elevation above the
-        /// base background. Pure-black main surface means cards need
-        /// their OWN tint (rather than the previous "opacity over
-        /// off-black gray" trick) so they read as elevated. Very dark
+        static let surfaceInset = background
 
         // ── Borders ──────────────────────────────────────────────────
 

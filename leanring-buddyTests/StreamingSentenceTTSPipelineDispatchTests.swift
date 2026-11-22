@@ -44,7 +44,139 @@ private final class DispatchTestRecordingTTSClient: BuddyTTSClient {
 }
 
 @MainActor
+private final class SuspendedDispatchTTSClient: BuddyTTSClient {
+    var submission: CheckedContinuation<Void, Never>?
+    var suspendsSubmissions = true
+    private(set) var spokenTexts: [String] = []
+    private(set) var lastStopReason: PaceTTSStopReason = .naturalCompletion
+    var isPlaying: Bool { false }
+
+    func speakText(_ text: String) async throws {
+        spokenTexts.append(text)
+        try Task.checkCancellation()
+        if suspendsSubmissions { await withCheckedContinuation { submission = $0 } }
+    }
+
+    func stopPlayback() {}
+    func recordExpectedStopReason(_ reason: PaceTTSStopReason) { lastStopReason = reason }
+}
+
+@MainActor
 struct StreamingSentenceTTSPipelineDispatchTests {
+
+    @Test func sameTurnRerouteRetainsMuteWhileARealNewTurnResetsIt() async {
+        let client = DispatchTestRecordingTTSClient()
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
+        pipeline.markIntentCommitted()
+        pipeline.setMutedForCurrentTurn(true)
+        await pipeline.acceptStreamedText("The first muted answer.")
+        pipeline.prepareForSupersedingStreamWithinTurn()
+        await pipeline.acceptStreamedText("The rerouted lesson remains muted.")
+        await pipeline.flushFinal(finalSpokenText: "The complete rerouted answer remains muted.")
+        #expect(pipeline.isMutedForCurrentTurn)
+        #expect(client.spokenTexts.isEmpty)
+        pipeline.resetForNewTurn()
+        pipeline.markIntentCommitted()
+        await pipeline.acceptStreamedText("The new voice turn may speak.")
+        #expect(!pipeline.isMutedForCurrentTurn)
+        #expect(client.spokenTexts == ["The new voice turn may speak."])
+    }
+
+    @Test func sameTurnRerouteCannotReopenSpeechAfterUserDismissal() async {
+        let client = DispatchTestRecordingTTSClient()
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
+        pipeline.markIntentCommitted()
+        pipeline.stopForUserDismissal()
+        pipeline.prepareForSupersedingStreamWithinTurn()
+        await pipeline.acceptStreamedText("A late rerouted lesson must remain silent.")
+        await pipeline.flushFinal(finalSpokenText: "The final rerouted lesson must remain silent.")
+        #expect(client.spokenTexts.isEmpty)
+        #expect(pipeline.lastTurnWasInterrupted)
+    }
+
+    @Test func userDismissalStopsAudioAndRejectsLateChunksUntilANewIntent() async {
+        let client = DispatchTestRecordingTTSClient()
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
+        pipeline.markIntentCommitted()
+        await pipeline.acceptStreamedText("Light separates into colors.")
+
+        pipeline.stopForUserDismissal()
+        pipeline.finalizeInFlightStreamedTextForTurn()
+        await pipeline.acceptStreamedText("Light separates into colors. This must stay silent.")
+        await pipeline.flushFinal(finalSpokenText: "The final tail must stay silent too.")
+
+        #expect(client.stopPlaybackCallCount == 1)
+        #expect(client.lastStopReason == .manualStop)
+        #expect(client.spokenTexts == ["Light separates into colors."])
+        #expect(pipeline.inFlightStreamedText.isEmpty)
+        #expect(pipeline.lastTurnWasInterrupted)
+
+        pipeline.resetForNewTurn()
+        pipeline.markIntentCommitted()
+        await pipeline.acceptStreamedText("A fresh explanation can speak.")
+        #expect(client.spokenTexts.last == "A fresh explanation can speak.")
+    }
+
+    @Test func stoppedSynthesisCompletionCannotOverwriteTheNextTurnCursor() async throws {
+        let client = SuspendedDispatchTTSClient()
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
+        pipeline.markIntentCommitted()
+        let oldSubmission = Task { await pipeline.acceptStreamedText("An older explanation that must stay stopped.") }
+        defer {
+            oldSubmission.cancel()
+            client.submission?.resume()
+            client.submission = nil
+        }
+        for _ in 0..<1_000 {
+            if client.submission != nil { break }
+            await Task.yield()
+        }
+        let submission = try #require(client.submission)
+
+        pipeline.stopForUserDismissal()
+        pipeline.finalizeInFlightStreamedTextForTurn()
+        pipeline.resetForNewTurn()
+        pipeline.markIntentCommitted()
+        client.suspendsSubmissions = false
+        await pipeline.acceptStreamedText("Fresh response.")
+        client.submission = nil
+        submission.resume()
+        await oldSubmission.value
+
+        #expect(pipeline.firstSpokenWordCharacterCount == "Fresh response.".count)
+        await pipeline.acceptStreamedText("Fresh response. Keep going.")
+        #expect(client.spokenTexts == ["An older explanation that must stay stopped.", "Fresh response.", "Keep going."])
+        #expect(pipeline.inFlightStreamedText == "Fresh response. Keep going.")
+    }
+
+    @Test func suspendedStartupCannotDispatchDuplicateChunksOrRewindCursor() async throws {
+        let client = SuspendedDispatchTTSClient()
+        let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
+        let firstSubmission = Task { await pipeline.acceptStreamedText("The first complete sentence.") }
+        defer {
+            firstSubmission.cancel()
+            client.submission?.resume()
+            client.submission = nil
+        }
+        for _ in 0..<1_000 {
+            if client.submission != nil { break }
+            await Task.yield()
+        }
+        let continuation = try #require(client.submission)
+        await pipeline.acceptStreamedText("The first complete sentence.")
+        #expect(client.spokenTexts.count == 1)
+
+        client.suspendsSubmissions = false
+        await pipeline.acceptStreamedText("The first complete sentence. The next complete sentence.")
+        client.submission = nil
+        continuation.resume()
+        await firstSubmission.value
+        await pipeline.flushFinal(finalSpokenText: "The first complete sentence. The next complete sentence.")
+
+        #expect(client.spokenTexts == ["The first complete sentence.", "The next complete sentence."])
+        #expect(pipeline.firstSpokenWordCharacterCount
+            == "The first complete sentence.".count + "The next complete sentence.".count)
+    }
 
     // MARK: - Wave 4: first-sentence 4-char threshold
 

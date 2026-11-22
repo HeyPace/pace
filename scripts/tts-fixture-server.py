@@ -9,9 +9,11 @@ Usage: python3 scripts/tts-fixture-server.py <port>
 Prints "READY" on stdout once listening.
 """
 
+import json
+import time
 import struct
 import sys
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 def silent_wav(duration_seconds=0.15, sample_rate=16000):
@@ -30,16 +32,51 @@ WAV_PAYLOAD = silent_wav()
 
 
 class Handler(BaseHTTPRequestHandler):
+    attempts = {}
+    requests = []
+
+    def do_GET(self):
+        if self.path == "/requests":
+            payload = json.dumps(self.requests).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        self.send_response(200 if self.path == "/v1/models" else 404)
+        self.end_headers()
+
     def do_POST(self):
         if self.path != "/v1/audio/speech":
             self.send_error(404)
             return
-        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+        self.requests.append(body)
+        text = body.get("input", "")
+        count = self.attempts.get(text, 0) + 1
+        self.attempts[text] = count
+        if "transport failure" in text:
+            self.close_connection = True
+            return
+        if ("lifecycle fallback" in text or ("lifecycle retry" in text and count == 1)
+                or "profile synthesis failure" in text
+                or (text.startswith("profile retry") and count == 1)
+                or (text.startswith("profile split") and "second" in text)
+                or text.startswith("second-half-fail")):
+            self.send_error(500)
+            return
+        if "lifecycle delayed" in text or "lifecycle retry" in text or "profile delayed" in text:
+            time.sleep(0.4)
+        payload = b"invalid WAV" if "profile invalid" in text else WAV_PAYLOAD
         self.send_response(200)
         self.send_header("Content-Type", "audio/wav")
-        self.send_header("Content-Length", str(len(WAV_PAYLOAD)))
+        self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
-        self.wfile.write(WAV_PAYLOAD)
+        try:
+            self.wfile.write(payload)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def log_message(self, *args):
         pass
@@ -47,7 +84,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8899
-    server = HTTPServer(("127.0.0.1", port), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print("READY", flush=True)
     server.serve_forever()
 

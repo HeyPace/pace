@@ -119,7 +119,7 @@ struct PaceRemindersRetrievalConnector {
         async let incompleteReminders = fetchReminders(matching: incompletePredicate)
         async let completedReminders = fetchReminders(matching: completedPredicate)
 
-        let reminderSnapshots = await (incompleteReminders + completedReminders)
+        let reminderSnapshots = ((await incompleteReminders ?? []) + (await completedReminders ?? []))
             .reduce(into: [String: PaceReminderRetrievalSnapshot]()) { snapshotsById, reminder in
                 let snapshot = PaceReminderRetrievalSnapshot(reminder: reminder)
                 snapshotsById[snapshot.stableIdentifier] = snapshot
@@ -207,15 +207,15 @@ struct PaceRemindersRetrievalConnector {
         }
     }
 
-    private func fetchReminders(matching predicate: NSPredicate) async -> [EKReminder] {
+    func fetchReminders(matching predicate: NSPredicate) async -> [EKReminder]? {
         await withCheckedContinuation { continuation in
             eventStore.fetchReminders(matching: predicate) { reminders in
-                continuation.resume(returning: reminders ?? [])
+                continuation.resume(returning: reminders)
             }
         }
     }
 
-    private static func shouldSortBefore(
+    static func shouldSortBefore(
         _ firstSnapshot: PaceReminderRetrievalSnapshot,
         _ secondSnapshot: PaceReminderRetrievalSnapshot
     ) -> Bool {

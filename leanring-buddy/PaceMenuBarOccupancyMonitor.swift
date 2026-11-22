@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Combine
 
 nonisolated struct PaceMenuBarOccupancy: Equatable, Sendable {
     var itemFrames: [CGRect] = []
@@ -14,9 +15,8 @@ nonisolated struct PaceMenuBarOccupancy: Equatable, Sendable {
     }
 
     static func appKitFrame(from quartzFrame: CGRect, primaryScreenTop: CGFloat) -> CGRect {
-        CGRect(
-            x: quartzFrame.minX, y: primaryScreenTop - quartzFrame.maxY,
-            width: quartzFrame.width, height: quartzFrame.height)
+        CGRect(x: quartzFrame.minX, y: primaryScreenTop - quartzFrame.maxY,
+               width: quartzFrame.width, height: quartzFrame.height)
     }
 }
 
@@ -28,17 +28,39 @@ extension Notification.Name {
 @MainActor
 final class PaceMenuBarOccupancyMonitor {
     static let shared = PaceMenuBarOccupancyMonitor()
-    private(set) var occupancy = PaceMenuBarOccupancy()
+    private var cachedOccupancy = PaceMenuBarOccupancy()
+    private var cachedRouteRevision: UInt64?
+    private var cachedProcessIdentifier: pid_t?
+    var occupancy: PaceMenuBarOccupancy {
+        guard cachedRouteRevision == PaceActiveDisplayCoordinator.shared.route.revision,
+            cachedProcessIdentifier == NSWorkspace.shared.menuBarOwningApplication?.processIdentifier
+        else { return PaceMenuBarOccupancy() }
+        return cachedOccupancy
+    }
+    private var displayRouteObservation: AnyCancellable?
     private var refreshTimer: Timer?
     private var activationObserver: NSObjectProtocol?
+    private var menuBarOwnershipObservation: NSKeyValueObservation?
     private var refreshTask: Task<Void, Never>?
 
     func start() {
         guard refreshTimer == nil else { return }
+        displayRouteObservation = PaceActiveDisplayCoordinator.shared.routeChanges.sink { [weak self] _ in
+            self?.invalidateOccupancy()
+            self?.refresh()
+        }
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                self?.invalidateOccupancy()
+                self?.refresh()
+            }
+        }
+        // Show Desktop can change the menu owner without activating a different app.
+        menuBarOwnershipObservation = NSWorkspace.shared.observe(\.menuBarOwningApplication) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                self?.invalidateOccupancy()
                 self?.refresh()
             }
         }
@@ -53,11 +75,13 @@ final class PaceMenuBarOccupancyMonitor {
 
     func refresh() {
         guard refreshTask == nil,
-            PaceLivingNotchScreenGeometryResolver.targetScreen() != nil,
-            let application = NSWorkspace.shared.frontmostApplication,
-            let primaryScreen = NSScreen.screens.first
-        else { return }
+              let targetScreen = PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
+                preferredScreen: PaceLivingNotchScreenGeometryResolver.targetScreen()),
+              PaceLivingNotchScreenGeometryResolver.geometry(for: targetScreen, displayMode: .resting) != nil,
+              let application = NSWorkspace.shared.menuBarOwningApplication,
+              let primaryScreen = NSScreen.screens.first else { return }
         let processIdentifier = application.processIdentifier
+        let routeRevision = PaceActiveDisplayCoordinator.shared.route.revision
         let primaryScreenTop = primaryScreen.frame.maxY
         refreshTask = Task { [weak self] in
             let snapshot = await Task.detached(priority: .utility) {
@@ -66,18 +90,34 @@ final class PaceMenuBarOccupancyMonitor {
             }.value
             guard let self else { return }
             self.refreshTask = nil
-            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == processIdentifier else {
+            guard NSWorkspace.shared.menuBarOwningApplication?.processIdentifier == processIdentifier,
+                PaceActiveDisplayCoordinator.shared.route.revision == routeRevision else {
                 self.refresh()
                 return
             }
-            self.publish(snapshot)
+            self.publish(snapshot, routeRevision: routeRevision, processIdentifier: processIdentifier)
         }
     }
 
-    private func publish(_ snapshot: PaceMenuBarOccupancy) {
-        guard occupancy != snapshot else { return }
-        occupancy = snapshot
-        NotificationCenter.default.post(name: .paceMenuBarOccupancyChanged, object: nil)
+    private func invalidateOccupancy() {
+        let wasReliable = cachedOccupancy.isReliable
+        cachedOccupancy = PaceMenuBarOccupancy()
+        cachedRouteRevision = nil
+        cachedProcessIdentifier = nil
+        if wasReliable {
+            NotificationCenter.default.post(name: .paceMenuBarOccupancyChanged, object: nil)
+        }
+    }
+
+    private func publish(_ snapshot: PaceMenuBarOccupancy, routeRevision: UInt64, processIdentifier: pid_t) {
+        let changed = cachedOccupancy != snapshot || cachedRouteRevision != routeRevision
+            || cachedProcessIdentifier != processIdentifier
+        cachedOccupancy = snapshot
+        cachedRouteRevision = routeRevision
+        cachedProcessIdentifier = processIdentifier
+        if changed {
+            NotificationCenter.default.post(name: .paceMenuBarOccupancyChanged, object: nil)
+        }
     }
 
     nonisolated private static func readOccupancy(
@@ -88,23 +128,19 @@ final class PaceMenuBarOccupancyMonitor {
         let application = AXUIElementCreateApplication(processIdentifier)
         AXUIElementSetMessagingTimeout(application, 0.015)
         var menuBarValue: CFTypeRef?
-        guard
-            AXUIElementCopyAttributeValue(
-                application, kAXMenuBarAttribute as CFString, &menuBarValue) == .success,
+        guard AXUIElementCopyAttributeValue(
+            application, kAXMenuBarAttribute as CFString, &menuBarValue) == .success,
             let menuBarValue, CFGetTypeID(menuBarValue) == AXUIElementGetTypeID()
         else { return PaceMenuBarOccupancy() }
         let menuBar = menuBarValue as! AXUIElement
         AXUIElementSetMessagingTimeout(menuBar, 0.015)
         var itemCount = 0
-        guard
-            AXUIElementGetAttributeValueCount(
-                menuBar, kAXChildrenAttribute as CFString, &itemCount) == .success,
-            itemCount > 0, itemCount <= 64
-        else { return PaceMenuBarOccupancy() }
+        guard AXUIElementGetAttributeValueCount(
+            menuBar, kAXChildrenAttribute as CFString, &itemCount) == .success,
+            itemCount > 0, itemCount <= 64 else { return PaceMenuBarOccupancy() }
         var children: CFArray?
-        guard
-            AXUIElementCopyAttributeValues(
-                menuBar, kAXChildrenAttribute as CFString, 0, itemCount, &children) == .success,
+        guard AXUIElementCopyAttributeValues(
+            menuBar, kAXChildrenAttribute as CFString, 0, itemCount, &children) == .success,
             let items = children as? [AXUIElement], !items.isEmpty
         else { return PaceMenuBarOccupancy() }
         var frames: [CGRect] = []
@@ -113,9 +149,8 @@ final class PaceMenuBarOccupancyMonitor {
             AXUIElementSetMessagingTimeout(item, 0.015)
             var positionValue: CFTypeRef?
             var sizeValue: CFTypeRef?
-            guard
-                AXUIElementCopyAttributeValue(
-                    item, kAXPositionAttribute as CFString, &positionValue) == .success,
+            guard AXUIElementCopyAttributeValue(
+                item, kAXPositionAttribute as CFString, &positionValue) == .success,
                 AXUIElementCopyAttributeValue(
                     item, kAXSizeAttribute as CFString, &sizeValue) == .success,
                 let positionValue, let sizeValue,
@@ -125,30 +160,27 @@ final class PaceMenuBarOccupancyMonitor {
             var position = CGPoint.zero
             var size = CGSize.zero
             guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
-                AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+                  AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
             else { return PaceMenuBarOccupancy() }
-            frames.append(
-                PaceMenuBarOccupancy.appKitFrame(
-                    from: CGRect(origin: position, size: size), primaryScreenTop: primaryScreenTop))
+            frames.append(PaceMenuBarOccupancy.appKitFrame(
+                from: CGRect(origin: position, size: size), primaryScreenTop: primaryScreenTop))
         }
 
         // Status extras have separate WindowServer windows; the menu-bar background does not.
-        let windows =
-            CGWindowListCopyWindowInfo(
-                [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let windows = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         for window in windows {
             guard let layer = window[kCGWindowLayer as String] as? Int,
-                layer >= Int(CGWindowLevelForKey(.mainMenuWindow)),
-                layer <= Int(CGWindowLevelForKey(.statusWindow)),
-                let owner = window[kCGWindowOwnerPID as String] as? Int,
-                owner != ProcessInfo.processInfo.processIdentifier,
-                let bounds = window[kCGWindowBounds as String] as? [String: Any],
-                let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary),
-                frame.width > 0, frame.width < 500, frame.height > 0, frame.height <= 48
+                  layer >= Int(CGWindowLevelForKey(.mainMenuWindow)),
+                  layer <= Int(CGWindowLevelForKey(.statusWindow)),
+                  let owner = window[kCGWindowOwnerPID as String] as? Int,
+                  owner != ProcessInfo.processInfo.processIdentifier,
+                  let bounds = window[kCGWindowBounds as String] as? [String: Any],
+                  let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+                  frame.width > 0, frame.width < 500, frame.height > 0, frame.height <= 48
             else { continue }
-            frames.append(
-                PaceMenuBarOccupancy.appKitFrame(
-                    from: frame, primaryScreenTop: primaryScreenTop))
+            frames.append(PaceMenuBarOccupancy.appKitFrame(
+                from: frame, primaryScreenTop: primaryScreenTop))
         }
         return PaceMenuBarOccupancy(itemFrames: frames, isReliable: true)
     }

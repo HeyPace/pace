@@ -7,17 +7,17 @@
 //  launched with PACE_ENABLE_SMOKE_HOOKS=1.
 //
 
-import AppKit
 import Foundation
 
 extension Notification.Name {
+    static let paceSmokeTeachNextToken = Notification.Name("com.pace.smoke.teachNextToken")
+    static let paceSmokeTeachLiftSystem = Notification.Name("com.pace.smoke.teachLiftSystem")
+    static let paceSmokeTeachPiCamera = Notification.Name("com.pace.smoke.teachPiCamera")
     static let paceSmokeShowDiagram = Notification.Name("com.pace.smoke.showDiagram")
-    static let paceSmokeFocusFigure = Notification.Name("com.pace.smoke.focusFigure")
-    static let paceSmokeShowFixtureImage = Notification.Name("com.pace.smoke.showFixtureImage")
-    static let paceSmokePointAtFixture = Notification.Name("com.pace.smoke.pointAtFixture")
-    static let paceSmokeShowFlowchart = Notification.Name("com.pace.smoke.showFlowchart")
     static let paceSmokeSelectDiagramPart = Notification.Name("com.pace.smoke.selectDiagramPart")
     static let paceSmokeDismissDiagram = Notification.Name("com.pace.smoke.dismissDiagram")
+    static let paceSmokeSpeakFixedPhrase = Notification.Name("com.pace.smoke.speakFixedPhrase")
+    static let paceSmokeRequestSpokenReply = Notification.Name("com.pace.smoke.requestSpokenReply")
     static let paceSmokeShowPanel = Notification.Name("com.pace.smoke.showPanel")
     static let paceSmokeHidePanel = Notification.Name("com.pace.smoke.hidePanel")
     static let paceSmokeShowSettings = Notification.Name("com.pace.smoke.showSettings")
@@ -27,10 +27,8 @@ extension Notification.Name {
     static let paceSmokeShowClarification = Notification.Name("com.pace.smoke.showClarification")
     static let paceSmokeResolveClarification = Notification.Name("com.pace.smoke.resolveClarification")
     static let paceSmokeShowClickTargetClarification = Notification.Name("com.pace.smoke.showClickTargetClarification")
-    static let paceSmokeResolveClickTargetClarification = Notification.Name(
-        "com.pace.smoke.resolveClickTargetClarification")
-    static let paceSmokeSimulateClickAllFailObservation = Notification.Name(
-        "com.pace.smoke.simulateClickAllFailObservation")
+    static let paceSmokeResolveClickTargetClarification = Notification.Name("com.pace.smoke.resolveClickTargetClarification")
+    static let paceSmokeSimulateClickAllFailObservation = Notification.Name("com.pace.smoke.simulateClickAllFailObservation")
 }
 
 @MainActor
@@ -58,36 +56,26 @@ final class PaceRuntimeSmokeTestHooks {
     }
 
     private func installObservers() {
+        if Self.isEnabled, Bundle.main.object(forInfoDictionaryKey: "PaceLocalDevelopmentBuild") as? Bool == true {
+            observe(.paceSmokeTeachNextToken) { [weak self] in
+                guard let self else { return }
+                self.companionManager.cancelActiveTurnTasks()
+                guard self.companionManager.diagramOverlayController.present(PaceTeachingArrayIllustration.nextTokenExample) else { return }
+                self.companionManager.playTeachingLessonFromControls()
+                PaceSmokeTestStateStore.recordDiagramState(PaceTeachingArrayIllustration.nextTokenExample.nodes.count, selectedPart: nil)
+            }
+            for (notification, template) in [(Notification.Name.paceSmokeTeachLiftSystem, PaceFigureScene.Template.liftSystem),
+                                             (.paceSmokeTeachPiCamera, .piCamera)] {
+                observe(notification) { [weak self] in
+                    guard let self, let document = PaceTeachingTemplateCatalog.lessonDocument(for: template) else { return }
+                    self.companionManager.cancelActiveTurnTasks()
+                    guard self.companionManager.diagramOverlayController.present(document) else { return }
+                    self.companionManager.playTeachingLessonFromControls()
+                    PaceSmokeTestStateStore.recordDiagramState(document.nodes.count, selectedPart: nil)
+                }
+            }
+        }
         #if DEBUG
-            observe(.paceSmokePointAtFixture) { [weak self] in
-                guard Self.isVisualAcceptanceEnabled(), let self,
-                    let target = companionManager.diagramOverlayController.pointingTargetForSmokeTest()
-                else { return }
-                let cursorBefore = NSEvent.mouseLocation
-                companionManager.presentDetectedElement(
-                    screenLocation: target.location, displayFrame: target.displayFrame)
-                print(
-                    "PACE_FIXTURE_POINT target=\(target.location) cursorBefore=\(cursorBefore) cursorAfter=\(NSEvent.mouseLocation)"
-                )
-            }
-            observe(.paceSmokeShowFixtureImage) { [weak self] in
-                guard Self.isVisualAcceptanceEnabled(),
-                    let imagePath = ProcessInfo.processInfo.environment["PACE_VISUAL_ACCEPTANCE_IMAGE"]
-                else { return }
-                try? self?.companionManager.imageOverlayController.presentImageForSmokeTest(
-                    at: URL(fileURLWithPath: imagePath))
-            }
-            observe(.paceSmokeShowFlowchart) { [weak self] in
-                guard Self.isVisualAcceptanceEnabled() else { return }
-                let fixture =
-                    #"{"tool":"show_diagram","title":"A bounded local request","summary":"Task-owned flowchart fixture.","nodes":[{"id":"request","label":"Request","detail":"The user supplies a bounded request.","x":90,"y":220,"width":300,"height":140},{"id":"result","label":"Result","detail":"Pace returns the requested result.","x":610,"y":220,"width":300,"height":140}],"connections":[{"source":"request","target":"result","label":"respond"}]}"#
-                guard case .showDiagram(let document) = PaceActionTagParser.parseActions(from: fixture).actions.first
-                else { return }
-                self?.companionManager.diagramOverlayController.present(document)
-            }
-            observe(.paceSmokeFocusFigure) { [weak self] in
-                self?.companionManager.diagramOverlayController.focusFigureForSmokeTest()
-            }
             observe(.paceSmokeShowDiagram) { [weak self] in
                 guard let self,
                     let example = PaceToolRegistry.definition(forToolName: "show_diagram")?.schemaExample,
@@ -112,6 +100,40 @@ final class PaceRuntimeSmokeTestHooks {
                 PaceSmokeTestStateStore.recordDiagramState(0, selectedPart: nil)
             }
         #endif
+        observe(.paceSmokeSpeakFixedPhrase) { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                guard self.companionManager.voiceState == .idle, !self.companionManager.ttsClient.isPlaying else {
+                    self.recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "busy")
+                    return
+                }
+                self.recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "requested")
+                do {
+                    try await self.companionManager.ttsClient.speakText("Pace local speech playback is working.")
+                    let outcome = self.companionManager.ttsClient is LocalTTSClient ? "playback_started" : "enqueued"
+                    self.recordSpeechSmokeResult(operation: "fixed_phrase", outcome: outcome)
+                } catch {
+                    self.recordSpeechSmokeResult(operation: "fixed_phrase", outcome: "error")
+                }
+            }
+        }
+
+        observe(.paceSmokeRequestSpokenReply) { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                guard self.companionManager.voiceState == .idle, !self.companionManager.ttsClient.isPlaying else {
+                    self.recordSpeechSmokeResult(operation: "spoken_reply", outcome: "busy")
+                    return
+                }
+                self.companionManager.submitChatTranscriptFromDeepLink(
+                    "What is two plus two? Reply with one short sentence. Do not use tools or perform any actions."
+                )
+                // Submission is not proof of speech. The regular planner and
+                // speech audit events report the remainder of this turn.
+                self.recordSpeechSmokeResult(operation: "spoken_reply", outcome: "submitted")
+            }
+        }
+
         observe(.paceSmokeShowPanel) { [weak self] in
             self?.menuBarPanelManager.showPanelForSmokeTest()
             PaceSmokeTestStateStore.recordLastPanelCommand("show")
@@ -188,6 +210,16 @@ final class PaceRuntimeSmokeTestHooks {
         }
     }
 
+    private func recordSpeechSmokeResult(operation: String, outcome: String) {
+        PaceAPIAuditLog.shared.record(
+            subsystem: "tts",
+            operation: "runtime_smoke.\(operation)",
+            target: "configured_tts",
+            durationMilliseconds: 0,
+            outcome: outcome
+        )
+    }
+
     private func observe(_ name: Notification.Name, handler: @escaping @MainActor () -> Void) {
         let observer = DistributedNotificationCenter.default().addObserver(
             forName: name,
@@ -201,46 +233,3 @@ final class PaceRuntimeSmokeTestHooks {
         observers.append(observer)
     }
 }
-
-#if DEBUG
-    extension PaceRuntimeSmokeTestHooks {
-        static func isVisualAcceptanceEnabled(
-            environment: [String: String] = ProcessInfo.processInfo.environment
-        ) -> Bool {
-            environment["PACE_ENABLE_SMOKE_HOOKS"] == "1" && environment["PACE_VISUAL_ACCEPTANCE_FIXTURE"] == "1"
-        }
-
-        static func makeVisualAcceptanceSessionIfEnabled(
-            environment: [String: String] = ProcessInfo.processInfo.environment
-        ) -> PaceChatSession? {
-            guard isVisualAcceptanceEnabled(environment: environment) else { return nil }
-            // A visual test must never load owner history or dispatch a typed fixture to a planner.
-            let fixture = PaceVisualAcceptanceChatFixture()
-            let session = PaceChatSession(historySource: fixture, transcriptSubmitter: fixture)
-            fixture.session = session
-            session.isChatTTSMuted = true
-            return session
-        }
-    }
-
-    @MainActor
-    private final class PaceVisualAcceptanceChatFixture: PaceChatHistorySource, PaceChatTranscriptSubmitting {
-        weak var session: PaceChatSession?
-
-        func loadPastTurnsOldestFirst() -> [PaceChatHistoryTurn] {
-            [
-                .init(
-                    id: "pace-visual-acceptance", userText: "Explain how an airplane wing produces lift.",
-                    paceText:
-                        "The wing redirects airflow downward. The pressure difference around its curved surface produces lift. Select a part of the interactive aircraft to explore it.",
-                    recordedAt: Date(timeIntervalSince1970: 1_700_000_000))
-            ]
-        }
-
-        func submitChatTranscript(_ transcript: String, optimisticMessageIdentifier: String) {
-            session?.appendCompletedTurn(
-                userTranscript: transcript,
-                assistantResponse: "This is a local visual acceptance fixture. No planner or saved history was used.")
-        }
-    }
-#endif

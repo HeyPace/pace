@@ -187,7 +187,7 @@ struct CompanionPanelView: View {
             .pointerCursor()
 
             Button(action: {
-                NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+                NotificationCenter.default.post(name: .paceDismissPanel, object: PaceExplanationDismissalIntent.userInitiated)
             }) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))
@@ -605,7 +605,8 @@ struct CompanionPanelView: View {
                         )
                     }
                     .buttonStyle(.plain)
-                    .pointerCursor()
+                    .disabled(!companionManager.canReplayChatSpeech)
+                    .pointerCursor(isEnabled: companionManager.canReplayChatSpeech)
                 } else {
                     EmptyView()
                 }
@@ -687,7 +688,7 @@ struct CompanionPanelView: View {
     @ViewBuilder
     private var permissionsCopySection: some View {
         if companionManager.allPermissionsGranted {
-            Text("Hold Control+Option to talk.")
+            Text("Hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) to talk.")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(DS.Colors.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)

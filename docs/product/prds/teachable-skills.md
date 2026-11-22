@@ -122,9 +122,26 @@ Nothing here is implemented. The design, the eight-slice sequence, the open
 owner decisions, and the ambiguities found in the source issue live in OpenSpec
 change `2026-08-30-add-spatial-teach-mode`.
 
+## Saved powers and expressive workflows
+
+The existing reusable-work representations now share an exact-name management
+facade. A saved power supports read, create, validated update, persistent enable /
+disable, run, and reversible archive through voice or chat. Updates preserve
+identity and the previous artifact revision. Compiled/bundled/provider definitions
+remain protected; their existing settings remain authoritative. Authoring uses
+the selected consented planner; list/read/state/run need no additional model.
+The canonical architecture and ownership boundaries are in
+[systems.md](../../architecture/systems.md).
+
+Typed workflows can present bounded catalog media and speak locally. The bundled
+original `thank-you-dance` GIF makes the “Thank You” example executable; explicit
+validated local GIF/PNG import supports personal artwork without giving planner
+tool calls arbitrary path or network access. Close/stop, new-turn cancellation,
+and replacement generation fencing preserve speech and input ownership.
+
 ## Tests
 
 `leanring-buddyTests/PaceSkillLoaderTests.swift`: serialize round-trip, save/list/
-delete + overwrite (temp dir), `skillFromStructuredJSON` (clean/fenced/prose/empty/
+delete + collision refusal (temp dir), `skillFromStructuredJSON` (clean/fenced/prose/empty/
 fallback/garbage), deterministic splitter, `skillFromForm`, and parser create +
 list/install/run regression. Run via `bash scripts/test-pace.sh PaceSkillLoaderTests`.

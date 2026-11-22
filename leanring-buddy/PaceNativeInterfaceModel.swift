@@ -8,6 +8,18 @@
 import CoreGraphics
 import Foundation
 
+nonisolated enum PaceNotchTapAction {
+    case microphone, conversation
+
+    /// Point coordinates start at the top-left, matching the visible mic wing.
+    static func resolve(point: CGPoint, surfaceWidth: CGFloat, housingWidth: CGFloat,
+                        housingHeight: CGFloat) -> Self {
+        let wingWidth = max(0, (surfaceWidth - housingWidth) / 2)
+        return point.x >= 0 && point.x < wingWidth && point.y >= 0 && point.y < housingHeight
+            ? .microphone : .conversation
+    }
+}
+
 nonisolated enum PaceQuickPanelMetrics {
     static let width: CGFloat = 520
     static let height: CGFloat = 540
@@ -21,6 +33,11 @@ nonisolated enum PaceConversationPanelPresentationIntent: Equatable, Sendable {
     var requestsKeyboardFocus: Bool {
         self == .interactive
     }
+}
+
+nonisolated enum PaceExplanationDismissalIntent: Equatable, Sendable {
+    case automatic
+    case userInitiated
 }
 
 nonisolated enum PaceConversationPanelPresentation: Equatable {
@@ -76,26 +93,32 @@ nonisolated enum PaceConversationPanelPlacement: Equatable {
         notchGeometry: PaceLivingNotchGeometry?,
         anchorFrame: CGRect,
         screenFrame: CGRect,
-        contentSize: CGSize
+        contentSize: CGSize,
+        notchContentSize: CGSize = CGSize(
+            width: PaceQuickPanelMetrics.width, height: PaceQuickPanelMetrics.seamlessContentHeight)
     ) -> PaceConversationPanelPlacement {
         if let notchGeometry {
             let housing = notchGeometry.physicalHousingFrame
-            let width = min(max(PaceQuickPanelMetrics.width, housing.width + 180), screenFrame.width - 16)
-            let height = min(housing.height + PaceQuickPanelMetrics.seamlessContentHeight, screenFrame.height - 16)
+            let width = min(max(notchContentSize.width, housing.width + 180), screenFrame.width - 16)
+            let height = min(housing.height + notchContentSize.height, screenFrame.height - 16)
             return .physicalNotch(
                 PaceLivingNotchGeometry(
                     physicalHousingFrame: housing,
                     presentationFrame: CGRect(
                         x: housing.midX - width / 2, y: housing.maxY - height, width: width, height: height)))
         }
+        let width = min(contentSize.width, max(0, screenFrame.width - 16))
+        let height = min(contentSize.height, max(0, screenFrame.height - 16))
         let minimumX = screenFrame.minX + 8
-        let maximumX = max(minimumX, screenFrame.maxX - contentSize.width - 8)
+        let maximumX = max(minimumX, screenFrame.maxX - width - 8)
+        let minimumY = screenFrame.minY + 8
+        let maximumY = max(minimumY, screenFrame.maxY - height - 8)
         return .anchored(
             CGRect(
-                x: min(max(anchorFrame.midX - contentSize.width / 2, minimumX), maximumX),
-                y: anchorFrame.minY - contentSize.height - 10,
-                width: contentSize.width,
-                height: contentSize.height))
+                x: min(max(anchorFrame.midX - width / 2, minimumX), maximumX),
+                y: min(max(anchorFrame.minY - height - 10, minimumY), maximumY),
+                width: width,
+                height: height))
     }
 }
 

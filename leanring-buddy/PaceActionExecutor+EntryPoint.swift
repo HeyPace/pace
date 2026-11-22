@@ -24,21 +24,34 @@ extension PaceActionExecutor {
         _ actionExecutionPlan: PaceActionExecutionPlan,
         screenCaptures: [CompanionScreenCapture]
     ) async -> [PaceActionExecutionObservation] {
-        guard !actionExecutionPlan.steps.isEmpty else { return [] }
+        let receipt = await executeActionPlanWithReceipt(actionExecutionPlan, screenCaptures: screenCaptures)
+        return receipt.observations
+    }
 
+    func executeActionPlanWithReceipt(
+        _ actionExecutionPlan: PaceActionExecutionPlan,
+        screenCaptures: [CompanionScreenCapture]
+    ) async -> PaceActionExecutionReceipt {
         var observations: [PaceActionExecutionObservation] = []
+        var executedActions: [PaceParsedAction] = []
+        func receipt() -> PaceActionExecutionReceipt {
+            .init(observations: observations, executedPlan: .serial(actions: executedActions))
+        }
+        let executionGeneration = applicationTargetGeneration
 
         for (stepIndex, step) in actionExecutionPlan.steps.enumerated() {
-            guard !Task.isCancelled else { return observations }
+            guard !Task.isCancelled else { return receipt() }
             guard !step.actions.isEmpty else { continue }
 
             for (actionIndex, action) in step.actions.enumerated() {
-                guard !Task.isCancelled else { return observations }
+                guard !Task.isCancelled, executionGeneration == applicationTargetGeneration else { return receipt() }
 
                 if let observation = await executeSingleAction(action, screenCaptures: screenCaptures) {
                     observations.append(observation)
+                    if observation.stopsActionPlan { return receipt() }
                 }
-                guard !Task.isCancelled else { return observations }
+                executedActions.append(action)
+                guard !Task.isCancelled else { return receipt() }
 
                 let isLastActionInStep = (actionIndex == step.actions.count - 1)
                 if !isLastActionInStep {
@@ -52,7 +65,7 @@ extension PaceActionExecutor {
             }
         }
 
-        return observations
+        return receipt()
     }
 
     var hasActiveStreamingMailDraft: Bool {
@@ -113,7 +126,8 @@ extension PaceActionExecutor {
     ) async -> PaceActionExecutionObservation? {
         let observation = await dispatchSingleAction(action, screenCaptures: screenCaptures)
         let outcomeText: String
-        if let observation, observation.summary.lowercased().contains("fail")
+        if let observation, observation.stopsAgentLoop
+            || observation.summary.lowercased().contains("fail")
             || observation.summary.lowercased().contains("error")
             || observation.summary.lowercased().contains("could not") {
             outcomeText = "error"
@@ -136,6 +150,9 @@ extension PaceActionExecutor {
         _ action: PaceParsedAction,
         screenCaptures: [CompanionScreenCapture]
     ) async -> PaceActionExecutionObservation? {
+        guard managedPowerExecutionCheck?() != false else {
+            return .init(toolName: action.auditOperationName, summary: "Power was disabled, removed, or changed; execution stopped.", terminalReason: .managedWorkflowUnavailable)
+        }
         // Input posting can silently do nothing without Accessibility access.
         // Return a real observation so the agent does not treat that as success.
         if actionsAreEnabled, Self.requiresAccessibility(action), !accessibilityPermissionCheck() {
@@ -174,6 +191,14 @@ extension PaceActionExecutor {
             return await openURL(urlString)
         case .openBrowser(let request):
             return await openBrowser(request)
+        case .codingSession(let command):
+            guard !command.requiresExecutionConsent || actionsAreEnabled else {
+                return .init(toolName: "coding_session", summary: "Coding not started. EnableActions is disabled.")
+            }
+            guard let executeCodingSession else {
+                return .init(toolName: "coding_session", summary: "Coding is unavailable. The lifecycle binding is missing.")
+            }
+            return await executeCodingSession(command)
         case .codexSession(let request):
             return startCodexSession(request)
         case .screenCapture(let kind):
@@ -218,6 +243,13 @@ extension PaceActionExecutor {
             return await openMessages(messageRequest)
         case .downloadFile(let downloadRequest):
             return await downloadFile(downloadRequest)
+        case .presentMedia(let request):
+            guard actionsAreEnabled else { return .init(toolName: "present_media", summary: "Would present \(request.presentationSummary)") }
+            return await presentLocalMedia?(request) ?? .init(toolName: "present_media", summary: "Media unavailable; lifecycle binding missing.", terminalReason: .managedWorkflowUnavailable)
+        case .speak(let request):
+            guard actionsAreEnabled else { return .init(toolName: "speak", summary: "Would speak local text.") }
+            guard let speakLocalText else { return .init(toolName: "speak", summary: "Local speech unavailable; lifecycle binding missing.", terminalReason: .managedWorkflowUnavailable) }
+            return await speakLocalText(request)
         case .startTimer(let timerRequest):
             return await startTimer(timerRequest)
         case .recordFlow(let flowRequest):

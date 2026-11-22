@@ -1,0 +1,14 @@
+{
+  "valid": true,
+  "response": {
+    "spokenText": "",
+    "intent": "action",
+    "payload": {
+      "name": "present_media",
+      "args": {
+        "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 240 320\"><circle cx=\"120\" cy=\"160\" r=\"24\" fill=\"#63c5ff\"/></svg>",
+        "durationSeconds": 4
+      }
+    }
+  }
+}

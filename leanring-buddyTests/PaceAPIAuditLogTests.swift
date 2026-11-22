@@ -9,6 +9,14 @@ import Testing
 @testable import Pace
 
 struct PaceAPIAuditLogTests {
+    @Test func unitHostAuditNeverUsesTheInstalledAppsLog() {
+        let testURL = PaceAPIAuditLog.defaultLogFileURL(environment: ["XCTestConfigurationFilePath": "/test/config"])
+        let installedURL = PaceAPIAuditLog.defaultLogFileURL(environment: [:])
+        #expect(testURL != installedURL)
+        #expect(testURL.path.contains("pace-unit-audit-"))
+        #expect(installedURL.path.hasSuffix("/Pace/api-audit.jsonl"))
+    }
+
     private func makeTemporaryLogURL() -> URL {
         URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("pace-audit-tests-\(UUID().uuidString)", isDirectory: true)

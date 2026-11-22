@@ -14,6 +14,7 @@
 //
 
 import Testing
+
 @testable import Pace
 
 @MainActor
@@ -47,9 +48,76 @@ struct PaceIntentClassifierTests {
             "how many planets are in the solar system",
         ] {
             let prediction = classifier.classify(question)
-            #expect(prediction.intent == .pureKnowledge, "expected pureKnowledge for \(question), got \(prediction.intent)")
+            #expect(
+                prediction.intent == .pureKnowledge, "expected pureKnowledge for \(question), got \(prediction.intent)")
             #expect(prediction.route == .answerDirectly)
         }
+    }
+
+    @Test func selfContainedArithmeticRoutesTextOnly() {
+        let classifier = PaceIntentClassifier()
+        for question in [
+            "More to 7 times 9.",
+            "More to twelve times eight?",
+            "7 times 9",
+            "seven times nine",
+            "12 + 34",
+            "6*8",
+            "8×9",
+            "8x9",
+            "eight x nine",
+            "24 / 6",
+            "twenty-one divided by three",
+            "ninety nine minus nineteen",
+            "2.5 plus 0.75",
+            "negative five times 3",
+            "-4 + 10",
+            "2 plus 3 times four",
+            "Calculate 18 divided by 3.",
+            "Please compute 8 minus 2!",
+            "Hey Pace, what is seven times nine?",
+        ] {
+            let prediction = classifier.classify(question)
+            #expect(
+                prediction.intent == .pureKnowledge,
+                "expected pureKnowledge for \(question), got \(prediction.intent)")
+            #expect(
+                prediction.route == .answerDirectly,
+                "expected text-only route for \(question), got \(prediction.route)")
+        }
+    }
+
+    @Test func arithmeticFragmentsKeepScreenActionAndContextRouting() {
+        let classifier = PaceIntentClassifier()
+        for request in [
+            "7 times 9 on this screen",
+            "More to 7 times 9 in the visible text.",
+            "7 times that",
+            "7 times 9 and read the result here",
+            "7 times 9 then tell me about this window",
+            "calculate 7 times 9 and explain the chart",
+            "what about 7 times 9",
+            "7 times",
+            "7 9",
+            "seven timesnine",
+            "2026-11-04",
+            "555-1234",
+            "1-800-555-1234",
+            "1-2-3",
+            "11/4",
+            "one-two",
+            "sixx nine",
+        ] {
+            #expect(
+                classifier.classify(request).route == .fullPipeline,
+                "expected full context for \(request)")
+        }
+        #expect(classifier.classify("More to 7 times 9 in the selected text.").route == .executeTool)
+        #expect(classifier.classify("click 7 times 9").route == .executeTool)
+        #expect(classifier.classify("what is 7 times 9 then type the result").route == .executeTool)
+        #expect(classifier.classify("describe this: 7 times 9").route == .readScreen)
+        #expect(classifier.classify("explain what's shown: 7 times 9").route == .readScreen)
+        #expect(classifier.classify("what does this show: 7 times 9").route == .readScreen)
     }
 
     @Test func micCheckQuestionsRouteToChitchatAndNotTheScreenPipeline() async throws {
@@ -62,7 +130,8 @@ struct PaceIntentClassifierTests {
             "mic check",
         ] {
             let prediction = classifier.classify(question)
-            #expect(prediction.intent == .chitchat,
+            #expect(
+                prediction.intent == .chitchat,
                 "expected chitchat for \(question), got \(prediction.intent)")
         }
     }
@@ -99,7 +168,8 @@ struct PaceIntentClassifierTests {
             "what was i doing earlier",
         ] {
             let prediction = classifier.classify(question)
-            #expect(prediction.intent == .pureKnowledge, "expected pureKnowledge for \(question), got \(prediction.intent)")
+            #expect(
+                prediction.intent == .pureKnowledge, "expected pureKnowledge for \(question), got \(prediction.intent)")
             #expect(prediction.route == .answerDirectly)
         }
     }
@@ -114,8 +184,127 @@ struct PaceIntentClassifierTests {
             "what does this show",
         ] {
             let prediction = classifier.classify(request)
-            #expect(prediction.intent == .screenDescription, "expected screenDescription for \(request), got \(prediction.intent)")
+            #expect(
+                prediction.intent == .screenDescription,
+                "expected screenDescription for \(request), got \(prediction.intent)")
             #expect(prediction.route == .readScreen)
+        }
+    }
+
+    @Test func currentScreenQuestionsReadScreenAcrossDictationVariants() {
+        let classifier = PaceIntentClassifier()
+        for questionPrefix in ["What's", "What’s", "What is", "Whats"] {
+            for screenReference in ["screen", "my screen", "the screen"] {
+                for wakePhrase in ["", "Hey Pace, ", "Okay Pace "] {
+                    let question = "\(wakePhrase)\(questionPrefix) on \(screenReference)?"
+                    let prediction = classifier.classify(question)
+                    #expect(
+                        prediction.intent == .screenDescription,
+                        "expected screenDescription for \(question), got \(prediction.intent)")
+                    #expect(
+                        prediction.route == .readScreen,
+                        "expected screen capture for \(question), got \(prediction.route)")
+                }
+            }
+        }
+    }
+
+    @Test func shippedScreenStarterPromptReadsScreenWithoutTakingControl() throws {
+        let prompt = try #require(PaceStarterPromptCatalog.prompt(forSlug: "what-is-on-screen"))
+        let prediction = PaceIntentClassifier().classify(prompt.displayText)
+        #expect(prediction.intent == .screenDescription)
+        #expect(prediction.route == .readScreen)
+        #expect(PaceActionApprovalPolicy.requestsObservationOnly(prompt.displayText))
+        for question in ["What is on my screen now?", "What am I looking at?"] {
+            #expect(PaceIntentClassifier().classify(question).route == .readScreen)
+            #expect(PaceActionApprovalPolicy.requestsObservationOnly(question))
+        }
+        for compoundRequest in [
+            "What's on my screen right now? Then click Save.", "What am I looking at? Add it to notes.",
+        ] {
+            #expect(!PaceActionApprovalPolicy.requestsObservationOnly(compoundRequest))
+        }
+    }
+
+    @Test func passiveScreenPromptRequiresAnExactCurrentScreenQuestion() {
+        let classifier = PaceIntentClassifier()
+        for question in ["What is on my screen now?", "Hey Pace, what’s on the screen?", "What am I looking at?"] {
+            #expect(
+                CompanionSystemPrompt.shouldUsePassiveScreenPrompt(
+                    transcript: question, route: classifier.classify(question).route,
+                    isReadMyScreenEnabled: true, hasScreenCapture: true, hasScreenSuggestion: false,
+                    hasActiveVisualContext: false, requestsVisualOutput: false, isResearchTurn: false))
+            #expect(PaceActionApprovalPolicy.requestsObservationOnly(question))
+        }
+        for request in [
+            "What's on my screen right now? Then click Save.",
+            "What am I looking at? Add it to notes.",
+            "List my open Chrome tabs without clicking anything.",
+            "Point to the Save button without clicking it.",
+            "Describe my screen",
+            "Explain what's shown",
+            "Explain that further",
+            "Draw a diagram of what's on screen",
+            "Generate an image of what's on screen",
+            "Research what's on screen",
+        ] {
+            #expect(
+                !CompanionSystemPrompt.shouldUsePassiveScreenPrompt(
+                    transcript: request, route: classifier.classify(request).route,
+                    isReadMyScreenEnabled: true, hasScreenCapture: true, hasScreenSuggestion: false,
+                    hasActiveVisualContext: false, requestsVisualOutput: false, isResearchTurn: false),
+                "Expected the existing full prompt for \(request)")
+        }
+    }
+
+    @Test func passiveScreenPromptPreservesPrivacyAndContextGates() {
+        let contexts:
+            [(
+                screenEnabled: Bool, capture: Bool, suggestion: Bool, activeVisual: Bool, visualOutput: Bool,
+                research: Bool
+            )] = [
+                (false, true, false, false, false, false),
+                (true, false, false, false, false, false),
+                (true, true, true, false, false, false),
+                (true, true, false, true, false, false),
+                (true, true, false, false, true, false),
+                (true, true, false, false, false, true),
+            ]
+        for context in contexts {
+            #expect(
+                !CompanionSystemPrompt.shouldUsePassiveScreenPrompt(
+                    transcript: "What's on my screen?", route: .readScreen,
+                    isReadMyScreenEnabled: context.screenEnabled, hasScreenCapture: context.capture,
+                    hasScreenSuggestion: context.suggestion,
+                    hasActiveVisualContext: context.activeVisual, requestsVisualOutput: context.visualOutput,
+                    isResearchTurn: context.research))
+        }
+        for route in [PaceIntentRoute.executeTool, .fullPipeline, .research, .escalateToLargeModel, .answerDirectly] {
+            #expect(
+                !CompanionSystemPrompt.shouldUsePassiveScreenPrompt(
+                    transcript: "What's on my screen?", route: route,
+                    isReadMyScreenEnabled: true, hasScreenCapture: true, hasScreenSuggestion: false,
+                    hasActiveVisualContext: false, requestsVisualOutput: false, isResearchTurn: false))
+        }
+    }
+
+    @Test func genericScreenKnowledgeAndHistoricalQuestionsRemainTextOnly() {
+        let classifier = PaceIntentClassifier()
+        for question in [
+            "What is screen resolution?",
+            "What's the difference between OLED and LCD screens?",
+            "How does screen recording work?",
+            "What was on my screen yesterday?",
+            "What was on the screen earlier?",
+            "Hey Pace, what was I working on this morning?",
+        ] {
+            let prediction = classifier.classify(question)
+            #expect(
+                prediction.intent == .pureKnowledge,
+                "expected pureKnowledge for \(question), got \(prediction.intent)")
+            #expect(
+                prediction.route == .answerDirectly,
+                "expected text-only route for \(question), got \(prediction.route)")
         }
     }
 
@@ -128,7 +317,8 @@ struct PaceIntentClassifierTests {
             "open settings",
         ] {
             let prediction = classifier.classify(command)
-            #expect(prediction.intent == .screenAction, "expected screenAction for \(command), got \(prediction.intent)")
+            #expect(
+                prediction.intent == .screenAction, "expected screenAction for \(command), got \(prediction.intent)")
             #expect(prediction.route == .executeTool)
         }
     }
@@ -141,7 +331,9 @@ struct PaceIntentClassifierTests {
             "use a large model and think deeply",
         ] {
             let prediction = classifier.classify(request)
-            #expect(prediction.intent == .phoneLargeModel, "expected phoneLargeModel for \(request), got \(prediction.intent)")
+            #expect(
+                prediction.intent == .phoneLargeModel,
+                "expected phoneLargeModel for \(request), got \(prediction.intent)")
             #expect(prediction.route == .phoneLargeModel)
         }
     }
@@ -155,7 +347,8 @@ struct PaceIntentClassifierTests {
             "page down",
         ] {
             let prediction = classifier.classify(command)
-            #expect(prediction.intent == .screenAction, "expected screenAction for \(command), got \(prediction.intent)")
+            #expect(
+                prediction.intent == .screenAction, "expected screenAction for \(command), got \(prediction.intent)")
         }
     }
 
@@ -173,7 +366,8 @@ struct PaceIntentClassifierTests {
             "make a note called idea",
         ] {
             let prediction = classifier.classify(command)
-            #expect(prediction.intent == .screenAction, "expected screenAction for \(command), got \(prediction.intent)")
+            #expect(
+                prediction.intent == .screenAction, "expected screenAction for \(command), got \(prediction.intent)")
             #expect(prediction.route == .executeTool)
         }
     }
@@ -235,15 +429,17 @@ struct PaceIntentClassifierTests {
             clarification: clarification
         )
 
-        #expect(PaceIntentClarificationResolver.clarifiedTranscript(
-            for: pendingClarification,
-            selectedOption: "Selected text"
-        ) == "rewrite the selected text")
+        #expect(
+            PaceIntentClarificationResolver.clarifiedTranscript(
+                for: pendingClarification,
+                selectedOption: "Selected text"
+            ) == "rewrite the selected text")
 
-        #expect(PaceIntentClarificationResolver.clarifiedTranscript(
-            for: pendingClarification,
-            selectedOption: "Focused field"
-        ) == "rewrite the focused field")
+        #expect(
+            PaceIntentClarificationResolver.clarifiedTranscript(
+                for: pendingClarification,
+                selectedOption: "Focused field"
+            ) == "rewrite the focused field")
     }
 
     @Test func clarificationResolverRewritesDestructiveTargetsWithoutReasking() async throws {
@@ -269,10 +465,11 @@ struct PaceIntentClassifierTests {
             clarification: clarification
         )
 
-        #expect(PaceIntentClarificationResolver.clarifiedTranscript(
-            for: pendingClarification,
-            selectedOption: "Whole document"
-        ) == nil)
+        #expect(
+            PaceIntentClarificationResolver.clarifiedTranscript(
+                for: pendingClarification,
+                selectedOption: "Whole document"
+            ) == nil)
     }
 
     @Test func largeModelRequestsBecomeUnsupportedLocalOnlyResponses() async throws {

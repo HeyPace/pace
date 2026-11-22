@@ -25,8 +25,7 @@ struct PaceScreenContextServiceTests {
         #expect(originalPrompt.contains("button|8,8|Before"))
         #expect(changedPrompt.contains("button|34,22|After"))
         #expect(!changedPrompt.contains("Before"))
-        #expect(
-            service.cachedAnalysisIfFresh(screenLabel: changedCapture.label)?.elements.first?.bbox == [30, 20, 8, 4])
+        #expect(service.cachedAnalysisIfFresh(screenLabel: changedCapture.label)?.elements.first?.bbox == [30, 20, 8, 4])
         #expect(axFixture.readCount == 2)
         #expect(analyzer.callCount == 0)
     }
@@ -187,12 +186,11 @@ struct PaceScreenContextServiceTests {
     }
 
     private func makeCapture(changedPixel: Bool = false) throws -> CompanionScreenCapture {
-        let bitmap = try #require(
-            NSBitmapImageRep(
-                bitmapDataPlanes: nil, pixelsWide: 64, pixelsHigh: 36,
-                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
-                isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
-            ))
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 64, pixelsHigh: 36,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+            isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ))
         let bitmapData = try #require(bitmap.bitmapData)
         for verticalPosition in 0..<36 {
             for horizontalPosition in 0..<64 {

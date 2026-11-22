@@ -229,7 +229,7 @@ final class PaceCalendarPreMeetingNudgeGeneratorTests: XCTestCase {
             isOnActiveCall: false,
             wakeWordConfidence: nil,
             intent: .pureKnowledge,
-            proactiveSource: .backgroundReminder,
+            proactiveSource: .calendarEvent,
             profile: .balanced
         )
         let generator = PaceCalendarPreMeetingNudgeGenerator(
@@ -245,7 +245,7 @@ final class PaceCalendarPreMeetingNudgeGeneratorTests: XCTestCase {
             queueForLater: { queuedUtterances.append($0) }
         )
 
-        XCTAssertEqual(emittedUtterances.first?.source, .backgroundReminder)
+        XCTAssertEqual(emittedUtterances.first?.source, .calendarEvent)
         XCTAssertTrue(emittedUtterances.first?.spokenText.contains("Design review") == true)
         XCTAssertTrue(queuedUtterances.isEmpty)
     }
@@ -267,7 +267,7 @@ final class PaceCalendarPreMeetingNudgeGeneratorTests: XCTestCase {
             isOnActiveCall: false,
             wakeWordConfidence: nil,
             intent: .pureKnowledge,
-            proactiveSource: .backgroundReminder,
+            proactiveSource: .calendarEvent,
             profile: .balanced
         )
         let generator = PaceCalendarPreMeetingNudgeGenerator(
@@ -304,7 +304,7 @@ final class PaceCalendarPreMeetingNudgeGeneratorTests: XCTestCase {
             isOnActiveCall: false,
             wakeWordConfidence: nil,
             intent: .pureKnowledge,
-            proactiveSource: .backgroundReminder,
+            proactiveSource: .calendarEvent,
             profile: .balanced
         )
         let generator = PaceCalendarPreMeetingNudgeGenerator(
@@ -324,6 +324,186 @@ final class PaceCalendarPreMeetingNudgeGeneratorTests: XCTestCase {
         )
 
         XCTAssertEqual(emittedCount, 1, "Same event must not nudge twice in one session")
+    }
+
+    func testSkippedEventsDoNotBlockOrdinaryTimedEvent() {
+        let now = Date()
+        let dentist = PaceCalendarRetrievalEventSnapshot(
+            stableIdentifier: "dentist", title: "Dentist",
+            startDate: now.addingTimeInterval(240), endDate: now.addingTimeInterval(1800)
+        )
+        let skippedEvents = [
+            PaceCalendarRetrievalEventSnapshot(
+                stableIdentifier: "all-day", title: "Birthday",
+                startDate: now.addingTimeInterval(60), endDate: now.addingTimeInterval(86400),
+                isAllDay: true
+            ),
+            PaceCalendarRetrievalEventSnapshot(
+                stableIdentifier: "started", title: "Earlier call",
+                startDate: now.addingTimeInterval(-60), endDate: now.addingTimeInterval(1800)
+            ),
+            PaceCalendarRetrievalEventSnapshot(
+                stableIdentifier: "invalid", title: "Invalid event",
+                startDate: now.addingTimeInterval(60), endDate: now
+            ),
+            PaceCalendarRetrievalEventSnapshot(
+                stableIdentifier: "later", title: "Later flight",
+                startDate: now.addingTimeInterval(600), endDate: now.addingTimeInterval(1800)
+            ),
+        ]
+        for skippedEvent in skippedEvents {
+            let generator = PaceCalendarPreMeetingNudgeGenerator(
+                restraintContextProvider: { self.calendarRestraintContext(now: now) },
+                upcomingEventSnapshotsProvider: { _ in [skippedEvent, dentist] },
+                nowProvider: { now }
+            )
+            var emitted: [PaceProactiveUtterance] = []
+            var queued: [PaceProactiveUtterance] = []
+            generator.evaluateNow(emit: { emitted.append($0) }, queueForLater: { queued.append($0) })
+
+            XCTAssertEqual(emitted.map(\.spokenText), ["Dentist is in 4 minutes."], skippedEvent.stableIdentifier)
+            XCTAssertTrue(queued.isEmpty)
+        }
+    }
+
+    func testAllDayEventNeverEmitsOrQueues() {
+        let now = Date()
+        let generator = PaceCalendarPreMeetingNudgeGenerator(
+            restraintContextProvider: { self.calendarRestraintContext(now: now) },
+            upcomingEventSnapshotsProvider: { _ in [PaceCalendarRetrievalEventSnapshot(
+                stableIdentifier: "birthday", title: "Birthday",
+                startDate: now.addingTimeInterval(120), endDate: now.addingTimeInterval(86400),
+                isAllDay: true
+            )] },
+            nowProvider: { now }
+        )
+        var utterances: [PaceProactiveUtterance] = []
+        generator.evaluateNow(emit: { utterances.append($0) }, queueForLater: { utterances.append($0) })
+        XCTAssertTrue(utterances.isEmpty)
+    }
+
+    func testZeroDurationAndUntitledTimedEventsStillAnnounce() {
+        let now = Date()
+        let startDate = now.addingTimeInterval(180)
+        for title in ["Medication", "   "] {
+            let event = PaceCalendarRetrievalEventSnapshot(
+                stableIdentifier: "event", title: title,
+                startDate: startDate, endDate: startDate
+            )
+            let generator = PaceCalendarPreMeetingNudgeGenerator(
+                restraintContextProvider: { self.calendarRestraintContext(now: now) },
+                upcomingEventSnapshotsProvider: { _ in [event] },
+                nowProvider: { now }
+            )
+            var emitted: [PaceProactiveUtterance] = []
+            generator.evaluateNow(emit: { emitted.append($0) }, queueForLater: { _ in XCTFail("Idle event should announce.") })
+            let expectedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled event" : title
+            XCTAssertEqual(emitted.map(\.spokenText), ["\(expectedTitle) is in 3 minutes."])
+        }
+    }
+
+    func testRecurringOccurrencesWithSameIdentifierEachAnnounceOnce() {
+        var now = Date()
+        var event = PaceCalendarRetrievalEventSnapshot(
+            stableIdentifier: "recurring-event", title: "Medication",
+            startDate: now.addingTimeInterval(180), endDate: now.addingTimeInterval(240)
+        )
+        let generator = PaceCalendarPreMeetingNudgeGenerator(
+            restraintContextProvider: { self.calendarRestraintContext(now: now) },
+            upcomingEventSnapshotsProvider: { _ in [event] },
+            nowProvider: { now }
+        )
+        var emitted: [PaceProactiveUtterance] = []
+        var queued: [PaceProactiveUtterance] = []
+        generator.evaluateNow(emit: { emitted.append($0) }, queueForLater: { queued.append($0) })
+        generator.evaluateNow(emit: { emitted.append($0) }, queueForLater: { queued.append($0) })
+        now = now.addingTimeInterval(3600)
+        event = PaceCalendarRetrievalEventSnapshot(
+            stableIdentifier: "recurring-event", title: "Medication",
+            startDate: now.addingTimeInterval(180), endDate: now.addingTimeInterval(240)
+        )
+        generator.evaluateNow(emit: { emitted.append($0) }, queueForLater: { queued.append($0) })
+        generator.evaluateNow(emit: { emitted.append($0) }, queueForLater: { queued.append($0) })
+
+        XCTAssertEqual(emitted.map(\.spokenText), Array(repeating: "Medication is in 3 minutes.", count: 2))
+        XCTAssertTrue(queued.isEmpty)
+    }
+
+    func testOrdinaryEventQueuesDuringCallWithoutDuplicateQueueEntries() {
+        let now = Date()
+        let generator = PaceCalendarPreMeetingNudgeGenerator(
+            restraintContextProvider: { self.calendarRestraintContext(now: now, isOnActiveCall: true) },
+            upcomingEventSnapshotsProvider: { _ in [PaceCalendarRetrievalEventSnapshot(
+                stableIdentifier: "dentist", title: "Dentist",
+                startDate: now.addingTimeInterval(180), endDate: now.addingTimeInterval(1800)
+            )] },
+            nowProvider: { now }
+        )
+        var emitted: [PaceProactiveUtterance] = []
+        var queued: [PaceProactiveUtterance] = []
+        generator.evaluateNow(emit: { emitted.append($0) }, queueForLater: { queued.append($0) })
+        generator.evaluateNow(emit: { emitted.append($0) }, queueForLater: { queued.append($0) })
+
+        XCTAssertTrue(emitted.isEmpty)
+        XCTAssertEqual(queued.map(\.spokenText), ["Dentist is coming up."])
+    }
+
+    func testSimultaneousEventsAnnounceTogetherDespiteRecentProactiveSpeech() {
+        let now = Date()
+        let events = ["Dentist", "Flight"].map { title in
+            PaceCalendarRetrievalEventSnapshot(
+                stableIdentifier: title, title: title,
+                startDate: now.addingTimeInterval(50), endDate: now.addingTimeInterval(1800)
+            )
+        }
+        let generator = PaceCalendarPreMeetingNudgeGenerator(
+            restraintContextProvider: { self.calendarRestraintContext(now: now, lastProactiveUtteranceAt: now.addingTimeInterval(-30)) },
+            upcomingEventSnapshotsProvider: { _ in events }, nowProvider: { now }
+        )
+        var emitted: [PaceProactiveUtterance] = []
+        var queued: [PaceProactiveUtterance] = []
+        for _ in 0..<2 {
+            generator.evaluateNow(emit: { emitted.append($0) }, queueForLater: { queued.append($0) })
+        }
+
+        XCTAssertEqual(emitted.map(\.spokenText), ["Dentist is in 1 minute. Flight is in 1 minute."])
+        XCTAssertTrue(queued.isEmpty)
+    }
+
+    func testDeferredCalendarEventsKeepSeparateExpiryDeadlines() {
+        let now = Date()
+        let events = [50.0, 180.0].enumerated().map { index, leadTime in
+            PaceCalendarRetrievalEventSnapshot(
+                stableIdentifier: "event-\(index)", title: "Appointment \(index)",
+                startDate: now.addingTimeInterval(leadTime), endDate: now.addingTimeInterval(1800)
+            )
+        }
+        let generator = PaceCalendarPreMeetingNudgeGenerator(
+            restraintContextProvider: { self.calendarRestraintContext(now: now, isOnActiveCall: true) },
+            upcomingEventSnapshotsProvider: { _ in events }, nowProvider: { now }
+        )
+        var queued: [PaceProactiveUtterance] = []
+        generator.evaluateNow(emit: { _ in XCTFail("Never speak over a call.") }, queueForLater: { queued.append($0) })
+
+        XCTAssertEqual(queued.map(\.relevanceWindowExpiresAt), events.map { Optional($0.startDate) })
+        XCTAssertEqual(queued.map(\.spokenText), ["Appointment 0 is coming up.", "Appointment 1 is coming up."])
+    }
+
+    private func calendarRestraintContext(
+        now: Date, isOnActiveCall: Bool = false, lastProactiveUtteranceAt: Date? = nil
+    ) -> PaceRestraintContext {
+        PaceRestraintContext(
+            now: now,
+            lastProactiveUtteranceAt: lastProactiveUtteranceAt,
+            lastEpisodicRecallAt: nil,
+            lastUserInputAt: nil,
+            frontmostAppBundleIdentifier: nil,
+            isOnActiveCall: isOnActiveCall,
+            wakeWordConfidence: nil,
+            intent: .pureKnowledge,
+            proactiveSource: .calendarEvent,
+            profile: .balanced
+        )
     }
 }
 

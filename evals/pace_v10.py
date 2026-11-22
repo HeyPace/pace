@@ -20,9 +20,9 @@ mirror of a Swift source of truth (kept in sync per the repo's existing
   1. `V10_RESPONSE_FORMAT` — byte-identical to
      `LocalPlannerClient.v10ResponseFormat`.
   2. `build_agent_mode_system_prompt()` — the real agent-mode prompt:
-     verbatim prose blocks from `CompanionSystemPrompt.swift`
+     prose blocks owned by the Text, Voice, Teaching and Computer Use powers
      (`baseVoiceRules` + `pointingRules` + `agentModeRules`) with the
-     tool-list section auto-derived from `PaceToolRegistry.swift` so the
+     tool-list section auto-derived from the preinstalled power providers so the
      tool docs never drift.
   3. `decode_v10_actions()` — mirrors
      `PaceActionTagParser.parsePlannerActions` /
@@ -34,8 +34,8 @@ mirror of a Swift source of truth (kept in sync per the repo's existing
 
 Keep in sync with:
   - leanring-buddy/LocalPlannerClient.swift  (v10ResponseFormat)
-  - leanring-buddy/CompanionSystemPrompt.swift  (prose blocks)
-  - leanring-buddy/PaceToolRegistry.swift  (tool list — auto-derived)
+  - leanring-buddy/Powers/{Text,Voice,Teaching,ComputerUse}/  (prose blocks)
+  - leanring-buddy/Powers/*/*Power.swift  (tool list — auto-derived)
   - leanring-buddy/PaceActionTagParser.swift  (decoder)
 """
 
@@ -44,8 +44,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from pace_tool_source import read_tool_definitions
+
 PROJECT_DIR = Path(__file__).resolve().parent.parent
-REGISTRY_SWIFT = PROJECT_DIR / "leanring-buddy" / "PaceToolRegistry.swift"
 
 # ---------------------------------------------------------------------------
 # 1. v10 response_format — mirror of LocalPlannerClient.v10ResponseFormat
@@ -106,8 +107,9 @@ V10_RESPONSE_FORMAT = {
 # 2. Agent-mode system prompt — verbatim prose blocks + derived tool list
 # ---------------------------------------------------------------------------
 #
-# Prose copied verbatim from CompanionSystemPrompt.swift. When that file
-# changes, update these three constants in the same commit (the repo's
+# Prose mirrors Powers/Text/PaceTextPower.swift, Powers/Voice/PaceVoicePower.swift,
+# Powers/Teaching/PaceTeachingPower.swift and Powers/ComputerUse/PaceComputerUsePower.swift.
+# When those files change, update these constants in the same commit (the repo's
 # existing convention — see eval-planners.py's SYSTEM_PROMPT note).
 
 _BASE_VOICE_RULES = """\
@@ -159,9 +161,9 @@ case C is critical. picking a wrong but nearby element from the list is FORBIDDE
 case C applies ONLY to on-screen UI elements — buttons, menus, links, fields the user pointed at. it does NOT apply to opening apps or websites. "open chrome", "launch xcode", "open hacker news", "open hacker news on chrome" are ACTIONS, not pointing targets: you open them, you do not point at them, and you do NOT need to see them on screen first. NEVER answer an open-or-launch request with "i can't see it on screen". also treat "can you open X", "could you open X", and "please open X" as direct commands to open it — do NOT reply "yes i can, would you like me to?"; just emit the open action (see agent mode below)."""
 
 # The agent-mode block below is copied verbatim from
-# CompanionSystemPrompt.renderAgentModeRulesBlock(), EXCEPT the
+# PaceComputerUsePower.renderAgentModeRulesBlock(plannerToolListText:), EXCEPT the
 # `available tools:` line is filled by `_render_tool_list()` from the
-# registry (mirroring the Swift `\(PaceToolRegistry.plannerToolListText)`
+# power catalog (mirroring its ordered tool prompt lines
 # interpolation) and the dynamic-plugin section is omitted (empty in the
 # default config). Keep the prose in sync with the Swift on any change.
 _AGENT_MODE_RULES_TEMPLATE = """\
@@ -261,21 +263,14 @@ legacy per-step loop (screen-dependent steps only) — emit THIS step's tool_cal
 
 
 def _render_tool_list() -> str:
-    """Auto-derive the `available tools:` block from PaceToolRegistry.swift
+    """Auto-derive the `available tools:` block from the power providers
     so the tool docs the model sees in the eval match production exactly
     (mirrors PaceLocalToolDefinition.promptLine = "- <schemaExample> <description>").
     """
-    source = REGISTRY_SWIFT.read_text()
-    pairs = re.findall(
-        r'schemaExample:\s*#"(.*?)"#,\s*\n\s*description:\s*"(.*?)"',
-        source,
-        re.DOTALL,
+    return "\n".join(
+        f"- {schema} {description}"
+        for _, schema, description in read_tool_definitions(PROJECT_DIR)
     )
-    if not pairs:
-        raise RuntimeError(
-            "pace_v10: could not parse tool definitions from PaceToolRegistry.swift"
-        )
-    return "\n".join(f"- {schema} {description}" for schema, description in pairs)
 
 
 def build_agent_mode_system_prompt() -> str:
