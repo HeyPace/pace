@@ -11,6 +11,13 @@ export function descriptionFromMarkdown(body: string, title: string) {
   const plain = paragraph.replace(/!?\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/`/g, "").replace(/\s+/g, " ").trim();
   return plain.length > 180 ? `${plain.slice(0, 180).replace(/\s+\S*$/, "")}…` : plain;
 }
+function stripOrderingPrefix(segment: string) {
+  // Blume 2 preserves version and date filenames rather than treating them as ordering numbers.
+  if (/^(?:\d+\.\d|\d{4}-\d{2}-\d{2}(?:[-_.]|$))/.test(segment)
+    || /^(?:(?:0?[1-9]|[12]\d|3[01])-(?:0?[1-9]|[12]\d|3[01])-\d{4}|\d{4}-(?:0[1-9]|1[0-2]))(?:[-_.]|$)/.test(segment)) return segment;
+  return segment.replace(/^\d+[-_.]/, "");
+}
+
 export function documentationSurfaces(): PublicSurface[] {
   if (!existsSync(publicDocs)) throw new Error("Build and merge the source documentation before building website representations.");
   const sources = new Map<string, string>();
@@ -21,7 +28,7 @@ export function documentationSurfaces(): PublicSurface[] {
       if (!entry.name.endsWith(".md")) continue;
       // Match pinned Blume's mapRoute: numeric ordering prefixes and index/group
       // segments do not become public URL segments.
-      const slug = relative(docsRoot, target).replaceAll("\\", "/").replace(/\.md$/, "").split("/").filter((part) => !/^\(.+\)$/.test(part)).map((part) => part.replace(/^\d+[-_.]/, "")).filter((part) => part !== "index").join("/");
+      const slug = relative(docsRoot, target).replaceAll("\\", "/").replace(/\.md$/, "").split("/").filter((part) => !/^\(.+\)$/.test(part)).map(stripOrderingPrefix).filter((part) => part !== "index").join("/");
       if (sources.has(slug)) throw new Error(`Ambiguous public documentation source: ${slug}`);
       sources.set(slug, target);
     }

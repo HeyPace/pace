@@ -6,7 +6,11 @@ import { spawnSync } from 'node:child_process';
 const excludedSegments = new Set(['.build', 'DerivedData', 'Generated', 'generated']);
 
 function git(args, { allowFailure = false } = {}) {
-  const result = spawnSync('git', args, { encoding: 'utf8' });
+  const result = spawnSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  if (result.error) {
+    console.error(`Could not run git ${args[0]}: ${result.error.message}`);
+    process.exit(1);
+  }
   if (!allowFailure && result.status !== 0) {
     process.stderr.write(result.stderr);
     process.exit(result.status ?? 1);
