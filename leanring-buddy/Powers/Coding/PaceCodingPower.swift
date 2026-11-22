@@ -35,10 +35,17 @@ nonisolated enum PaceCodingPower {
             || text.range(of: #"^start coding in\s"#, options: .regularExpression) != nil
     }
 
-    static let tools = [PaceLocalToolDefinition(kind: .codingSession, canonicalName: "coding_session", aliases: [],
-        schemaExample: #"{"tool":"coding_session","operation":"start","directory":"~/projects/my-app","task":"Fix the failing test"}"#,
-        description: "retained Codex coding. operation=start requires directory and task; resume requires sessionID and task; status accepts optional sessionID; cancel requires sessionID. No other fields. Start/resume need action approval and Codex consent. Status/cancel inspect or stop already-owned work.",
-        riskLevel: .externalIntegration, executionSummary: "Runs an approved coding task in one fixed workspace with network disabled.",
-        observationSummary: "Reports the retained session ID, workspace and actual lifecycle state; canonical progress and final arrive separately.",
-        exampleUtterance: "work on ~/projects/my-app with Codex and fix the failing test")]
+    static let tools = [
+        PaceLocalToolDefinition(
+            kind: .codingSession,
+            canonicalName: "coding_session",
+            aliases: [],
+            schemaExample: #"{"tool":"coding_session","operation":"start","directory":"~/projects/my-app","task":"Fix the failing test"}"#,
+            description: "retained Codex coding. operation=start requires directory and task; resume requires sessionID and task; status accepts optional sessionID; cancel requires sessionID. No other fields. Start/resume need action approval and Codex consent. Status/cancel inspect or stop already-owned work.",
+            riskLevel: .externalIntegration,
+            executionSummary: "Runs an approved coding task in one fixed workspace with network disabled.",
+            observationSummary: "Reports the retained session ID, workspace and actual lifecycle state; canonical progress and final arrive separately.",
+            exampleUtterance: "work on ~/projects/my-app with Codex and fix the failing test"
+        )
+    ]
 }
